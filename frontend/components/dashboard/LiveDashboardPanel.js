@@ -1,0 +1,460 @@
+import React, { useState, useEffect, useRef } from "react";
+import { 
+  Bot, 
+  User, 
+  Volume2, 
+  PhoneForwarded, 
+  Activity, 
+  Smile, 
+  Meh, 
+  Frown, 
+  Cpu, 
+  Layers, 
+  Wifi, 
+  ShieldAlert,
+  Play,
+  Pause,
+  AlertCircle
+} from "lucide-react";
+
+export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
+  const [activeCalls, setActiveCalls] = useState([]);
+  const [selectedCall, setSelectedCall] = useState(null);
+  const [transcripts, setTranscripts] = useState([]);
+  const [wsStatus, setWsStatus] = useState("disconnected");
+  const [loadingSpy, setLoadingSpy] = useState(false);
+  const [loadingTransfer, setLoadingTransfer] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
+  
+  // Real-time system metrics (mocked but reactive to simulate live engine activity)
+  const [metrics, setMetrics] = useState({
+    cpu: 18,
+    ram: 42,
+    activeWs: 0
+  });
+
+  const chatEndRef = useRef(null);
+  const wsRef = useRef(null);
+
+  // Poll active calls from the Asterisk/FastAPI backend
+  useEffect(() => {
+    const fetchActiveCalls = () => {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      fetch(`${protocol}//${backendHost}/api/calls/active`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setActiveCalls(data);
+            
+            // If the currently selected call is no longer active, deselect it
+            if (selectedCall && !data.some(c => c.id === selectedCall.id)) {
+              setSelectedCall(null);
+              setTranscripts([]);
+              if (wsRef.current) wsRef.current.close();
+            }
+          }
+        })
+        .catch((err) => console.error("Aktif aramalar alinamadi:", err));
+    };
+
+    fetchActiveCalls();
+    const interval = setInterval(fetchActiveCalls, 2000);
+    return () => clearInterval(interval);
+  }, [backendHost, selectedCall]);
+
+  // Simulate server resource fluctuations
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setMetrics(prev => ({
+        cpu: Math.min(100, Math.max(5, prev.cpu + Math.floor(Math.random() * 11) - 5)),
+        ram: Math.min(100, Math.max(10, prev.ram + Math.floor(Math.random() * 3) - 1)),
+        activeWs: activeCalls.length * 2 + 1
+      }));
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [activeCalls]);
+
+  // Connect to live transcript stream when selectedCall changes
+  useEffect(() => {
+    if (!selectedCall) {
+      setTranscripts([]);
+      return;
+    }
+
+    setTranscripts([]);
+    setWsStatus("connecting");
+
+    // Fetch initial transcripts
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    fetch(`${protocol}//${backendHost}/api/calls/${selectedCall.id}/transcripts`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) {
+          setTranscripts(data);
+        }
+      })
+      .catch((err) => console.error("Gecmis transkriptler alinamadi:", err));
+
+    // Connect WebSocket
+    const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${wsProtocol}//${backendHost}/ws/transcripts/${selectedCall.id}`;
+    
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+
+    ws.onopen = () => {
+      setWsStatus("connected");
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === "transcript") {
+          setTranscripts((prev) => [
+            ...prev,
+            {
+              speaker: message.speaker,
+              text: message.text,
+              timestamp: new Date().toISOString()
+            }
+          ]);
+        }
+      } catch (err) {
+        console.error("WS transcript error:", err);
+      }
+    };
+
+    ws.onclose = () => {
+      setWsStatus("disconnected");
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [selectedCall, backendHost]);
+
+  // Auto scroll
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [transcripts]);
+
+  // Call Sentiment analysis based on transcripts keywords
+  const getCallSentiment = (transcriptList) => {
+    let score = 0;
+    const positiveWords = ["teşekkür", "harika", "iyi", "evet", "tamam", "sağol", "memnun", "güzel"];
+    const negativeWords = ["hata", "şikayet", "kötü", "bekliyorum", "hayır", "iptal", "yanlış", "yok"];
+
+    transcriptList.forEach((t) => {
+      const text = t.text.toLowerCase();
+      positiveWords.forEach(w => { if (text.includes(w)) score += 1; });
+      negativeWords.forEach(w => { if (text.includes(w)) score -= 1; });
+    });
+
+    if (score > 0) return { type: "Pozitif", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/30", icon: <Smile size={16} /> };
+    if (score < 0) return { type: "Negatif / Kızgın", color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/30", icon: <Frown size={16} /> };
+    return { type: "Nötr", color: "text-slate-400", bg: "bg-slate-800 border-slate-700", icon: <Meh size={16} /> };
+  };
+
+  const sentiment = getCallSentiment(transcripts);
+
+  // Trigger ChanSpy to listen to this call via supervisor extension 200
+  const handleChanSpy = async () => {
+    if (!selectedCall) return;
+    setLoadingSpy(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    try {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/calls/${selectedCall.id}/spy?agent_ext=200`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSuccessMsg("Canlı dinleme (ChanSpy) başlatıldı! Temsilci WebRTC telefonunuz çalacaktır, lütfen çağrıyı cevaplayın.");
+      } else {
+        setErrorMsg(data.detail || "Canlı dinleme başlatılamadı.");
+      }
+    } catch (err) {
+      setErrorMsg("Bağlantı hatası oluştu.");
+    } finally {
+      setLoadingSpy(false);
+    }
+  };
+
+  // Redirect/transfer call to representative
+  const handleTransfer = async () => {
+    if (!selectedCall) return;
+    setLoadingTransfer(true);
+    setErrorMsg("");
+    setSuccessMsg("");
+
+    try {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/calls/${selectedCall.id}/transfer`, {
+        method: "POST"
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setSuccessMsg("Çağrı başarıyla temsilci kuyruğuna (temsilci_kuyrugu) yönlendirildi.");
+        setSelectedCall(null);
+        setTranscripts([]);
+      } else {
+        setErrorMsg(data.detail || "Çağrı aktarılamadı.");
+      }
+    } catch (err) {
+      setErrorMsg("Bağlantı hatası oluştu.");
+    } finally {
+      setLoadingTransfer(false);
+    }
+  };
+
+  return (
+    <div className="w-full max-w-6xl space-y-6">
+      
+      {/* Real-time System Metrics Header Card */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        
+        {/* Active Calls Stat */}
+        <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Aktif Görüşmeler</p>
+            <h3 className="text-2xl font-bold mt-1 text-white flex items-center gap-2">
+              {activeCalls.length}
+              {activeCalls.length > 0 && (
+                <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping"></span>
+              )}
+            </h3>
+          </div>
+          <div className="h-10 w-10 rounded-xl bg-purple-600/10 border border-purple-800/30 flex items-center justify-center text-purple-400">
+            <Activity size={20} className={activeCalls.length > 0 ? "animate-pulse" : ""} />
+          </div>
+        </div>
+
+        {/* Live CPU Meter */}
+        <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Yapay Zeka CPU Yükü</span>
+            <Cpu size={14} className="text-indigo-400" />
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-850">
+              <div 
+                className="h-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-1000"
+                style={{ width: `${metrics.cpu}%` }}
+              ></div>
+            </div>
+            <span className="text-xs font-mono font-bold text-slate-300">{metrics.cpu}%</span>
+          </div>
+        </div>
+
+        {/* Live RAM Meter */}
+        <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Bellek (RAM)</span>
+            <Layers size={14} className="text-pink-400" />
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-2 bg-slate-950 rounded-full overflow-hidden border border-slate-850">
+              <div 
+                className="h-full bg-gradient-to-r from-pink-500 to-rose-500 transition-all duration-1000"
+                style={{ width: `${metrics.ram}%` }}
+              ></div>
+            </div>
+            <span className="text-xs font-mono font-bold text-slate-300">{metrics.ram}%</span>
+          </div>
+        </div>
+
+        {/* Active Websockets */}
+        <div className="p-4 bg-slate-900 border border-slate-800 rounded-2xl flex items-center justify-between">
+          <div>
+            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">WebSocket Kanalları</p>
+            <h3 className="text-xl font-bold mt-1 text-slate-200 font-mono">
+              {metrics.activeWs} <span className="text-xs text-slate-500">bağlantı</span>
+            </h3>
+          </div>
+          <div className="h-10 w-10 rounded-xl bg-emerald-600/10 border border-emerald-800/30 flex items-center justify-center text-emerald-400">
+            <Wifi size={18} />
+          </div>
+        </div>
+
+      </div>
+
+      {/* Main Panel Content Split */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* Left Side: Active Calls List */}
+        <div className="lg:col-span-1 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-lg min-h-[500px]">
+          <div className="border-b border-slate-800 pb-3 mb-4">
+            <h3 className="font-bold text-xs text-slate-300 tracking-wider flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-rose-500 animate-ping"></span>
+              AKTİF ARAMA LİSTESİ
+            </h3>
+            <p className="text-[10px] text-slate-500 mt-1">Gerçek zamanlı olarak Asterisk kanallarından çekilmektedir.</p>
+          </div>
+
+          {activeCalls.length === 0 ? (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-500">
+              <ShieldAlert size={36} className="text-slate-700 mb-2 animate-bounce" />
+              <p className="text-xs font-semibold">Aktif Görüşme Bulunmuyor</p>
+              <p className="text-[10px] text-slate-600 mt-1">Telefon hattı boşta. Arama yapıldığında listelenecektir.</p>
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto space-y-2.5">
+              {activeCalls.map((call) => (
+                <button
+                  key={call.id}
+                  onClick={() => setSelectedCall(call)}
+                  className={`w-full text-left p-3.5 rounded-xl border transition flex flex-col gap-2 ${
+                    selectedCall?.id === call.id
+                      ? "bg-purple-950/20 border-purple-800/60 shadow-lg shadow-purple-500/5"
+                      : "bg-slate-950/50 border-slate-850 hover:border-slate-700 hover:bg-slate-950"
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200">{call.caller_number}</span>
+                    <span className="text-[9px] font-mono bg-purple-900/30 text-purple-400 px-2 py-0.5 rounded border border-purple-900/50">
+                      Yapay Zeka
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-[10px] text-slate-500">
+                    <span>DID: {call.callee_number}</span>
+                    <span>Kanal: {call.channel ? call.channel.split("/")[0] : "AudioSocket"}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Right Side: Selected Call Real-time Console */}
+        <div className="lg:col-span-2 flex flex-col bg-slate-900 border border-slate-800 rounded-2xl shadow-lg min-h-[500px] overflow-hidden">
+          
+          {!selectedCall ? (
+            <div className="flex-1 flex flex-col items-center justify-center p-8 text-slate-500 text-center">
+              <Bot size={48} className="text-slate-800 mb-3 animate-pulse" />
+              <p className="text-xs font-bold">Canlı Arama Konsolu</p>
+              <p className="text-[10px] text-slate-600 mt-1">İzlemek istediğiniz aktif bir aramayı soldaki listeden seçin.</p>
+            </div>
+          ) : (
+            <>
+              {/* Console Header */}
+              <div className="p-4 border-b border-slate-800 bg-slate-950/40 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="h-10 w-10 rounded-xl bg-purple-600/15 border border-purple-800/35 flex items-center justify-center text-purple-400">
+                    <Bot size={18} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white flex items-center gap-1.5">
+                      Çağrı: {selectedCall.caller_number}
+                    </h4>
+                    <p className="text-[9px] font-mono text-slate-500 truncate max-w-xs">{selectedCall.id}</p>
+                  </div>
+                </div>
+
+                {/* Call Sentiment pill */}
+                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-bold ${sentiment.bg} ${sentiment.color}`}>
+                  {sentiment.icon}
+                  <span>Müşteri Hali: {sentiment.type}</span>
+                </div>
+              </div>
+
+              {/* Status Alert Messages */}
+              {successMsg && (
+                <div className="mx-4 mt-3 p-3 bg-emerald-950/20 border border-emerald-900/50 rounded-xl flex items-center gap-2 text-xs text-emerald-400">
+                  <Activity size={14} className="shrink-0" />
+                  <span>{successMsg}</span>
+                </div>
+              )}
+              {errorMsg && (
+                <div className="mx-4 mt-3 p-3 bg-rose-950/20 border border-rose-900/50 rounded-xl flex items-center gap-2 text-xs text-rose-400">
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              {/* Console Action Bar */}
+              <div className="px-4 py-3 border-b border-slate-800/50 bg-slate-950/20 flex flex-wrap gap-2.5">
+                <button
+                  onClick={handleChanSpy}
+                  disabled={loadingSpy}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold shadow-md shadow-purple-900/20 transition"
+                >
+                  <Volume2 size={13} className="animate-bounce" />
+                  <span>{loadingSpy ? "Başlatılıyor..." : "Canlı Dinle (WebRTC)"}</span>
+                </button>
+
+                <button
+                  onClick={handleTransfer}
+                  disabled={loadingTransfer}
+                  className="flex items-center gap-2 px-3 py-1.5 bg-slate-850 hover:bg-slate-800 disabled:opacity-50 border border-slate-700 text-slate-200 rounded-xl text-[11px] font-bold transition"
+                >
+                  <PhoneForwarded size={13} />
+                  <span>{loadingTransfer ? "Aktarılıyor..." : "Temsilciye Yönlendir"}</span>
+                </button>
+              </div>
+
+              {/* Live Waveform visualizer (Pulsing micro-animation) */}
+              <div className="px-5 py-3 border-b border-slate-800 bg-slate-950/10 flex items-center gap-4">
+                <span className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">Ses Genliği (Anlık):</span>
+                <div className="flex items-center gap-[3px] h-6">
+                  <span className="w-[3px] bg-purple-500 rounded-full animate-[pulse_0.8s_infinite] h-2"></span>
+                  <span className="w-[3px] bg-indigo-500 rounded-full animate-[pulse_0.5s_infinite] h-4"></span>
+                  <span className="w-[3px] bg-purple-400 rounded-full animate-[pulse_0.7s_infinite] h-5"></span>
+                  <span className="w-[3px] bg-purple-500 rounded-full animate-[pulse_0.6s_infinite] h-3"></span>
+                  <span className="w-[3px] bg-indigo-400 rounded-full animate-[pulse_0.4s_infinite] h-5"></span>
+                  <span className="w-[3px] bg-purple-500 rounded-full animate-[pulse_0.9s_infinite] h-2"></span>
+                </div>
+              </div>
+
+              {/* Real-time Streaming Transcript Area */}
+              <div className="flex-1 p-5 overflow-y-auto space-y-4 bg-slate-950/20 max-h-[350px]">
+                {transcripts.length === 0 ? (
+                  <div className="text-center py-20 text-xs text-slate-500">
+                    {wsStatus === "connecting" ? "Bağlanıyor..." : "Konuşma bekleniyor..."}
+                  </div>
+                ) : (
+                  transcripts.map((t, idx) => {
+                    const isAI = t.speaker && (t.speaker.toLowerCase() === "ai" || t.speaker.toLowerCase() === "agent");
+                    return (
+                      <div
+                        key={idx}
+                        className={`flex gap-3 max-w-[85%] ${
+                          isAI ? "mr-auto" : "ml-auto flex-row-reverse"
+                        }`}
+                      >
+                        <div
+                          className={`h-7 w-7 rounded-xl flex items-center justify-center shrink-0 border ${
+                            isAI
+                              ? "bg-purple-950/40 border-purple-800/40 text-purple-400"
+                              : "bg-slate-900 border-slate-700 text-slate-300"
+                          }`}
+                        >
+                          {isAI ? <Bot size={13} /> : <User size={13} />}
+                        </div>
+                        <div
+                          className={`p-3 rounded-2xl text-[11px] leading-relaxed shadow-sm ${
+                            isAI
+                              ? "bg-purple-950/20 border border-purple-900/30 text-purple-300/90 rounded-tl-none"
+                              : "bg-slate-900 border border-slate-800 text-slate-200 rounded-tr-none"
+                          }`}
+                        >
+                          {t.text}
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+                <div ref={chatEndRef} />
+              </div>
+            </>
+          )}
+
+        </div>
+
+      </div>
+
+    </div>
+  );
+}

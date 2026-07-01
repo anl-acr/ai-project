@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: ai_pbx_db
+    restart: always
+    environment:
+      POSTGRES_DB: ai_pbx
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin_password123
+    ports:
+      - "5444:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - ai_pbx_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: ai_pbx_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai_pbx_network
+
+  asterisk:
+    image: andrius/asterisk:latest
+    container_name: ai_pbx_asterisk
+    hostname: asterisk.local
+    restart: always
+    ports:
+      - "5060:5060/udp"
+      - "5060:5060/tcp"
+      - "8089:8089/tcp"
+      - "5038:5038/tcp"
+      - "10000-10020:10000-10020/udp"
+    volumes:
+      - ./asterisk_config/extensions.conf:/etc/asterisk/extensions.conf:ro
+      - ./asterisk_config/pjsip.conf:/etc/asterisk/pjsip.conf:ro
+      - ./asterisk_config/rtp.conf:/etc/asterisk/rtp.conf:ro
+      - ./asterisk_config/pjsip_custom.conf:/etc/asterisk/pjsip_custom.conf:ro
+      - ./asterisk_config/manager.conf:/etc/asterisk/manager.conf:ro
+      - ./asterisk_config/http.conf:/etc/asterisk/http.conf:ro
+      - ./asterisk_config/keys:/etc/asterisk/keys:ro
+      - ./recordings:/var/spool/asterisk/monitor
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    networks:
+      - ai_pbx_network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  ai_pbx_network:
+    driver: bridge

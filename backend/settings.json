@@ -1,0 +1,33 @@
+{
+    "pbx": {
+        "ami_host": "127.0.0.1",
+        "ami_port": 5038,
+        "ami_user": "ai_backend_user",
+        "ami_secret": "backend_secure_key_99",
+        "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+        "nas_mount_path": "/mnt/nas/ai-recordings"
+    },
+    "channels": {
+        "whatsapp_token": "",
+        "telegram_token": "",
+        "instagram_token": "",
+        "facebook_token": ""
+    },
+    "trunks": [
+        {
+            "id": 1,
+            "trunk_type": "register",
+            "trunk_name": "Operator_Trunk",
+            "host": "ikonsip.com",
+            "username": "908503607390",
+            "password": "gh185mcx96",
+            "port": 5060,
+            "did_number": "908503607390",
+            "protocol": "udp",
+            "greeting_prompt": "Merhaba! Ben Test Teknoloji yapay zeka asistanı eda. size nasıl yardımcı olabilirim",
+            "transfer_target_type": "extension",
+            "transfer_target": "200",
+            "is_active": true
+        }
+    ]
+}
