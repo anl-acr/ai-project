@@ -6,6 +6,8 @@ class ConnectionManager:
     def __init__(self):
         # Maps call_id -> list of WebSockets (agents viewing the call)
         self.active_connections: Dict[str, List[WebSocket]] = {}
+        # List of WebSockets connected to global omnichannel updates
+        self.omnichannel_connections: List[WebSocket] = []
 
     async def connect(self, call_id: str, websocket: WebSocket):
         await websocket.accept()
@@ -34,6 +36,22 @@ class ConnectionManager:
                 except Exception:
                     # Connection closed or dead
                     pass
+
+    async def connect_omnichannel(self, websocket: WebSocket):
+        await websocket.accept()
+        self.omnichannel_connections.append(websocket)
+
+    def disconnect_omnichannel(self, websocket: WebSocket):
+        if websocket in self.omnichannel_connections:
+            self.omnichannel_connections.remove(websocket)
+
+    async def broadcast_omnichannel_event(self, event: dict):
+        """Sends a JSON event to all connected omnichannel workspace clients."""
+        for connection in self.omnichannel_connections:
+            try:
+                await connection.send_json(event)
+            except Exception:
+                pass
 
 # Singleton manager
 ws_manager = ConnectionManager()

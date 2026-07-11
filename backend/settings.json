@@ -5,7 +5,10 @@
         "ami_user": "ai_backend_user",
         "ami_secret": "backend_secure_key_99",
         "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
-        "nas_mount_path": "/mnt/nas/ai-recordings"
+        "nas_mount_path": "/mnt/nas/ai-recordings",
+        "auto_language_detection": false,
+        "auto_emotion_management": false,
+        "auto_whisper_enabled": true
     },
     "channels": {
         "whatsapp_token": "",
@@ -13,6 +16,374 @@
         "instagram_token": "",
         "facebook_token": ""
     },
+    "smart_callback": {
+        "enabled": true,
+        "max_wait_seconds": 60,
+        "max_retries": 3,
+        "priority_level": "high",
+        "outbound_trunk_id": 1,
+        "queue_threshold": 3
+    },
+    "dialer": {
+        "enabled": false,
+        "dial_mode": "progressive",
+        "concurrent_calls": 5,
+        "retry_count": 3,
+        "retry_interval_minutes": 15,
+        "route_destination_type": "ai",
+        "route_destination": "Sales_AI",
+        "outbound_trunk_id": 1,
+        "allowed_days": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday"
+        ],
+        "allowed_hours_start": "09:00",
+        "allowed_hours_end": "18:00"
+    },
+    "rag": {
+        "chunk_size": 800,
+        "chunk_overlap": 100,
+        "top_k": 3,
+        "similarity_threshold": 0.5
+    },
+    "ai_agents": [
+        {
+            "id": "agent-sales",
+            "name": "Satış Temsilcisi",
+            "voice": "Dilara (Türkçe - Dişi - Premium)",
+            "tone": "attractive",
+            "model": "gemini-1.5-flash",
+            "temperature": 0.7,
+            "max_tokens": 300,
+            "system_instruction": "Sen sıcakkanlı ve profesyonel bir satış asistanısın. Müşterilere ürünlerimiz hakkında bilgi veriyorsun.",
+            "status": "active",
+            "transfer_target": "200"
+        },
+        {
+            "id": "agent-support",
+            "name": "Destek Temsilcisi",
+            "voice": "Ahmet (Türkçe - Erkek - Premium)",
+            "tone": "normal",
+            "model": "gemini-1.5-flash",
+            "temperature": 0.4,
+            "max_tokens": 300,
+            "system_instruction": "Sen sabırlı ve çözüm odaklı bir müşteri destek asistanısın. Müşterilerin teknik sorunlarına çözüm üretiyorsun.",
+            "status": "active",
+            "transfer_target": "200"
+        }
+    ],
+    "call_flow": {
+        "trunk_id": 1,
+        "time_schedule": {
+            "enabled": true,
+            "start_time": "09:00",
+            "end_time": "18:00",
+            "days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+            ]
+        },
+        "business_hours_destination": {
+            "type": "ivr",
+            "target": "main_menu"
+        },
+        "out_of_hours_destination": {
+            "type": "ai",
+            "target": "Out_Of_Hours_AI"
+        },
+        "ivr_menu": {
+            "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+            "options": [
+                {
+                    "key": "1",
+                    "action_type": "extension",
+                    "target": "200",
+                    "label": "Satış Dahilisi"
+                },
+                {
+                    "key": "2",
+                    "action_type": "queue",
+                    "target": "support_queue",
+                    "label": "Destek Kuyruğu"
+                },
+                {
+                    "key": "9",
+                    "action_type": "ai",
+                    "target": "Sales_AI",
+                    "label": "AI Asistanı"
+                }
+            ]
+        }
+    },
+    "workflows": [
+        {
+            "id": "wf-1",
+            "name": "Ana IVR Karşılama Akışı",
+            "trunk_id": 1,
+            "status": "active",
+            "nodes": [
+                {
+                    "id": "node-1783802045860",
+                    "type": "did",
+                    "x": 210.0,
+                    "y": 150.0,
+                    "title": "DID",
+                    "value": "x.",
+                    "options": null,
+                    "extra_fields": {
+                        "did_numbers": [
+                            "x."
+                        ],
+                        "is_wildcard": true
+                    }
+                },
+                {
+                    "id": "node-1783802050308",
+                    "type": "ai_agent",
+                    "x": 430.0,
+                    "y": 150.0,
+                    "title": "AI Agent",
+                    "value": "agent-sales",
+                    "options": null,
+                    "extra_fields": null
+                }
+            ],
+            "connections": [
+                {
+                    "id": "conn-1783802057178",
+                    "fromNode": "node-1783802045860",
+                    "fromPort": "output",
+                    "toNode": "node-1783802050308",
+                    "toPort": "input"
+                }
+            ]
+        },
+        {
+            "id": "wf-2",
+            "name": "DID ve Yapay Zeka Akış Şablonu",
+            "trunk_id": 1,
+            "status": "draft",
+            "nodes": [
+                {
+                    "id": "node-did",
+                    "type": "did",
+                    "x": 60.0,
+                    "y": 180.0,
+                    "title": "Gelen DID Eşleme",
+                    "value": "111, 222",
+                    "options": null,
+                    "extra_fields": {
+                        "did_numbers": [
+                            "111",
+                            "222"
+                        ],
+                        "is_wildcard": false
+                    }
+                },
+                {
+                    "id": "node-time",
+                    "type": "timerule",
+                    "x": 280.0,
+                    "y": 150.0,
+                    "title": "Çalışma Saatleri Kontrolü",
+                    "value": "09:00",
+                    "options": [
+                        "active",
+                        "inactive"
+                    ],
+                    "extra_fields": {
+                        "start_time": "09:00",
+                        "end_time": "18:00",
+                        "days": [
+                            "Mon",
+                            "Tue",
+                            "Wed",
+                            "Thu",
+                            "Fri"
+                        ],
+                        "holidays": [
+                            "30 Ağustos (Zafer Bayramı)",
+                            "1 Ocak (Yılbaşı)"
+                        ]
+                    }
+                },
+                {
+                    "id": "node-ai",
+                    "type": "ai_agent",
+                    "x": 540.0,
+                    "y": 30.0,
+                    "title": "Müşteri Temsilcisi AI",
+                    "value": "agent-sales",
+                    "options": [
+                        "Teknik Destek",
+                        "Satış",
+                        "test"
+                    ],
+                    "extra_fields": null
+                },
+                {
+                    "id": "node-ann",
+                    "type": "play",
+                    "x": 540.0,
+                    "y": 250.0,
+                    "title": "Mesai Dışı Anonsu",
+                    "value": "MesaiDisiAnons",
+                    "options": null,
+                    "extra_fields": null
+                },
+                {
+                    "id": "node-1783800770448",
+                    "type": "transfer",
+                    "x": 1120.0,
+                    "y": 80.0,
+                    "title": "Transfer",
+                    "value": "110201",
+                    "options": null,
+                    "extra_fields": {
+                        "play_announcement": true,
+                        "announcement_type": "recorded"
+                    }
+                },
+                {
+                    "id": "node-1783801050295",
+                    "type": "play",
+                    "x": 300.0,
+                    "y": 10.0,
+                    "title": "Anons",
+                    "value": "karsilama_anonsu.wav",
+                    "options": null,
+                    "extra_fields": {
+                        "announcement_type": "recorded"
+                    }
+                },
+                {
+                    "id": "node-1783801168745",
+                    "type": "menu",
+                    "x": 840.0,
+                    "y": 160.0,
+                    "title": "Teknik Destek",
+                    "value": "",
+                    "options": [
+                        "0",
+                        "1",
+                        "2",
+                        "5",
+                        "6",
+                        "9"
+                    ],
+                    "extra_fields": null
+                },
+                {
+                    "id": "node-1783801892592",
+                    "type": "stargate_in",
+                    "x": 1040.0,
+                    "y": 360.0,
+                    "title": "YG Girişi",
+                    "value": "Geçit A",
+                    "options": null,
+                    "extra_fields": null
+                },
+                {
+                    "id": "node-1783801897576",
+                    "type": "stargate_out",
+                    "x": 70.0,
+                    "y": 270.0,
+                    "title": "YG Çıkışı",
+                    "value": "Geçit A",
+                    "options": null,
+                    "extra_fields": null
+                },
+                {
+                    "id": "node-1783801923025",
+                    "type": "hangup",
+                    "x": 1330.0,
+                    "y": 90.0,
+                    "title": "Kapat",
+                    "value": "Aramayı Sonlandır",
+                    "options": null,
+                    "extra_fields": null
+                }
+            ],
+            "connections": [
+                {
+                    "id": "conn-1783800525213",
+                    "fromNode": "node-did",
+                    "fromPort": "output",
+                    "toNode": "node-time",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783800656029",
+                    "fromNode": "node-time",
+                    "fromPort": "holiday",
+                    "toNode": "node-ann",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783800753062",
+                    "fromNode": "node-time",
+                    "fromPort": "inactive",
+                    "toNode": "node-ann",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783801333377",
+                    "fromNode": "node-1783801168745",
+                    "fromPort": "0",
+                    "toNode": "node-1783800770448",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783801340194",
+                    "fromNode": "node-ann",
+                    "fromPort": "output",
+                    "toNode": "node-1783801168745",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783801502649",
+                    "fromNode": "node-time",
+                    "fromPort": "active",
+                    "toNode": "node-ai",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783801911308",
+                    "fromNode": "node-1783801897576",
+                    "fromPort": "output",
+                    "toNode": "node-time",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783801918725",
+                    "fromNode": "node-1783801168745",
+                    "fromPort": "9",
+                    "toNode": "node-1783801892592",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783801934175",
+                    "fromNode": "node-1783800770448",
+                    "fromPort": "output",
+                    "toNode": "node-1783801923025",
+                    "toPort": "input"
+                },
+                {
+                    "id": "conn-1783802735100",
+                    "fromNode": "node-ai",
+                    "fromPort": "Teknik Destek",
+                    "toNode": "node-1783801168745",
+                    "toPort": "input"
+                }
+            ]
+        }
+    ],
     "trunks": [
         {
             "id": 1,
@@ -27,7 +398,204 @@
             "greeting_prompt": "Merhaba! Ben Test Teknoloji yapay zeka asistanı eda. size nasıl yardımcı olabilirim",
             "transfer_target_type": "extension",
             "transfer_target": "200",
+            "is_active": true,
+            "codec": "G711"
+        }
+    ],
+    "breaks": [
+        {
+            "id": 1783110216802,
+            "name": "Yemek",
+            "color": "#f59e0b"
+        },
+        {
+            "id": 1783110220934,
+            "name": "Toplantı",
+            "color": "#3b82f6"
+        },
+        {
+            "id": 1783110227001,
+            "name": "İhtiyaç",
+            "color": "#ef4444"
+        },
+        {
+            "id": 1783110236183,
+            "name": "İşlem",
+            "color": "#10b981"
+        }
+    ],
+    "users": [
+        {
+            "id": 1783110580334,
+            "full_name": "ANIL ACAR",
+            "email": "anl.acr@gmail.com",
+            "extension": "200",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
+            "role": "agent",
             "is_active": true
         }
-    ]
+    ],
+    "roles": [
+        {
+            "id": 1,
+            "role_code": "admin",
+            "name": "Yönetici",
+            "permissions": [
+                "pbx:write",
+                "mobile_transfer:read",
+                "transcripts:access",
+                "users:delete",
+                "ai_whisper:access",
+                "users:write",
+                "contacts:delete",
+                "breaks:delete",
+                "pbx:delete",
+                "roles:write",
+                "qa:read",
+                "users:read",
+                "qa:delete",
+                "blacklist:write",
+                "logs:access",
+                "mobile_transfer:write",
+                "voice_biometrics:write",
+                "dialer:access",
+                "channels:write",
+                "voice_biometrics:read",
+                "breaks:read",
+                "channels:read",
+                "voice_biometrics:delete",
+                "omnichannel:access",
+                "breaks:write",
+                "universal_api:read",
+                "qa:write",
+                "universal_api:write",
+                "contacts:read",
+                "contacts:write",
+                "roles:delete",
+                "canned_responses:delete",
+                "wallboard:access",
+                "call_flow:access",
+                "blacklist:delete",
+                "storage:access",
+                "canned_responses:write",
+                "ai_agents:access",
+                "roles:read",
+                "blacklist:read",
+                "canned_responses:read",
+                "call_panel:access",
+                "pbx:read",
+                "universal_api:delete"
+            ],
+            "allowed_breaks": [
+                1,
+                2,
+                3,
+                4
+            ]
+        },
+        {
+            "id": 2,
+            "role_code": "supervisor",
+            "name": "Şef (Supervisor)",
+            "permissions": [
+                "pbx:write",
+                "mobile_transfer:read",
+                "ai_whisper:access",
+                "users:write",
+                "contacts:delete",
+                "qa:read",
+                "users:read",
+                "qa:delete",
+                "blacklist:write",
+                "logs:access",
+                "mobile_transfer:write",
+                "voice_biometrics:write",
+                "dialer:access",
+                "channels:write",
+                "voice_biometrics:read",
+                "breaks:read",
+                "channels:read",
+                "voice_biometrics:delete",
+                "omnichannel:access",
+                "breaks:write",
+                "universal_api:read",
+                "qa:write",
+                "universal_api:write",
+                "contacts:read",
+                "contacts:write",
+                "canned_responses:delete",
+                "wallboard:access",
+                "call_flow:access",
+                "blacklist:delete",
+                "storage:access",
+                "canned_responses:write",
+                "ai_agents:access",
+                "blacklist:read",
+                "canned_responses:read",
+                "call_panel:access",
+                "pbx:read",
+                "universal_api:delete"
+            ],
+            "allowed_breaks": [
+                1,
+                2,
+                3,
+                4
+            ]
+        },
+        {
+            "id": 3,
+            "role_code": "agent",
+            "name": "Müşteri Temsilcisi",
+            "permissions": [
+                "qa:read",
+                "mobile_transfer:read",
+                "omnichannel:access",
+                "mobile_transfer:write",
+                "universal_api:read",
+                "contacts:write",
+                "contacts:read",
+                "blacklist:read",
+                "canned_responses:read",
+                "call_panel:access",
+                "voice_biometrics:read"
+            ],
+            "allowed_breaks": [
+                1,
+                2,
+                3,
+                4
+            ]
+        }
+    ],
+    "custom_apis": [
+        {
+            "id": "test_httpbin",
+            "name": "Httpbin Test GET",
+            "description": "Müşteri test isteği gönderdiğinde veya deneme yaptığında bu API'yi çağırın. Müşterinin takip numarası (takip_no) parametresi gereklidir.",
+            "url": "https://httpbin.org/get",
+            "method": "GET",
+            "headers": [
+                {
+                    "name": "X-Test-Header",
+                    "value": "VerificationActive"
+                }
+            ],
+            "parameters": [
+                {
+                    "name": "takip_no",
+                    "type": "string",
+                    "location": "query",
+                    "description": "Kargo veya sipariş takip numarası",
+                    "required": true
+                }
+            ],
+            "is_active": true
+        }
+    ],
+    "voice_biometrics": {
+        "enabled": true,
+        "deepfake_threshold": 80,
+        "auto_blacklist": true
+    }
 }

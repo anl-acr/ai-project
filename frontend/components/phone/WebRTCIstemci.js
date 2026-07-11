@@ -9,8 +9,31 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
   const [error, setError] = useState("");
   const [isCollapsed, setIsCollapsed] = useState(true);
   
+  const [callDuration, setCallDuration] = useState(0);
+  
   const userAgentRef = useRef(null);
   const audioElRef = useRef(null);
+
+  useEffect(() => {
+    let interval = null;
+    if (callStatus === "InCall") {
+      setCallDuration(0);
+      interval = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    } else {
+      setCallDuration(0);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [callStatus]);
+
+  const formatDuration = (sec) => {
+    const mins = Math.floor(sec / 60);
+    const secs = sec % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
 
   // Auto expand when call ringing or active, auto collapse when call ends (Idle)
   useEffect(() => {
@@ -183,7 +206,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
     return (
       <div 
         onClick={() => setIsCollapsed(false)}
-        className="flex items-center gap-3 px-4 py-2.5 bg-slate-900 hover:bg-slate-850 border border-slate-800 hover:border-slate-700 rounded-full text-white shadow-2xl cursor-pointer transition-all duration-200 select-none"
+        className="flex items-center gap-3 px-4 py-2.5 bg-white/90 dark:bg-slate-900/90 hover:bg-slate-50 dark:hover:bg-slate-850 border border-slate-200/80 dark:border-slate-800/80 rounded-full text-slate-800 dark:text-white shadow-xl hover:shadow-2xl cursor-pointer transition-all duration-300 select-none backdrop-blur-md"
       >
         <span className="relative flex h-2 w-2">
           {registered ? (
@@ -195,9 +218,9 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
             <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
           )}
         </span>
-        <Phone size={14} className={registered ? "text-emerald-400" : "text-rose-400"} />
-        <span className="text-xs font-semibold">
-          {registered ? `Dahili ${agentExtension} (Çevrimiçi)` : `Dahili ${agentExtension} (Çevrimdışı)`}
+        <Phone size={14} className={registered ? "text-emerald-500 dark:text-emerald-400" : "text-rose-500 dark:text-rose-450"} />
+        <span className="text-xs font-bold tracking-wide">
+          {registered ? `Dahili ${agentExtension}` : `Dahili ${agentExtension} (Bağlı Değil)`}
         </span>
       </div>
     );
@@ -205,28 +228,28 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
 
   // Render Expanded Card Dialer
   return (
-    <div className="flex flex-col p-4 bg-slate-900 border border-slate-800 rounded-2xl text-white shadow-2xl w-full max-w-sm transition-all duration-200">
+    <div className="flex flex-col p-5 bg-white/95 dark:bg-slate-900/95 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl text-slate-800 dark:text-white shadow-2xl w-full max-w-sm transition-all duration-300 backdrop-blur-lg">
       {/* Header Status */}
-      <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-2">
-        <h3 className="font-semibold text-sm">Telefon Arayüzü</h3>
+      <div className="flex items-center justify-between mb-4 border-b border-slate-100 dark:border-slate-800/60 pb-3">
+        <h3 className="font-bold text-xs uppercase tracking-wider text-slate-400 dark:text-slate-500">Telefon Modülü</h3>
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 text-[10px]">
             {registered ? (
-              <span className="flex items-center text-emerald-400 gap-1 font-semibold">
-                <Wifi size={10} /> Bağlı
+              <span className="flex items-center text-emerald-600 dark:text-emerald-400 gap-1 font-bold">
+                <Wifi size={10} /> ÇEVRİMİÇİ
               </span>
             ) : (
-              <span className="flex items-center text-rose-400 gap-1 font-semibold">
-                <WifiOff size={10} /> Bağlanamadı
+              <span className="flex items-center text-rose-500 dark:text-rose-400 gap-1 font-bold">
+                <WifiOff size={10} /> BAĞLANTI YOK
               </span>
             )}
           </div>
           <button 
             onClick={() => setIsCollapsed(true)}
-            className="text-slate-500 hover:text-slate-300 hover:bg-slate-800 p-1 rounded-lg transition"
+            className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 p-1.5 rounded-lg transition"
             title="Küçült"
           >
-            <Minimize2 size={14} />
+            <Minimize2 size={13} />
           </button>
         </div>
       </div>
@@ -235,54 +258,66 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
       <audio ref={audioElRef} autoPlay style={{ display: "none" }} />
 
       {/* Call Dialog */}
-      <div className="flex flex-col items-center justify-center py-6 bg-slate-950 rounded-xl mb-4 border border-slate-800">
+      <div className="flex flex-col items-center justify-center py-6 bg-slate-50 dark:bg-slate-950 rounded-xl mb-4 border border-slate-200/60 dark:border-slate-900">
         {callStatus === "Idle" && (
-          <div className="text-center">
-            <p className="text-slate-400 text-sm">Arama bekleniyor...</p>
-            <p className="text-xs text-slate-600 mt-1">Sinyalizasyon Aktif</p>
+          <div className="text-center py-2">
+            <div className="h-10 w-10 rounded-full bg-slate-100 dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 flex items-center justify-center mx-auto mb-2 text-slate-400">
+              <Phone size={16} />
+            </div>
+            <p className="text-slate-500 dark:text-slate-400 text-xs font-semibold">Yeni çağrı bekleniyor...</p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-600 mt-1 uppercase tracking-wider font-bold">Hat Müsait</p>
           </div>
         )}
 
         {callStatus === "Ringing" && (
-          <div className="text-center animate-pulse">
-            <p className="text-amber-400 font-bold text-lg">YAPAY ZEKADAN ÇAĞRI TRANSFERİ!</p>
-            <p className="text-sm text-slate-300 mt-1">Gelen Çağrı Alınıyor...</p>
+          <div className="text-center py-2 animate-pulse">
+            <div className="h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 flex items-center justify-center mx-auto mb-3 text-amber-500 dark:text-amber-400 animate-bounce">
+              <Phone size={20} className="animate-spin" />
+            </div>
+            <p className="text-amber-600 dark:text-amber-400 font-extrabold text-sm tracking-wide uppercase">Yapay Zekadan Aktarım!</p>
+            <p className="text-xs text-slate-500 dark:text-slate-350 mt-1.5 font-medium">Gelen Çağrı Alınıyor...</p>
           </div>
         )}
 
         {callStatus === "InCall" && (
-          <div className="text-center">
-            <p className="text-emerald-400 font-bold text-lg">GÖRÜŞME AKTİF</p>
-            <p className="text-xs text-slate-400 mt-1">Müşteri ile WebRTC Ses Hattı Açık</p>
+          <div className="text-center py-2">
+            <div className="h-12 w-12 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-900/50 flex items-center justify-center mx-auto mb-2 text-emerald-600 dark:text-emerald-400">
+              <Phone size={20} className="animate-pulse" />
+            </div>
+            <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-base tracking-wide uppercase">Görüşme Aktif</p>
+            <p className="text-xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-1.5">
+              {formatDuration(callDuration)}
+            </p>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 uppercase tracking-wider font-bold">Müşteri Ses Kanalı Açık</p>
           </div>
         )}
       </div>
 
       {/* Actions */}
-      <div className="flex justify-center gap-4">
+      <div className="flex justify-center gap-3">
         {callStatus === "Ringing" && (
           <button
             onClick={answerCall}
-            className="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 transition rounded-xl font-medium"
+            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white transition rounded-xl font-semibold text-xs tracking-wide shadow-lg shadow-emerald-500/20"
           >
-            <Phone size={18} /> Cevapla
+            <Phone size={14} /> Cevapla
           </button>
         )}
         
         {callStatus !== "Idle" && (
           <button
             onClick={hangupCall}
-            className="flex items-center gap-2 px-6 py-3 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 transition rounded-xl font-medium"
+            className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white transition rounded-xl font-semibold text-xs tracking-wide shadow-lg shadow-rose-500/20"
           >
-            <PhoneOff size={18} /> {callStatus === "Ringing" ? "Reddet" : "Kapat"}
+            <PhoneOff size={14} /> {callStatus === "Ringing" ? "Reddet" : "Kapat"}
           </button>
         )}
       </div>
 
       {error && (
-        <div className="mt-4 p-2 bg-rose-950/50 border border-rose-800 rounded-xl text-rose-300 text-xs flex items-center gap-2">
-          <ShieldAlert size={14} className="shrink-0" />
-          <span>{error}</span>
+        <div className="mt-4 p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/50 rounded-xl text-rose-600 dark:text-rose-300 text-xs flex items-start gap-2">
+          <ShieldAlert size={14} className="shrink-0 mt-0.5" />
+          <span className="font-medium">{error}</span>
         </div>
       )}
     </div>

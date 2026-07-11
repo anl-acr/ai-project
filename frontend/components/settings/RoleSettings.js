@@ -1,0 +1,646 @@
+import React, { useState, useEffect } from "react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint } from "lucide-react";
+import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+
+const SYSTEM_FEATURES = [
+  { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
+  { id: "channels", name: "Kanal Entegrasyonları", icon: Smartphone, type: "crud_partial", color: "pink" },
+  { id: "breaks", name: "Mola Tanımları", icon: Coffee, type: "crud", color: "amber" },
+  { id: "users", name: "Kullanıcı Yönetimi", icon: User, type: "crud", color: "blue" },
+  { id: "roles", name: "Rol Tanımları", icon: Shield, type: "crud", color: "purple" },
+  { id: "call_panel", name: "Çağrı Paneli", icon: Coffee, type: "access", color: "emerald" },
+  { id: "logs", name: "Sistem Logları", icon: Terminal, type: "access", color: "cyan" },
+  { id: "storage", name: "Recording/NAS Depolama", icon: HardDrive, type: "access", color: "rose" },
+  { id: "transcripts", name: "Maskesiz Görüşme Metinleri Yetkisi", icon: Terminal, type: "access", color: "orange" },
+  { id: "dialer", name: "Dış Arama Modülü (Dialer)", icon: Smartphone, type: "access", color: "blue" },
+  { id: "call_flow", name: "Arama Akış Yönetimi (Call Flow)", icon: GitBranch, type: "access", color: "indigo" },
+  { id: "ai_agents", name: "Yapay Zeka Temsilcileri (AI Agents)", icon: Bot, type: "crud", color: "purple" },
+  { id: "ai_whisper", name: "AI Fısıldama Yetkisi", icon: Terminal, type: "access", color: "amber" },
+  { id: "omnichannel", name: "Ortak Gelen Kutusu (Omnichannel)", icon: MessageSquare, type: "access", color: "purple" },
+  { id: "contacts", name: "Rehber (Contacts)", icon: BookOpen, type: "crud", color: "blue" },
+  { id: "canned_responses", name: "Hızlı Cevap Taslakları", icon: FileText, type: "crud", color: "pink" },
+  { id: "blacklist", name: "Kara Liste ve Suistimal Koruması (AI Abuse Shield)", icon: Shield, type: "crud", color: "rose" },
+  { id: "mobile_transfer", name: "Mobil Numaraya Akıllı AI Transferi", icon: Smartphone, type: "crud_partial", color: "indigo" },
+  { id: "qa", name: "Otomatik Kalite Değerlendirme (Automated QA)", icon: FileText, type: "crud", color: "indigo" },
+  { id: "universal_api", name: "Evrensel API & Webhook Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
+  { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" }
+];
+
+export default function RoleSettings({ backendHost = "localhost:8000" }) {
+  const [roles, setRoles] = useState([]);
+  const [breaks, setBreaks] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+
+  // Search filter
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Modal / Popup States
+  const [showModal, setShowModal] = useState(false);
+  const [editingRole, setEditingRole] = useState(null);
+  const [deleteTargetId, setDeleteTargetId] = useState(null);
+
+  // Form Fields
+  const [roleCode, setRoleCode] = useState("");
+  const [roleName, setRoleName] = useState("");
+  const [selectedPermissions, setSelectedPermissions] = useState([]);
+  const [selectedBreaks, setSelectedBreaks] = useState([]);
+
+  const API_BASE = `${window.location.protocol}//${backendHost}`;
+
+  useEffect(() => {
+    fetchData();
+  }, []);
+
+  const fetchData = async () => {
+    setLoading(true);
+    try {
+      const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
+      const dataRoles = await resRoles.json();
+      if (dataRoles) setRoles(dataRoles);
+
+      const resBreaks = await fetch(`${API_BASE}/api/settings/breaks`);
+      const dataBreaks = await resBreaks.json();
+      if (dataBreaks) setBreaks(dataBreaks);
+    } catch (err) {
+      console.error("Roller/Molalar yüklenemedi:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveAll = async (updatedRoles) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/roles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedRoles)
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRoles(data.roles);
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 3000);
+      }
+    } catch (err) {
+      console.error("Roller kaydedilemedi:", err);
+    }
+  };
+
+  const openAddModal = () => {
+    setEditingRole(null);
+    setRoleCode("");
+    setRoleName("");
+    setSelectedPermissions([]);
+    setSelectedBreaks(breaks.map(b => b.id)); // Default allow all breaks
+    setShowModal(true);
+  };
+
+  const openEditModal = (r) => {
+    setEditingRole(r);
+    setRoleCode(r.role_code);
+    setRoleName(r.name);
+    setSelectedPermissions(r.permissions || []);
+    setSelectedBreaks(r.allowed_breaks || []);
+    setShowModal(true);
+  };
+
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    if (!roleCode.trim() || !roleName.trim()) return;
+
+    if (editingRole) {
+      // Edit
+      const updated = roles.map((r) => {
+        if (r.id === editingRole.id) {
+          return {
+            ...r,
+            role_code: roleCode.trim().toLowerCase(),
+            name: roleName.trim(),
+            permissions: selectedPermissions,
+            allowed_breaks: selectedBreaks
+          };
+        }
+        return r;
+      });
+      setRoles(updated);
+      handleSaveAll(updated);
+    } else {
+      // Add
+      const newRole = {
+        id: Date.now(),
+        role_code: roleCode.trim().toLowerCase(),
+        name: roleName.trim(),
+        permissions: selectedPermissions,
+        allowed_breaks: selectedBreaks
+      };
+      const updated = [...roles, newRole];
+      setRoles(updated);
+      handleSaveAll(updated);
+    }
+    setShowModal(false);
+  };
+
+  const handleDeleteRole = (id) => {
+    setDeleteTargetId(id);
+  };
+
+  const confirmDeleteRole = () => {
+    if (deleteTargetId) {
+      const filtered = roles.filter((r) => r.id !== deleteTargetId);
+      setRoles(filtered);
+      handleSaveAll(filtered);
+      setDeleteTargetId(null);
+    }
+  };
+
+  const togglePermission = (permCode) => {
+    if (selectedPermissions.includes(permCode)) {
+      setSelectedPermissions(selectedPermissions.filter(p => p !== permCode));
+    } else {
+      setSelectedPermissions([...selectedPermissions, permCode]);
+    }
+  };
+
+  const toggleBreak = (breakId) => {
+    if (selectedBreaks.includes(breakId)) {
+      setSelectedBreaks(selectedBreaks.filter(id => id !== breakId));
+    } else {
+      setSelectedBreaks([...selectedBreaks, breakId]);
+    }
+  };
+
+  // Helper to color code role cards uniquely based on code name
+  const getRoleCardStyles = (code) => {
+    if (code === "admin") {
+      return {
+        borderClass: "border-l-4 border-l-purple-500 border-slate-200/80 dark:border-slate-800/85",
+        bgClass: "from-purple-50/10 to-transparent",
+        iconColor: "text-purple-500",
+        badgeClass: "bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border-purple-200/50"
+      };
+    }
+    if (code === "supervisor") {
+      return {
+        borderClass: "border-l-4 border-l-emerald-500 border-slate-200/80 dark:border-slate-800/85",
+        bgClass: "from-emerald-50/10 to-transparent",
+        iconColor: "text-emerald-500",
+        badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200/50"
+      };
+    }
+    return {
+      borderClass: "border-l-4 border-l-blue-500 border-slate-200/80 dark:border-slate-800/85",
+      bgClass: "from-blue-50/10 to-transparent",
+      iconColor: "text-blue-500",
+      badgeClass: "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200/50"
+    };
+  };
+
+  const filteredRoles = roles.filter((r) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      r.name.toLowerCase().includes(query) ||
+      r.role_code.toLowerCase().includes(query)
+    );
+  });
+
+  return (
+    <div className="space-y-6">
+      {/* Premium Gradient Header */}
+      <div className="p-6 bg-gradient-to-br from-white via-white to-slate-50/40 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 border border-slate-200/80 dark:border-slate-800/80 rounded-3xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-4">
+          <div className="p-3 bg-gradient-to-tr from-rose-500 to-pink-500 text-white rounded-2xl shadow-md shadow-rose-500/10">
+            <Shield size={22} className="animate-pulse" />
+          </div>
+          <div>
+            <h3 className="font-extrabold text-sm text-slate-850 dark:text-white uppercase tracking-wider">ROL YETKİLENDİRME PANELİ</h3>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium max-w-md leading-relaxed">
+              Sistemdeki modüllerin eylem yetkilerini (Okuma, Yazma, Silme) detaylı olarak sınırlayın ve rol-mola ilişkilerini yönetin.
+            </p>
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Rollerde ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-52 text-xs pl-9 pr-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:focus:ring-rose-500/15 transition-all shadow-inner"
+            />
+            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+          </div>
+
+          <button
+            onClick={openAddModal}
+            className="p-3 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl text-xs font-bold transition-all shadow-md shadow-rose-600/10 flex items-center justify-center hover:scale-105 active:scale-95 shrink-0"
+            title="Yeni Rol Ekle"
+          >
+            <Plus size={16} />
+          </button>
+        </div>
+      </div>
+
+      {/* Success Alert Banner */}
+      {success && (
+        <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-2xl text-emerald-600 dark:text-emerald-450 text-xs font-bold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
+          <CheckCircle size={15} /> Değişiklikler başarıyla kaydedildi!
+        </div>
+      )}
+
+      {/* Roles Dashboard Grid */}
+      {loading ? (
+        <div className="text-center py-12 text-xs text-slate-500">Rol verileri yükleniyor...</div>
+      ) : filteredRoles.length === 0 ? (
+        <div className="p-16 text-center border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-3xl text-slate-550 dark:text-slate-450 text-xs">
+          Arama kriterine uygun veya kayıtlı sistem rolü bulunmuyor.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-5">
+          {filteredRoles.map((r) => {
+            const styles = getRoleCardStyles(r.role_code);
+            return (
+              <div
+                key={r.id}
+                className={`p-6 bg-gradient-to-r ${styles.bgClass} bg-white dark:bg-slate-900 border rounded-3xl shadow-sm flex flex-col xl:flex-row justify-between gap-6 transition-all duration-300 hover:shadow-md hover:scale-[1.002] ${styles.borderClass}`}
+              >
+                {/* Info & Matrix Group */}
+                <div className="flex-1 space-y-4">
+                  {/* Card Title Header */}
+                  <div className="flex items-center gap-3">
+                    <div className={`p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/30 dark:border-slate-800/40 ${styles.iconColor}`}>
+                      <Shield size={16} />
+                    </div>
+                    <div>
+                      <h4 className="font-extrabold text-xs text-slate-800 dark:text-white uppercase tracking-wider">{r.name}</h4>
+                      <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 font-mono mt-0.5">{r.role_code}</p>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Granular Matrix Renderer */}
+                  <div className="pt-2">
+                    <h5 className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2.5">Erişim & Eylem Matrisi</h5>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {SYSTEM_FEATURES.map((feat) => {
+                        const Icon = feat.icon;
+                        const hasRead = r.permissions.includes(`${feat.id}:read`);
+                        const hasWrite = r.permissions.includes(`${feat.id}:write`);
+                        const hasDelete = r.permissions.includes(`${feat.id}:delete`);
+                        const hasAccess = r.permissions.includes(`${feat.id}:access`);
+                        
+                        const activeCount = [hasRead, hasWrite, hasDelete, hasAccess].filter(Boolean).length;
+                        
+                        return (
+                          <div
+                            key={feat.id}
+                            className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2.5 bg-slate-50/50 dark:bg-slate-950/30 ${
+                              activeCount > 0 
+                                ? "border-slate-200 dark:border-slate-800/80" 
+                                : "border-slate-200/40 dark:border-slate-800/20 opacity-40"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 truncate">
+                              <Icon size={12} className={activeCount > 0 ? "text-slate-600 dark:text-slate-400" : "text-slate-400"} />
+                              <span className="text-[10px] font-bold text-slate-700 dark:text-slate-350 truncate">{feat.name.split(" ")[0]}</span>
+                            </div>
+                            
+                            {/* Action Matrix Dots */}
+                            <div className="flex gap-1 shrink-0">
+                              {feat.type === "crud" ? (
+                                <>
+                                  <span title="Görüntüleme (Oku)" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasRead ? "bg-indigo-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>G</span>
+                                  <span title="Düzenleme (Yaz)" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasWrite ? "bg-blue-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>D</span>
+                                  <span title="Silme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasDelete ? "bg-rose-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>S</span>
+                                </>
+                              ) : feat.type === "crud_partial" ? (
+                                <>
+                                  <span title="Görüntüleme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasRead ? "bg-indigo-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>G</span>
+                                  <span title="Güncelleme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasWrite ? "bg-blue-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>D</span>
+                                </>
+                              ) : (
+                                <span title="Modül Erişimi" className={`w-6 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasAccess ? "bg-emerald-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>Erişim</span>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Allowed breaks badges list */}
+                  <div className="pt-1.5 flex flex-wrap gap-2 items-center">
+                    <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest mr-1.5">Yetkili Molalar:</span>
+                    {(r.allowed_breaks || []).length === 0 ? (
+                      <span className="text-[9px] text-slate-450 italic">Molalara izin verilmiyor</span>
+                    ) : (
+                      r.allowed_breaks.map((breakId) => {
+                        const b = breaks.find(br => br.id === breakId);
+                        if (!b) return null;
+                        return (
+                          <div
+                            key={breakId}
+                            style={{
+                              borderColor: `${b.color}25`
+                            }}
+                            className="px-2.5 py-1 rounded-xl border bg-white dark:bg-slate-950 flex items-center gap-1.5 shadow-sm text-[9px] font-bold text-slate-700 dark:text-slate-350"
+                          >
+                            <span
+                              style={{ backgroundColor: b.color }}
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                            />
+                            {b.name}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+                {/* Edit & Delete Buttons */}
+                <div className="flex xl:flex-col items-center justify-end gap-2.5 border-t xl:border-t-0 pt-4 xl:pt-0 border-slate-100 dark:border-slate-800/40 shrink-0">
+                  <button
+                    onClick={() => openEditModal(r)}
+                    className="flex-1 xl:flex-none p-2.5 text-slate-450 hover:text-slate-700 dark:hover:text-white rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-950 flex items-center gap-2 text-xs font-bold transition-all"
+                  >
+                    <Edit2 size={13} />
+                    <span className="xl:hidden">Rolü Düzenle</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteRole(r.id)}
+                    className="flex-1 xl:flex-none p-2.5 text-slate-450 hover:text-rose-600 dark:hover:text-rose-500 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-rose-50/20 dark:hover:bg-rose-950/20 flex items-center gap-2 text-xs font-bold transition-all"
+                  >
+                    <Trash2 size={13} />
+                    <span className="xl:hidden">Rolü Sil</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* POPUP MODAL (Add / Edit Form) */}
+      {showModal && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all duration-300">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20">
+              <div className="flex items-center gap-2">
+                <Shield size={16} className="text-rose-500" />
+                <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
+                  {editingRole ? "Rolü Düzenle" : "Yeni Rol Tanımla"}
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowModal(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Modal Body Form */}
+            <form onSubmit={handleFormSubmit} className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+              <div className="grid grid-cols-2 gap-4">
+                {/* Role Code */}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
+                    Rol Kodu
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Örn: agent, admin, supervisor"
+                    value={roleCode}
+                    onChange={(e) => setRoleCode(e.target.value)}
+                    disabled={!!editingRole && ["admin", "agent", "supervisor"].includes(editingRole.role_code)}
+                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                  />
+                </div>
+                {/* Role Name */}
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
+                    Rol İsmi
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Örn: Müşteri Temsilcisi"
+                    value={roleName}
+                    onChange={(e) => setRoleName(e.target.value)}
+                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              {/* Granular Permissions Card Stack */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-455 uppercase tracking-wider mb-3">
+                  Rol Yetki Detayları (Granüler İzinler)
+                </label>
+                <div className="space-y-3">
+                  {SYSTEM_FEATURES.map((feat) => {
+                    const Icon = feat.icon;
+                    return (
+                      <div
+                        key={feat.id}
+                        className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4"
+                      >
+                        {/* Title & Icon Header */}
+                        <div className="flex items-center gap-3 md:w-1/3 shrink-0">
+                          <div className="p-2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-slate-500 dark:text-slate-400">
+                            <Icon size={14} />
+                          </div>
+                          <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                            {feat.name}
+                          </span>
+                        </div>
+
+                        {/* Granular Action Switches */}
+                        <div className="flex flex-wrap gap-3 flex-1 md:justify-end">
+                          {feat.type === "crud" && (
+                            <>
+                              {/* Read */}
+                              <button
+                                type="button"
+                                onClick={() => togglePermission(`${feat.id}:read`)}
+                                className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                  selectedPermissions.includes(`${feat.id}:read`)
+                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                    : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                }`}
+                              >
+                                <Eye size={10} />
+                                <span>Görüntüleme</span>
+                              </button>
+
+                              {/* Write */}
+                              <button
+                                type="button"
+                                onClick={() => togglePermission(`${feat.id}:write`)}
+                                className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                  selectedPermissions.includes(`${feat.id}:write`)
+                                    ? "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
+                                    : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                }`}
+                              >
+                                <Edit3 size={10} />
+                                <span>Düzenleme</span>
+                              </button>
+
+                              {/* Delete */}
+                              <button
+                                type="button"
+                                onClick={() => togglePermission(`${feat.id}:delete`)}
+                                className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                  selectedPermissions.includes(`${feat.id}:delete`)
+                                    ? "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-455 border-rose-200 dark:border-rose-900/40"
+                                    : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                }`}
+                              >
+                                <Trash size={10} />
+                                <span>Silme</span>
+                              </button>
+                            </>
+                          )}
+
+                          {feat.type === "crud_partial" && (
+                            <>
+                              {/* Read */}
+                              <button
+                                type="button"
+                                onClick={() => togglePermission(`${feat.id}:read`)}
+                                className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                  selectedPermissions.includes(`${feat.id}:read`)
+                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                    : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                }`}
+                              >
+                                <Eye size={10} />
+                                <span>Görüntüleme</span>
+                              </button>
+
+                              {/* Write */}
+                              <button
+                                type="button"
+                                onClick={() => togglePermission(`${feat.id}:write`)}
+                                className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                  selectedPermissions.includes(`${feat.id}:write`)
+                                    ? "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
+                                    : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                }`}
+                              >
+                                <Edit3 size={10} />
+                                <span>Güncelleme</span>
+                              </button>
+                            </>
+                          )}
+
+                          {feat.type === "access" && (
+                            <button
+                              type="button"
+                              onClick={() => togglePermission(`${feat.id}:access`)}
+                              className={`px-3 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                selectedPermissions.includes(`${feat.id}:access`)
+                                  ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/40"
+                                  : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                              }`}
+                            >
+                              <Unlock size={10} />
+                              <span>Erişim İzni</span>
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Allowed Break Definitions */}
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-455 uppercase tracking-wider mb-2.5">
+                  İzin Verilen Mola Tipleri
+                </label>
+                {breaks.length === 0 ? (
+                  <p className="text-[10px] text-slate-455 italic text-slate-400">Sistemde tanımlı mola bulunmamaktadır. Lütfen önce Mola Tanımları yapın.</p>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {breaks.map((b) => {
+                      const isSelected = selectedBreaks.includes(b.id);
+                      return (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => toggleBreak(b.id)}
+                          style={{
+                            borderColor: isSelected ? b.color : "transparent",
+                            backgroundColor: isSelected ? `${b.color}15` : ""
+                          }}
+                          className={`p-2.5 rounded-2xl border flex items-center justify-between text-left transition-all ${
+                            isSelected
+                              ? "text-slate-800 dark:text-white"
+                              : "bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400 border-slate-200/60 dark:border-slate-800/80 hover:bg-slate-50"
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span
+                              style={{ backgroundColor: b.color }}
+                              className="w-2 h-2 rounded-full shrink-0"
+                            />
+                            <span className="text-[11px] font-bold truncate max-w-[80px]">{b.name}</span>
+                          </div>
+                          <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all ${
+                            isSelected
+                              ? "text-white"
+                              : "border-slate-300 dark:border-slate-700 bg-transparent"
+                          }`}
+                          style={{
+                            backgroundColor: isSelected ? b.color : "",
+                            borderColor: isSelected ? b.color : ""
+                          }}
+                          >
+                            {isSelected && <Check size={10} strokeWidth={3} />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3 pt-4 border-t border-slate-100 dark:border-slate-800/60">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="flex-1 py-3 rounded-2xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-650 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all animate-none"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-3 rounded-2xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-md shadow-rose-500/10"
+                >
+                  Kaydet
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Delete Modal */}
+      <ConfirmDeleteModal
+        isOpen={!!deleteTargetId}
+        onClose={() => setDeleteTargetId(null)}
+        onConfirm={confirmDeleteRole}
+        title="Rolü Sil"
+        message="Seçilen sistem rolünü silmek istediğinize emin misiniz? Bu role sahip kullanıcılar varsayılan erişim haklarına düşecektir. Bu işlem geri alınamaz."
+      />
+    </div>
+  );
+}

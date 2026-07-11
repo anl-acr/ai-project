@@ -93,39 +93,39 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
   }, [chatMessages]);
 
   return (
-    <div className="flex flex-col gap-6 text-white w-full max-w-5xl">
+    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full max-w-5xl">
       {/* Title */}
       <div className="flex items-center gap-3">
-        <div className="p-3 bg-purple-600/20 text-purple-400 border border-purple-800 rounded-2xl">
+        <div className="p-3 bg-purple-50 dark:bg-purple-600/20 text-purple-500 dark:text-purple-400 border border-purple-100 dark:border-purple-800 rounded-2xl">
           <Smartphone size={24} />
         </div>
         <div>
-          <h2 className="text-xl font-bold">Sosyal Medya ve Kanal Entegrasyonları</h2>
-          <p className="text-sm text-slate-400">WhatsApp, Telegram ve Meta kanallarından gelen mesajları yapay zekaya bağlayın.</p>
+          <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Sosyal Medya ve Kanal Entegrasyonları</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">WhatsApp, Telegram ve Meta kanallarından gelen mesajları yapay zekaya bağlayın.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         
         {/* Left Side: Setup Forms (3/5 Wide) */}
-        <div className="flex flex-col lg:col-span-3 p-5 bg-slate-900 border border-slate-800 rounded-2xl gap-5">
+        <div className="flex flex-col lg:col-span-3 p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl gap-5 shadow-sm transition-colors duration-300">
           {/* Tab Headers */}
-          <div className="flex border-b border-slate-800 gap-4 text-sm">
+          <div className="flex border-b border-slate-100 dark:border-slate-800 gap-4 text-xs font-bold uppercase tracking-wider">
             <button
               onClick={() => setActiveTab("whatsapp")}
-              className={`pb-2 font-medium transition ${activeTab === "whatsapp" ? "text-purple-400 border-b-2 border-purple-400" : "text-slate-400 hover:text-white"}`}
+              className={`pb-2 transition ${activeTab === "whatsapp" ? "text-purple-600 dark:text-purple-400 border-b-2 border-purple-500 dark:border-purple-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
             >
               WhatsApp API
             </button>
             <button
               onClick={() => setActiveTab("telegram")}
-              className={`pb-2 font-medium transition ${activeTab === "telegram" ? "text-blue-400 border-b-2 border-blue-400" : "text-slate-400 hover:text-white"}`}
+              className={`pb-2 transition ${activeTab === "telegram" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
             >
               Telegram Bot
             </button>
             <button
               onClick={() => setActiveTab("meta")}
-              className={`pb-2 font-medium transition ${activeTab === "meta" ? "text-pink-400 border-b-2 border-pink-400" : "text-slate-400 hover:text-white"}`}
+              className={`pb-2 transition ${activeTab === "meta" ? "text-pink-600 dark:text-pink-400 border-b-2 border-pink-550 dark:border-pink-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
             >
               Instagram & FB
             </button>
@@ -134,21 +134,21 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
           <form onSubmit={handleSave} className="flex flex-col gap-4">
             {activeTab === "whatsapp" && (
               <div className="flex flex-col gap-3">
-                <h4 className="font-semibold text-xs text-slate-400 uppercase tracking-wide">WhatsApp Business Cloud API</h4>
+                <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide">WhatsApp Business Cloud API</h4>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs text-slate-400">WhatsApp Geçici/Kalıcı Erişim Jetonu (Access Token)</label>
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">WhatsApp Erişim Jetonu (Access Token)</label>
                   <textarea
                     name="whatsapp_token"
                     value={channels.whatsapp_token}
                     onChange={handleChange}
                     placeholder="EAAGz..."
                     rows={4}
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 font-mono focus:outline-none focus:border-purple-500 resize-none"
+                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-purple-500 resize-none"
                   />
                 </div>
-                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[10px] text-slate-400 leading-relaxed">
-                  <p className="font-semibold text-purple-400 mb-1">Webhook URL Bilginiz:</p>
-                  <p className="font-mono bg-slate-900 p-1.5 rounded border border-slate-850 select-all">
+                <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 rounded-xl text-[10px] text-slate-550 dark:text-slate-400 leading-relaxed font-medium">
+                  <p className="font-bold text-purple-650 dark:text-purple-400 mb-1">Webhook URL Bilginiz:</p>
+                  <p className="font-mono bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-850 select-all text-slate-700 dark:text-slate-300">
                     {API_BASE}/api/webhook/whatsapp
                   </p>
                 </div>
@@ -157,21 +157,21 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
 
             {activeTab === "telegram" && (
               <div className="flex flex-col gap-3">
-                <h4 className="font-semibold text-xs text-slate-400 uppercase tracking-wide">Telegram Bot API</h4>
+                <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide">Telegram Bot API</h4>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs text-slate-400">Telegram Bot Token (HTTP API Token)</label>
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Telegram Bot Token (HTTP API Token)</label>
                   <input
                     type="text"
                     name="telegram_token"
                     value={channels.telegram_token}
                     onChange={handleChange}
                     placeholder="123456789:ABCdefGhI..."
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 font-mono focus:outline-none focus:border-blue-500"
+                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-blue-500"
                   />
                 </div>
-                <div className="p-3 bg-slate-950 border border-slate-800 rounded-xl text-[10px] text-slate-400 leading-relaxed">
-                  <p className="font-semibold text-blue-400 mb-1">Webhook URL Bilginiz:</p>
-                  <p className="font-mono bg-slate-900 p-1.5 rounded border border-slate-850 select-all">
+                <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 rounded-xl text-[10px] text-slate-550 dark:text-slate-400 leading-relaxed font-medium">
+                  <p className="font-bold text-blue-600 dark:text-blue-400 mb-1">Webhook URL Bilginiz:</p>
+                  <p className="font-mono bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-855 select-all text-slate-700 dark:text-slate-300">
                     {API_BASE}/api/webhook/telegram
                   </p>
                 </div>
@@ -180,62 +180,62 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
 
             {activeTab === "meta" && (
               <div className="flex flex-col gap-3">
-                <h4 className="font-semibold text-xs text-slate-400 uppercase tracking-wide">Instagram & Facebook Messenger</h4>
+                <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide">Instagram & Facebook Messenger</h4>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs text-slate-400">Instagram Sayfa Erişim Jetonu (Page Access Token)</label>
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Instagram Sayfa Erişim Jetonu (Page Access Token)</label>
                   <input
                     type="text"
                     name="instagram_token"
                     value={channels.instagram_token}
                     onChange={handleChange}
                     placeholder="EAAO..."
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 font-mono focus:outline-none focus:border-pink-500"
+                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-pink-500"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
-                  <label className="text-xs text-slate-400">Facebook Sayfa Erişim Jetonu</label>
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Facebook Sayfa Erişim Jetonu</label>
                   <input
                     type="text"
                     name="facebook_token"
                     value={channels.facebook_token}
                     onChange={handleChange}
                     placeholder="EAAO..."
-                    className="px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-300 font-mono focus:outline-none focus:border-pink-500"
+                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-pink-500"
                   />
                 </div>
               </div>
             )}
 
-            <div className="flex items-center justify-between border-t border-slate-800 pt-4 mt-2">
-              <p className="text-xs text-slate-500">Ayarları kaydettikten sonra yapay zeka mesaj almaya hazır olacaktır.</p>
+            <div className="flex items-center justify-between border-t border-slate-100 dark:border-slate-800 pt-4 mt-2">
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Ayarları kaydettikten sonra yapay zeka mesaj almaya hazır olacaktır.</p>
               <button
                 type="submit"
                 disabled={loading}
-                className="flex items-center gap-2 px-5 py-2.5 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-800 transition rounded-xl font-medium text-sm"
+                className="flex items-center gap-2 px-5 py-2.5 bg-purple-650 hover:bg-purple-600 text-white disabled:bg-purple-800 transition rounded-xl font-bold text-xs shadow-md shadow-purple-500/10"
               >
-                <Save size={16} /> {loading ? "Kaydediliyor..." : "Bağlantıları Kaydet"}
+                <Save size={14} /> {loading ? "Kaydediliyor..." : "Bağlantıları Kaydet"}
               </button>
             </div>
           </form>
 
           {success && (
-            <div className="p-3 bg-emerald-950/40 border border-emerald-800 rounded-xl text-emerald-300 text-xs flex items-center gap-2 animate-pulse">
-              <CheckCircle size={18} />
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold">
+              <CheckCircle size={15} />
               <span>Entegrasyon jetonları başarıyla kaydedildi!</span>
             </div>
           )}
         </div>
 
         {/* Right Side: Setup Copilot Chatbot (2/5 Wide) */}
-        <div className="flex flex-col lg:col-span-2 p-5 bg-slate-900 border border-slate-800 rounded-2xl h-[500px]">
+        <div className="flex flex-col lg:col-span-2 p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl h-[500px] shadow-sm transition-colors duration-300">
           {/* Copilot Header */}
-          <div className="flex items-center gap-2 border-b border-slate-800 pb-3 mb-3">
-            <div className="p-1.5 bg-purple-600/30 text-purple-400 border border-purple-800/50 rounded-xl">
-              <Sparkles size={16} className="animate-spin-slow" />
+          <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-3">
+            <div className="p-1.5 bg-purple-50 dark:bg-purple-600/15 text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-800/40 rounded-xl">
+              <Sparkles size={16} className="animate-pulse" />
             </div>
             <div>
-              <h3 className="font-semibold text-xs text-slate-200">Entegrasyon Yardımcısı</h3>
-              <p className="text-[10px] text-slate-500">Kurulum kılavuzu chat botu</p>
+              <h3 className="font-bold text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">Entegrasyon Asistanı</h3>
+              <p className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold">Kurulum kılavuzu chat botu</p>
             </div>
           </div>
 
@@ -248,17 +248,17 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                   msg.sender === "bot" ? "mr-auto flex-row" : "ml-auto flex-row-reverse"
                 }`}
               >
-                <div className={`h-6 w-6 rounded-full flex items-center justify-center shrink-0 border ${
+                <div className={`h-6 w-6 rounded-xl flex items-center justify-center shrink-0 border ${
                   msg.sender === "bot" 
-                    ? "bg-purple-600/20 text-purple-400 border-purple-800/40" 
-                    : "bg-blue-600/20 text-blue-400 border-blue-800/40"
+                    ? "bg-purple-50 dark:bg-purple-600/20 text-purple-600 dark:text-purple-450 border-purple-100 dark:border-purple-800/45" 
+                    : "bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-450 border-blue-100 dark:border-blue-800/45"
                 }`}>
                   {msg.sender === "bot" ? <Bot size={12} /> : <User size={12} />}
                 </div>
-                <div className={`p-2.5 rounded-xl border leading-relaxed whitespace-pre-line ${
+                <div className={`p-2.5 rounded-2xl border leading-relaxed whitespace-pre-line text-xs font-semibold shadow-sm ${
                   msg.sender === "bot" 
-                    ? "bg-slate-950/65 border-slate-850 text-slate-300 rounded-tl-none" 
-                    : "bg-purple-950/40 border-purple-900/50 text-purple-200 rounded-tr-none"
+                    ? "bg-slate-50 dark:bg-slate-950/65 border-slate-200/60 dark:border-slate-850 text-slate-700 dark:text-slate-300 rounded-tl-none" 
+                    : "bg-purple-50 dark:bg-purple-950/20 border-purple-100 dark:border-purple-900/30 text-purple-750 dark:text-purple-200 rounded-tr-none"
                 }`}>
                   {msg.text}
                 </div>
@@ -268,19 +268,19 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
           </div>
 
           {/* Copilot Chat Input */}
-          <form onSubmit={handleSendMessage} className="flex gap-2 border-t border-slate-800 pt-3">
+          <form onSubmit={handleSendMessage} className="flex gap-2 border-t border-slate-100 dark:border-slate-800/60 pt-3">
             <input
               type="text"
               value={userInput}
               onChange={(e) => setUserInput(e.target.value)}
               placeholder="Jetonu nereden alacağım? Webhook..."
-              className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs focus:outline-none focus:border-purple-500 text-white"
+              className="flex-1 px-3.5 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs focus:outline-none focus:border-purple-500 text-slate-800 dark:text-slate-200 font-medium"
             />
             <button
               type="submit"
-              className="flex items-center justify-center p-2 bg-purple-600 hover:bg-purple-500 transition rounded-xl text-white shrink-0"
+              className="flex items-center justify-center p-2 bg-purple-650 hover:bg-purple-600 text-white transition rounded-xl shrink-0 shadow-md shadow-purple-550/15"
             >
-              <Send size={14} />
+              <Send size={13} />
             </button>
           </form>
         </div>

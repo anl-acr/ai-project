@@ -6,7 +6,7 @@ import datetime
 import websockets
 from sqlalchemy import update
 from backend.database.config import AsyncSessionLocal
-from backend.database.models import Call, Transcript
+from backend.database.models import Call, Transcript, BlacklistItem, BlockWord
 from backend.services.websocket_manager import ws_manager
 from backend.services.tool_executor import handle_tool_call
 from backend.services.prompt_manager import compile_system_prompt
@@ -20,6 +20,20 @@ GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash-native-audio-l
 VOICE_NAME = os.getenv("VOICE_NAME", "Aoede")  # Puck, Charon, Kore, Fenrir, Aoede
 
 SETTINGS_FILE = "/Users/anilacar/ai-project/backend/settings.json"
+
+def detect_is_english(text: str) -> bool:
+    text_lower = text.lower().strip()
+    english_indicators = ["hello", "hi ", "good morning", "good afternoon", "english", "speak english", "talk in english", "help me", "agent", "support", "representative", "i want to", "how are you"]
+    for indicator in english_indicators:
+        if indicator in text_lower:
+            return True
+    common_english_words = {"the", "is", "you", "are", "to", "for", "with", "can", "not", "hello", "hi"}
+    words = set(text_lower.split())
+    if words.intersection(common_english_words):
+        turkish_chars = {"ı", "ğ", "ü", "ş", "ö", "ç"}
+        if not any(c in text_lower for c in turkish_chars):
+            return True
+    return False
 
 def load_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -193,6 +207,94 @@ async def end_call_db(call_id: str, summary: str = None):
                 db_call.summary = summary
             db_call.recording_path = f"/api/recordings/{call_id}.wav"
             await session.commit()
+            
+            try:
+                from backend.services.call_analyzer import analyze_call
+                asyncio.create_task(analyze_call(call_id))
+            except Exception as e:
+                print(f"[AMI] Failed to schedule call analyzer task: {e}")
+
+async def auto_blacklist_call(call_id: str, reason: str):
+    from sqlalchemy import select
+    from backend.main import add_system_log
+    from backend.services.ami_manager import hangup_call
+    
+    async with AsyncSessionLocal() as session:
+        db_call = await session.get(Call, call_id)
+        if db_call and db_call.caller_number:
+            caller = db_call.caller_number
+            # Check if already blacklisted
+            stmt = select(BlacklistItem).where(
+                (BlacklistItem.type == "phone") & 
+                (BlacklistItem.value == caller)
+            )
+            res = await session.execute(stmt)
+            if not res.scalar_one_or_none():
+                item = BlacklistItem(
+                    type="phone",
+                    value=caller,
+                    reason=reason,
+                    timestamp=datetime.datetime.utcnow()
+                )
+                session.add(item)
+                
+                # Update call status to blocked
+                db_call.status = "blocked"
+                
+                await session.commit()
+                print(f"[Abuse Shield] Auto-blacklisted phone number: {caller} (Reason: {reason})")
+                add_system_log("ABUSE_SHIELD", "WARNING", f"Arayan Kara Listeye Alındı: {caller} (Sebep: {reason})")
+                
+                # Drop/hangup call instantly
+                asyncio.create_task(hangup_call(call_id))
+
+async def listen_for_whispers(call_id: str, gemini_ws):
+    """Listens to supervisor whisper events on Redis Pub/Sub and sends them to the Gemini live session."""
+    import redis.asyncio as aioredis
+    import json
+
+    r = aioredis.Redis(host='localhost', port=6379, decode_responses=True)
+    pubsub = r.pubsub()
+    channel = f"call_whisper:{call_id}"
+    await pubsub.subscribe(channel)
+    print(f"[Whisper Listener] Subscribed to Redis channel: {channel}")
+
+    try:
+        async for message in pubsub.listen():
+            if message["type"] == "message":
+                data = json.loads(message["data"])
+                whisper_text = data.get("text", "")
+                if whisper_text:
+                    print(f"[Whisper Listener] Received whisper for {call_id}: '{whisper_text}'")
+                    # Format as client content turn for Gemini
+                    whisper_msg = {
+                        "clientContent": {
+                            "turns": [
+                                {
+                                    "role": "user",
+                                    "parts": [
+                                        {
+                                            "text": f"[SYSTEM NOTE / SUPERVISOR DIRECTIVE: {whisper_text}]"
+                                        }
+                                    ]
+                                }
+                            ],
+                            "turnComplete": True
+                        }
+                    }
+                    await gemini_ws.send(json.dumps(whisper_msg))
+                    print(f"[Whisper Listener] Injected whisper into Gemini session for call {call_id}")
+    except asyncio.CancelledError:
+        print(f"[Whisper Listener] Whisper subscription task cancelled for call {call_id}")
+    except Exception as e:
+        print(f"[Whisper Listener] Error in whisper subscription listener for call {call_id}: {e}")
+    finally:
+        try:
+            await pubsub.unsubscribe(channel)
+            await pubsub.close()
+            await r.close()
+        except Exception:
+            pass
 
 async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     peer = writer.get_extra_info('peername')
@@ -205,6 +307,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
     # Task references
     rec_asterisk_task = None
     send_asterisk_task = None
+    whisper_listener_task = None
     silence_task = None
     call_state = None
 
@@ -291,6 +394,73 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
 
         # Compile dynamic system instruction from database rules
         system_instruction = await compile_system_prompt(greeting_prompt)
+        
+        # Check if Dynamic Emotion Management is enabled
+        try:
+            settings_data = load_settings()
+            if settings_data.get("pbx", {}).get("auto_emotion_management", False):
+                emotion_instruction = """
+\n[DINAMIK DUYGU YONETIMI AKTIF]
+Müşterinin konuşmalarındaki duygu durumunu takip et. 
+Eğer müşteri sinirliyse, şikayetçiyse veya ses tonu/kelimeleri öfke barındırıyorsa, konuşma tarzını hemen çok daha yumuşak, sakinleştirici, sabırlı ve özür dileyen bir ses tonuna geçir.
+Müşteriyi sakinleştirmeye çalış. 
+Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya "temsilciye bağlanmak istiyorum" gibi bir talepte bulunursa, kesinlikle daha fazla uzatmadan "transfer_to_human" fonksiyonunu/aracını çağırarak görüşmeyi canlı temsilciye aktar. Aktarmadan hemen önce mutlaka "Sizi üst birime aktarıyorum" cümlesini kur.
+"""
+                system_instruction += emotion_instruction
+                print("[Emotion Management] Dinamik duygu yönetimi kuralları sistem talimatlarına eklendi.")
+        except Exception as e:
+            print(f"[Emotion Management] Hata: {e}")
+            
+        # Check and load custom APIs
+        custom_declarations = []
+        try:
+            settings_data = load_settings()
+            custom_apis = settings_data.get("custom_apis", [])
+            if custom_apis:
+                api_instruction = "\n--- Kullanılabilir Özel CRM ve API Entegrasyonları ---\n"
+                api_instruction += "Müşterinin talebine göre aşağıdaki fonksiyonları/araçları çağırarak sorgu yapabilirsin. Gelen yanıtı müşteriye Türkçe ve doğal bir ses tonuyla açıkla:\n"
+                
+                for api in custom_apis:
+                    if not api.get("is_active", True):
+                        continue
+                    api_id = api.get("id")
+                    api_name = api.get("name", "")
+                    api_desc = api.get("description", "")
+                    
+                    api_instruction += f"- custom_api_{api_id}: {api_desc}\n"
+                    
+                    # Build tool parameters
+                    properties = {}
+                    required_params = []
+                    for param in api.get("parameters", []):
+                        p_name = param.get("name")
+                        p_type = param.get("type", "string").upper()
+                        p_desc = param.get("description", "")
+                        p_req = param.get("required", False)
+                        
+                        if p_name:
+                            properties[p_name] = {
+                                "type": p_type if p_type in ["STRING", "NUMBER", "INTEGER", "BOOLEAN"] else "STRING",
+                                "description": p_desc
+                            }
+                            if p_req:
+                                required_params.append(p_name)
+                                
+                    custom_declarations.append({
+                        "name": f"custom_api_{api_id}",
+                        "description": api_desc,
+                        "parameters": {
+                            "type": "OBJECT",
+                            "properties": properties,
+                            "required": required_params
+                        }
+                    })
+                
+                system_instruction += api_instruction
+                print(f"[Custom API] {len(custom_declarations)} adet özel API aracı sistem yönergesine eklendi.")
+        except Exception as e:
+            print(f"[Custom API] Hata: {e}")
+            
         print(f"Sistem talimatlari derlendi: {len(system_instruction)} karakter.")
 
         # Send Setup Config
@@ -333,7 +503,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                                     "type": "OBJECT",
                                     "properties": {
                                         "name": { "type": "STRING", "description": "Müşterinin adı soyadı" },
-                                        "phone": { "type": "STRING", "description": "Müşterinin telefon numarası" },
+                                        "phone": { "type": "STRING", "description": "Müşterinin telefon..." },
                                         "date": { "type": "STRING", "description": "Randevu tarihi (YYYY-MM-DD formatında)" },
                                         "time": { "type": "STRING", "description": "Randevu saati (HH:MM formatında)" },
                                         "email": { "type": "STRING", "description": "Müşterinin e-posta adresi", "nullable": True }
@@ -359,8 +529,19 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                                     "type": "OBJECT",
                                     "properties": {}
                                 }
+                            },
+                            {
+                                "name": "trigger_abuse_shield",
+                                "description": "Müşterinin küfür, hakaret, suistimal veya dolandırıcılık teşebbüsünde bulunduğunu algıladığınızda bu aracı çağırın. Çağrıyı anında sonlandırır ve numarayı otomatik kara listeye alır.",
+                                "parameters": {
+                                    "type": "OBJECT",
+                                    "properties": {
+                                        "reason": { "type": "STRING", "description": "Engelleme sebebi (örn: 'Küfür ve Hakaret' veya 'Dolandırıcılık Şüphesi')" }
+                                    },
+                                    "required": ["reason"]
+                                }
                             }
-                        ]
+                        ] + custom_declarations
                     }
                 ],
                 "outputAudioTranscription": {},
@@ -390,7 +571,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         print("Ilk karsilama tetikleme mesaji Gemini'ye gonderildi.")
 
         # 3. Tasks for handling bidirectional audio streams
-        call_state = {"tool_call_in_progress": False, "should_hangup": False, "max_avg_amplitude": 0, "model_is_speaking": False}
+        call_state = {"tool_call_in_progress": False, "should_hangup": False, "max_avg_amplitude": 0, "model_is_speaking": False, "language_detected": False}
         
         async def receive_from_asterisk_and_send_to_gemini():
             """Reads audio frames from Asterisk, buffers to 100ms (1600 bytes at 8kHz), resamples to 16kHz, streams to Gemini, and writes output back to Asterisk in sync with incoming frames (receiver-driven clock sync)."""
@@ -483,6 +664,13 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
             """Reads response from Gemini, handles interruption/barge-in, resamples to 8kHz, and writes to Asterisk."""
             current_user_text = ""
             current_ai_text = ""
+            
+            try:
+                settings_data = load_settings()
+                auto_detect_lang = settings_data.get("pbx", {}).get("auto_language_detection", False)
+            except Exception:
+                auto_detect_lang = False
+                
             try:
                 async for raw_response in gemini_ws:
                     resp = json.loads(raw_response)
@@ -518,7 +706,50 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                     # 3. Write User Transcript to DB when AI starts speaking or tool is called
                     if ("serverContent" in resp and "modelTurn" in resp["serverContent"]) or ("toolCall" in resp):
                         if current_user_text.strip():
-                            await write_db_transcript(call_id, "customer", current_user_text.strip())
+                            user_phrase = current_user_text.strip()
+                            await write_db_transcript(call_id, "customer", user_phrase)
+                            
+                            # Check for block words (swearing, insult detection)
+                            from sqlalchemy import select
+                            async with AsyncSessionLocal() as session:
+                                res_bw = await session.execute(select(BlockWord))
+                                block_words = [bw.word.lower() for bw in res_bw.scalars().all()]
+                            
+                            user_phrase_lower = user_phrase.lower()
+                            matched_word = None
+                            for w in block_words:
+                                if w in user_phrase_lower:
+                                    matched_word = w
+                                    break
+                                    
+                            if matched_word:
+                                print(f"[Abuse Shield] Block word '{matched_word}' matched in user phrase: '{user_phrase}'")
+                                await auto_blacklist_call(call_id, f"Yasaklı Kelime Tespiti: '{matched_word}'")
+                                call_state["should_hangup"] = True
+                            
+                            if auto_detect_lang and not call_state.get("language_detected", False):
+                                call_state["language_detected"] = True
+                                if detect_is_english(user_phrase):
+                                    print(f"[Language Detector] English speech detected: '{user_phrase}'. Injecting switch prompt to Gemini...")
+                                    switch_msg = {
+                                        "clientContent": {
+                                            "turns": [
+                                                {
+                                                    "role": "user",
+                                                    "parts": [
+                                                        {
+                                                            "text": "[SYSTEM NOTE: User is speaking English. Please switch completely to English from now on, translate your persona/prompt guidelines to English, reply in English and speak in English. Do not use Turkish anymore.]"
+                                                        }
+                                                    ]
+                                                }
+                                            ],
+                                            "turnComplete": True
+                                        }
+                                    }
+                                    await gemini_ws.send(json.dumps(switch_msg))
+                                else:
+                                    print(f"[Language Detector] Turkish/Other speech matched: '{user_phrase}'")
+                                    
                             current_user_text = ""
                             
                     # Check for Interruption/Barge-in (Musteri lafa girdi)
@@ -577,6 +808,10 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                             print(f"[Gemini] Fonksiyon cagirdi: {call_name} (Args: {call_args})")
                             if call_name == "hangup_call":
                                 call_state["should_hangup"] = True
+                            if call_name == "trigger_abuse_shield":
+                                call_state["should_hangup"] = True
+                                reason_val = call_args.get("reason", "Yapay Zeka Suistimal Tespiti")
+                                await auto_blacklist_call(call_id, reason_val)
                             
                             # Execute the tool call
                             tool_result = await handle_tool_call(call_name, call_args, call_id)
@@ -602,6 +837,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                 print(f"Gemini okuma / Asterisk gonderim hatasi: {e}")
 
         # Start tasks concurrently
+        whisper_listener_task = asyncio.create_task(listen_for_whispers(call_id, gemini_ws))
         rec_asterisk_task = asyncio.create_task(receive_from_asterisk_and_send_to_gemini())
         send_asterisk_task = asyncio.create_task(receive_from_gemini_and_send_to_asterisk())
 
@@ -618,6 +854,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         if silence_task: silence_task.cancel()
         if rec_asterisk_task: rec_asterisk_task.cancel()
         if send_asterisk_task: send_asterisk_task.cancel()
+        if whisper_listener_task: whisper_listener_task.cancel()
         
         # Close Gemini WebSocket
         if gemini_ws:

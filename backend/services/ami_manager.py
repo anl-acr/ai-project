@@ -134,6 +134,35 @@ async def spy_on_call(call_id: str, agent_extension: str) -> bool:
         print(f"[AMI] ChanSpy sirasinda hata: {e}")
         return False
 
+async def hangup_call(call_id: str) -> bool:
+    """
+    AMI command to hang up/drop the active Asterisk call channel.
+    """
+    manager = await get_ami_manager()
+    if not manager:
+        print("[AMI] Hata: AMI baglantisi kurulamadigi icin hangup iptal edildi.")
+        return False
+
+    ast_id = call_id_to_asterisk_id.get(call_id, call_id)
+    channel_name = active_channels.get(ast_id)
+    if not channel_name:
+        print(f"[AMI] Hata: UniqueID {call_id} için aktif kanal adi bulunamadi.")
+        return False
+
+    print(f"[AMI] Arama sonlandiriliyor (Hangup) -> Channel: {channel_name}")
+    action = {
+        'Action': 'Hangup',
+        'Channel': channel_name
+    }
+    try:
+        response = await manager.send_action(action)
+        res_item = response[0] if isinstance(response, list) and len(response) > 0 else response
+        resp_val = res_item.get('Response') if hasattr(res_item, 'get') else getattr(res_item, 'Response', None)
+        return resp_val == 'Success'
+    except Exception as e:
+        print(f"[AMI] Hangup sirasinda hata olustu: {e}")
+        return False
+
 # background task to keep AMI connected
 async def start_ami_listener():
     while True:
