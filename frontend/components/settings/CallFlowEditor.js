@@ -18,6 +18,8 @@ import {
   Activity,
   Play,
   Edit,
+  Edit2,
+  Search,
   ArrowLeft,
   Server,
   Hash,
@@ -28,10 +30,13 @@ import {
   LogOut
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function CallFlowEditor({ backendHost = "localhost:8000", onEditStateChange }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
   const [viewMode, setViewMode] = useState("list"); // list, edit
   const [workflows, setWorkflows] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
   
   // Current editing workflow states
   const [currentWfId, setCurrentWfId] = useState(null);
@@ -706,14 +711,22 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
     );
   };
 
+  const filteredWorkflows = workflows.filter((wf) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      wf.name.toLowerCase().includes(query) ||
+      String(wf.id).includes(query)
+    );
+  });
+
   // Render List view mode
   if (viewMode === "list") {
     return (
-      <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 max-w-6xl w-full">
+      <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full">
         {/* Header toolbar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-indigo-50 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl">
+            <div className="p-3 bg-indigo-50 dark:bg-primary/20 text-primary dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl">
               <GitBranch size={24} />
             </div>
             <div>
@@ -724,86 +737,134 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
             </div>
           </div>
           
-          <button
-            onClick={handleCreateNewWorkflow}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-sm shadow-indigo-500/10 transition duration-200 uppercase tracking-wider"
-          >
-            <Plus size={14} /> Yeni Akış Ekle
-          </button>
+          {/* Search Bar + "+" Icon Wrapper */}
+          <div className="flex items-center gap-2.5">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Akış ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
+              />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
+            </div>
+
+            <button
+              onClick={handleCreateNewWorkflow}
+              className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+              title="Yeni Akış Ekle"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
 
-        {/* Workflows Grid list */}
+        {/* Workflows List */}
         {loading && workflows.length === 0 ? (
-          <div className="text-center py-20 text-slate-400 dark:text-slate-500 font-bold text-xs">
+          <div className="text-center py-20 text-slate-400 dark:text-slate-500 font-bold text-xs animate-pulse">
             Arama akış şablonları yükleniyor...
           </div>
         ) : workflows.length === 0 ? (
-          <div className="text-center py-20 bg-white dark:bg-slate-900 border border-slate-250 dark:border-slate-800 rounded-3xl text-slate-450 dark:text-slate-500 font-semibold text-xs flex flex-col items-center justify-center gap-3 shadow-sm">
+          <div className="text-center py-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-3xl text-slate-505 dark:text-slate-450 font-semibold text-xs flex flex-col items-center justify-center gap-3 shadow-sm w-full">
             <GitBranch size={36} className="text-slate-300 dark:text-slate-700 animate-pulse" />
             <p>Kayıtlı herhangi bir arama akış şeması bulunamadı.</p>
             <button
               onClick={handleCreateNewWorkflow}
-              className="mt-2 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-100 rounded-xl text-[10px] font-bold transition"
+              className="mt-2 px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 text-primary dark:text-rose-450 border border-rose-100 rounded-xl text-[10px] font-bold transition"
             >
               İlk Akış Şemasını Oluştur
             </button>
           </div>
+        ) : filteredWorkflows.length === 0 ? (
+          <div className="p-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl text-slate-505 dark:text-slate-450 text-xs w-full">
+            Arama kriterine uygun arama akış şeması bulunmuyor.
+          </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {workflows.map((wf) => {
-              const matchedTrunk = trunks.find((t) => t.id === wf.trunk_id);
-              return (
-                <div 
-                  key={wf.id}
-                  className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-5 flex flex-col justify-between gap-4 shadow-sm hover:shadow-md transition duration-200"
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${
-                        wf.status === "active"
-                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-900/30"
-                          : "bg-slate-50 dark:bg-slate-900 text-slate-550 dark:text-slate-400 border-slate-200 dark:border-slate-800"
-                      }`}>
-                        {wf.status === "active" ? "Aktif" : "Taslak"}
-                      </span>
-                      <div className="text-[10px] text-slate-400 font-mono">ID: {wf.id}</div>
-                    </div>
+          <div className="space-y-3.5 w-full">
+            {/* Column Header Row */}
+            <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
+              <div className="flex items-center gap-4 flex-1">
+                <div className="w-12 text-center shrink-0">Simge</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1 items-center">
+                  <div className="pl-1">Akış Şeması Adı / Durum</div>
+                  <div className="pl-1">Düğüm / Bağlantı Sayısı</div>
+                  <div className="pl-1">Hat Yönlendirme Kuralı</div>
+                </div>
+              </div>
+              <div className="w-24 text-right pr-4 shrink-0">İşlemler</div>
+            </div>
 
+            {filteredWorkflows.map((wf) => (
+              <div 
+                key={wf.id}
+                className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-200 hover:scale-[1.005] w-full ${
+                  wf.status !== "active" ? "opacity-60" : ""
+                }`}
+              >
+                {/* Left Side: Icon & Details */}
+                <div className="flex items-center gap-4 flex-1">
+                  <div className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2.5 text-primary dark:text-rose-400 shrink-0 flex items-center justify-center">
+                    <GitBranch size={22} />
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1 items-center">
                     <div>
-                      <h4 className="font-extrabold text-sm text-slate-850 dark:text-white leading-snug">{wf.name}</h4>
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-1">
-                        Düğüm Sayısı: <span className="font-mono text-slate-700 dark:text-slate-350">{wf.nodes?.length || 0}</span> | 
-                        Bağlantı Sayısı: <span className="font-mono text-slate-700 dark:text-slate-350">{wf.connections?.length || 0}</span>
-                      </p>
+                      <h4 className="font-bold text-xs text-slate-800 dark:text-white flex items-center gap-1.5">
+                        {wf.name}
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border ${
+                          wf.status === "active"
+                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30"
+                            : "bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200/60 dark:border-slate-800"
+                        }`}>
+                          {wf.status === "active" ? "Aktif" : "Taslak"}
+                        </span>
+                      </h4>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-550 font-medium mt-0.5">ID: {wf.id}</p>
                     </div>
 
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-center gap-1.5">
-                      <Server size={12} className="text-slate-400" />
-                      <span className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">
-                        Hat Yönlendirme: Tüm Gelen Aramalar (DID Tabanlı)
-                      </span>
+                    <div className="text-[10px] text-slate-505 dark:text-slate-400 space-y-1">
+                      <div className="flex items-center gap-1.5 font-semibold">
+                        <Layers size={12} className="text-slate-400 shrink-0" />
+                        <span>Düğümler: {wf.nodes?.length || 0}</span>
+                      </div>
+                      <div className="text-[9px] text-slate-450 dark:text-slate-500">
+                        Bağlantılar: <span className="font-mono">{wf.connections?.length || 0}</span>
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-slate-505 dark:text-slate-400 space-y-1 min-w-0">
+                      <div className="flex items-center gap-1.5 font-semibold">
+                        <Server size={12} className="text-slate-400 shrink-0" />
+                        <span className="truncate">Hat Yönlendirme</span>
+                      </div>
+                      <div className="text-[9px] text-slate-400 dark:text-slate-500 truncate">
+                        Tüm Gelen Aramalar (DID Tabanlı)
+                      </div>
                     </div>
                   </div>
+                </div>
 
-                  <div className="flex gap-2 pt-3 border-t border-slate-100 dark:border-slate-850">
+                {/* Right Side: Actions */}
+                <div className="flex items-center gap-4 justify-between sm:justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 dark:border-slate-800/60">
+                  <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleEditWorkflow(wf)}
-                      className="flex-1 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/25 text-indigo-600 dark:text-indigo-400 border border-indigo-100/60 dark:border-indigo-900/30 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5 transition"
+                      className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-white rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-200"
+                      title="Düzenle"
                     >
-                      <Edit size={12} /> Düzenle
+                      <Edit2 size={12} />
                     </button>
-                    
                     <button
                       onClick={(e) => openDeleteModal(e, wf.id)}
-                      className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 border border-transparent hover:border-rose-100/50 rounded-xl transition"
+                      className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-primary rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-250"
                       title="Akış Şemasını Sil"
                     >
                       <Trash2 size={12} />
                     </button>
                   </div>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
 
@@ -875,7 +936,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
           <button
             onClick={handleSaveWorkflow}
             disabled={loading}
-            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-sm shadow-indigo-500/10 transition duration-200 uppercase tracking-wider"
+            className={`px-4 py-1.5 ${bg} ${hover} text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition duration-200 uppercase tracking-wider`}
           >
             <Save size={13} /> {loading ? "Kaydediliyor..." : "Kaydet"}
           </button>
@@ -902,7 +963,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
             <div className="flex flex-wrap gap-1.5">
               <button 
                 onClick={() => addNode("play")}
-                className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-amber-400 text-white text-[10px] font-extrabold rounded-lg transition"
               >
                 + Anons
               </button>
@@ -920,25 +981,25 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
               </button>
               <button 
                 onClick={() => addNode("did")}
-                className="px-2.5 py-1 bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition"
               >
                 + DID
               </button>
               <button 
                 onClick={() => addNode("timerule")}
-                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-500 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition"
               >
                 + Senaryo
               </button>
               <button 
                 onClick={() => addNode("ai_agent")}
-                className="px-2.5 py-1 bg-purple-600 hover:bg-purple-500 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition"
               >
                 + AI Agent
               </button>
               <button 
                 onClick={() => addNode("hangup")}
-                className="px-2.5 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[10px] font-extrabold rounded-lg transition"
+                className="px-2.5 py-1 bg-primary hover:bg-primary text-white text-[10px] font-extrabold rounded-lg transition"
               >
                 + Kapat
               </button>
@@ -1076,7 +1137,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     {/* Right side output port connector dot */}
                     {["play", "setvalue", "transfer", "tts", "did", "stargate_out"].includes(node.type) && (
                       <div
-                        className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-blue-500 border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                        className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                         onMouseDown={(e) => {
                           handlePortMouseDown(e, node.id, "output");
                         }}
@@ -1091,17 +1152,17 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                     <div
                       onMouseDown={(e) => handleNodeMouseDown(e, node)}
                       className={`px-3 py-2 rounded-t-xl cursor-move flex items-center justify-between font-bold text-[10px] text-white shrink-0 ${
-                        node.type === "play" ? "bg-amber-500" :
+                        node.type === "play" ? "bg-primary" :
                         node.type === "menu" ? "bg-sky-500" :
-                        node.type === "setvalue" ? "bg-blue-600" :
+                        node.type === "setvalue" ? "bg-primary" :
                         node.type === "transfer" ? "bg-slate-600" :
-                        node.type === "tts" ? "bg-rose-500" :
-                        node.type === "sr" ? "bg-purple-600" :
+                        node.type === "tts" ? "bg-primary" :
+                        node.type === "sr" ? "bg-primary" :
                         node.type === "compare" ? "bg-cyan-600" :
-                        node.type === "did" ? "bg-indigo-600" :
-                        node.type === "timerule" ? "bg-amber-600" :
-                        node.type === "ai_agent" ? "bg-purple-600" :
-                        node.type === "hangup" ? "bg-rose-600" :
+                        node.type === "did" ? "bg-primary" :
+                        node.type === "timerule" ? "bg-primary" :
+                        node.type === "ai_agent" ? "bg-primary" :
+                        node.type === "hangup" ? "bg-primary" :
                         node.type === "stargate_in" ? "bg-cyan-600" :
                         node.type === "stargate_out" ? "bg-teal-600" : "bg-slate-600"
                       }`}
@@ -1163,7 +1224,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       )}
 
                       {node.type === "setvalue" && (
-                        <div className="text-[10px] font-mono text-blue-600 dark:text-blue-400 border border-blue-50 dark:border-slate-800 rounded bg-blue-50/20 dark:bg-slate-950/40 p-1.5 truncate text-center font-bold">
+                        <div className="text-[10px] font-mono text-primary dark:text-blue-400 border border-blue-50 dark:border-slate-800 rounded bg-blue-50/20 dark:bg-slate-950/40 p-1.5 truncate text-center font-bold">
                           {node.value || "Değişken = değer"}
                         </div>
                       )}
@@ -1171,13 +1232,13 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       {node.type === "transfer" && (
                         <div className="flex flex-col gap-1 w-full text-left">
                           <div className="flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded p-1.5">
-                            <ArrowRight size={10} className="text-indigo-500" />
+                            <ArrowRight size={10} className="text-primary" />
                             <span className="text-[9px] font-extrabold text-slate-600 dark:text-slate-350 truncate">
                               {node.extra_fields?.transfer_type === "kuyruk" ? "Kuyruk" : "Dahili"}: {node.value || "Belirlenmedi"}
                             </span>
                           </div>
                           {node.extra_fields?.play_announcement && (
-                            <div className="text-[8px] font-bold text-indigo-650 dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100/40 rounded px-1.5 py-0.5 text-center truncate italic">
+                            <div className="text-[8px] font-bold text-primary dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100/40 rounded px-1.5 py-0.5 text-center truncate italic">
                               {node.extra_fields?.announcement_type === "tts" ? "Anons (TTS)" : "Anons (Ses Dosyası)"}
                             </div>
                           )}
@@ -1185,7 +1246,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       )}
 
                       {node.type === "tts" && (
-                        <div className="text-[9px] font-semibold text-rose-600 dark:text-rose-400 border border-rose-50 dark:border-slate-800/60 rounded bg-rose-50/25 dark:bg-slate-950/40 p-2 leading-relaxed overflow-hidden h-[90px] text-justify select-text whitespace-normal break-words italic">
+                        <div className="text-[9px] font-semibold text-primary dark:text-rose-400 border border-rose-50 dark:border-slate-800/60 rounded bg-rose-50/25 dark:bg-slate-950/40 p-2 leading-relaxed overflow-hidden h-[90px] text-justify select-text whitespace-normal break-words italic">
                           {node.value || "Metin girilmedi"}
                         </div>
                       )}
@@ -1202,7 +1263,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             <div key={opt} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/60 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-600 dark:text-slate-400 font-mono text-[9px]">{opt}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-blue-500 border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt)}
                                 onClick={(e) => handlePortClick(e, node.id, opt, false)}
@@ -1222,7 +1283,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             <div key={opt} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/65 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-500 dark:text-slate-400 font-mono text-[9px]">{opt}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-blue-500 border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                                 onClick={(e) => handlePortClick(e, node.id, opt, false)}
                                 title={`Koşul ${opt} çıkışı`}
                               />
@@ -1234,7 +1295,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       {node.type === "sr" && (
                         <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
                           <div className="text-[8px] text-slate-400 border-b border-slate-100 dark:border-slate-800 pb-1.5 space-y-0.5">
-                            <div>Context: <span className="font-mono text-purple-600 dark:text-purple-400">{node.value}</span></div>
+                            <div>Context: <span className="font-mono text-primary dark:text-purple-400">{node.value}</span></div>
                             <div>Değişken: <span className="font-mono text-slate-655 dark:text-slate-350">{node.extra_fields?.variable_name}</span></div>
                           </div>
                           
@@ -1242,7 +1303,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             <div key={opt} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-500 dark:text-slate-400 font-mono text-[9px]">{opt}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-blue-500 border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                                 onClick={(e) => handlePortClick(e, node.id, opt, false)}
                                 title={`Güven skoru ${opt}% çıkışı`}
                               />
@@ -1252,14 +1313,14 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       )}
 
                       {node.type === "did" && (
-                        <div className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30 rounded bg-indigo-50/20 dark:bg-slate-950/40 p-2 truncate text-center font-bold">
+                        <div className="text-[10px] font-mono text-primary dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30 rounded bg-indigo-50/20 dark:bg-slate-950/40 p-2 truncate text-center font-bold">
                           {node.extra_fields?.is_wildcard ? "Tüm DID'ler (x.)" : (node.extra_fields?.did_numbers || "DID girilmedi")}
                         </div>
                       )}
 
                       {node.type === "timerule" && (
                         <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
-                          <div className="text-[9px] font-bold text-amber-600 dark:text-amber-400 p-1 text-center truncate italic">
+                          <div className="text-[9px] font-bold text-primary dark:text-amber-400 p-1 text-center truncate italic">
                             {node.extra_fields?.start_time || "09:00"} - {node.extra_fields?.end_time || "18:00"}
                           </div>
                           {[
@@ -1270,7 +1331,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             <div key={opt.id} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/60 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-500 dark:text-slate-400 font-mono text-[8px]">{opt.label}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-blue-500 border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt.id)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt.id)}
                                 onClick={(e) => handlePortClick(e, node.id, opt.id, false)}
@@ -1283,8 +1344,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
                       {node.type === "ai_agent" && (
                         <div className="flex flex-col gap-1 w-full text-[10px] font-bold">
-                          <div className="text-[10px] font-mono text-purple-650 dark:text-purple-400 border border-purple-100 dark:border-purple-900/30 rounded bg-purple-50/20 dark:bg-slate-950/40 p-2 truncate text-center flex items-center justify-center gap-1.5 h-8 mb-0.5">
-                            <Bot size={12} className="text-purple-500 animate-pulse" />
+                          <div className="text-[10px] font-mono text-primary dark:text-purple-400 border border-purple-100 dark:border-purple-900/30 rounded bg-purple-50/20 dark:bg-slate-950/40 p-2 truncate text-center flex items-center justify-center gap-1.5 h-8 mb-0.5">
+                            <Bot size={12} className="text-primary animate-pulse" />
                             <span className="truncate font-bold">
                               {aiAgents.find((a) => a.id === node.value)?.name || node.value || "Temsilci Seçilmedi"}
                             </span>
@@ -1293,7 +1354,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             <div key={opt} className="h-[30px] flex items-center justify-end pr-2 bg-slate-50/60 dark:bg-slate-955/35 border border-slate-100/60 dark:border-slate-850 rounded-lg relative select-none">
                               <span className="text-slate-655 dark:text-slate-400 font-mono text-[9px] truncate mr-1.5">{opt}</span>
                               <div
-                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-blue-500 border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
+                                className="port absolute right-0 top-1/2 transform translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-primary border-2 border-white dark:border-slate-900 rounded-full cursor-pointer z-20 hover:scale-125 transition"
                                 onMouseDown={(e) => handlePortMouseDown(e, node.id, opt)}
                                 onMouseUp={(e) => handlePortMouseUp(e, node.id, opt)}
                                 onClick={(e) => handlePortClick(e, node.id, opt, false)}
@@ -1305,8 +1366,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       )}
 
                       {node.type === "hangup" && (
-                        <div className="text-[10px] font-mono text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30 rounded bg-rose-50/20 dark:bg-slate-950/40 p-2 truncate text-center font-bold flex items-center justify-center gap-1.5 h-8">
-                          <PhoneOff size={11} className="text-rose-500 animate-pulse" />
+                        <div className="text-[10px] font-mono text-primary dark:text-rose-400 border border-rose-100 dark:border-rose-900/30 rounded bg-rose-50/20 dark:bg-slate-950/40 p-2 truncate text-center font-bold flex items-center justify-center gap-1.5 h-8">
+                          <PhoneOff size={11} className="text-primary animate-pulse" />
                           <span className="truncate">Aramayı Sonlandır</span>
                         </div>
                       )}
@@ -1346,17 +1407,17 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
                 <div className="flex items-center gap-2">
                   <div className={`p-2 rounded-xl text-white ${
-                    node.type === "play" ? "bg-amber-500" :
+                    node.type === "play" ? "bg-primary" :
                     node.type === "menu" ? "bg-sky-500" :
-                    node.type === "setvalue" ? "bg-blue-600" :
+                    node.type === "setvalue" ? "bg-primary" :
                     node.type === "transfer" ? "bg-slate-600" :
-                    node.type === "tts" ? "bg-rose-500" :
-                    node.type === "sr" ? "bg-purple-600" :
+                    node.type === "tts" ? "bg-primary" :
+                    node.type === "sr" ? "bg-primary" :
                     node.type === "compare" ? "bg-cyan-600" :
-                    node.type === "did" ? "bg-indigo-600" :
-                    node.type === "timerule" ? "bg-amber-600" :
-                    node.type === "ai_agent" ? "bg-purple-600" :
-                    node.type === "hangup" ? "bg-rose-600" :
+                    node.type === "did" ? "bg-primary" :
+                    node.type === "timerule" ? "bg-primary" :
+                    node.type === "ai_agent" ? "bg-primary" :
+                    node.type === "hangup" ? "bg-primary" :
                     node.type === "stargate_in" ? "bg-cyan-600" :
                     node.type === "stargate_out" ? "bg-teal-600" : "bg-slate-600"
                   }`}>
@@ -1430,7 +1491,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         }));
                       }}
                       className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                        node.extra_fields?.is_wildcard ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-800"
+                        node.extra_fields?.is_wildcard ? "bg-primary" : "bg-slate-200 dark:bg-slate-800"
                       }`}
                     >
                       <span
@@ -1465,7 +1526,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         <button
                           type="button"
                           onClick={() => handleAddDidNumber(node.id)}
-                          className="self-end px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl h-[38px] transition cursor-pointer"
+                          className={`self-end px-4 py-2 ${bg} ${hover} text-white text-xs font-bold rounded-xl h-[38px] transition cursor-pointer`}
                         >
                           Ekle
                         </button>
@@ -1487,7 +1548,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       <div className="flex flex-col gap-2 text-left">
                         <div className="flex items-center justify-between text-[10px] text-slate-450 dark:text-slate-550 font-bold uppercase tracking-wider">
                           <span>Numara Listesi</span>
-                          <span className="font-mono text-[9px] text-indigo-600 dark:text-indigo-400 font-extrabold bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded">
+                          <span className="font-mono text-[9px] text-primary dark:text-indigo-400 font-extrabold bg-indigo-50 dark:bg-indigo-950/50 px-2 py-0.5 rounded">
                             {getDidList(node).length} Adet
                           </span>
                         </div>
@@ -1525,7 +1586,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                       <button
                                         type="button"
                                         onClick={() => handleConfirmEditDid(node.id, absoluteIndex)}
-                                        className="px-2 py-1 bg-emerald-600 text-white text-[9px] font-bold rounded-lg cursor-pointer"
+                                        className="px-2 py-1 bg-primary text-white text-[9px] font-bold rounded-lg cursor-pointer"
                                       >
                                         Tamam
                                       </button>
@@ -1547,14 +1608,14 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                             setEditingDidIndex(absoluteIndex);
                                             setEditingDidValue(did);
                                           }}
-                                          className="text-[9px] font-extrabold text-indigo-600 hover:underline hover:text-indigo-500 cursor-pointer"
+                                          className="text-[9px] font-extrabold text-primary hover:underline hover:text-primary cursor-pointer"
                                         >
                                           Düzenle
                                         </button>
                                         <button
                                           type="button"
                                           onClick={() => handleDeleteDidNumber(node.id, absoluteIndex)}
-                                          className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-450 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                          className="p-1 text-slate-400 hover:text-primary dark:hover:text-rose-450 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                                         >
                                           <Trash2 size={11} />
                                         </button>
@@ -1609,7 +1670,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 }}
                                 className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
                                   active
-                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 border-indigo-250"
+                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary border-indigo-250"
                                     : "bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800"
                                 }`}
                               >
@@ -1693,7 +1754,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 }}
                                 className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
                                   active
-                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 border-indigo-250"
+                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary border-indigo-250"
                                     : "bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800"
                                 }`}
                               >
@@ -1771,7 +1832,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 isActive
                                   ? isSpecial
                                     ? "bg-rose-50 dark:bg-rose-950/20 text-rose-650 border-rose-250 font-black"
-                                    : "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 border-indigo-250 font-black"
+                                    : "bg-indigo-50 dark:bg-indigo-950/20 text-primary border-indigo-250 font-black"
                                   : "bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800"
                               }`}
                             >
@@ -1852,7 +1913,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 }}
                                 className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
                                   active
-                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 border-indigo-250"
+                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary border-indigo-250"
                                     : "bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800"
                                 }`}
                               >
@@ -1897,7 +1958,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                           type="button"
                           onClick={() => handleUpdateNodeExtraField("play_announcement", !playAnnouncement)}
                           className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                            playAnnouncement ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-800"
+                            playAnnouncement ? "bg-primary" : "bg-slate-200 dark:bg-slate-800"
                           }`}
                         >
                           <span
@@ -1926,7 +1987,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                     onClick={() => handleUpdateNodeExtraField("announcement_type", t.id)}
                                     className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
                                       active
-                                        ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 border-indigo-250"
+                                        ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary border-indigo-250"
                                         : "bg-white dark:bg-slate-900 text-slate-400 border-slate-200 dark:border-slate-800"
                                     }`}
                                   >
@@ -2174,7 +2235,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       <button
                         type="button"
                         onClick={() => handleAddHoliday(node.id)}
-                        className="self-end px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white text-xs font-bold rounded-xl h-[34px] transition cursor-pointer"
+                        className="self-end px-3 py-1.5 bg-primary hover:bg-primary text-white text-xs font-bold rounded-xl h-[34px] transition cursor-pointer"
                       >
                         Ekle
                       </button>
@@ -2231,7 +2292,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                   {/* Transfer Rules / Intent Routing */}
                   <div className="flex flex-col gap-2.5 border-t border-slate-100 dark:border-slate-800/80 pt-3">
                     <div className="flex flex-col gap-1">
-                      <span className="text-xs font-bold text-purple-600 dark:text-purple-400 flex items-center gap-1">
+                      <span className="text-xs font-bold text-primary dark:text-purple-400 flex items-center gap-1">
                         <ArrowRight size={13} /> Çağrı Aktarma Kuralları (Intent Routing) 
                       </span>
                       <p className="text-[10px] text-slate-500 dark:text-slate-450 leading-normal">
@@ -2254,7 +2315,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                       <button
                         type="button"
                         onClick={() => handleAddAgentOption(node.id)}
-                        className="px-4 py-1.5 bg-purple-600 hover:bg-purple-500 text-white text-xs font-bold rounded-xl h-[34px] transition cursor-pointer self-end shrink-0"
+                        className="px-4 py-1.5 bg-primary hover:bg-primary text-white text-xs font-bold rounded-xl h-[34px] transition cursor-pointer self-end shrink-0"
                       >
                         Ekle
                       </button>
@@ -2271,13 +2332,13 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         ) : (
                           node.options.map((opt, idx) => (
                             <div key={idx} className="p-2 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-955 transition text-xs">
-                              <span className="font-bold text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 rounded text-[10px]">
+                              <span className="font-bold text-primary dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40 px-2 py-0.5 rounded text-[10px]">
                                 {opt}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => handleDeleteAgentOption(node.id, opt)}
-                                className="p-1 text-slate-400 hover:text-rose-600 dark:hover:text-rose-500 rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                                className="p-1 text-slate-400 hover:text-primary dark:hover:text-primary rounded hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
                               >
                                 <Trash2 size={11} />
                               </button>
@@ -2294,8 +2355,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
               {node.type === "hangup" && (
                 <div className="flex flex-col gap-1.5 text-left">
                   <div className="p-3 bg-rose-50/20 dark:bg-rose-950/10 border border-rose-100/40 dark:border-rose-900/35 rounded-xl flex flex-col gap-2">
-                    <span className="text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-                      <PhoneOff size={13} className="text-rose-500" /> Çağrıyı Sonlandırma Düğümü
+                    <span className="text-xs font-bold text-primary dark:text-rose-400 flex items-center gap-1.5">
+                      <PhoneOff size={13} className="text-primary" /> Çağrıyı Sonlandırma Düğümü
                     </span>
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 leading-normal">
                       Bu düğüme gelen aramalar otomatik olarak sonlandırılır (hangup). Bu işlem sonrasında akış biter.
@@ -2357,7 +2418,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                 <button
                   type="button"
                   onClick={closeNodeModal}
-                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer"
+                  className={`px-5 py-2.5 ${bg} ${hover} text-white text-xs font-bold rounded-xl shadow-md transition cursor-pointer`}
                 >
                   Tamam
                 </button>

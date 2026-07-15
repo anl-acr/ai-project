@@ -4,6 +4,10 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-primary: 99, 102, 241;
+}
+
 body {
   @apply bg-slate-50 text-slate-900 transition-colors duration-300 ease-in-out;
 }

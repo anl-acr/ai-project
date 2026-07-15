@@ -457,7 +457,7 @@ export default function CallChatWidget({
           {totalTrafficCount > 0 && (
             <>
               <div className="w-[1px] h-3.5 bg-slate-200 dark:bg-slate-800" />
-              <div className="flex items-center gap-1.5 text-[10px] text-rose-500 font-extrabold animate-pulse">
+              <div className="flex items-center gap-1.5 text-[10px] text-primary font-extrabold animate-pulse">
                 {activeCalls.length > 0 ? (
                   <PhoneCall size={11} className="animate-bounce" />
                 ) : (
@@ -510,11 +510,11 @@ export default function CallChatWidget({
               }}
               className={`flex-1 py-3 text-center transition-colors border-b-2 flex items-center justify-center gap-1.5 ${
                 activeTab === "phone"
-                  ? "text-rose-600 dark:text-rose-450 border-rose-500"
+                  ? "text-primary dark:text-rose-450 border-rose-500"
                   : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-white"
               }`}
             >
-              <Radio size={11} className={callStatus !== "Idle" ? "animate-pulse text-rose-500" : ""} />
+              <Radio size={11} className={callStatus !== "Idle" ? "animate-pulse text-primary" : ""} />
               <span>Telefon</span>
             </button>
 
@@ -526,7 +526,7 @@ export default function CallChatWidget({
               }}
               className={`flex-1 py-3 text-center transition-colors border-b-2 flex items-center justify-center gap-1.5 ${
                 activeTab === "traffic"
-                  ? "text-rose-600 dark:text-rose-450 border-rose-500"
+                  ? "text-primary dark:text-rose-450 border-rose-500"
                   : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-white"
               }`}
             >
@@ -539,7 +539,7 @@ export default function CallChatWidget({
               onClick={() => setActiveTab("chat")}
               className={`flex-1 py-3 text-center transition-colors border-b-2 flex items-center justify-center gap-1.5 ${
                 activeTab === "chat"
-                  ? "text-rose-600 dark:text-rose-450 border-rose-500"
+                  ? "text-primary dark:text-rose-450 border-rose-500"
                   : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-white"
               }`}
             >
@@ -560,8 +560,8 @@ export default function CallChatWidget({
                 {/* Connection Banner */}
                 <div className={`p-3 rounded-2xl border flex items-center justify-between ${
                   registered 
-                    ? "bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-200/60 dark:border-emerald-900/40 text-emerald-600 dark:text-emerald-400"
-                    : "bg-rose-50/50 dark:bg-rose-950/10 border-rose-200/60 dark:border-rose-900/40 text-rose-600 dark:text-rose-455"
+                    ? "bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-200/60 dark:border-emerald-900/40 text-primary dark:text-emerald-400"
+                    : "bg-rose-50/50 dark:bg-rose-950/10 border-rose-200/60 dark:border-rose-900/40 text-primary dark:text-rose-455"
                 }`}>
                   <div className="flex items-center gap-2">
                     {registered ? <Wifi size={14} /> : <WifiOff size={14} />}
@@ -589,11 +589,11 @@ export default function CallChatWidget({
 
                   {callStatus === "Ringing" && (
                     <div className="py-2 space-y-3">
-                      <div className="h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-950/20 border border-amber-250 text-amber-500 flex items-center justify-center mx-auto animate-bounce">
+                      <div className="h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-950/20 border border-amber-250 text-primary flex items-center justify-center mx-auto animate-bounce">
                         <PhoneCall size={20} className="animate-pulse" />
                       </div>
                       <div>
-                        <p className="text-amber-600 dark:text-amber-400 font-extrabold text-xs uppercase tracking-widest">YAPAY ZEKADAN AKTARIM</p>
+                        <p className="text-primary dark:text-amber-400 font-extrabold text-xs uppercase tracking-widest">YAPAY ZEKADAN AKTARIM</p>
                         <p className="text-[10px] text-slate-450 dark:text-slate-400 mt-1">Çağrı kuyruğunuz çalıyor...</p>
                       </div>
 
@@ -601,13 +601,13 @@ export default function CallChatWidget({
                       <div className="flex justify-center gap-3 pt-2">
                         <button
                           onClick={answerCall}
-                          className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-emerald-600/10 flex items-center justify-center gap-1.5"
+                          className="flex-1 py-2.5 bg-primary hover:bg-primary text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-emerald-600/10 flex items-center justify-center gap-1.5"
                         >
                           <Phone size={13} /> Cevapla
                         </button>
                         <button
                           onClick={hangupCall}
-                          className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-rose-600/10 flex items-center justify-center gap-1.5"
+                          className="flex-1 py-2.5 bg-primary hover:bg-primary text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-rose-600/10 flex items-center justify-center gap-1.5"
                         >
                           <PhoneOff size={13} /> Reddet
                         </button>
@@ -619,7 +619,7 @@ export default function CallChatWidget({
                     <div className="py-2 space-y-4">
                       <div className="flex justify-between items-center gap-4">
                         <div className="flex items-center gap-2">
-                          <div className="h-10 w-10 rounded-full bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-250 text-emerald-600 flex items-center justify-center animate-pulse shrink-0">
+                          <div className="h-10 w-10 rounded-full bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-250 text-primary flex items-center justify-center animate-pulse shrink-0">
                             <Phone size={18} />
                           </div>
                           <div className="text-left">
@@ -633,7 +633,7 @@ export default function CallChatWidget({
                         {/* InCall Hangup Button */}
                         <button
                           onClick={hangupCall}
-                          className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-[10px] tracking-wide shadow-md shadow-rose-600/10 flex items-center justify-center gap-1.5"
+                          className="px-3.5 py-2 bg-primary hover:bg-primary text-white rounded-xl font-bold text-[10px] tracking-wide shadow-md shadow-rose-600/10 flex items-center justify-center gap-1.5"
                         >
                           <PhoneOff size={11} /> Kapat
                         </button>
@@ -645,14 +645,14 @@ export default function CallChatWidget({
                           {/* Header */}
                           <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-1 justify-between">
                             <span className="text-[9px] font-extrabold text-slate-450 uppercase tracking-wider flex items-center gap-1">
-                              <Fingerprint size={12} className="text-indigo-500" /> Biyometrik Güvenlik
+                              <Fingerprint size={12} className="text-primary" /> Biyometrik Güvenlik
                             </span>
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
                           </div>
 
                           {biometricStatus.status === "verified" && (
                             <div className="space-y-1.5">
-                              <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
+                              <div className="flex items-center gap-1.5 text-primary dark:text-emerald-400">
                                 <CheckCircle size={13} className="shrink-0" />
                                 <span className="text-[10px] font-bold">Biyometrik Kimlik Doğrulandı</span>
                               </div>
@@ -664,7 +664,7 @@ export default function CallChatWidget({
                                 </div>
                                 <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
                                   <div 
-                                    className="bg-emerald-500 h-1.5 rounded-full transition-all duration-500"
+                                    className="bg-primary h-1.5 rounded-full transition-all duration-500"
                                     style={{ width: `${biometricStatus.match_confidence}%` }}
                                   />
                                 </div>
@@ -672,14 +672,14 @@ export default function CallChatWidget({
                               
                               <div className="flex justify-between items-center text-[8px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-wider pt-0.5">
                                 <span>Deepfake Riski: %{biometricStatus.deepfake_risk}</span>
-                                <span className="text-emerald-600 font-black">GÜVENLİ</span>
+                                <span className="text-primary font-black">GÜVENLİ</span>
                               </div>
                             </div>
                           )}
 
                           {biometricStatus.status === "deepfake_alarm" && (
                             <div className="space-y-2 p-2 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-lg animate-pulse">
-                              <div className="flex items-center gap-1.5 text-rose-600 dark:text-rose-450">
+                              <div className="flex items-center gap-1.5 text-primary dark:text-rose-450">
                                 <ShieldAlert size={13} className="shrink-0" />
                                 <span className="text-[10px] font-extrabold uppercase tracking-wider">DEEPFAKE RİSK ALARMI!</span>
                               </div>
@@ -691,13 +691,13 @@ export default function CallChatWidget({
                                 </div>
                                 <div className="w-full bg-rose-100 dark:bg-rose-950 h-1.5 rounded-full overflow-hidden">
                                   <div 
-                                    className="bg-rose-600 h-1.5 rounded-full transition-all duration-500"
+                                    className="bg-primary h-1.5 rounded-full transition-all duration-500"
                                     style={{ width: `${biometricStatus.deepfake_risk}%` }}
                                   />
                                 </div>
                               </div>
                               
-                              <div className="text-[8px] font-black text-rose-600 bg-rose-100/50 dark:bg-rose-950/40 px-2 py-1 rounded text-center uppercase tracking-widest leading-normal">
+                              <div className="text-[8px] font-black text-primary bg-rose-100/50 dark:bg-rose-950/40 px-2 py-1 rounded text-center uppercase tracking-widest leading-normal">
                                 Kimlik Teyit Protokolü Öneriliyor!
                               </div>
                             </div>
@@ -705,7 +705,7 @@ export default function CallChatWidget({
 
                           {biometricStatus.status === "unknown" && (
                             <div className="space-y-1.5">
-                              <div className="flex items-center gap-1.5 text-amber-500">
+                              <div className="flex items-center gap-1.5 text-primary">
                                 <AlertTriangle size={13} className="shrink-0" />
                                 <span className="text-[10px] font-bold">Kayıtlı Ses İzi Bulunamadı</span>
                               </div>
@@ -714,7 +714,7 @@ export default function CallChatWidget({
                               <button
                                 onClick={handleSaveVoiceprint}
                                 disabled={savingVoiceprint}
-                                className="w-full py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/30 text-indigo-650 dark:text-indigo-455 border border-indigo-200/50 dark:border-indigo-900/30 rounded-xl text-[9px] font-extrabold transition flex items-center justify-center gap-1"
+                                className="w-full py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/30 dark:hover:bg-indigo-900/30 text-primary dark:text-indigo-455 border border-indigo-200/50 dark:border-indigo-900/30 rounded-xl text-[9px] font-extrabold transition flex items-center justify-center gap-1"
                               >
                                 <Fingerprint size={11} /> {savingVoiceprint ? "Kaydediliyor..." : "Ses İzini Şifreli Kaydet"}
                               </button>
@@ -729,8 +729,8 @@ export default function CallChatWidget({
 
                 {/* Error Banner */}
                 {error && (
-                  <div className="p-3.5 bg-rose-50 dark:bg-rose-950/25 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-rose-600 dark:text-rose-455 text-xs flex items-start gap-2.5">
-                    <ShieldAlert size={15} className="shrink-0 mt-0.5 text-rose-500" />
+                  <div className="p-3.5 bg-rose-50 dark:bg-rose-950/25 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-455 text-xs flex items-start gap-2.5">
+                    <ShieldAlert size={15} className="shrink-0 mt-0.5 text-primary" />
                     <span className="font-semibold">{error}</span>
                   </div>
                 )}
@@ -761,7 +761,7 @@ export default function CallChatWidget({
                         className="p-3.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-205 dark:border-slate-800/80 rounded-2xl flex items-center justify-between gap-3"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 rounded-xl animate-pulse">
+                          <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-primary rounded-xl animate-pulse">
                             <PhoneCall size={13} />
                           </div>
                           <div>
@@ -804,13 +804,13 @@ export default function CallChatWidget({
                         className="w-full p-3 bg-slate-50/50 dark:bg-slate-950/10 hover:bg-slate-50 dark:hover:bg-slate-950/30 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl flex items-center justify-between gap-3 transition-colors text-left"
                       >
                         <div className="flex items-center gap-3 truncate">
-                          <div className="w-8 h-8 rounded-full bg-rose-500/10 dark:bg-rose-500/20 flex items-center justify-center text-rose-500 font-extrabold text-[10px] shrink-0">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary font-extrabold text-[10px] shrink-0">
                             {session.customerName.charAt(0)}
                           </div>
                           <div className="truncate">
                             <p className="text-[11px] font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
                               {session.customerName}
-                              <span className="px-1 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border border-emerald-200/30 text-[7px] font-extrabold uppercase">
+                              <span className="px-1 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border border-emerald-200/30 text-[7px] font-extrabold uppercase">
                                 {session.platform}
                               </span>
                             </p>
@@ -821,7 +821,7 @@ export default function CallChatWidget({
                         </div>
 
                         {session.unread > 0 && (
-                          <span className="h-4 w-4 bg-rose-500 rounded-full flex items-center justify-center text-[8px] font-extrabold text-white shrink-0">
+                          <span className="h-4 w-4 bg-primary rounded-full flex items-center justify-center text-[8px] font-extrabold text-white shrink-0">
                             {session.unread}
                           </span>
                         )}
@@ -854,7 +854,7 @@ export default function CallChatWidget({
                           <div
                             className={`p-2.5 rounded-2xl text-[10px] leading-relaxed font-semibold ${
                               m.sender === "agent"
-                                ? "bg-rose-500 text-white rounded-tr-none"
+                                ? "bg-primary text-white rounded-tr-none"
                                 : "bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 rounded-tl-none"
                             }`}
                           >
@@ -877,7 +877,7 @@ export default function CallChatWidget({
                       />
                       <button
                         type="submit"
-                        className="p-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl flex items-center justify-center shrink-0"
+                        className="p-2 bg-primary hover:bg-primary text-white rounded-xl flex items-center justify-center shrink-0"
                       >
                         <Send size={12} />
                       </button>

@@ -4,6 +4,9 @@ import {
   Plus, 
   Trash2, 
   Edit, 
+  Edit2,
+  Cpu,
+  Search,
   ArrowLeft, 
   Save, 
   Volume2, 
@@ -17,8 +20,10 @@ import {
   RefreshCw
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
   const [viewMode, setViewMode] = useState("list"); // list, edit
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -45,6 +50,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   // Custom Delete Modal states
   const [deleteTargetId, setDeleteTargetId] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -227,14 +233,24 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const filteredAgents = agents.filter((agent) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      agent.name.toLowerCase().includes(query) ||
+      agent.model.toLowerCase().includes(query) ||
+      agent.voice.toLowerCase().includes(query) ||
+      agent.system_instruction.toLowerCase().includes(query)
+    );
+  });
+
   if (viewMode === "list") {
     return (
-      <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 max-w-6xl w-full">
+      <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full">
         
         {/* Header bar */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-3 bg-purple-50 dark:bg-purple-600/20 text-purple-650 dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 rounded-2xl">
+            <div className="p-3 bg-purple-50 dark:bg-primary/20 text-primary dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 rounded-2xl">
               <Bot size={24} />
             </div>
             <div>
@@ -245,12 +261,27 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
             </div>
           </div>
 
-          <button
-            onClick={handleCreateNewAgent}
-            className="px-4 py-2 bg-indigo-650 hover:bg-indigo-600 text-white rounded-xl text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition duration-200 uppercase tracking-wider animate-in fade-in"
-          >
-            <Plus size={14} /> Yeni Temsilci Ekle
-          </button>
+          {/* Search Bar + "+" Icon Wrapper */}
+          <div className="flex items-center gap-2.5">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Temsilci ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
+              />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-550" />
+            </div>
+
+            <button
+              onClick={handleCreateNewAgent}
+              className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+              title="Yeni Temsilci Ekle"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Agents Grid List */}
@@ -259,76 +290,102 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
             Temsilci listesi yükleniyor...
           </div>
         ) : agents.length === 0 ? (
-          <div className="text-center py-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-3xl text-slate-505 dark:text-slate-450 font-semibold text-xs flex flex-col items-center justify-center gap-3 shadow-sm">
+          <div className="text-center py-20 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-850 rounded-3xl text-slate-505 dark:text-slate-450 font-semibold text-xs flex flex-col items-center justify-center gap-3 shadow-sm w-full">
             <Bot size={36} className="text-slate-300 dark:text-slate-700 animate-pulse" />
             <p>Kayıtlı herhangi bir yapay zeka temsilcisi bulunamadı.</p>
             <button
               onClick={handleCreateNewAgent}
-              className="mt-2 px-3.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border border-indigo-100 rounded-xl text-[10px] font-bold transition"
+              className="mt-2 px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 text-primary dark:text-rose-400 border border-rose-100 rounded-xl text-[10px] font-bold transition"
             >
               İlk Sanal Asistanı Oluştur
             </button>
           </div>
+        ) : filteredAgents.length === 0 ? (
+          <div className="p-12 text-center border-2 border-dashed border-slate-105 dark:border-slate-800 rounded-2xl text-slate-505 dark:text-slate-450 text-xs w-full">
+            Arama kriterine uygun yapay zeka temsilcisi bulunmuyor.
+          </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {agents.map((agent) => (
+          <div className="space-y-3.5 w-full">
+            {/* Column Header Row */}
+            <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
+              <div className="flex items-center gap-4 flex-1">
+                <div className="w-12 text-center shrink-0">Avatar</div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1 items-center">
+                  <div className="pl-1">Temsilci Adı / Durum</div>
+                  <div className="pl-1">Model / Sıcaklık (Temp)</div>
+                  <div className="pl-1">Ses / Sistem Yönergesi</div>
+                </div>
+              </div>
+              <div className="w-24 text-right pr-4 shrink-0">İşlemler</div>
+            </div>
+
+            {filteredAgents.map((agent) => (
               <div 
                 key={agent.id}
-                className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl p-5 flex flex-col justify-between gap-4 shadow-sm hover:shadow-md transition duration-200 animate-in fade-in"
+                className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-200 hover:scale-[1.005] w-full ${
+                  agent.status !== "active" ? "opacity-60" : ""
+                }`}
               >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${
-                      agent.status === "active"
-                        ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-700 dark:text-emerald-300 border-emerald-100 dark:border-emerald-900/30"
-                        : "bg-slate-50 dark:bg-slate-900 text-slate-550 dark:text-slate-400 border-slate-200 dark:border-slate-800"
-                    }`}>
-                      {agent.status === "active" ? "Aktif" : "Pasif"}
-                    </span>
-                    <div className="text-[10px] text-slate-400 font-mono">ID: {agent.id}</div>
+                {/* Left Side: Icon & Details */}
+                <div className="flex items-center gap-4 flex-1">
+                  <div className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-2.5 text-primary dark:text-rose-400 shrink-0 flex items-center justify-center">
+                    <Bot size={22} />
                   </div>
-
-                  <div>
-                    <h4 className="font-extrabold text-sm text-slate-850 dark:text-white leading-snug">{agent.name}</h4>
-                    <p className="text-[10px] text-slate-400 dark:text-slate-500 font-semibold mt-1">
-                      Model: <span className="font-mono text-slate-700 dark:text-slate-350">{agent.model}</span> | 
-                      Temp: <span className="font-mono text-slate-700 dark:text-slate-350">{agent.temperature}</span>
-                    </p>
-                  </div>
-
-                  <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/60 flex flex-col gap-1.5">
-                    <div className="flex items-center gap-1.5 text-[10px] text-slate-505 dark:text-slate-400 font-semibold">
-                      <Volume2 size={12} className="text-slate-400" />
-                      <span>
-                        Ses: {agent.voice} ({
-                          agent.tone === "calm" ? "Sakin" :
-                          agent.tone === "attractive" ? "Çekici" :
-                          agent.tone === "firm" ? "Sert" : "Normal"
-                        })
-                      </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1 items-center">
+                    <div>
+                      <h4 className="font-bold text-xs text-slate-800 dark:text-white flex items-center gap-1.5">
+                        {agent.name}
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border ${
+                          agent.status === "active"
+                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30"
+                            : "bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200/60 dark:border-slate-800"
+                        }`}>
+                          {agent.status === "active" ? "Aktif" : "Pasif"}
+                        </span>
+                      </h4>
+                      <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">ID: {agent.id}</p>
                     </div>
-                    <div className="flex items-start gap-1.5 text-[10px] text-slate-400 dark:text-slate-505 leading-normal italic line-clamp-2">
-                      <FileText size={12} className="text-slate-400 mt-0.5 shrink-0" />
-                      <span>{agent.system_instruction}</span>
+
+                    <div className="text-[10px] text-slate-505 dark:text-slate-400 space-y-1">
+                      <div className="flex items-center gap-1.5 font-semibold">
+                        <Cpu size={12} className="text-slate-400 shrink-0" />
+                        <span className="truncate">{agent.model}</span>
+                      </div>
+                      <div className="text-[9px] text-slate-400 dark:text-slate-500">
+                        Sıcaklık (Temp): <span className="font-mono">{agent.temperature}</span>
+                      </div>
+                    </div>
+
+                    <div className="text-[10px] text-slate-505 dark:text-slate-400 space-y-1 min-w-0">
+                      <div className="flex items-center gap-1.5 font-semibold">
+                        <Volume2 size={12} className="text-slate-400 shrink-0" />
+                        <span className="truncate">{agent.voice}</span>
+                      </div>
+                      <div className="text-[9px] text-slate-400 dark:text-slate-500 truncate italic" title={agent.system_instruction}>
+                        {agent.system_instruction}
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="flex gap-2 pt-3 border-t border-slate-100 dark:border-slate-850">
-                  <button
-                    onClick={() => handleEditAgent(agent)}
-                    className="flex-1 py-2 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/25 text-indigo-650 dark:text-indigo-400 border border-indigo-100/60 dark:border-indigo-900/30 rounded-xl text-[10px] font-bold flex items-center justify-center gap-1.5 transition"
-                  >
-                    <Edit size={12} /> Düzenle & Yapılandır
-                  </button>
-                  
-                  <button
-                    onClick={(e) => openDeleteModal(e, agent.id)}
-                    className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 border border-transparent hover:border-rose-100/50 rounded-xl transition"
-                    title="Temsilciyi Sil"
-                  >
-                    <Trash2 size={12} />
-                  </button>
+                {/* Right Side: Actions */}
+                <div className="flex items-center gap-4 justify-between sm:justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 dark:border-slate-800/60">
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleEditAgent(agent)}
+                      className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-white rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-200"
+                      title="Düzenle & Yapılandır"
+                    >
+                      <Edit2 size={12} />
+                    </button>
+                    <button
+                      onClick={(e) => openDeleteModal(e, agent.id)}
+                      className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-primary rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-250"
+                      title="Temsilciyi Sil"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}
@@ -390,7 +447,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
           <button
             onClick={handleSaveAgent}
             disabled={loading}
-            className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition duration-205 uppercase tracking-wider"
+            className={`px-4 py-1.5 ${bg} ${hover} text-white rounded-lg text-xs font-extrabold flex items-center gap-1.5 shadow-sm transition duration-205 uppercase tracking-wider`}
           >
             <Save size={13} /> {loading ? "Kaydediliyor..." : "Temsilciyi Kaydet"}
           </button>
@@ -399,7 +456,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
 
       {saveSuccess && (
         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-250 dark:border-emerald-800/40 rounded-xl text-emerald-750 dark:text-emerald-350 text-xs flex items-center gap-1.5 font-bold transition-all animate-in fade-in duration-200">
-          <CheckCircle size={14} className="text-emerald-500" />
+          <CheckCircle size={14} className="text-primary" />
           <span>Temsilci ayarları başarıyla kaydedildi, listeye dönülüyor.</span>
         </div>
       )}
@@ -413,7 +470,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
           {/* Voice select card */}
           <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <Volume2 size={16} className="text-indigo-500" />
+              <Volume2 size={16} className="text-primary" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">TTS Ses Profili Seçimi</h3>
             </div>
 
@@ -471,10 +528,10 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
                 type="button"
                 onClick={handleTestTtsVoice}
                 disabled={ttsLoading}
-                className={`py-2 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition shadow-sm ${
+                className={`py-2 px-4 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition shadow-sm text-white ${
                   isPlaying 
-                    ? "bg-rose-500 hover:bg-rose-600 text-white" 
-                    : "bg-pink-600 hover:bg-pink-700 text-white"
+                    ? "bg-slate-700 hover:bg-slate-800" 
+                    : `${bg} ${hover}`
                 }`}
               >
                 {ttsLoading ? (
@@ -503,7 +560,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
         <div className="md:col-span-1 flex flex-col gap-6">
           <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <Sliders size={16} className="text-purple-500" />
+              <Sliders size={16} className="text-primary" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Model Parametreleri</h3>
             </div>
 
@@ -523,7 +580,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-center text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">
                 <span>Yaratıcılık (Temperature)</span>
-                <span className="font-mono text-purple-650 dark:text-purple-450 font-bold">{agentTemperature}</span>
+                <span className="font-mono text-primary dark:text-primary font-bold">{agentTemperature}</span>
               </div>
               <input
                 type="range"
@@ -568,7 +625,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
         <div className="md:col-span-1 flex flex-col gap-6">
           <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm space-y-4 flex-1 h-full min-h-[360px]">
             <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <Layers size={16} className="text-emerald-500" />
+              <Layers size={16} className="text-primary" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Sistem Talimatı (Prompt)</h3>
             </div>
 

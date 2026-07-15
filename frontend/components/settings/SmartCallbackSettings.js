@@ -3,7 +3,7 @@ import { Save, CheckCircle, HelpCircle, Shuffle, Clock, Repeat, BarChart2 } from
 
 const InfoTooltip = ({ text }) => {
   return (
-    <div className="group relative inline-block ml-1 cursor-help text-slate-400 dark:text-slate-500 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors">
+    <div className="group relative inline-block ml-1 cursor-help text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-indigo-400 transition-colors">
       <HelpCircle size={12} className="inline-block align-middle" />
       <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block w-52 p-2.5 bg-slate-950/95 dark:bg-slate-900 border border-slate-800 dark:border-slate-800 rounded-xl shadow-2xl text-[10px] text-slate-200 dark:text-slate-300 font-semibold normal-case leading-relaxed text-center z-50 transition-all duration-200">
         {text}
@@ -76,10 +76,10 @@ export default function SmartCallbackSettings({ backendHost = "localhost:8000" }
   };
 
   return (
-    <div className="flex flex-col gap-8 text-slate-800 dark:text-slate-100 max-w-4xl w-full">
+    <div className="flex flex-col gap-8 text-slate-800 dark:text-slate-100 w-full">
       {/* Title */}
       <div className="flex items-center gap-3">
-        <div className="p-3 bg-indigo-50 dark:bg-indigo-600/20 text-indigo-500 dark:text-indigo-455 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl">
+        <div className="p-3 bg-indigo-50 dark:bg-primary/20 text-primary dark:text-indigo-455 border border-indigo-100 dark:border-indigo-900/40 rounded-2xl">
           <Shuffle size={24} />
         </div>
         <div>
@@ -96,7 +96,7 @@ export default function SmartCallbackSettings({ backendHost = "localhost:8000" }
           {/* Main Controls Card */}
           <div className="lg:col-span-2 flex flex-col gap-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl p-6 shadow-sm transition-colors duration-300">
             <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <Shuffle size={16} className="text-indigo-500" />
+              <Shuffle size={16} className="text-primary" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">Geri Arama Kuralları</h3>
             </div>
 
@@ -114,7 +114,7 @@ export default function SmartCallbackSettings({ backendHost = "localhost:8000" }
                   onChange={handleChange}
                   className="sr-only peer"
                 />
-                <div className="w-9 h-5 bg-slate-200 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                <div className="w-9 h-5 bg-slate-200 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
               </label>
             </div>
 
@@ -122,7 +122,7 @@ export default function SmartCallbackSettings({ backendHost = "localhost:8000" }
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <Clock size={12} className="text-indigo-500" />
+                  <Clock size={12} className="text-primary" />
                   Eşik Bekleme Süresi (Saniye)
                   <InfoTooltip text="Müşterinin kuyrukta tahmini bekleme süresi bu değeri aşarsa geri arama teklif edilir." />
                 </label>
@@ -140,7 +140,7 @@ export default function SmartCallbackSettings({ backendHost = "localhost:8000" }
 
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <BarChart2 size={12} className="text-indigo-500" />
+                  <BarChart2 size={12} className="text-primary" />
                   Eşik Kuyruk Boyutu (Kişi)
                   <InfoTooltip text="Kuyrukta bekleyen aktif müşteri sayısı bu sınıra ulaştığında geri arama teklif edilir." />
                 </label>
@@ -160,7 +160,7 @@ export default function SmartCallbackSettings({ backendHost = "localhost:8000" }
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center gap-1">
-                  <Repeat size={12} className="text-indigo-500" />
+                  <Repeat size={12} className="text-primary" />
                   Maksimum Deneme Sayısı
                   <InfoTooltip text="Geri arama sırasında müşteri çağrıya cevap vermezse sistemin en fazla kaç defa tekrar arayacağını belirtir." />
                 </label>
@@ -223,7 +223,7 @@ export default function SmartCallbackSettings({ backendHost = "localhost:8000" }
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 py-2.5 bg-indigo-650 hover:bg-indigo-600 disabled:bg-indigo-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-500/10 transition duration-200"
+              className="mt-2 py-2.5 bg-primary hover:bg-primary disabled:bg-indigo-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-500/10 transition duration-200"
             >
               <Save size={14} /> {loading ? "Kaydediliyor..." : "Geri Arama Ayarlarını Kaydet"}
             </button>
@@ -239,30 +239,30 @@ export default function SmartCallbackSettings({ backendHost = "localhost:8000" }
           {/* Info Card / Explainer (1/3 wide) */}
           <div className="flex flex-col gap-5 bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-5">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <HelpCircle size={14} className="text-indigo-500" />
+              <HelpCircle size={14} className="text-primary" />
               Nasıl Çalışır?
             </h4>
             <div className="space-y-4 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
               <div className="flex gap-2">
-                <span className="font-extrabold text-indigo-500">1.</span>
+                <span className="font-extrabold text-primary">1.</span>
                 <p>
                   Müşteri aradığında, tahmini bekleme süresi veya sıradaki kişi sayısı belirlediğiniz eşik değerlerini aşarsa, AI sesli asistanı geri arama teklif eder.
                 </p>
               </div>
               <div className="flex gap-2">
-                <span className="font-extrabold text-indigo-500">2.</span>
+                <span className="font-extrabold text-primary">2.</span>
                 <p>
                   Müşteri onay verip telefonu kapattığında, arama kuyruğu sistemde pasif şekilde sırasını korumaya devam eder.
                 </p>
               </div>
               <div className="flex gap-2">
-                <span className="font-extrabold text-indigo-500">3.</span>
+                <span className="font-extrabold text-primary">3.</span>
                 <p>
                   Sıra müşteriye geldiğinde ve uygun bir temsilci boşta (Available) kaldığında, sistem önce otomatik olarak temsilcinin dahili hattını arar.
                 </p>
               </div>
               <div className="flex gap-2">
-                <span className="font-extrabold text-indigo-500">4.</span>
+                <span className="font-extrabold text-primary">4.</span>
                 <p>
                   Temsilci aramayı yanıtladığı anda, sistem müşteriyi dış hattan geri arayarak iki hattı köprüler (Bridge).
                 </p>

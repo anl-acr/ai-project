@@ -71,13 +71,13 @@ export default function AddContactModal({ isOpen, onClose, initialPhone = "", in
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4 text-left">
           {errorMsg && (
-            <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold">
+            <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-primary dark:text-rose-400 text-xs font-semibold">
               {errorMsg}
             </div>
           )}
 
           {success && (
-            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-semibold flex items-center gap-1.5">
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-primary dark:text-emerald-400 text-xs font-semibold flex items-center gap-1.5">
               <CheckCircle size={14} />
               <span>Kişi başarıyla rehbere kaydedildi!</span>
             </div>
@@ -140,15 +140,13 @@ export default function AddContactModal({ isOpen, onClose, initialPhone = "", in
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 border border-slate-200/50 dark:border-slate-700 rounded-xl text-xs font-bold transition"
-            >
-              Vazgeç
-            </button>
+              className="px-4 py-2 hover: dark: dark:hover: dark: border dark: rounded-xl font-bold transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+            >Vazgeç</button>
             
             <button
               type="submit"
               disabled={loading}
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-bold shadow-md shadow-purple-500/10 transition"
+              className="px-4 py-2 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold shadow-md shadow-purple-500/10 transition"
             >
               {loading ? "Kaydediliyor..." : "Rehbere Ekle"}
             </button>

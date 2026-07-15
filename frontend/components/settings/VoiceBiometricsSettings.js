@@ -137,10 +137,10 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
   };
 
   return (
-    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 max-w-5xl w-full animate-in fade-in duration-200">
+    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full animate-in fade-in duration-200">
       {/* Title */}
       <div className="flex items-center gap-3 border-b border-slate-200/85 dark:border-slate-800/80 pb-4">
-        <div className="p-2.5 bg-indigo-50 dark:bg-indigo-600/20 text-indigo-650 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 rounded-2xl">
+        <div className="p-2.5 bg-indigo-50 dark:bg-primary/20 text-primary dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 rounded-2xl">
           <Fingerprint size={22} />
         </div>
         <div>
@@ -161,7 +161,7 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
         {/* Left Card: Core System Config */}
         <form onSubmit={saveSettings} className="lg:col-span-2 flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl gap-5 shadow-sm text-left">
           <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-            <Fingerprint size={16} className="text-indigo-550" />
+            <Fingerprint size={16} className="text-primary" />
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Güvenlik Yapılandırması</h3>
           </div>
 
@@ -177,7 +177,7 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
                 disabled={!hasWritePermission}
                 onClick={() => setBioEnabled(!bioEnabled)}
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  bioEnabled ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-800"
+                  bioEnabled ? "bg-primary" : "bg-slate-200 dark:bg-slate-800"
                 }`}
               >
                 <span
@@ -192,7 +192,7 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
             <div className="space-y-2">
               <div className="flex justify-between font-extrabold text-[10px] uppercase text-slate-750 dark:text-slate-300">
                 <span>Deepfake Risk Alarm Eşiği</span>
-                <span className="text-indigo-600 font-bold">%{bioThreshold}</span>
+                <span className="text-primary font-bold">%{bioThreshold}</span>
               </div>
               <input
                 type="range"
@@ -220,7 +220,7 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
                 disabled={!hasWritePermission}
                 onClick={() => setBioAutoBlacklist(!bioAutoBlacklist)}
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  bioAutoBlacklist ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-800"
+                  bioAutoBlacklist ? "bg-primary" : "bg-slate-200 dark:bg-slate-800"
                 }`}
               >
                 <span
@@ -236,7 +236,7 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
             <button
               type="submit"
               disabled={savingSettings}
-              className="mt-2 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:bg-indigo-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-500/10 transition duration-200"
+              className="mt-2 py-2.5 bg-primary hover:bg-primary disabled:bg-indigo-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-indigo-500/10 transition duration-200"
             >
               <Save size={14} /> {savingSettings ? "Kaydediliyor..." : "Ayarları Kaydet"}
             </button>
@@ -247,10 +247,10 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
         <div className="lg:col-span-3 flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl gap-4 shadow-sm text-left">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
             <div className="flex items-center gap-2">
-              <BookOpen size={16} className="text-indigo-550" />
+              <BookOpen size={16} className="text-primary" />
               <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">Kayıtlı Ses İmzaları</h3>
             </div>
-            <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-indigo-650 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30 rounded-full text-[9px] font-black font-mono">
+            <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950 text-primary dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/30 rounded-full text-[9px] font-black font-mono">
               {contacts.length} Kişi
             </span>
           </div>
@@ -289,15 +289,15 @@ export default function VoiceBiometricsSettings({ backendHost = "localhost:8000"
                           {c.first_name} {c.last_name}
                         </td>
                         <td className="py-2.5 px-3 font-mono text-[9px] text-slate-500">{c.phone_number}</td>
-                        <td className="py-2.5 px-3 font-mono text-[9px] text-emerald-600 dark:text-emerald-450 font-bold flex items-center gap-1">
-                          <ShieldCheck size={11} className="text-emerald-500 shrink-0" />
+                        <td className="py-2.5 px-3 font-mono text-[9px] text-primary dark:text-emerald-450 font-bold flex items-center gap-1">
+                          <ShieldCheck size={11} className="text-primary shrink-0" />
                           {c.voiceprint.replace("AES256:", "").slice(0, 10)}...
                         </td>
                         {hasWritePermission && (
                           <td className="py-2.5 px-3 text-right">
                             <button
                               onClick={() => triggerDeleteVoiceprint(c.phone_number, c.first_name, c.last_name)}
-                              className="p-1 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-450 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-md transition"
+                              className="p-1 text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-rose-450 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-md transition"
                               title="Ses İzini Sil"
                             >
                               <Trash2 size={12} />

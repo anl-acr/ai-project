@@ -16,8 +16,10 @@ import {
   HelpCircle
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   // Upload and Crawl inputs
   const [urlInput, setUrlInput] = useState("");
   const [pdfFile, setPdfFile] = useState(null);
@@ -256,7 +258,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
       {/* Page Title */}
       <div className="flex items-center justify-between border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
         <div className="flex items-center gap-3">
-          <div className="p-3 bg-purple-50 dark:bg-purple-600/20 text-purple-650 dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 rounded-2xl">
+          <div className="p-3 bg-purple-50 dark:bg-primary/20 text-primary dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 rounded-2xl">
             <Database size={24} />
           </div>
           <div>
@@ -269,7 +271,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
         
         {/* Status indicator */}
         <div className="flex items-center gap-2 text-[10px] bg-slate-100/60 dark:bg-slate-900 px-3 py-1.5 rounded-full border border-slate-200/65 dark:border-slate-800/80 font-bold uppercase tracking-wider text-slate-500">
-          <span className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse"></span>
+          <span className="h-2 w-2 bg-primary rounded-full animate-pulse"></span>
           Vector DB: pgvector (active)
         </div>
       </div>
@@ -283,7 +285,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
           {/* RAG Parameters Tuning Card */}
           <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
             <div className="flex items-center gap-2 mb-4 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <Sliders className="text-indigo-500 dark:text-indigo-400" size={18} />
+              <Sliders className="text-primary dark:text-indigo-400" size={18} />
               <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">RAG İndeksleme ve Arama Parametreleri (Tuning)</h3>
             </div>
             
@@ -330,7 +332,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
               <div className="flex flex-col gap-1.5">
                 <label className="text-[10px] text-slate-450 dark:text-slate-500 font-bold uppercase tracking-wider flex justify-between">
                   <span>Asgari Benzerlik Eşiği</span>
-                  <span className="font-mono font-bold text-indigo-550 dark:text-indigo-400">{Math.round(ragParams.similarity_threshold * 100)}%</span>
+                  <span className="font-mono font-bold text-primary dark:text-indigo-400">{Math.round(ragParams.similarity_threshold * 100)}%</span>
                 </label>
                 <div className="flex gap-2 items-center h-9">
                   <input
@@ -340,12 +342,12 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
                     step="0.05"
                     value={ragParams.similarity_threshold}
                     onChange={(e) => setRagParams((prev) => ({ ...prev, similarity_threshold: parseFloat(e.target.value) || 0.5 }))}
-                    className="flex-1 accent-indigo-600 cursor-pointer"
+                    className="w-full appearance-none bg-slate-200 dark:bg-slate-700 h-1.5 rounded-lg accent-primary"
                   />
                   <button
                     type="submit"
                     disabled={loading.saveParams}
-                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition flex items-center justify-center shrink-0 shadow-sm"
+                    className={`px-3 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition flex items-center justify-center shrink-0 shadow-sm`}
                   >
                     {loading.saveParams ? <RefreshCw size={12} className="animate-spin" /> : "Kaydet"}
                   </button>
@@ -360,12 +362,12 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
             {/* Web Site Crawling Card */}
             <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
               <div className="flex items-center gap-2 mb-4 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-                <Globe className="text-blue-500 dark:text-blue-400" size={18} />
-                <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">Web Sitesi Tarama</h3>
+                <Globe className="text-primary dark:text-blue-400" size={18} />
+                <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-330">Web Sitesi Tarama</h3>
               </div>
               <form onSubmit={handleCrawlUrl} className="flex flex-col gap-3 h-full justify-between">
                 <div className="flex flex-col gap-2">
-                  <label className="text-[10px] text-slate-450 dark:text-slate-500 font-bold uppercase tracking-wider">Taranacak URL</label>
+                  <label className="text-[10px] text-slate-450 dark:text-slate-505 font-bold uppercase tracking-wider">Taranacak URL</label>
                   <div className="flex gap-2">
                     <input
                       type="url"
@@ -373,32 +375,32 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
                       onChange={(e) => setUrlInput(e.target.value)}
                       placeholder="https://firmamiz.com/sss"
                       required
-                      className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-medium"
+                      className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-medium"
                     />
                     <button
                       type="submit"
                       disabled={loading.crawl}
-                      className="flex items-center justify-center p-2.5 bg-blue-600 hover:bg-blue-500 text-white disabled:bg-blue-800 transition rounded-xl shadow-sm"
+                      className={`flex items-center justify-center p-2.5 ${bg} ${hover} disabled:opacity-50 text-white transition rounded-xl shadow-sm`}
                     >
                       {loading.crawl ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
                     </button>
                   </div>
                 </div>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-3">Site içeriği taranarak pgvector veri tabanına eklenecektir.</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-505 font-medium mt-3">Site içeriği taranarak pgvector veri tabanına eklenecektir.</p>
               </form>
             </div>
 
             {/* PDF Upload Card */}
             <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
               <div className="flex items-center gap-2 mb-4 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-                <FileText className="text-emerald-600 dark:text-emerald-400" size={18} />
-                <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">PDF Dosya Yükleme</h3>
+                <FileText className="text-primary dark:text-emerald-400" size={18} />
+                <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-330">PDF Dosya Yükleme</h3>
               </div>
               <form onSubmit={handleUploadPdf} className="flex flex-col gap-3 h-full justify-between">
                 <div className="flex flex-col gap-2">
-                  <label className="text-[10px] text-slate-455 dark:text-slate-500 font-bold uppercase tracking-wider">PDF Belgesi Seç</label>
+                  <label className="text-[10px] text-slate-455 dark:text-slate-505 font-bold uppercase tracking-wider">PDF Belgesi Seç</label>
                   <div className="flex gap-2 items-center">
-                    <label className="flex-1 flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-505 dark:text-slate-450 cursor-pointer hover:border-slate-350 dark:hover:border-slate-700 transition font-medium overflow-hidden">
+                    <label className="flex-1 flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-505 dark:text-slate-450 cursor-pointer hover:border-slate-350 dark:hover:border-slate-700 transition font-medium overflow-hidden">
                       <span className="truncate mr-2">{pdfFile ? pdfFile.name : "Dosya seçilmedi..."}</span>
                       <Upload size={14} className="text-slate-400 dark:text-slate-505 shrink-0" />
                       <input
@@ -412,20 +414,20 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
                     <button
                       type="submit"
                       disabled={loading.upload}
-                      className="flex items-center justify-center p-2.5 bg-emerald-600 hover:bg-emerald-500 text-white disabled:bg-emerald-800 transition rounded-xl h-9 w-9 shrink-0 shadow-sm"
+                      className={`flex items-center justify-center p-2.5 ${bg} ${hover} disabled:opacity-50 text-white transition rounded-xl h-9 w-9 shrink-0 shadow-sm`}
                     >
                       {loading.upload ? <RefreshCw size={13} className="animate-spin" /> : <Upload size={13} />}
                     </button>
                   </div>
                 </div>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-3">PDF dökümanı parse edilerek anlam vektörleri üretilecektir.</p>
+                <p className="text-[10px] text-slate-400 dark:text-slate-505 font-medium mt-3">PDF dökümanı parse edilerek anlam vektörleri üretilecektir.</p>
               </form>
             </div>
 
             {/* Manual Data Snippet Card */}
             <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
               <div className="flex items-center gap-2 mb-4 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-                <Plus className="text-rose-500 dark:text-rose-450" size={18} />
+                <Plus className="text-primary dark:text-rose-450" size={18} />
                 <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300">Manuel Bilgi / SSS Ekle</h3>
               </div>
               <form onSubmit={handleManualSubmit} className="flex flex-col gap-3">
@@ -450,7 +452,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
                 <button
                   type="submit"
                   disabled={loading.manual}
-                  className="py-1.5 bg-rose-500 hover:bg-rose-600 disabled:bg-rose-700 text-white rounded-xl text-[10px] font-extrabold flex items-center justify-center gap-1 transition shadow-sm"
+                  className="py-1.5 bg-primary hover:bg-primary disabled:bg-rose-700 text-white rounded-xl text-[10px] font-extrabold flex items-center justify-center gap-1 transition shadow-sm"
                 >
                   {loading.manual ? <RefreshCw size={11} className="animate-spin" /> : <Send size={11} />} Bilgiyi İndeksle
                 </button>
@@ -466,7 +468,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
                 ? "bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200/50 dark:border-emerald-900/30 text-emerald-700 dark:text-emerald-355"
                 : "bg-rose-50 dark:bg-rose-950/20 border-rose-200/50 dark:border-rose-900/30 text-rose-700 dark:text-rose-350"
             }`}>
-              {status.type === "success" ? <CheckCircle size={15} className="text-emerald-500" /> : <AlertTriangle size={15} className="text-rose-500" />}
+              {status.type === "success" ? <CheckCircle size={15} className="text-primary" /> : <AlertTriangle size={15} className="text-primary" />}
               <span>{status.message}</span>
             </div>
           )}
@@ -499,15 +501,15 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
                           {src.name}
                         </td>
                         <td className="py-3 text-right pr-6">
-                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-full border border-emerald-100/50 dark:border-emerald-900/30">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+                          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold text-primary dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-full border border-emerald-100/50 dark:border-emerald-900/30">
+                            <span className="h-1.5 w-1.5 rounded-full bg-primary"></span>
                             İndekslendi
                           </span>
                         </td>
                         <td className="py-3 text-center">
                           <button
                             onClick={() => triggerDeleteSource(src.name)}
-                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 border border-transparent rounded-lg transition"
+                            className="p-1.5 text-slate-400 hover:text-primary hover:bg-rose-50 dark:hover:bg-rose-950/20 border border-transparent rounded-lg transition"
                             title="Kaynağı İndeksten Sil"
                           >
                             <Trash2 size={13} />
@@ -528,10 +530,10 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
           
           <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300 min-h-[580px]">
             <div className="flex items-center gap-2 mb-4 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <Search className="text-purple-600 dark:text-purple-400" size={18} />
+              <Search className="text-primary dark:text-purple-400" size={18} />
               <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1">
                 Vektör Arama Testi
-                <Sparkles size={11} className="text-amber-500 animate-pulse" />
+                <Sparkles size={11} className="text-primary animate-pulse" />
               </h3>
             </div>
             
@@ -547,7 +549,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
               <button
                 type="submit"
                 disabled={loading.search}
-                className="px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white transition rounded-xl font-bold text-xs flex items-center justify-center shrink-0 shadow-sm"
+                className="px-3.5 py-2 bg-primary hover:bg-primary/90 text-white transition rounded-xl font-bold text-xs flex items-center justify-center shrink-0 shadow-sm"
               >
                 {loading.search ? <RefreshCw size={13} className="animate-spin" /> : "Sorgula"}
               </button>
@@ -559,19 +561,19 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
               <div className="flex flex-wrap gap-1.5">
                 <button
                   onClick={() => handleQuickSearch("Çalışma saatleri")}
-                  className="px-2.5 py-1 bg-slate-50 hover:bg-purple-50 dark:bg-slate-950/60 dark:hover:bg-purple-950/20 text-slate-600 dark:text-slate-400 hover:text-purple-600 border border-slate-200/60 dark:border-slate-800/80 rounded-lg text-[9px] font-semibold transition"
+                  className="px-2.5 py-1 bg-slate-50 hover:bg-purple-50 dark:bg-slate-950/60 dark:hover:bg-purple-950/20 text-slate-600 dark:text-slate-400 hover:text-primary border border-slate-200/60 dark:border-slate-800/80 rounded-lg text-[9px] font-semibold transition"
                 >
                   Çalışma Saatleri
                 </button>
                 <button
                   onClick={() => handleQuickSearch("İletişim adresi")}
-                  className="px-2.5 py-1 bg-slate-50 hover:bg-purple-50 dark:bg-slate-950/60 dark:hover:bg-purple-950/20 text-slate-600 dark:text-slate-400 hover:text-purple-600 border border-slate-200/60 dark:border-slate-800/80 rounded-lg text-[9px] font-semibold transition"
+                  className="px-2.5 py-1 bg-slate-50 hover:bg-purple-50 dark:bg-slate-950/60 dark:hover:bg-purple-950/20 text-slate-600 dark:text-slate-400 hover:text-primary border border-slate-200/60 dark:border-slate-800/80 rounded-lg text-[9px] font-semibold transition"
                 >
                   İletişim Adresi
                 </button>
                 <button
                   onClick={() => handleQuickSearch("Kurulum adımları")}
-                  className="px-2.5 py-1 bg-slate-50 hover:bg-purple-50 dark:bg-slate-950/60 dark:hover:bg-purple-950/20 text-slate-600 dark:text-slate-400 hover:text-purple-600 border border-slate-200/60 dark:border-slate-800/80 rounded-lg text-[9px] font-semibold transition"
+                  className="px-2.5 py-1 bg-slate-50 hover:bg-purple-50 dark:bg-slate-950/60 dark:hover:bg-purple-950/20 text-slate-600 dark:text-slate-400 hover:text-primary border border-slate-200/60 dark:border-slate-800/80 rounded-lg text-[9px] font-semibold transition"
                 >
                   Kurulum Kılavuzu
                 </button>

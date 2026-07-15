@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Edit2, Check, X, Coffee, Save, CheckCircle } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 const CURATED_COLORS = [
   { name: "Turuncu", hex: "#f59e0b" },
@@ -14,6 +15,7 @@ const CURATED_COLORS = [
 ];
 
 export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [breaks, setBreaks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -121,11 +123,11 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-6">
       {/* Title Card */}
       <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-rose-50 dark:bg-rose-950/20 text-rose-500 rounded-xl">
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
             <Coffee size={20} />
           </div>
           <div>
@@ -153,7 +155,7 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
                 placeholder="Örn: Kahve Molası, Yemek Arası"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:focus:ring-rose-400/25 transition-all"
+                className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
               />
             </div>
 
@@ -206,7 +208,7 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
 
             <button
               type="submit"
-              className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+              className={`w-full flex items-center justify-center gap-1.5 py-2.5 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm`}
             >
               <Plus size={14} />
               <span>Listeye Ekle</span>
@@ -222,7 +224,7 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
                 Mola Tanımları Listesi
               </h4>
               {success && (
-                <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1 animate-pulse">
+                <span className="text-[10px] text-primary dark:text-emerald-400 font-bold flex items-center gap-1 animate-pulse">
                   <CheckCircle size={12} /> Değişiklikler Kaydedildi
                 </span>
               )}
@@ -258,7 +260,7 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
                           />
                           <button
                             onClick={() => saveEdit(b.id)}
-                            className="p-1.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 rounded-lg hover:scale-105"
+                            className="p-1.5 bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 rounded-lg hover:scale-105"
                           >
                             <Check size={14} />
                           </button>
@@ -289,7 +291,7 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
                           </button>
                           <button
                             onClick={() => handleDeleteBreak(b.id)}
-                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-500 rounded-lg"
+                            className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-primary rounded-lg"
                             title="Sil"
                           >
                             <Trash2 size={12} />

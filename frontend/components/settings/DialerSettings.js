@@ -21,7 +21,7 @@ import {
 
 const InfoTooltip = ({ text }) => {
   return (
-    <div className="group relative inline-block ml-1 cursor-help text-slate-400 dark:text-slate-550 hover:text-blue-500 dark:hover:text-blue-400 transition-colors">
+    <div className="group relative inline-block ml-1 cursor-help text-slate-400 dark:text-slate-550 hover:text-primary dark:hover:text-blue-400 transition-colors">
       <HelpCircle size={12} className="inline-block align-middle" />
       <div className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 hidden group-hover:block w-52 p-2.5 bg-slate-950/95 dark:bg-slate-900 border border-slate-800 rounded-xl shadow-2xl text-[10px] text-slate-200 dark:text-slate-350 font-semibold normal-case leading-relaxed text-center z-50 transition-all duration-200">
         {text}
@@ -190,11 +190,11 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
   const successRate = totalRecords > 0 ? Math.round((answeredRecords / totalRecords) * 100) : 0;
 
   return (
-    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 max-w-5xl w-full">
+    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full">
       
       {/* Title */}
       <div className="flex items-center gap-3">
-        <div className="p-3 bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-450 border border-blue-105 dark:border-blue-900/40 rounded-2xl">
+        <div className="p-3 bg-blue-50 dark:bg-primary/20 text-primary dark:text-blue-450 border border-blue-105 dark:border-blue-900/40 rounded-2xl">
           <PhoneCall size={24} />
         </div>
         <div>
@@ -211,7 +211,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
           onClick={() => setActiveSubTab("rules")}
           className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold transition-all duration-200 border-b-2 ${
             activeSubTab === "rules"
-              ? "border-blue-550 text-blue-600 dark:text-blue-400"
+              ? "border-blue-550 text-primary dark:text-blue-400"
               : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           }`}
         >
@@ -221,7 +221,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
           onClick={() => setActiveSubTab("upload")}
           className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold transition-all duration-200 border-b-2 ${
             activeSubTab === "upload"
-              ? "border-blue-550 text-blue-600 dark:text-blue-400"
+              ? "border-blue-550 text-primary dark:text-blue-400"
               : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           }`}
         >
@@ -231,7 +231,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
           onClick={() => setActiveSubTab("monitor")}
           className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold transition-all duration-200 border-b-2 ${
             activeSubTab === "monitor"
-              ? "border-blue-550 text-blue-600 dark:text-blue-400"
+              ? "border-blue-550 text-primary dark:text-blue-400"
               : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
           }`}
         >
@@ -256,7 +256,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
                   onChange={handleConfigChange}
                   className="sr-only peer"
                 />
-                <div className="w-9 h-5 bg-slate-200 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                <div className="w-9 h-5 bg-slate-200 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
               </label>
             </div>
 
@@ -446,7 +446,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
                         onClick={() => handleDayToggle(d.code)}
                         className={`px-3 py-1 rounded-lg text-[10px] font-bold border transition ${
                           active
-                            ? "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900/30"
+                            ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/30"
                             : "bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-600 border-slate-200 dark:border-slate-850 hover:bg-slate-100"
                         }`}
                       >
@@ -461,7 +461,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
             <button
               type="submit"
               disabled={loading}
-              className="mt-2 py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-blue-500/10 transition duration-200"
+              className="mt-2 py-2.5 bg-primary hover:bg-primary disabled:bg-blue-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-blue-500/10 transition duration-200"
             >
               <Save size={14} /> {loading ? "Kaydediliyor..." : "Kampanya Ayarlarını Kaydet"}
             </button>
@@ -477,7 +477,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
           {/* Tips card */}
           <div className="flex flex-col gap-5 bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-5">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <HelpCircle size={14} className="text-blue-500" />
+              <HelpCircle size={14} className="text-primary" />
               Dialer Kuralları
             </h4>
             <div className="space-y-4 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
@@ -506,7 +506,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
             {/* Input list form */}
             <form onSubmit={handleManualUpload} className="flex flex-col p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl gap-4 shadow-sm">
               <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-                <FileText size={16} className="text-blue-500" />
+                <FileText size={16} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">Arama Listesi Numaraları Ekle</h3>
               </div>
 
@@ -532,7 +532,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
 
               <button
                 type="submit"
-                className="py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-blue-500/10 transition duration-200"
+                className="py-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-blue-500/10 transition duration-200"
               >
                 <Plus size={14} /> Numaraları Listeye Ekle
               </button>
@@ -548,7 +548,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
             {/* List Preview */}
             <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm">
               <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
-                <ListFilter size={16} className="text-blue-500" />
+                <ListFilter size={16} className="text-primary" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">Arama Sırasındaki Numaralar ({records.length})</h3>
               </div>
 
@@ -573,9 +573,9 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
                         <td className="py-2.5">
                           <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
                             r.status === "Answered" 
-                              ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600" 
+                              ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary" 
                               : r.status === "Failed" 
-                              ? "bg-rose-50 dark:bg-rose-950/20 text-rose-600"
+                              ? "bg-rose-50 dark:bg-rose-950/20 text-primary"
                               : "bg-slate-100 dark:bg-slate-800 text-slate-500"
                           }`}>
                             {r.status === "Answered" ? "Cevaplandı" : r.status === "Failed" ? "Başarısız" : "Bekliyor"}
@@ -593,7 +593,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
 
           <div className="flex flex-col gap-5 bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-5">
             <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <AlertCircle size={14} className="text-blue-500" />
+              <AlertCircle size={14} className="text-primary" />
               Yükleme İpuçları
             </h4>
             <div className="space-y-4 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
@@ -615,10 +615,10 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
                 {dialerState.status === "running" ? (
                   <>
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500"></span>
+                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-primary"></span>
                   </>
                 ) : (
-                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-amber-500"></span>
+                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-primary"></span>
                 )}
               </div>
               <div>
@@ -636,14 +636,14 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
                 <button
                   onClick={() => handleDialerAction("start")}
                   disabled={!config.enabled}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-300 dark:disabled:bg-slate-800 transition rounded-xl font-bold text-xs text-white shadow-sm"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary disabled:bg-slate-300 dark:disabled:bg-slate-800 transition rounded-xl font-bold text-xs text-white shadow-sm"
                 >
                   <Play size={14} /> Kampanyayı Başlat
                 </button>
               ) : (
                 <button
                   onClick={() => handleDialerAction("pause")}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-amber-600 hover:bg-amber-500 transition rounded-xl font-bold text-xs text-white shadow-sm"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary transition rounded-xl font-bold text-xs text-white shadow-sm"
                 >
                   <Pause size={14} /> Kampanyayı Duraklat
                 </button>
@@ -664,20 +664,20 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
               <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1 font-mono">{totalRecords}</p>
             </div>
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm">
-              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-blue-500">Cevaplandı</p>
-              <p className="text-2xl font-extrabold text-blue-600 dark:text-blue-400 mt-1 font-mono">{answeredRecords}</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-primary">Cevaplandı</p>
+              <p className="text-2xl font-extrabold text-primary dark:text-blue-400 mt-1 font-mono">{answeredRecords}</p>
             </div>
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm">
-              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-amber-500">Bekleyen</p>
-              <p className="text-2xl font-extrabold text-amber-600 dark:text-amber-400 mt-1 font-mono">{pendingRecords}</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-primary">Bekleyen</p>
+              <p className="text-2xl font-extrabold text-primary dark:text-amber-400 mt-1 font-mono">{pendingRecords}</p>
             </div>
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm">
-              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-rose-500">Başarısız</p>
-              <p className="text-2xl font-extrabold text-rose-600 dark:text-rose-450 mt-1 font-mono">{failedRecords}</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-primary">Başarısız</p>
+              <p className="text-2xl font-extrabold text-primary dark:text-rose-450 mt-1 font-mono">{failedRecords}</p>
             </div>
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm col-span-2 md:col-span-1">
-              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-emerald-500">Başarı Oranı</p>
-              <p className="text-2xl font-extrabold text-emerald-600 dark:text-emerald-450 mt-1 font-mono">%{successRate}</p>
+              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-primary">Başarı Oranı</p>
+              <p className="text-2xl font-extrabold text-primary dark:text-emerald-450 mt-1 font-mono">%{successRate}</p>
             </div>
           </div>
 
@@ -686,20 +686,20 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
             <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col gap-3">
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Aktif Arama Kanalları</span>
-                <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-blue-600 px-2 py-0.5 rounded-lg font-bold font-mono">Eş zamanlı arama limiti: {config.concurrent_calls}</span>
+                <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-primary px-2 py-0.5 rounded-lg font-bold font-mono">Eş zamanlı arama limiti: {config.concurrent_calls}</span>
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 {Array.from({ length: dialerState.current_calls }).map((_, idx) => (
                   <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-850 rounded-xl flex items-center justify-between animate-pulse">
                     <div className="flex items-center gap-2">
-                      <PhoneCall size={14} className="text-blue-500" />
+                      <PhoneCall size={14} className="text-primary" />
                       <div>
                         <p className="text-[10px] font-bold text-slate-800 dark:text-slate-250">Aktif Çağrı #{idx + 1}</p>
                         <p className="text-[9px] text-slate-400 font-mono">Aranıyor (Trunk #{config.outbound_trunk_id})...</p>
                       </div>
                     </div>
-                    <span className="text-[8px] px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded font-bold uppercase font-mono">Çevriliyor</span>
+                    <span className="text-[8px] px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-primary rounded font-bold uppercase font-mono">Çevriliyor</span>
                   </div>
                 ))}
               </div>
@@ -732,9 +732,9 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
                       <td className="py-3">
                         <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
                           r.status === "Answered" 
-                            ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-450 border border-emerald-100/40" 
+                            ? "bg-emerald-50 dark:bg-emerald-900/30 text-primary dark:text-emerald-450 border border-emerald-100/40" 
                             : r.status === "Failed" 
-                            ? "bg-rose-50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-455 border border-rose-100/40"
+                            ? "bg-rose-50 dark:bg-rose-900/30 text-primary dark:text-rose-455 border border-rose-100/40"
                             : "bg-slate-50 dark:bg-slate-800 text-slate-500 border border-slate-200/40"
                         }`}>
                           {r.status === "Answered" ? "Cevaplandı" : r.status === "Failed" ? "Başarısız" : "Bekliyor"}

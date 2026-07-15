@@ -49,12 +49,12 @@ export default function EmotionManagementSettings({ backendHost = "localhost:800
   }
 
   return (
-    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 max-w-2xl w-full animate-in fade-in duration-200">
+    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full animate-in fade-in duration-200">
       
       {/* Title */}
       <div className="flex items-center gap-3 border-b border-slate-200/80 dark:border-slate-800 pb-4">
-        <div className="p-3 bg-rose-50 dark:bg-rose-600/20 text-rose-600 dark:text-rose-455 border border-rose-100 dark:border-rose-900/40 rounded-2xl">
-          <Heart size={22} className="fill-rose-500 text-rose-500" />
+        <div className="p-3 bg-rose-50 dark:bg-primary/20 text-primary dark:text-rose-455 border border-rose-100 dark:border-rose-900/40 rounded-2xl">
+          <Heart size={22} className="fill-rose-500 text-primary" />
         </div>
         <div>
           <h3 className="text-sm font-extrabold text-slate-900 dark:text-white uppercase tracking-wider">Dinamik Duygu Yönetimi</h3>
@@ -79,7 +79,7 @@ export default function EmotionManagementSettings({ backendHost = "localhost:800
             type="button"
             onClick={() => setSettings(prev => ({ ...prev, auto_emotion_management: !prev.auto_emotion_management }))}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-250 focus:outline-none shrink-0 ${
-              settings.auto_emotion_management ? "bg-rose-500" : "bg-slate-200 dark:bg-slate-800"
+              settings.auto_emotion_management ? "bg-primary" : "bg-slate-200 dark:bg-slate-800"
             }`}
           >
             <span
@@ -92,13 +92,13 @@ export default function EmotionManagementSettings({ backendHost = "localhost:800
 
         {/* Feature Explanation Banner */}
         <div className="p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-150 dark:border-slate-850 rounded-2xl text-[10px] text-slate-505 dark:text-slate-400 leading-relaxed flex gap-2.5 font-semibold">
-          <HelpCircle size={16} className="text-indigo-500 shrink-0 mt-0.5" />
+          <HelpCircle size={16} className="text-primary shrink-0 mt-0.5" />
           <div className="space-y-1.5">
             <p className="font-bold text-slate-800 dark:text-slate-350">Nasıl Çalışır?</p>
             <ul className="list-disc list-inside space-y-1 text-slate-600 dark:text-slate-400">
               <li>Müşterinin şikayetçi, agresif veya sinirli konuşma tonları/kelimeleri asenkron analiz edilir.</li>
               <li>Asistan ses hızı ve tınısını (pitch) düşürerek sakin ve özür dileyen profesyonel bir tarza bürünür.</li>
-              <li>Müşteri sakinleştirilemez ve sinirli tavrını sürdürürse asistan <span className="font-bold text-indigo-650 dark:text-indigo-400">"Sizi üst birime aktarıyorum"</span> diyerek çağrıyı ilgili AI Agent'ın ayarlarında belirlenen aktarım hedefine yönlendirir.</li>
+              <li>Müşteri sakinleştirilemez ve sinirli tavrını sürdürürse asistan <span className="font-bold text-primary dark:text-indigo-400">"Sizi üst birime aktarıyorum"</span> diyerek çağrıyı ilgili AI Agent'ın ayarlarında belirlenen aktarım hedefine yönlendirir.</li>
             </ul>
           </div>
         </div>
@@ -107,7 +107,7 @@ export default function EmotionManagementSettings({ backendHost = "localhost:800
         <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-4">
           <div>
             {success && (
-              <span className="text-[10px] text-emerald-600 dark:text-emerald-450 font-bold flex items-center gap-1.5">
+              <span className="text-[10px] text-primary dark:text-emerald-450 font-bold flex items-center gap-1.5">
                 <CheckCircle size={13} /> Değişiklikler Kaydedildi!
               </span>
             )}
@@ -116,7 +116,7 @@ export default function EmotionManagementSettings({ backendHost = "localhost:800
           <button
             onClick={handleSave}
             disabled={loading}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition uppercase tracking-wider"
+            className="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition uppercase tracking-wider"
           >
             <Save size={14} /> {loading ? "Kaydediliyor..." : "Ayarları Kaydet"}
           </button>

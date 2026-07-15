@@ -238,28 +238,28 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const renderChannelBadge = (channel) => {
     switch (channel.toLowerCase()) {
       case "whatsapp":
-        return <span className="px-2 py-0.5 text-[9px] bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 rounded-md font-bold uppercase tracking-wider">WhatsApp</span>;
+        return <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary border border-emerald-500/20 rounded-md font-bold uppercase tracking-wider">WhatsApp</span>;
       case "instagram":
         return <span className="px-2 py-0.5 text-[9px] bg-pink-500/10 text-pink-500 border border-pink-500/20 rounded-md font-bold uppercase tracking-wider">Instagram</span>;
       case "telegram":
         return <span className="px-2 py-0.5 text-[9px] bg-sky-500/10 text-sky-500 border border-sky-500/20 rounded-md font-bold uppercase tracking-wider">Telegram</span>;
       case "facebook":
-        return <span className="px-2 py-0.5 text-[9px] bg-blue-600/10 text-blue-500 border border-blue-600/20 rounded-md font-bold uppercase tracking-wider">Facebook</span>;
+        return <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary border border-blue-600/20 rounded-md font-bold uppercase tracking-wider">Facebook</span>;
       case "mail":
-        return <span className="px-2 py-0.5 text-[9px] bg-indigo-500/10 text-indigo-500 border border-indigo-500/20 rounded-md font-bold uppercase tracking-wider">Mail</span>;
+        return <span className="px-2 py-0.5 text-[9px] bg-primary/10 text-primary border border-indigo-500/20 rounded-md font-bold uppercase tracking-wider">Mail</span>;
       default:
         return <span className="px-2 py-0.5 text-[9px] bg-slate-500/10 text-slate-500 border border-slate-500/20 rounded-md font-bold uppercase tracking-wider">{channel}</span>;
     }
   };
 
   return (
-    <div className="w-full max-w-6xl space-y-6 animate-in fade-in duration-200">
+    <div className="w-full space-y-6 animate-in fade-in duration-200">
       
       {/* Title Header */}
       <div className="flex items-center justify-between border-b border-slate-200/85 dark:border-slate-800/80 pb-5">
         <div>
           <h2 className="text-xl font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent flex items-center gap-2">
-            <MessageSquare size={22} className="text-purple-500" />
+            <MessageSquare size={22} className="text-primary" />
             Ortak Gelen Kutusu (Omnichannel)
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
@@ -318,17 +318,17 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                           {new Date(session.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </span>
                         {session.qa_score !== undefined && session.qa_score !== null && (
-                          <span className="px-1 py-0.2 rounded text-[7px] font-extrabold bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 border border-indigo-100 dark:border-indigo-900/35">
+                          <span className="px-1 py-0.2 rounded text-[7px] font-extrabold bg-indigo-50 dark:bg-indigo-950/20 text-primary border border-indigo-100 dark:border-indigo-900/35">
                             QA: {session.qa_score}
                           </span>
                         )}
                       </div>
                       {session.assigned_agent === "ai" ? (
-                        <span className="flex items-center gap-1 text-purple-600 dark:text-purple-400 font-bold">
+                        <span className="flex items-center gap-1 text-primary dark:text-purple-400 font-bold">
                           <Bot size={10} /> AI Yanıtlıyor
                         </span>
                       ) : (
-                        <span className="flex items-center gap-1 text-amber-600 dark:text-amber-500 font-bold">
+                        <span className="flex items-center gap-1 text-primary dark:text-primary font-bold">
                           <User size={10} /> Temsilcide
                         </span>
                       )}
@@ -347,7 +347,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
               {/* Active Header */}
               <div className="p-4 border-b border-slate-100 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-950/20 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></div>
+                  <div className="w-2.5 h-2.5 rounded-full bg-primary animate-pulse shrink-0"></div>
                   <div className="text-left">
                     <h4 className="text-xs font-bold text-slate-800 dark:text-white leading-none flex items-center gap-2 flex-wrap">
                       <span>{activeSession.sender_name ? `${activeSession.sender_name} (${activeSession.sender_info})` : activeSession.sender_info}</span>
@@ -355,7 +355,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                         <button
                           type="button"
                           onClick={() => setShowAddContactModal(true)}
-                          className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/35 text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 rounded text-[9px] font-extrabold transition shrink-0"
+                          className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/35 text-primary dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 rounded text-[9px] font-extrabold transition shrink-0"
                         >
                           Rehbere Kaydet
                         </button>
@@ -370,11 +370,11 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 {/* Agent Control status */}
                 <div>
                   {activeSession.assigned_agent === "ai" ? (
-                    <span className="px-2.5 py-1 bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 rounded-full text-[10px] font-extrabold flex items-center gap-1">
+                    <span className="px-2.5 py-1 bg-primary/10 text-primary dark:text-purple-400 border border-purple-500/20 rounded-full text-[10px] font-extrabold flex items-center gap-1">
                       <Bot size={11} /> AI Modu
                     </span>
                   ) : (
-                    <span className="px-2.5 py-1 bg-amber-500/10 text-amber-650 dark:text-amber-400 border border-amber-500/20 rounded-full text-[10px] font-extrabold flex items-center gap-1 animate-pulse">
+                    <span className="px-2.5 py-1 bg-primary/10 text-amber-650 dark:text-amber-400 border border-amber-500/20 rounded-full text-[10px] font-extrabold flex items-center gap-1 animate-pulse">
                       <User size={11} /> Temsilci Modu
                     </span>
                   )}
@@ -408,8 +408,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                             isCustomer
                               ? "bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-750 text-slate-850 dark:text-slate-200 rounded-tl-none shadow-sm"
                               : isAi
-                              ? "bg-purple-600 text-white rounded-tr-none shadow-sm"
-                              : "bg-amber-600 text-white rounded-tr-none shadow-sm"
+                              ? "bg-primary text-white rounded-tr-none shadow-sm"
+                              : "bg-primary text-white rounded-tr-none shadow-sm"
                           }`}
                         >
                           {msg.text}
@@ -443,7 +443,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       className="w-full text-left px-2.5 py-1.5 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950/20 transition flex items-center justify-between gap-4"
                     >
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-[11px] font-mono font-bold text-purple-650 dark:text-purple-400">{item.shortcut}</span>
+                        <span className="text-[11px] font-mono font-bold text-primary dark:text-purple-400">{item.shortcut}</span>
                         <span className="text-[10px] text-slate-450 dark:text-slate-500 font-semibold">{item.title}</span>
                       </div>
                       <span className="text-[10px] text-slate-555 dark:text-slate-400 truncate max-w-xs">{item.content}</span>
@@ -485,7 +485,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                     }}
                     className={`p-2 rounded-xl border transition hover:bg-slate-55/65 dark:hover:bg-slate-850 disabled:opacity-45 ${
                       showCannedPopover 
-                        ? "border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/25 text-purple-600 dark:text-purple-400" 
+                        ? "border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/25 text-primary dark:text-purple-400" 
                         : "border-slate-200 dark:border-slate-805 bg-slate-50/50 dark:bg-slate-950/40 text-slate-400"
                     }`}
                     title="Hızlı Cevaplar"
@@ -517,7 +517,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                               className="w-full text-left p-2 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-950/20 transition flex flex-col gap-1"
                             >
                               <div className="flex items-center justify-between">
-                                <span className="text-[10px] font-mono font-bold text-purple-650 dark:text-purple-400">{item.shortcut}</span>
+                                <span className="text-[10px] font-mono font-bold text-primary dark:text-purple-400">{item.shortcut}</span>
                                 <span className="text-[9px] font-bold text-slate-450 dark:text-slate-550">{item.title}</span>
                               </div>
                               <span className="text-[10px] text-slate-550 dark:text-slate-400 truncate w-full">{item.content}</span>
@@ -532,7 +532,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 <button
                   type="submit"
                   disabled={activeSession.assigned_agent === "ai" || !inputText.trim() || actionLoading}
-                  className="p-2.5 bg-purple-650 hover:bg-purple-600 text-white rounded-xl text-xs font-bold transition disabled:opacity-55 flex items-center justify-center shrink-0"
+                  className="p-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition disabled:opacity-55 flex items-center justify-center shrink-0"
                 >
                   <Send size={14} />
                 </button>
@@ -540,7 +540,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-              <div className="p-4 bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 rounded-3xl mb-3">
+              <div className="p-4 bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 rounded-3xl mb-3">
                 <MessageSquare size={32} />
               </div>
               <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">Görüşme Seçilmedi</h4>
@@ -563,7 +563,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 {activeSession.assigned_agent === "ai" ? (
                   <div className="space-y-3">
                     <div className="p-3 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100/50 dark:border-purple-900/30 rounded-2xl flex gap-2">
-                      <HelpCircle size={15} className="text-purple-500 shrink-0 mt-0.5" />
+                      <HelpCircle size={15} className="text-primary shrink-0 mt-0.5" />
                       <p className="text-[10px] text-purple-700 dark:text-purple-400 font-semibold leading-normal">
                         Bu sohbet şu anda yapay zeka tarafından yanıtlanıyor. Temsilcinin müdahale etmesi gerekiyorsa sohbeti devralabilirsiniz.
                       </p>
@@ -571,7 +571,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                     <button
                       onClick={handleTakeover}
                       disabled={actionLoading}
-                      className="w-full py-2.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm shadow-amber-500/10"
+                      className="w-full py-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm shadow-amber-500/10"
                     >
                       <User size={14} /> Sohbeti Devral
                     </button>
@@ -579,7 +579,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 ) : (
                   <div className="space-y-3">
                     <div className="p-3 bg-amber-50/50 dark:bg-amber-900/15 border border-amber-200/40 dark:border-amber-900/30 rounded-2xl flex gap-2">
-                      <AlertCircle size={15} className="text-amber-500 shrink-0 mt-0.5" />
+                      <AlertCircle size={15} className="text-primary shrink-0 mt-0.5" />
                       <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold leading-normal">
                         Sohbet kontrolü temsilcide. Yapay zeka asistanı şu anda sessizde. İşi tamamladıktan sonra kontrolü geri verebilirsiniz.
                       </p>
@@ -587,7 +587,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                     <button
                       onClick={handleTransferToAI}
                       disabled={actionLoading}
-                      className="w-full py-2.5 bg-purple-650 hover:bg-purple-600 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm shadow-purple-500/10"
+                      className="w-full py-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm shadow-purple-500/10"
                     >
                       <Bot size={14} /> Sohbeti AI'a Aktar
                     </button>
@@ -602,10 +602,10 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm text-left transition-colors duration-300 space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-xs font-extrabold text-slate-850 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                  <Award size={15} className="text-indigo-500" />
+                  <Award size={15} className="text-primary" />
                   <span>Sohbet QA Skoru</span>
                 </h3>
-                <span className="text-sm font-extrabold text-indigo-600 dark:text-indigo-400">{activeSession.qa_score} / 100</span>
+                <span className="text-sm font-extrabold text-primary dark:text-indigo-400">{activeSession.qa_score} / 100</span>
               </div>
 
               {activeSession.qa_report && (
@@ -626,7 +626,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                           return (
                             <>
                               <div className="p-2.5 bg-indigo-50/30 dark:bg-indigo-950/10 border border-indigo-100/30 dark:border-indigo-900/20 rounded-xl">
-                                <strong className="text-indigo-650 dark:text-indigo-400 block mb-1">Koçluk Tavsiyesi:</strong>
+                                <strong className="text-primary dark:text-indigo-400 block mb-1">Koçluk Tavsiyesi:</strong>
                                 <p className="text-slate-600 dark:text-slate-400 font-medium">{qaObj.coaching_report}</p>
                               </div>
 
@@ -639,13 +639,13 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                                         <div className="space-y-0.5">
                                           <p className="font-bold text-slate-800 dark:text-slate-300 text-[10px]">{item.question}</p>
                                           {!item.satisfied && item.reason && (
-                                            <p className="text-[9px] text-rose-600 font-mono">{item.reason}</p>
+                                            <p className="text-[9px] text-primary font-mono">{item.reason}</p>
                                           )}
                                         </div>
                                         <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold shrink-0 uppercase tracking-wide ${
                                           item.satisfied 
-                                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600" 
-                                            : "bg-rose-50 dark:bg-rose-950/20 text-rose-600"
+                                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary" 
+                                            : "bg-rose-50 dark:bg-rose-950/20 text-primary"
                                         }`}>
                                           {item.satisfied ? "OK" : `-${item.penalty}`}
                                         </span>
@@ -670,7 +670,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
           {/* Message Simulator Box */}
           <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm text-left transition-colors duration-300">
             <h3 className="text-xs font-extrabold text-slate-850 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-              <Shield size={14} className="text-purple-500" /> Mesaj Simülatörü
+              <Shield size={14} className="text-primary" /> Mesaj Simülatörü
             </h3>
 
             <form onSubmit={handleSimulate} className="space-y-3.5">
@@ -716,7 +716,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
               <button
                 type="submit"
                 disabled={simLoading || !simText.trim()}
-                className="w-full py-2.5 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-450 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
+                className="w-full py-2.5 bg-primary hover:bg-primary disabled:bg-primary text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
               >
                 {simLoading ? "Simüle ediliyor..." : "Mesaj Simüle Et"}
               </button>

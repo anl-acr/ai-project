@@ -49,11 +49,11 @@ export default function WhisperSettings({ backendHost = "localhost:8000" }) {
   }
 
   return (
-    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 max-w-2xl w-full animate-in fade-in duration-200">
+    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full animate-in fade-in duration-200">
       
       {/* Title */}
       <div className="flex items-center gap-3 border-b border-slate-200/80 dark:border-slate-800 pb-4">
-        <div className="p-3 bg-amber-50 dark:bg-amber-600/20 text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/40 rounded-2xl">
+        <div className="p-3 bg-amber-50 dark:bg-primary/20 text-primary dark:text-amber-400 border border-amber-100 dark:border-amber-900/40 rounded-2xl">
           <Bot size={22} />
         </div>
         <div>
@@ -79,7 +79,7 @@ export default function WhisperSettings({ backendHost = "localhost:8000" }) {
             type="button"
             onClick={() => setSettings(prev => ({ ...prev, auto_whisper_enabled: !prev.auto_whisper_enabled }))}
             className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-250 focus:outline-none shrink-0 ${
-              settings.auto_whisper_enabled ? "bg-amber-500" : "bg-slate-200 dark:bg-slate-800"
+              settings.auto_whisper_enabled ? "bg-primary" : "bg-slate-200 dark:bg-slate-800"
             }`}
           >
             <span
@@ -92,7 +92,7 @@ export default function WhisperSettings({ backendHost = "localhost:8000" }) {
 
         {/* Feature Explanation Banner */}
         <div className="p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-150 dark:border-slate-850 rounded-2xl text-[10px] text-slate-505 dark:text-slate-400 leading-relaxed flex gap-2.5 font-semibold text-left">
-          <HelpCircle size={16} className="text-amber-500 shrink-0 mt-0.5" />
+          <HelpCircle size={16} className="text-primary shrink-0 mt-0.5" />
           <div className="space-y-1.5">
             <p className="font-bold text-slate-800 dark:text-slate-350">Nasıl Çalışır?</p>
             <p>
@@ -106,14 +106,14 @@ export default function WhisperSettings({ backendHost = "localhost:8000" }) {
           <button
             onClick={handleSave}
             disabled={loading}
-            className="flex items-center gap-2 px-5 py-2.5 bg-amber-550 hover:bg-amber-500 text-white rounded-xl text-xs font-bold shadow-md shadow-amber-500/10 transition disabled:opacity-50"
+            className="flex items-center gap-2 px-5 py-2.5 bg-amber-550 hover:bg-primary text-white rounded-xl text-xs font-bold shadow-md shadow-amber-500/10 transition disabled:opacity-50"
           >
             <Save size={13} />
             <span>{loading ? "Kaydediliyor..." : "Ayarları Kaydet"}</span>
           </button>
 
           {success && (
-            <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-450 text-[10px] font-bold">
+            <div className="flex items-center gap-1.5 text-primary dark:text-emerald-450 text-[10px] font-bold">
               <CheckCircle size={12} />
               <span>AI fısıldama ayarları kaydedildi.</span>
             </div>

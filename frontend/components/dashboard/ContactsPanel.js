@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Search, Plus, Edit2, Trash2, BookOpen, Save, X, Phone, Mail, CheckCircle } from "lucide-react";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function ContactsPanel({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [contacts, setContacts] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -193,54 +195,55 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
   };
 
   return (
-    <div className="w-full max-w-6xl space-y-6 animate-in fade-in duration-200">
-      
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/85 dark:border-slate-800/80 pb-5 text-left">
-        <div>
-          <h2 className="text-xl font-bold tracking-tight bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent flex items-center gap-2">
-            <BookOpen size={22} className="text-blue-500" />
-            Rehber (Contact Directory)
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-            İsim, soyisim, telefon numarası ve e-posta adreslerini merkezi olarak yönetin.
-          </p>
+    <div className="w-full space-y-6 animate-in fade-in duration-200">
+      {/* Standalone Header Card */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+            <BookOpen size={20} />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">Rehber (Contact Directory)</h3>
+            <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
+              İsim, soyisim, telefon numarası ve e-posta adreslerini merkezi olarak yönetin.
+            </p>
+          </div>
         </div>
 
-        {hasWritePermission && (
-          <button
-            onClick={() => openFormModal()}
-            className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/10 transition"
-          >
-            <Plus size={14} />
-            <span>Yeni Kişi Ekle</span>
-          </button>
-        )}
+        {/* Search Bar + "+" Icon Wrapper */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative">
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={handleSearchChange}
+              placeholder="Rehberde arayın..."
+              className={`w-56 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
+            />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
+          </div>
+
+          {hasWritePermission && (
+            <button
+              onClick={() => openFormModal()}
+              className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+              title="Yeni Kişi Ekle"
+            >
+              <Plus size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {successMsg && (
-        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-emerald-600 dark:text-emerald-450 text-xs font-semibold flex items-center gap-1.5 text-left">
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-primary dark:text-emerald-450 text-xs font-semibold flex items-center gap-1.5 text-left">
           <CheckCircle size={14} />
           <span>{successMsg}</span>
         </div>
       )}
 
-      {/* Search & Actions Bar */}
-      <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-sm flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3.5 top-3 text-slate-400 dark:text-slate-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={handleSearchChange}
-            placeholder="İsim, telefon veya e-postaya göre rehberde arayın..."
-            className="w-full pl-9 pr-4 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 rounded-xl text-xs focus:outline-none focus:border-blue-500 dark:text-slate-200"
-          />
-        </div>
-      </div>
-
-      {/* Contacts List Grid/Table */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm transition-colors duration-300">
+      {/* Contacts List Grid/Table Card */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
         <table className="w-full border-collapse text-left">
           <thead>
             <tr className="bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-850">
@@ -278,7 +281,7 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
                       {hasWritePermission && (
                         <button
                           onClick={() => openFormModal(contact)}
-                          className="p-1.5 text-slate-450 hover:text-blue-600 dark:hover:text-blue-400 transition"
+                          className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-blue-400 transition"
                         >
                           <Edit2 size={13} />
                         </button>
@@ -286,7 +289,7 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
                       {hasDeletePermission && (
                         <button
                           onClick={() => setDeleteTargetId(contact.id)}
-                          className="p-1.5 text-slate-450 hover:text-rose-600 dark:hover:text-rose-455 transition"
+                          className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-rose-455 transition"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -315,7 +318,7 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
 
             <form onSubmit={handleFormSubmit} className="p-6 space-y-4">
               {errorMsg && (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold">
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-primary dark:text-rose-400 text-xs font-semibold">
                   {errorMsg}
                 </div>
               )}
@@ -383,7 +386,7 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold shadow-md shadow-blue-500/10 transition"
+                  className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold shadow-md transition`}
                 >
                   Kaydet
                 </button>

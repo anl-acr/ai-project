@@ -13,11 +13,14 @@ import {
   X, 
   ArrowRight,
   HelpCircle,
-  Fingerprint
+  Fingerprint,
+  Search
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
   // PBX & AMI Config States
   const [settings, setSettings] = useState({
     ami_host: "127.0.0.1",
@@ -58,6 +61,8 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     codec: "G711",
     is_active: true
   });
+
+  const [searchQuery, setSearchQuery] = useState("");
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -241,29 +246,72 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     }
   };
 
+  const filteredTrunks = trunks.filter((t) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      t.trunk_name.toLowerCase().includes(query) ||
+      (t.did_number && t.did_number.toLowerCase().includes(query)) ||
+      (t.host && t.host.toLowerCase().includes(query))
+    );
+  });
+
   return (
-    <div className="flex flex-col gap-8 text-slate-800 dark:text-slate-100 max-w-5xl w-full">
+    <div className="flex flex-col gap-8 text-slate-800 dark:text-slate-100 w-full">
       {/* Title */}
-      <div className="flex items-center gap-3">
-        <div className={`p-3 border rounded-2xl ${
-          viewMode === "pbx"
-            ? "bg-rose-50 dark:bg-rose-600/20 text-rose-500 dark:text-rose-455 border-rose-100 dark:border-rose-900/40"
-            : "bg-indigo-50 dark:bg-indigo-600/20 text-indigo-500 dark:text-indigo-455 border-indigo-100 dark:border-indigo-900/40"
-        }`}>
-          {viewMode === "pbx" ? <PhoneCall size={24} /> : <Cable size={24} />}
+      {viewMode === "trunks" ? (
+        <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-50 dark:bg-indigo-955/20 text-primary rounded-xl">
+              <Cable size={20} />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">DIŞ HAT ENTEGRASYONU (SIP TRUNKS)</h3>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+                Operatör dış hat (SIP Trunk) tanımlarını, did numaralarını ve codec tercihlerini yapılandırın.
+              </p>
+            </div>
+          </div>
+
+          {/* Search Bar + "+" Icon Wrapper */}
+          <div className="flex items-center gap-2.5">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Hat ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
+              />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-550" />
+            </div>
+
+            <button
+              onClick={() => {
+                setModalStep(1);
+                setShowModal(true);
+              }}
+              className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+              title="Yeni Dış Hat Ekle"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
-            {viewMode === "pbx" ? "Asterisk Santral Entegrasyonu" : "Dış Hat Entegrasyonu (SIP Trunks)"}
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-            {viewMode === "pbx" 
-              ? "Yapay zekanın çağrı alması için sunucu ve Asterisk Manager Interface (AMI) bağlantı yollarını yönetin."
-              : "Operatör dış hat (SIP Trunk) tanımlarını, did numaralarını ve codec tercihlerini yapılandırın."
-            }
-          </p>
+      ) : (
+        <div className="flex items-center gap-3">
+          <div className={`p-3 ${lightBg} ${text} border ${borderLight} rounded-2xl`}>
+            <PhoneCall size={24} />
+          </div>
+          <div>
+            <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">
+              Asterisk Santral Entegrasyonu
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+              Yapay zekanın çağrı alması için sunucu ve Asterisk Manager Interface (AMI) bağlantı yollarını yönetin.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* Left Side: PBX & AMI Configuration */}
@@ -271,7 +319,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
           <div className="lg:col-span-5 flex flex-col gap-6">
             <form onSubmit={handlePbxSave} className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl gap-4 shadow-sm transition-colors duration-300">
               <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-                <Server size={16} className="text-rose-500 dark:text-rose-455" />
+                <Server size={16} className="text-primary dark:text-rose-455" />
                 <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">Sunucu & AMI Ayarları</h3>
               </div>
 
@@ -351,7 +399,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
               <button
                 type="submit"
                 disabled={loading.pbx}
-                className="mt-2 py-2.5 bg-rose-600 hover:bg-rose-500 disabled:bg-rose-455 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-rose-500/10 transition duration-205"
+                className={`mt-2 py-2.5 ${bg} ${hover} disabled:opacity-50 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition duration-205`}
               >
                 <Save size={14} /> {loading.pbx ? "Kaydediliyor..." : "AMI ve Santral Ayarlarını Kaydet"}
               </button>
@@ -371,27 +419,14 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
           <div className="lg:col-span-5 flex flex-col gap-6">
             <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
               
-              {/* Header + Add button */}
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
-                <div className="flex items-center gap-2">
-                  <Cable size={18} className="text-blue-500 dark:text-blue-400" />
-                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Aktif Dış Hat Bağlantıları (Trunks)</h3>
-                </div>
-                <button
-                  onClick={() => {
-                    setModalStep(1);
-                    setShowModal(true);
-                  }}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-blue-600 hover:bg-blue-500 transition rounded-xl font-bold text-xs text-white shadow-sm shadow-blue-500/10"
-                >
-                  <Plus size={14} /> Dış Hat Ekle
-                </button>
-              </div>
-
               {/* List Table */}
               {trunks.length === 0 ? (
                 <div className="text-center py-16 text-slate-400 dark:text-slate-500 text-xs font-semibold">
                   Kayıtlı dış hat bağlantısı bulunmuyor. "Dış Hat Ekle" butonuna basarak yeni bir SIP hattı bağlayabilirsiniz.
+                </div>
+              ) : filteredTrunks.length === 0 ? (
+                <div className="text-center py-16 text-slate-400 dark:text-slate-500 text-xs font-semibold">
+                  Arama kriterine uygun kayıtlı dış hat bulunamadı.
                 </div>
               ) : (
                 <div className="overflow-x-auto">
@@ -409,7 +444,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                       </tr>
                     </thead>
                     <tbody>
-                      {trunks.map((t) => {
+                      {filteredTrunks.map((t) => {
                         const isActive = t.is_active !== false;
                         const status = isActive ? (trunkStatuses[t.id] || "inactive") : "passive";
                         return (
@@ -420,17 +455,17 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                                   {status === "registered" && (
                                     <>
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-lg shadow-emerald-500/50" title="Kayıtlı (Aktif)"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary shadow-lg shadow-emerald-500/50" title="Kayıtlı (Aktif)"></span>
                                     </>
                                   )}
                                   {status === "trying" && (
                                     <>
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 shadow-lg shadow-amber-500/50" title="Deneniyor"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary shadow-lg shadow-amber-500/50" title="Deneniyor"></span>
                                     </>
                                   )}
                                   {status === "inactive" && (
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500 shadow-lg shadow-rose-500/50" title="Bağlantı Yok"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary shadow-lg shadow-rose-500/50" title="Bağlantı Yok"></span>
                                   )}
                                   {status === "passive" && (
                                     <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-400 dark:bg-slate-655 shadow-lg shadow-slate-500/50" title="Pasif (Devre Dışı)"></span>
@@ -441,7 +476,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                             <td className="py-3 font-bold text-slate-800 dark:text-white">{t.trunk_name}</td>
                             <td className="py-3">
                               <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                t.trunk_type === "register" ? "bg-purple-50 dark:bg-purple-900/30 text-purple-650 dark:text-purple-450 border border-purple-100 dark:border-purple-800/30" : "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/30"
+                                t.trunk_type === "register" ? "bg-purple-50 dark:bg-purple-900/30 text-primary dark:text-primary border border-purple-100 dark:border-purple-800/30" : "bg-blue-50 dark:bg-blue-900/30 text-primary dark:text-blue-400 border border-blue-100 dark:border-blue-800/30"
                               }`}>
                                 {t.trunk_type === "register" ? "REGISTER" : "PEER"}
                               </span>
@@ -454,14 +489,14 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                               <div className="flex justify-end gap-1.5">
                                 <button
                                   onClick={() => handleEditTrunk(t)}
-                                  className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-blue-600 dark:hover:text-blue-450 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
+                                  className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-blue-450 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition"
                                   title="Düzenle"
                                 >
                                   <Edit2 size={13} />
                                 </button>
                                 <button
                                   onClick={() => handleDeleteTrunk(t.id)}
-                                  className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-rose-600 dark:hover:text-rose-450 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition"
+                                  className="p-1.5 text-slate-400 dark:text-slate-500 hover:text-primary dark:hover:text-rose-450 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition"
                                   title="Sil"
                                 >
                                   <Trash2 size={13} />
@@ -488,7 +523,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
             {/* Modal Header */}
             <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-550/5 dark:bg-slate-950/20">
               <h3 className="font-bold text-xs uppercase tracking-wider flex items-center gap-2 text-slate-800 dark:text-white">
-                <Cable size={16} className="text-blue-500 dark:text-blue-400" />
+                <Cable size={16} className="text-primary dark:text-blue-400" />
                 {newTrunk.id ? "Dış Hat Düzenle" : "Dış Hat (SIP Trunk) Ekle"}
               </h3>
               <button
@@ -515,7 +550,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                       onChange={() => setNewTrunk((prev) => ({ ...prev, trunk_type: "register" }))}
                       className="hidden"
                     />
-                    <span className="font-bold text-sm text-purple-600 dark:text-purple-400">Register Trunk</span>
+                    <span className="font-bold text-sm text-primary dark:text-purple-400">Register Trunk</span>
                     <span className="text-[10px] text-slate-500 mt-2 leading-relaxed font-medium">Operatör tarafından verilen kullanıcı adı ve şifre ile kayıt olan hatlar.</span>
                   </label>
 
@@ -530,14 +565,14 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                       onChange={() => setNewTrunk((prev) => ({ ...prev, trunk_type: "peer" }))}
                       className="hidden"
                     />
-                    <span className="font-bold text-sm text-blue-600 dark:text-blue-400">Peer Trunk</span>
+                    <span className="font-bold text-sm text-primary dark:text-blue-400">Peer Trunk</span>
                     <span className="text-[10px] text-slate-500 mt-2 leading-relaxed font-medium">IP bazlı yetkilendirme ile çalışan, şifresiz direkt hat bağlantıları.</span>
                   </label>
                 </div>
 
                 <button
                   onClick={() => setModalStep(2)}
-                  className="mt-2 flex items-center justify-center gap-1.5 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white transition rounded-xl font-bold text-xs self-end shadow-md shadow-blue-500/15"
+                  className={`mt-2 flex items-center justify-center gap-1.5 px-4 py-2 ${bg} ${hover} text-white transition rounded-xl font-bold text-xs self-end shadow-md shadow-${colorCode}-500/15`}
                 >
                   İleri <ArrowRight size={14} />
                 </button>
@@ -551,7 +586,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                 {/* Info Text */}
                 <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide border-b border-slate-100 dark:border-slate-800 pb-1.5 flex items-center gap-1">
                   <span>Hat Türü:</span>
-                  <span className={newTrunk.trunk_type === "register" ? "text-purple-600 dark:text-purple-400" : "text-blue-600 dark:text-blue-400"}>
+                  <span className={newTrunk.trunk_type === "register" ? "text-primary dark:text-purple-400" : "text-primary dark:text-blue-400"}>
                     {newTrunk.trunk_type.toUpperCase()} TRUNK
                   </span>
                 </p>
@@ -655,7 +690,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
 
                 {/* AI GREETING PROMPT */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-blue-500 dark:text-blue-400">Karşılama Promptu / AI Görevi</label>
+                  <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Karşılama Promptu / AI Görevi</label>
                   <textarea
                     name="greeting_prompt"
                     value={newTrunk.greeting_prompt || ""}
@@ -669,7 +704,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                 {/* TRANSFER CONFIGURATION */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-blue-500 dark:text-blue-400">Çağrı Aktarma Hedefi</label>
+                    <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Çağrı Aktarma Hedefi</label>
                     <select
                       name="transfer_target_type"
                       value={newTrunk.transfer_target_type || "extension"}
@@ -682,7 +717,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                     </select>
                   </div>
                   <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-blue-500 dark:text-blue-400">Hedef Numara / Kuyruk</label>
+                    <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Hedef Numara / Kuyruk</label>
                     <input
                       type="text"
                       name="transfer_target"
@@ -697,7 +732,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
 
                 {/* CODEC SELECTION */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-455 dark:text-slate-400 font-bold uppercase tracking-wider text-blue-500 dark:text-blue-400">Tercih Edilen Codec</label>
+                  <label className="text-[10px] text-slate-455 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Tercih Edilen Codec</label>
                   <select
                     name="codec"
                     value={newTrunk.codec || "G711"}
@@ -713,7 +748,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
 
                 {/* HAT AKTİF / PASİF DURUMU */}
                 <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-blue-500 dark:text-blue-400">Hat Durumu</label>
+                  <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Hat Durumu</label>
                   <select
                     name="is_active"
                     value={newTrunk.is_active === undefined ? "true" : String(newTrunk.is_active)}
@@ -736,7 +771,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                   </button>
                   <button
                     type="submit"
-                    className="flex items-center gap-1.5 px-5 py-2 bg-blue-600 hover:bg-blue-500 transition rounded-xl font-bold text-xs text-white shadow-md shadow-blue-500/15"
+                    className={`flex items-center gap-1.5 px-5 py-2 ${bg} ${hover} transition rounded-xl font-bold text-xs text-white shadow-md shadow-${colorCode}-500/15`}
                   >
                     <Save size={14} /> Kaydet ve Ekle
                   </button>

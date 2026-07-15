@@ -270,8 +270,8 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
       negativeWords.forEach(w => { if (text.includes(w)) score -= 1; });
     });
 
-    if (score > 0) return { type: "Pozitif", color: "text-emerald-400", bg: "bg-emerald-500/10 border-emerald-500/30", icon: <Smile size={16} /> };
-    if (score < 0) return { type: "Negatif / Kızgın", color: "text-rose-400", bg: "bg-rose-500/10 border-rose-500/30", icon: <Frown size={16} /> };
+    if (score > 0) return { type: "Pozitif", color: "text-emerald-400", bg: "bg-primary/10 border-emerald-500/30", icon: <Smile size={16} /> };
+    if (score < 0) return { type: "Negatif / Kızgın", color: "text-rose-400", bg: "bg-primary/10 border-rose-500/30", icon: <Frown size={16} /> };
     return { type: "Nötr", color: "text-slate-400", bg: "bg-slate-800 border-slate-700", icon: <Meh size={16} /> };
   };
 
@@ -330,7 +330,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   };
 
   return (
-    <div className="w-full max-w-6xl space-y-6">
+    <div className="w-full space-y-6">
       
       {/* Real-time System Metrics Header Card */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -342,11 +342,11 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
             <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white flex items-center gap-2">
               {activeCalls.length}
               {activeCalls.length > 0 && (
-                <span className="h-2 w-2 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-ping"></span>
+                <span className="h-2 w-2 rounded-full bg-primary dark:bg-emerald-400 animate-ping"></span>
               )}
             </h3>
           </div>
-          <div className="h-10 w-10 rounded-xl bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 flex items-center justify-center text-purple-600 dark:text-purple-400">
+          <div className="h-10 w-10 rounded-xl bg-purple-50 dark:bg-purple-950/20 border border-purple-100 dark:border-purple-900/30 flex items-center justify-center text-primary dark:text-purple-400">
             <Activity size={20} className={activeCalls.length > 0 ? "animate-pulse" : ""} />
           </div>
         </div>
@@ -355,7 +355,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
           <div className="flex items-center justify-between mb-1.5">
             <span className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Yapay Zeka CPU Yükü</span>
-            <Cpu size={14} className="text-indigo-500 dark:text-indigo-400" />
+            <Cpu size={14} className="text-primary dark:text-indigo-400" />
           </div>
           <div className="flex items-center gap-3">
             <div className="flex-1 h-2 bg-slate-105 dark:bg-slate-950 rounded-full overflow-hidden border border-slate-200/40 dark:border-slate-850">
@@ -393,7 +393,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
               {metrics.activeWs} <span className="text-xs text-slate-400 dark:text-slate-500 font-medium">bağlantı</span>
             </h3>
           </div>
-          <div className="h-10 w-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400">
+          <div className="h-10 w-10 rounded-xl bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 flex items-center justify-center text-primary dark:text-emerald-400">
             <Wifi size={18} />
           </div>
         </div>
@@ -407,7 +407,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
         <div className="lg:col-span-1 flex flex-col bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl p-4 shadow-sm min-h-[500px] transition-colors duration-300">
           <div className="border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
             <h3 className="font-bold text-xs text-slate-700 dark:text-slate-300 tracking-wider flex items-center gap-2 uppercase">
-              <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-ping"></span>
+              <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping"></span>
               Aktif Arama Listesi
             </h3>
             <p className="text-[10px] text-slate-400 dark:text-slate-550 mt-1.5">Gerçek zamanlı olarak Asterisk kanallarından çekilmektedir.</p>
@@ -463,7 +463,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
               {/* Console Header */}
               <div className="p-4 border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-50/40 dark:bg-slate-950/40 flex flex-wrap items-center justify-between gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="h-10 w-10 rounded-xl bg-purple-50 dark:bg-purple-600/15 border border-purple-100 dark:border-purple-800/35 flex items-center justify-center text-purple-600 dark:text-purple-400">
+                  <div className="h-10 w-10 rounded-xl bg-purple-50 dark:bg-primary/15 border border-purple-100 dark:border-purple-800/35 flex items-center justify-center text-primary dark:text-purple-400">
                     <Bot size={18} />
                   </div>
                   <div>
@@ -473,7 +473,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                         <button
                           type="button"
                           onClick={() => setShowAddContactModal(true)}
-                          className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/35 text-blue-600 dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 rounded text-[9px] font-extrabold transition shrink-0"
+                          className="px-2 py-0.5 bg-blue-50 hover:bg-blue-100 dark:bg-blue-950/40 dark:hover:bg-blue-900/35 text-primary dark:text-blue-400 border border-blue-200/50 dark:border-blue-800/40 rounded text-[9px] font-extrabold transition shrink-0"
                         >
                           Rehbere Kaydet
                         </button>
@@ -529,12 +529,12 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
               <div className="px-5 py-3 border-b border-slate-200/60 dark:border-slate-800/60 bg-slate-50/10 dark:bg-slate-950/10 flex items-center gap-4">
                 <span className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Ses Genliği (Anlık):</span>
                 <div className="flex items-center gap-[3px] h-6">
-                  <span className="w-[3px] bg-purple-500 rounded-full animate-[pulse_0.8s_infinite] h-2"></span>
-                  <span className="w-[3px] bg-indigo-500 rounded-full animate-[pulse_0.5s_infinite] h-4"></span>
+                  <span className="w-[3px] bg-primary rounded-full animate-[pulse_0.8s_infinite] h-2"></span>
+                  <span className="w-[3px] bg-primary rounded-full animate-[pulse_0.5s_infinite] h-4"></span>
                   <span className="w-[3px] bg-purple-400 rounded-full animate-[pulse_0.7s_infinite] h-5"></span>
-                  <span className="w-[3px] bg-purple-500 rounded-full animate-[pulse_0.6s_infinite] h-3"></span>
+                  <span className="w-[3px] bg-primary rounded-full animate-[pulse_0.6s_infinite] h-3"></span>
                   <span className="w-[3px] bg-indigo-400 rounded-full animate-[pulse_0.4s_infinite] h-5"></span>
-                  <span className="w-[3px] bg-purple-500 rounded-full animate-[pulse_0.9s_infinite] h-2"></span>
+                  <span className="w-[3px] bg-primary rounded-full animate-[pulse_0.9s_infinite] h-2"></span>
                 </div>
               </div>
 
@@ -552,7 +552,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                     if (isWhisper) {
                       return (
                         <div key={idx} className="flex flex-col items-center mx-auto max-w-[90%] my-2">
-                          <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-full text-[9px] font-bold uppercase tracking-wider">
+                          <div className="flex items-center gap-1.5 px-3 py-1 bg-primary/10 border border-amber-500/20 text-primary dark:text-amber-400 rounded-full text-[9px] font-bold uppercase tracking-wider">
                             <Bot size={10} />
                             <span>SÜPERVİZÖR FISILTISI</span>
                           </div>
@@ -573,7 +573,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                         <div
                           className={`h-7 w-7 rounded-xl flex items-center justify-center shrink-0 border ${
                             isAI
-                              ? "bg-purple-50 dark:bg-purple-950/40 border-purple-100 dark:border-purple-800/40 text-purple-650 dark:text-purple-400"
+                              ? "bg-purple-50 dark:bg-purple-950/40 border-purple-100 dark:border-purple-800/40 text-primary dark:text-purple-400"
                               : "bg-slate-100 dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-350"
                           }`}
                         >
@@ -597,10 +597,10 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
 
               {/* AI Whisperer Input Box */}
               {hasWhisperPermission && (
-                <form onSubmit={handleSendWhisper} className="px-4 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-amber-500/[0.02] dark:bg-amber-500/[0.01] flex flex-col gap-2">
+                <form onSubmit={handleSendWhisper} className="px-4 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-primary/[0.02] dark:bg-primary/[0.01] flex flex-col gap-2">
                   <div className="flex items-center gap-1.5">
-                    <span className="h-1.5 w-1.5 bg-amber-500 rounded-full animate-ping"></span>
-                    <span className="text-[10px] text-amber-600 dark:text-amber-400 font-extrabold uppercase tracking-wider flex items-center gap-1">
+                    <span className="h-1.5 w-1.5 bg-primary rounded-full animate-ping"></span>
+                    <span className="text-[10px] text-primary dark:text-amber-400 font-extrabold uppercase tracking-wider flex items-center gap-1">
                       AI'a Fısılda (Canlı Prompt Müdahalesi)
                     </span>
                   </div>
@@ -629,7 +629,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                 <div className="flex items-center justify-between">
                   <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Temsilci Çağrı Notu</span>
                   {notesSuccess && (
-                    <span className="text-[9px] text-emerald-600 dark:text-emerald-450 font-bold flex items-center gap-1">
+                    <span className="text-[9px] text-primary dark:text-emerald-450 font-bold flex items-center gap-1">
                       <CheckCircle size={10} /> Not Kaydedildi
                     </span>
                   )}
@@ -663,7 +663,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                     <button
                       type="submit"
                       disabled={savingNotes}
-                      className="px-3.5 py-1.5 bg-purple-650 hover:bg-purple-600 text-white rounded-xl text-[11px] font-bold shadow-md shadow-purple-500/10 transition shrink-0"
+                      className="px-3.5 py-1.5 bg-primary hover:bg-primary text-white rounded-xl text-[11px] font-bold shadow-md shadow-purple-500/10 transition shrink-0"
                     >
                       {savingNotes ? "..." : "Kaydet"}
                     </button>

@@ -93,10 +93,10 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
   }, [chatMessages]);
 
   return (
-    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full max-w-5xl">
+    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full">
       {/* Title */}
       <div className="flex items-center gap-3">
-        <div className="p-3 bg-purple-50 dark:bg-purple-600/20 text-purple-500 dark:text-purple-400 border border-purple-100 dark:border-purple-800 rounded-2xl">
+        <div className="p-3 bg-purple-50 dark:bg-primary/20 text-primary dark:text-purple-400 border border-purple-100 dark:border-purple-800 rounded-2xl">
           <Smartphone size={24} />
         </div>
         <div>
@@ -113,13 +113,13 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
           <div className="flex border-b border-slate-100 dark:border-slate-800 gap-4 text-xs font-bold uppercase tracking-wider">
             <button
               onClick={() => setActiveTab("whatsapp")}
-              className={`pb-2 transition ${activeTab === "whatsapp" ? "text-purple-600 dark:text-purple-400 border-b-2 border-purple-500 dark:border-purple-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
+              className={`pb-2 transition ${activeTab === "whatsapp" ? "text-primary dark:text-purple-400 border-b-2 border-purple-500 dark:border-purple-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
             >
               WhatsApp API
             </button>
             <button
               onClick={() => setActiveTab("telegram")}
-              className={`pb-2 transition ${activeTab === "telegram" ? "text-blue-600 dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
+              className={`pb-2 transition ${activeTab === "telegram" ? "text-primary dark:text-blue-400 border-b-2 border-blue-500 dark:border-blue-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
             >
               Telegram Bot
             </button>
@@ -147,7 +147,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                   />
                 </div>
                 <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 rounded-xl text-[10px] text-slate-550 dark:text-slate-400 leading-relaxed font-medium">
-                  <p className="font-bold text-purple-650 dark:text-purple-400 mb-1">Webhook URL Bilginiz:</p>
+                  <p className="font-bold text-primary dark:text-purple-400 mb-1">Webhook URL Bilginiz:</p>
                   <p className="font-mono bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-850 select-all text-slate-700 dark:text-slate-300">
                     {API_BASE}/api/webhook/whatsapp
                   </p>
@@ -170,7 +170,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                   />
                 </div>
                 <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 rounded-xl text-[10px] text-slate-550 dark:text-slate-400 leading-relaxed font-medium">
-                  <p className="font-bold text-blue-600 dark:text-blue-400 mb-1">Webhook URL Bilginiz:</p>
+                  <p className="font-bold text-primary dark:text-blue-400 mb-1">Webhook URL Bilginiz:</p>
                   <p className="font-mono bg-slate-100 dark:bg-slate-900 p-2 rounded border border-slate-200 dark:border-slate-855 select-all text-slate-700 dark:text-slate-300">
                     {API_BASE}/api/webhook/telegram
                   </p>
@@ -211,7 +211,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
               <button
                 type="submit"
                 disabled={loading}
-                className="flex items-center gap-2 px-5 py-2.5 bg-purple-650 hover:bg-purple-600 text-white disabled:bg-purple-800 transition rounded-xl font-bold text-xs shadow-md shadow-purple-500/10"
+                className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary text-white disabled:bg-purple-800 transition rounded-xl font-bold text-xs shadow-md shadow-purple-500/10"
               >
                 <Save size={14} /> {loading ? "Kaydediliyor..." : "Bağlantıları Kaydet"}
               </button>
@@ -230,7 +230,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
         <div className="flex flex-col lg:col-span-2 p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl h-[500px] shadow-sm transition-colors duration-300">
           {/* Copilot Header */}
           <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-3">
-            <div className="p-1.5 bg-purple-50 dark:bg-purple-600/15 text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-800/40 rounded-xl">
+            <div className="p-1.5 bg-purple-50 dark:bg-primary/15 text-primary dark:text-purple-400 border border-purple-100 dark:border-purple-800/40 rounded-xl">
               <Sparkles size={16} className="animate-pulse" />
             </div>
             <div>
@@ -250,8 +250,8 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
               >
                 <div className={`h-6 w-6 rounded-xl flex items-center justify-center shrink-0 border ${
                   msg.sender === "bot" 
-                    ? "bg-purple-50 dark:bg-purple-600/20 text-purple-600 dark:text-purple-450 border-purple-100 dark:border-purple-800/45" 
-                    : "bg-blue-50 dark:bg-blue-600/20 text-blue-600 dark:text-blue-450 border-blue-100 dark:border-blue-800/45"
+                    ? "bg-purple-50 dark:bg-primary/20 text-primary dark:text-primary border-purple-100 dark:border-purple-800/45" 
+                    : "bg-blue-50 dark:bg-primary/20 text-primary dark:text-blue-450 border-blue-100 dark:border-blue-800/45"
                 }`}>
                   {msg.sender === "bot" ? <Bot size={12} /> : <User size={12} />}
                 </div>
@@ -278,7 +278,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
             />
             <button
               type="submit"
-              className="flex items-center justify-center p-2 bg-purple-650 hover:bg-purple-600 text-white transition rounded-xl shrink-0 shadow-md shadow-purple-550/15"
+              className="flex items-center justify-center p-2 bg-primary hover:bg-primary text-white transition rounded-xl shrink-0 shadow-md shadow-purple-550/15"
             >
               <Send size={13} />
             </button>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 const PRESET_AVATARS = [
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
@@ -12,6 +13,7 @@ const PRESET_AVATARS = [
 ];
 
 export default function UserSettings({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -178,16 +180,16 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="w-full space-y-6">
       {/* Header and Search & Add Action */}
       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-rose-50 dark:bg-rose-950/20 text-rose-500 rounded-xl">
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
             <User size={20} />
           </div>
           <div>
-            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">KULLANICI YÖNETİMİ</h3>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+            <h3 className="font-bold text-sm text-slate-850 dark:text-white uppercase tracking-wider">KULLANICI YÖNETİMİ</h3>
+            <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
               Sistem yöneticileri ve çağrı merkezi temsilcilerinin erişim tanımlarını yönetin.
             </p>
           </div>
@@ -201,14 +203,14 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
               placeholder="Kullanıcı ara..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:focus:ring-rose-400/25 transition-all"
+              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
             />
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
           </div>
 
           <button
             onClick={openAddModal}
-            className="p-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0"
+            className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
             title="Yeni Kullanıcı Ekle"
           >
             <Plus size={16} />
@@ -218,7 +220,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
 
       {/* Status Bar */}
       {success && (
-        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2 animate-pulse">
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-xl text-primary dark:text-emerald-400 text-xs font-bold flex items-center gap-2 animate-pulse">
           <CheckCircle size={14} /> Değişiklikler başarıyla kaydedildi!
         </div>
       )}
@@ -232,6 +234,19 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
         </div>
       ) : (
         <div className="space-y-3.5 w-full">
+          {/* Column Header Row */}
+          <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
+            <div className="flex items-center gap-4 flex-1">
+              <div className="w-12 text-center shrink-0">Profil</div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1 items-center">
+                <div className="pl-1">Kullanıcı Adı / Rol</div>
+                <div className="pl-1">E-Posta Adresi</div>
+                <div className="pl-1">Dahili Numarası</div>
+              </div>
+            </div>
+            <div className="w-36 text-right pr-4 shrink-0">Durum / İşlem</div>
+          </div>
+
           {filteredUsers.map((u) => (
             <div
               key={u.id}
@@ -255,10 +270,10 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                         const roleLabel = userRoleObj ? userRoleObj.name : u.role;
                         const roleColor = 
                           u.role === "admin"
-                            ? "bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border-purple-200/50 dark:border-purple-900/30"
+                            ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-200/50 dark:border-purple-900/30"
                             : u.role === "supervisor"
-                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30"
-                            : "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30";
+                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30"
+                            : "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30";
                         return (
                           <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border ${roleColor}`}>
                             {roleLabel}
@@ -295,7 +310,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                     className="text-slate-400 dark:text-slate-550 hover:text-slate-700 dark:hover:text-slate-350 transition-colors"
                     title={u.is_active ? "Kullanıcıyı Devre Dışı Bırak" : "Kullanıcıyı Etkinleştir"}
                   >
-                    {u.is_active ? <ToggleRight size={22} className="text-rose-500" /> : <ToggleLeft size={22} />}
+                    {u.is_active ? <ToggleRight size={22} className="text-primary" /> : <ToggleLeft size={22} />}
                   </button>
                 </div>
 
@@ -309,7 +324,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                   </button>
                   <button
                     onClick={() => handleDeleteUser(u.id)}
-                    className="p-1.5 text-slate-450 hover:text-rose-600 dark:hover:text-rose-500 rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-250"
+                    className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-primary rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-250"
                     title="Kullanıcıyı Sil"
                   >
                     <Trash2 size={12} />
@@ -414,7 +429,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                       onClick={() => setRole(r.role_code)}
                       className={`px-3 py-2 rounded-xl text-xs font-bold uppercase transition-all border ${
                         role === r.role_code
-                          ? "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-200 dark:border-rose-900/40"
+                          ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-200 dark:border-rose-900/40"
                           : "bg-slate-50/50 dark:bg-slate-950/20 text-slate-500 dark:text-slate-400 border-slate-200/60 dark:border-slate-800/80 hover:bg-slate-50"
                       }`}
                     >
@@ -463,7 +478,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                   onClick={() => setIsActive(!isActive)}
                   className="text-slate-400 dark:text-slate-550 hover:text-slate-700 dark:hover:text-slate-350 transition-colors"
                 >
-                  {isActive ? <ToggleRight size={26} className="text-rose-500" /> : <ToggleLeft size={26} />}
+                  {isActive ? <ToggleRight size={26} className={text} /> : <ToggleLeft size={26} />}
                 </button>
               </div>
 
@@ -472,13 +487,11 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-600 dark:text-slate-400 hover:bg-slate-100 transition-all"
-                >
-                  Vazgeç
-                </button>
+                  className="flex-1 py-2.5 rounded-xl font-bold border dark: dark: dark: hover: transition-all bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                >Vazgeç</button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-sm shadow-rose-600/10"
+                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-sm`}
                 >
                   Kaydet
                 </button>

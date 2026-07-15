@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Edit2, CheckCircle, Search, FileText, Check, X, ShieldAlert } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function QASettings({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [questions, setQuestions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -136,36 +138,37 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
   );
 
   return (
-    <div className="space-y-6">
-      {/* Header card */}
-      <div className="p-6 bg-gradient-to-br from-white via-white to-slate-50/40 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 border border-slate-200/80 dark:border-slate-800/80 rounded-3xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-gradient-to-tr from-indigo-500 to-violet-500 text-white rounded-2xl shadow-md shadow-indigo-500/10">
-            <FileText size={22} />
+    <div className="w-full space-y-6">
+      {/* Standalone Header Card */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+            <FileText size={20} />
           </div>
           <div>
-            <h3 className="font-extrabold text-sm text-slate-850 dark:text-white uppercase tracking-wider">Otomatik Kalite Değerlendirme (QA)</h3>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium max-w-md leading-relaxed">
+            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">Otomatik Kalite Değerlendirme (QA)</h3>
+            <p className="text-[10px] text-slate-555 dark:text-slate-400 mt-0.5 font-medium">
               Yapay zeka için sesli ve yazılı görüşmeleri değerlendirme kriterleri oluşturun, ceza puanları belirleyin ve koçluk raporları alın.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Search Bar + "+" Icon Wrapper */}
+        <div className="flex items-center gap-2.5">
           <div className="relative">
             <input
               type="text"
               placeholder="Kurallarda ara..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-52 text-xs pl-9 pr-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 shadow-inner"
+              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
             />
-            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
           </div>
 
           <button
             onClick={openAddModal}
-            className="p-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl text-xs font-bold transition-all shadow-md shadow-indigo-600/10 flex items-center justify-center hover:scale-105 active:scale-95 shrink-0"
+            className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
             title="Yeni Kriter Ekle"
           >
             <Plus size={16} />
@@ -174,7 +177,7 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
       </div>
 
       {success && (
-        <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-2xl text-emerald-600 dark:text-emerald-455 text-xs font-bold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-2xl text-primary dark:text-emerald-455 text-xs font-bold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
           <CheckCircle size={15} /> İşlem başarıyla kaydedildi!
         </div>
       )}
@@ -199,7 +202,7 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
                   {q.question}
                 </p>
                 <div className="flex items-center gap-3 text-[10px] text-slate-400 dark:text-slate-555 font-bold">
-                  <span className="bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-455 px-2 py-0.5 rounded-lg">
+                  <span className="bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 px-2 py-0.5 rounded-lg">
                     Maks Ceza: -{q.max_score} Puan
                   </span>
                   <span>Durum: {q.is_active ? "Aktif" : "Pasif"}</span>
@@ -210,7 +213,7 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
                 <button
                   onClick={() => toggleActiveStatus(q)}
                   className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
-                    q.is_active ? "bg-indigo-500 justify-end" : "bg-slate-200 dark:bg-slate-800 justify-start"
+                    q.is_active ? "bg-primary justify-end" : "bg-slate-200 dark:bg-slate-800 justify-start"
                   }`}
                 >
                   <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
@@ -226,7 +229,7 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
 
                 <button
                   onClick={() => handleDelete(q.id)}
-                  className="p-2 text-slate-450 hover:text-rose-600 rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-rose-50/20 dark:hover:bg-rose-950/20 transition-all"
+                  className="p-2 text-slate-450 hover:text-primary rounded-lg border border-slate-200 dark:border-slate-800 hover:bg-rose-50/20 dark:hover:bg-rose-950/20 transition-all"
                   title="Sil"
                 >
                   <Trash2 size={12} />
@@ -243,7 +246,7 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
           <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20">
               <div className="flex items-center gap-2">
-                <FileText size={16} className="text-indigo-500" />
+                <FileText size={16} className="text-primary" />
                 <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
                   {editingQuestion ? "Değerlendirme Kuralını Düzenle" : "Yeni Değerlendirme Kuralı"}
                 </h3>
@@ -294,7 +297,7 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
                   type="button"
                   onClick={() => setIsActive(!isActive)}
                   className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
-                    isActive ? "bg-indigo-500 justify-end" : "bg-slate-200 dark:bg-slate-800 justify-start"
+                    isActive ? "bg-primary justify-end" : "bg-slate-200 dark:bg-slate-800 justify-start"
                   }`}
                 >
                   <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
@@ -305,13 +308,11 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-650 dark:text-slate-400 hover:bg-slate-100 transition-all"
-                >
-                  Vazgeç
-                </button>
+                  className="flex-1 py-2.5 rounded-xl font-bold border dark: dark: dark: hover: transition-all bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                >Vazgeç</button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white transition-all shadow-md shadow-indigo-500/10"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-primary hover:bg-primary text-white transition-all shadow-md shadow-indigo-500/10"
                 >
                   Kaydet
                 </button>

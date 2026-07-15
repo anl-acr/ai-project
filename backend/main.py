@@ -101,6 +101,7 @@ class UserSchema(BaseModel):
     is_active: bool = True
     gsm_number: Optional[str] = None
     mobile_transfer_enabled: Optional[bool] = False
+    theme_color: Optional[str] = "rose"
 
 class RoleSchema(BaseModel):
     id: Optional[int] = None
@@ -430,7 +431,8 @@ DEFAULT_SETTINGS = {
                 "canned_responses:read", "canned_responses:write", "canned_responses:delete",
                 "blacklist:read", "blacklist:write", "blacklist:delete",
                 "mobile_transfer:read", "mobile_transfer:write",
-                "qa:read", "qa:write", "qa:delete"
+                "qa:read", "qa:write", "qa:delete",
+                "recording_retention:read", "recording_retention:write", "recording_retention:delete"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -448,7 +450,8 @@ DEFAULT_SETTINGS = {
                 "canned_responses:read", "canned_responses:write", "canned_responses:delete",
                 "blacklist:read", "blacklist:write", "blacklist:delete",
                 "mobile_transfer:read", "mobile_transfer:write",
-                "qa:read", "qa:write", "qa:delete"
+                "qa:read", "qa:write", "qa:delete",
+                "recording_retention:read", "recording_retention:write", "recording_retention:delete"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -461,7 +464,7 @@ DEFAULT_SETTINGS = {
                 "contacts:read", "contacts:write",
                 "canned_responses:read", "blacklist:read",
                 "mobile_transfer:read", "mobile_transfer:write",
-                "qa:read"
+                "qa:read", "recording_retention:read"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         }
@@ -471,6 +474,12 @@ DEFAULT_SETTINGS = {
         "enabled": True,
         "deepfake_threshold": 80,
         "auto_blacklist": False
+    },
+    "recording_retention": {
+        "delete_by_disk": True,
+        "disk_threshold_pct": 80,
+        "keep_days": 90,
+        "delete_by_days": False
     }
 }
 
@@ -615,6 +624,23 @@ def load_settings():
             elif r.get("role_code") == "agent":
                 if "voice_biometrics:read" not in new_perms:
                     new_perms.append("voice_biometrics:read")
+
+            # Auto assign recording_retention permissions if missing
+            if r.get("role_code") in ["admin", "supervisor"]:
+                if "recording_retention:read" not in new_perms:
+                    new_perms.append("recording_retention:read")
+                if "recording_retention:write" not in new_perms:
+                    new_perms.append("recording_retention:write")
+                if "recording_retention:delete" not in new_perms:
+                    new_perms.append("recording_retention:delete")
+            elif r.get("role_code") == "agent":
+                if "recording_retention:read" not in new_perms:
+                    new_perms.append("recording_retention:read")
+
+            # Auto assign reports permissions if missing
+            if r.get("role_code") in ["admin", "supervisor", "agent"]:
+                if "reports:access" not in new_perms:
+                    new_perms.append("reports:access")
                 
             r["permissions"] = list(set(new_perms))
             
@@ -680,6 +706,10 @@ def load_settings():
     if "voice_biometrics" not in db:
         db["voice_biometrics"] = DEFAULT_SETTINGS["voice_biometrics"].copy()
             
+    # Ensure recording_retention config exists (migration)
+    if "recording_retention" not in db:
+        db["recording_retention"] = DEFAULT_SETTINGS["recording_retention"].copy()
+
     save_settings(db)
     return db
 
@@ -1039,6 +1069,38 @@ async def save_voice_biometrics_settings(payload: VoiceBiometricsSettingsSchema)
     save_settings(settings_db)
     return {"status": "success", "message": "Ses biyometrisi ve deepfake koruma ayarları kaydedildi."}
 
+class RecordingRetentionSettingsSchema(BaseModel):
+    delete_by_disk: bool
+    disk_threshold_pct: int
+    keep_days: int
+    delete_by_days: bool
+
+@app.get("/api/settings/recording-retention")
+async def get_recording_retention_settings():
+    return settings_db.get("recording_retention", DEFAULT_SETTINGS["recording_retention"])
+
+@app.post("/api/settings/recording-retention")
+async def save_recording_retention_settings(payload: RecordingRetentionSettingsSchema):
+    settings_db["recording_retention"] = payload.model_dump()
+    save_settings(settings_db)
+    
+    # Run simulated disk cleanup log
+    try:
+        import shutil
+        retention = settings_db["recording_retention"]
+        if retention.get("delete_by_disk"):
+            threshold = retention.get("disk_threshold_pct", 80)
+            total, used, free = shutil.disk_usage(RECORDINGS_DIR)
+            percent_used = (used / total) * 100
+            print(f"[Retention] Checked disk usage: {percent_used:.1f}%. Threshold: {threshold}%")
+        if retention.get("delete_by_days"):
+            days = retention.get("keep_days", 90)
+            print(f"[Retention] Checked files older than {days} days.")
+    except Exception as e:
+        print(f"[Retention] Cleanup check error: {e}")
+
+    return {"status": "success", "message": "Ses kayıt saklama ve silme periyodu ayarları kaydedildi."}
+
 @app.get("/api/calls/active/biometrics/{call_id}")
 async def get_active_call_biometrics(call_id: str):
     from backend.services.voice_bio_service import analyze_live_call
@@ -1237,6 +1299,7 @@ class ProfileUpdateSchema(BaseModel):
     avatar: str
     gsm_number: Optional[str] = None
     mobile_transfer_enabled: Optional[bool] = None
+    theme_color: Optional[str] = "rose"
 
 @app.post("/api/agent/profile/{user_id}")
 async def update_agent_profile_endpoint(user_id: int, payload: ProfileUpdateSchema):
@@ -1268,6 +1331,9 @@ async def update_agent_profile_endpoint(user_id: int, payload: ProfileUpdateSche
         if not has_write_perm and payload.mobile_transfer_enabled != user.get("mobile_transfer_enabled"):
             raise HTTPException(status_code=403, detail="Mobil transfer özelliğini açıp/kapatmak için yetkiniz bulunmamaktadır.")
         user["mobile_transfer_enabled"] = payload.mobile_transfer_enabled
+        
+    if payload.theme_color is not None:
+        user["theme_color"] = payload.theme_color
         
     save_settings(settings_db)
     return {"status": "success", "user": user}
@@ -1550,8 +1616,37 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
 # API Routes: Calls & Transcripts History
 # ----------------------------------------------------
 @app.get("/api/calls")
-async def list_calls(db: AsyncSession = Depends(get_db)):
-    stmt = select(Call).order_by(Call.start_time.desc())
+async def list_calls(
+    start_date: str = None,
+    end_date: str = None,
+    caller_number: str = None,
+    call_id: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    from datetime import datetime, time
+    stmt = select(Call)
+    
+    if start_date:
+        try:
+            start_dt = datetime.combine(datetime.strptime(start_date, "%Y-%m-%d").date(), time.min)
+            stmt = stmt.where(Call.start_time >= start_dt)
+        except ValueError:
+            pass
+            
+    if end_date:
+        try:
+            end_dt = datetime.combine(datetime.strptime(end_date, "%Y-%m-%d").date(), time.max)
+            stmt = stmt.where(Call.start_time <= end_dt)
+        except ValueError:
+            pass
+            
+    if caller_number:
+        stmt = stmt.where(Call.caller_number.ilike(f"%{caller_number}%"))
+        
+    if call_id:
+        stmt = stmt.where(Call.id.ilike(f"%{call_id}%"))
+        
+    stmt = stmt.order_by(Call.start_time.desc())
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -2423,6 +2518,18 @@ async def get_chat_session_qa(session_id: str, db: AsyncSession = Depends(get_db
         "qa_score": chat.qa_score,
         "qa_report": chat.qa_report
     }
+
+@app.put("/api/calls/{call_id}/qa")
+async def update_call_qa(call_id: str, payload: dict, db: AsyncSession = Depends(get_db)):
+    from backend.database.models import Call
+    db_call = await db.get(Call, call_id)
+    if not db_call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    
+    db_call.qa_score = payload.get("qa_score")
+    db_call.qa_report = payload.get("qa_report")
+    await db.commit()
+    return {"status": "success", "qa_score": db_call.qa_score}
 
 
 @app.on_event("startup")

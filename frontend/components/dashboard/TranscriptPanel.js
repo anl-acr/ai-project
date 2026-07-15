@@ -246,7 +246,7 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
       {/* Panel Header */}
       <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-950/50">
         <div className="flex items-center gap-2">
-          <MessageSquare className="text-emerald-600 dark:text-emerald-400 animate-pulse" size={18} />
+          <MessageSquare className="text-primary dark:text-emerald-400 animate-pulse" size={18} />
           <div>
             <h3 className="font-extrabold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-350">Müşteri Çağrı Konsolu</h3>
             <p className="text-[9px] text-slate-400 dark:text-slate-500 font-mono mt-0.5">Çağrı ID: {activeCallId}</p>
@@ -257,20 +257,20 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
           {isDemoCall && (
             <button
               onClick={exitDemoCall}
-              className="px-2 py-0.5 rounded border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-[8px] font-extrabold uppercase tracking-wide hover:bg-rose-100 transition-all shrink-0"
+              className="px-2 py-0.5 rounded border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-400 text-[8px] font-extrabold uppercase tracking-wide hover:bg-rose-100 transition-all shrink-0"
             >
               Simülasyonu Kapat
             </button>
           )}
           <div className="flex items-center gap-2 font-semibold">
             {wsStatus === "connected" && (
-              <span className="flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-450 animate-ping"></span>
+              <span className="flex items-center gap-1.5 text-[10px] text-primary dark:text-emerald-400 uppercase tracking-wide">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary dark:bg-emerald-450 animate-ping"></span>
                 Canlı Bağlantı
               </span>
             )}
             {wsStatus === "connecting" && (
-              <span className="text-[10px] text-amber-600 dark:text-amber-455 animate-pulse uppercase tracking-wide">Bağlanıyor...</span>
+              <span className="text-[10px] text-primary dark:text-amber-455 animate-pulse uppercase tracking-wide">Bağlanıyor...</span>
             )}
             {wsStatus === "disconnected" && (
               <span className="text-[10px] text-slate-400 dark:text-slate-550 uppercase tracking-wide">Bağlantı Yok</span>
@@ -284,7 +284,7 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
         <div className="flex items-center gap-2">
           <span className="text-[10px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest">Çağrı Kontrolleri:</span>
           {isHold && (
-            <span className="px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-250/30 dark:border-amber-900/30 text-amber-600 dark:text-amber-400 text-[8px] font-extrabold uppercase animate-pulse">
+            <span className="px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-250/30 dark:border-amber-900/30 text-primary dark:text-amber-400 text-[8px] font-extrabold uppercase animate-pulse">
               Beklemede (Hold)
             </span>
           )}
@@ -300,7 +300,7 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
             }}
             className={`px-3 py-1.5 rounded-xl border text-[10px] font-extrabold uppercase tracking-wide transition-all flex items-center gap-1.5 focus:outline-none ${
               isHold 
-                ? "bg-amber-500 border-amber-600 text-white shadow-sm" 
+                ? "bg-primary border-amber-600 text-white shadow-sm" 
                 : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
             }`}
           >
@@ -376,11 +376,11 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
               }}
               className={`px-3 py-1.5 rounded-xl border text-[10px] font-extrabold uppercase tracking-wide transition-all flex items-center gap-1.5 focus:outline-none ${
                 conferenceOpen
-                  ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-850 text-emerald-600 dark:text-emerald-400"
+                  ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-850 text-primary dark:text-emerald-400"
                   : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
               }`}
             >
-              <Radio size={11} className={conferenceOpen ? "text-emerald-500 animate-pulse" : "text-slate-400"} />
+              <Radio size={11} className={conferenceOpen ? "text-primary animate-pulse" : "text-slate-400"} />
               <span>Konferans</span>
             </button>
 
@@ -403,7 +403,7 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
                     setConferenceOpen(false);
                     setConferenceTarget("");
                   }}
-                  className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-[8px] font-black uppercase tracking-wider"
+                  className="w-full py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-[8px] font-black uppercase tracking-wider"
                 >
                   Konferansa Ekle (3-Way)
                 </button>
@@ -416,7 +416,7 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
             onClick={() => {
               window.dispatchEvent(new CustomEvent("softphone-action", { detail: { type: "hangup" } }));
             }}
-            className="px-3 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-[10px] font-extrabold uppercase tracking-wide transition-all flex items-center gap-1.5 focus:outline-none shadow-sm shadow-rose-500/10"
+            className="px-3 py-1.5 rounded-xl bg-primary hover:bg-rose-700 text-white text-[10px] font-extrabold uppercase tracking-wide transition-all flex items-center gap-1.5 focus:outline-none shadow-sm shadow-rose-500/10"
           >
             <PhoneOff size={11} />
             <span>Kapat</span>
@@ -451,7 +451,7 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
               if (isWhisper) {
                 return (
                   <div key={index} className="flex flex-col items-center mx-auto max-w-[90%] my-3">
-                    <div className="flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-full text-[9px] font-bold uppercase tracking-wider shadow-sm">
+                    <div className="flex items-center gap-1.5 px-3 py-1 bg-primary/10 border border-amber-500/20 text-primary dark:text-amber-400 rounded-full text-[9px] font-bold uppercase tracking-wider shadow-sm">
                       <Radio size={10} className="animate-pulse" />
                       <span>SÜPERVİZÖR FISILTISI</span>
                     </div>
@@ -475,10 +475,10 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
                   <div
                     className={`h-7.5 w-7.5 rounded-lg flex items-center justify-center shrink-0 border shadow-inner ${
                       isAI
-                        ? "bg-purple-50 dark:bg-purple-950/40 border-purple-100 dark:border-purple-800 text-purple-600 dark:text-purple-400"
+                        ? "bg-purple-50 dark:bg-purple-950/40 border-purple-100 dark:border-purple-800 text-primary dark:text-purple-400"
                         : isHuman
-                        ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400"
-                        : "bg-blue-50 dark:bg-blue-950/40 border-blue-100 dark:border-blue-800 text-blue-600 dark:text-blue-400"
+                        ? "bg-emerald-50 dark:bg-emerald-950/40 border-emerald-100 dark:border-emerald-800 text-primary dark:text-emerald-400"
+                        : "bg-blue-50 dark:bg-blue-950/40 border-blue-100 dark:border-blue-800 text-primary dark:text-blue-400"
                     }`}
                   >
                     {isAI ? <Bot size={13} /> : <User size={13} />}
@@ -576,9 +576,9 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
                 disabled={saveStatus === "saving"}
                 className={`w-full py-1.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wide flex items-center justify-center gap-1.5 transition-all duration-300 border ${
                   saveStatus === "success"
-                    ? "bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30"
+                    ? "bg-emerald-50 border-emerald-200 text-primary dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900/30"
                     : saveStatus === "error"
-                    ? "bg-rose-50 border-rose-200 text-rose-600 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30"
+                    ? "bg-rose-50 border-rose-200 text-primary dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-900/30"
                     : "bg-slate-900 border-slate-800 text-white hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:border-slate-200 dark:hover:bg-slate-200"
                 }`}
               >
@@ -638,7 +638,7 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
                         <span className={`px-1 rounded text-[7px] font-extrabold uppercase ${
                           pastCall.status === "completed"
                             ? "bg-slate-100 dark:bg-slate-850 text-slate-600 dark:text-slate-400"
-                            : "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-455"
+                            : "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-455"
                         }`}>
                           {pastCall.status === "completed" ? "Tamamlandı" : "Aktarıldı"}
                         </span>

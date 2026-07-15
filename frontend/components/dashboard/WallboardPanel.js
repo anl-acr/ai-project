@@ -206,11 +206,11 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   const getLogTypeBadge = (type) => {
     switch (type) {
       case "warning":
-        return "bg-rose-50 dark:bg-rose-950/20 text-rose-500 border-rose-200/40";
+        return "bg-rose-50 dark:bg-rose-950/20 text-primary border-rose-200/40";
       case "system":
-        return "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 border-emerald-200/40";
+        return "bg-emerald-50 dark:bg-emerald-950/20 text-primary border-emerald-200/40";
       case "call":
-        return "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 border-indigo-200/40";
+        return "bg-indigo-50 dark:bg-indigo-950/20 text-primary border-indigo-200/40";
       default:
         return "bg-slate-50 dark:bg-slate-800 text-slate-500 border-slate-200/40";
     }
@@ -220,7 +220,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     return (
       <div className="h-full w-full flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-950">
         <div className="w-full max-w-md p-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-xl text-center space-y-4">
-          <div className="h-16 w-16 bg-rose-50 dark:bg-rose-950/20 text-rose-500 rounded-full flex items-center justify-center mx-auto shadow-inner animate-pulse">
+          <div className="h-16 w-16 bg-rose-50 dark:bg-rose-950/20 text-primary rounded-full flex items-center justify-center mx-auto shadow-inner animate-pulse">
             <ShieldAlert size={30} />
           </div>
           <h3 className="font-extrabold text-slate-800 dark:text-white uppercase tracking-wider text-sm">YETKİSİZ ERİŞİM</h3>
@@ -285,7 +285,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
               <div className="flex items-center justify-between">
                 <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">SIRADA BEKLEYEN</span>
-                <div className="p-2 bg-rose-50 dark:bg-rose-950/20 text-rose-500 rounded-xl">
+                <div className="p-2 bg-rose-50 dark:bg-rose-950/20 text-primary rounded-xl">
                   <Users size={14} />
                 </div>
               </div>
@@ -303,7 +303,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
               <div className="flex items-center justify-between">
                 <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">AI BAŞARILI ÇÖZÜM</span>
-                <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 rounded-xl">
+                <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-primary rounded-xl">
                   <CheckCircle2 size={14} />
                 </div>
               </div>
@@ -319,7 +319,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
               <div className="flex items-center justify-between">
                 <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">AKTİF GÖRÜŞME</span>
-                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 rounded-xl">
+                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 text-primary rounded-xl">
                   <PhoneCall size={14} />
                 </div>
               </div>
@@ -335,7 +335,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
             <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
               <div className="flex items-center justify-between">
                 <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">SERVİS SEVİYESİ</span>
-                <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-xl">
+                <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-primary rounded-xl">
                   <Clock size={14} />
                 </div>
               </div>
@@ -377,12 +377,12 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
                   if (state.status === "Müsait") {
                     statusBorder = "border-emerald-200/80 dark:border-emerald-900/30";
-                    dotColor = "bg-emerald-500";
+                    dotColor = "bg-primary";
                     radarPulse = "bg-emerald-450 animate-ping";
                   } else if (state.status === "Görüşmede") {
                     statusBorder = "border-indigo-200/80 dark:border-indigo-900/30";
-                    dotColor = "bg-indigo-500";
-                    radarPulse = "bg-indigo-450 animate-ping";
+                    dotColor = "bg-primary";
+                    radarPulse = "bg-primary animate-ping";
                     detailsText = `${state.caller || "Gizli"} (${formatSeconds(state.duration)})`;
                   } else if (state.status === "Molada") {
                     statusBorder = "border-orange-200/80 dark:border-orange-900/30";
@@ -426,9 +426,9 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
                       <span className={`px-1.5 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0 ${
                         state.status === "Müsait" 
-                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100"
+                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100"
                           : state.status === "Görüşmede"
-                            ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-100"
+                            ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100"
                             : state.status === "Molada"
                               ? "bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-455 border-orange-100"
                               : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200"
@@ -499,12 +499,12 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
               {/* Queue Status Alert Banner */}
               {queueCount > 3 ? (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 text-rose-600 dark:text-rose-455 rounded-xl flex items-center gap-2 animate-pulse">
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 text-primary dark:text-rose-455 rounded-xl flex items-center gap-2 animate-pulse">
                   <AlertCircle size={14} className="shrink-0" />
                   <span className="text-[10px] font-bold">Kritik Yoğunluk! Sırada bekleyen {queueCount} kişi var.</span>
                 </div>
               ) : (
-                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/50 text-emerald-600 dark:text-emerald-450 rounded-xl flex items-center gap-2">
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/50 text-primary dark:text-emerald-450 rounded-xl flex items-center gap-2">
                   <ShieldCheck size={14} className="shrink-0" />
                   <span className="text-[10px] font-bold">Kuyruk durumu normal, hat meşguliyeti dengeli.</span>
                 </div>
@@ -521,7 +521,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
               </div>
               <span className="flex h-2 w-2 relative">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
               </span>
             </div>
 

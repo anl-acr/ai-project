@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Edit2, CheckCircle, Search, Cable, Check, X, ShieldAlert, Sparkles, Send, Play, Bot, User, HelpCircle, AlertCircle, Save, Database, History, Terminal, Fingerprint } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function UniversalAPISettings({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [apis, setApis] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -405,26 +407,44 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
   };
 
   return (
-    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full max-w-7xl animate-in fade-in duration-300">
-      {/* Title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-150 dark:border-slate-800/80 pb-4">
+    <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full animate-in fade-in duration-300">
+      {/* Standalone Header Card */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-indigo-50 dark:bg-indigo-600/20 text-indigo-650 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 rounded-2xl">
-            <Cable size={22} />
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+            <Cable size={20} />
           </div>
           <div>
-            <h2 className="text-base font-extrabold text-slate-900 dark:text-white">Evrensel API ve Webhook Sihirbazı</h2>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400 font-semibold">CRM, kargo ve borç sorgulama servislerinizi low-code olarak yapay zekaya bağlayın.</p>
+            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">Evrensel API ve Webhook Sihirbazı</h3>
+            <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
+              CRM, kargo ve borç sorgulama servislerinizi low-code olarak yapay zekaya bağlayın.
+            </p>
           </div>
         </div>
-        {hasWritePermission && (
-          <button
-            onClick={openAddModal}
-            className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-xl shadow-md shadow-indigo-600/10 transition-all duration-200"
-          >
-            <Plus size={14} /> Yeni API Ekle
-          </button>
-        )}
+
+        {/* Search Bar + "+" Icon Wrapper */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="API ara..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-955 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
+            />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
+          </div>
+
+          {hasWritePermission && (
+            <button
+              onClick={openAddModal}
+              className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+              title="Yeni API Ekle"
+            >
+              <Plus size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {success && (
@@ -439,17 +459,6 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
         
         {/* Left Column: API List (col-span-4) */}
         <div className="lg:col-span-4 flex flex-col gap-4">
-          <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-450 dark:text-slate-500" size={14} />
-            <input
-              type="text"
-              placeholder="API adı veya anahtarı ara..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-indigo-500 text-slate-800 dark:text-slate-200 font-semibold shadow-sm transition-all"
-            />
-          </div>
-
           {/* Scrollable API List */}
           <div className="flex-1 min-h-[480px] max-h-[580px] overflow-y-auto space-y-3 pr-1 scrollbar-thin">
             {filteredApis.length === 0 ? (
@@ -477,9 +486,9 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                     <div className="space-y-0.5">
                       <div className="flex items-center gap-2">
                         <span className={`px-1.5 py-0.5 text-[8px] font-extrabold rounded-md uppercase tracking-wider ${
-                          api.method === "GET" ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-900/30" :
-                          api.method === "POST" ? "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-100/50 dark:border-blue-900/30" :
-                          "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-450 border border-amber-100/50 dark:border-amber-900/30"
+                          api.method === "GET" ? "bg-emerald-50 dark:bg-emerald-950/40 text-primary dark:text-emerald-400 border border-emerald-100/50 dark:border-emerald-900/30" :
+                          api.method === "POST" ? "bg-blue-50 dark:bg-blue-950/40 text-primary dark:text-blue-400 border border-blue-100/50 dark:border-blue-900/30" :
+                          "bg-amber-50 dark:bg-amber-950/40 text-primary dark:text-amber-450 border border-amber-100/50 dark:border-amber-900/30"
                         }`}>
                           {api.method}
                         </span>
@@ -498,7 +507,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                       {hasDeletePermission && (
                         <button
                           onClick={(e) => handleDelete(api.id, e)}
-                          className="p-1 text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition"
+                          className="p-1 text-primary hover:text-primary hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition"
                         >
                           <Trash2 size={12} />
                         </button>
@@ -520,7 +529,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
           <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm space-y-4 text-left flex-1 flex flex-col min-h-[380px]">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3 shrink-0">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-emerald-50 dark:bg-emerald-600/15 text-emerald-600 dark:text-emerald-400 border border-emerald-100/40 dark:border-emerald-900/20 rounded-xl">
+                <div className="p-1.5 bg-emerald-50 dark:bg-primary/15 text-primary dark:text-emerald-400 border border-emerald-100/40 dark:border-emerald-900/20 rounded-xl">
                   <Play size={14} className="fill-current" />
                 </div>
                 <div>
@@ -534,7 +543,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                 <button
                   onClick={runApiTest}
                   disabled={testing}
-                  className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-550 text-white disabled:opacity-40 transition font-bold rounded-xl text-[10px] shadow-sm flex items-center gap-1 shrink-0"
+                  className="px-3.5 py-1.5 bg-primary hover:bg-emerald-550 text-white disabled:opacity-40 transition font-bold rounded-xl text-[10px] shadow-sm flex items-center gap-1 shrink-0"
                 >
                   {testing ? "İstek Atılıyor..." : "Çalıştır"}
                 </button>
@@ -547,7 +556,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                 <div className="space-y-1.5">
                   <span className="text-[10px] font-extrabold text-slate-450 dark:text-slate-500 uppercase">Endpoint URL</span>
                   <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl font-mono text-[10px] text-slate-600 dark:text-slate-300 break-all select-all">
-                    <span className="font-extrabold text-indigo-600 mr-1.5">{selectedApi.method}</span>
+                    <span className="font-extrabold text-primary mr-1.5">{selectedApi.method}</span>
                     {getPreviewUrl()}
                   </div>
                 </div>
@@ -583,7 +592,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                   <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800/40">
                     <div className="flex items-center justify-between text-[9px] font-bold">
                       <span className="text-slate-450">HTTP Yanıt Kodu:</span>
-                      <span className={`px-2 py-0.5 rounded-md font-mono ${testResult.http_status === 200 ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600" : "bg-rose-50 dark:bg-rose-950/40 text-rose-500"}`}>
+                      <span className={`px-2 py-0.5 rounded-md font-mono ${testResult.http_status === 200 ? "bg-emerald-50 dark:bg-emerald-950/40 text-primary" : "bg-rose-50 dark:bg-rose-950/40 text-primary"}`}>
                         {testResult.http_status || "HATA"}
                       </span>
                     </div>
@@ -607,14 +616,14 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
           <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm space-y-3.5 text-left h-[230px] shrink-0">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-2.5">
               <div className="flex items-center gap-2">
-                <div className="p-1.5 bg-indigo-50 dark:bg-indigo-600/15 text-indigo-650 dark:text-indigo-400 border border-indigo-100/40 dark:border-indigo-900/20 rounded-xl">
+                <div className="p-1.5 bg-indigo-50 dark:bg-primary/15 text-primary dark:text-indigo-400 border border-indigo-100/40 dark:border-indigo-900/20 rounded-xl">
                   <Terminal size={14} />
                 </div>
                 <h3 className="font-bold text-xs uppercase tracking-wider text-slate-800 dark:text-slate-200">Canlı Entegrasyon Logları</h3>
               </div>
               <span className="flex h-2 w-2 relative">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-500"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
               </span>
             </div>
 
@@ -624,13 +633,13 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                   <span className="text-slate-400 dark:text-slate-500 font-mono text-[9px] mt-0.5">{log.time}</span>
                   <div className="flex-1 space-y-0.5">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="font-mono text-indigo-600 dark:text-indigo-400">custom_api_{log.api}</span>
+                      <span className="font-mono text-primary dark:text-indigo-400">custom_api_{log.api}</span>
                       <span className="text-slate-450 dark:text-slate-500">kanal: {log.channel}</span>
                     </div>
                     <p className="text-[9px] font-mono text-slate-500 dark:text-slate-400 break-all">{log.param}</p>
                   </div>
                   <span className={`px-1.5 py-0.5 rounded-md font-mono text-[8px] font-bold ${
-                    log.status === 200 ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600" : "bg-rose-50 dark:bg-rose-950/30 text-rose-500"
+                    log.status === 200 ? "bg-emerald-50 dark:bg-emerald-950/30 text-primary" : "bg-rose-50 dark:bg-rose-950/30 text-primary"
                   }`}>
                     {log.status}
                   </span>
@@ -644,7 +653,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
         <div className="lg:col-span-3 flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300 items-stretch min-h-[580px]">
           {/* Copilot Header */}
           <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-3 shrink-0">
-            <div className="p-1.5 bg-indigo-50 dark:bg-indigo-600/15 text-indigo-650 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 rounded-xl">
+            <div className="p-1.5 bg-indigo-50 dark:bg-primary/15 text-primary dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 rounded-xl">
               <Sparkles size={16} className="animate-pulse" />
             </div>
             <div className="text-left">
@@ -664,7 +673,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
               >
                 <div className={`h-6 w-6 rounded-xl flex items-center justify-center shrink-0 border ${
                   msg.sender === "bot" 
-                    ? "bg-indigo-50 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-450 border-indigo-100/50 dark:border-indigo-900/30" 
+                    ? "bg-indigo-50 dark:bg-primary/20 text-primary dark:text-primary border-indigo-100/50 dark:border-indigo-900/30" 
                     : "bg-slate-100 dark:bg-slate-800 text-slate-650 dark:text-slate-400 border-slate-200/60 dark:border-slate-800"
                 }`}>
                   {msg.sender === "bot" ? <Bot size={12} /> : <User size={12} />}
@@ -672,7 +681,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                 <div className={`p-2.5 rounded-2xl border leading-relaxed whitespace-pre-line text-[10px] font-semibold shadow-sm text-left ${
                   msg.sender === "bot" 
                     ? "bg-slate-50 dark:bg-slate-950/65 border-slate-200/60 dark:border-slate-850 text-slate-705 dark:text-slate-300 rounded-tl-none" 
-                    : "bg-indigo-600 border-indigo-700 text-white rounded-tr-none"
+                    : "bg-primary border-indigo-700 text-white rounded-tr-none"
                 }`}>
                   {msg.text}
                 </div>
@@ -681,7 +690,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
             
             {botTyping && (
               <div className="flex gap-2 mr-auto flex-row max-w-[85%]">
-                <div className="h-6 w-6 rounded-xl flex items-center justify-center shrink-0 border bg-indigo-50 dark:bg-indigo-600/20 text-indigo-600 dark:text-indigo-450 border-indigo-100/50 dark:border-indigo-900/30">
+                <div className="h-6 w-6 rounded-xl flex items-center justify-center shrink-0 border bg-indigo-50 dark:bg-primary/20 text-primary dark:text-primary border-indigo-100/50 dark:border-indigo-900/30">
                   <Bot size={12} className="animate-spin" />
                 </div>
                 <div className="p-2.5 rounded-2xl border bg-slate-50 dark:bg-slate-950/65 border-slate-200/60 dark:border-slate-850 text-slate-450 rounded-tl-none text-[10px] font-semibold text-left">
@@ -703,7 +712,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
             />
             <button
               type="submit"
-              className="flex items-center justify-center p-2.5 bg-indigo-600 hover:bg-indigo-550 text-white transition rounded-xl shrink-0 shadow-md shadow-indigo-550/15"
+              className="flex items-center justify-center p-2.5 bg-primary hover:bg-primary text-white transition rounded-xl shrink-0 shadow-md shadow-indigo-550/15"
             >
               <Send size={13} />
             </button>
@@ -719,7 +728,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-150 dark:border-slate-855 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
               <h3 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                <Cable size={14} className="text-indigo-550" />
+                <Cable size={14} className="text-primary" />
                 {editingApi ? "API Düzenle" : "Yeni API Ekle"}
               </h3>
               <button
@@ -736,7 +745,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                 {/* ID, Name & Method */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">API Anahtarı (ID) <span className="text-rose-500">*</span></label>
+                    <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">API Anahtarı (ID) <span className="text-primary">*</span></label>
                     <input
                       type="text"
                       required
@@ -748,7 +757,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                     />
                   </div>
                   <div className="md:col-span-2">
-                    <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">API Adı (Başlık) <span className="text-rose-500">*</span></label>
+                    <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">API Adı (Başlık) <span className="text-primary">*</span></label>
                     <input
                       type="text"
                       required
@@ -762,7 +771,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
 
                 {/* LLM Description Instruction */}
                 <div>
-                  <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">Yapay Zeka Açıklaması (LLM Instruction) <span className="text-rose-500">*</span></label>
+                  <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">Yapay Zeka Açıklaması (LLM Instruction) <span className="text-primary">*</span></label>
                   <textarea
                     required
                     rows={2}
@@ -777,7 +786,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                 {/* URL and HTTP Method */}
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                   <div>
-                    <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">Metot <span className="text-rose-500">*</span></label>
+                    <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">Metot <span className="text-primary">*</span></label>
                     <select
                       value={apiMethod}
                       onChange={(e) => setApiMethod(e.target.value)}
@@ -790,7 +799,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                     </select>
                   </div>
                   <div className="md:col-span-3">
-                    <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">Endpoint URL <span className="text-rose-500">*</span></label>
+                    <label className="block text-[10px] font-extrabold text-slate-500 dark:text-slate-455 uppercase mb-1.5">Endpoint URL <span className="text-primary">*</span></label>
                     <input
                       type="text"
                       required
@@ -809,7 +818,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                     <button
                       type="button"
                       onClick={addHeader}
-                      className="flex items-center gap-1 text-[9px] font-extrabold text-indigo-650 hover:text-indigo-505 transition"
+                      className="flex items-center gap-1 text-[9px] font-extrabold text-primary hover:text-indigo-505 transition"
                     >
                       <Plus size={12} /> Header Ekle
                     </button>
@@ -838,7 +847,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                           <button
                             type="button"
                             onClick={() => removeHeader(index)}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition"
+                            className="p-1.5 text-primary hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition"
                           >
                             <Trash2 size={13} />
                           </button>
@@ -855,7 +864,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                     <button
                       type="button"
                       onClick={addParameter}
-                      className="flex items-center gap-1 text-[9px] font-extrabold text-indigo-650 hover:text-indigo-505 transition"
+                      className="flex items-center gap-1 text-[9px] font-extrabold text-primary hover:text-indigo-505 transition"
                     >
                       <Plus size={12} /> Parametre Ekle
                     </button>
@@ -870,7 +879,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                           <button
                             type="button"
                             onClick={() => removeParameter(index)}
-                            className="absolute right-2 top-2 p-1 text-slate-450 hover:text-rose-500 transition"
+                            className="absolute right-2 top-2 p-1 text-slate-450 hover:text-primary transition"
                           >
                             <X size={12} />
                           </button>
@@ -908,7 +917,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                                 id={`req-${index}`}
                                 checked={p.required}
                                 onChange={(e) => updateParameter(index, "required", e.target.checked)}
-                                className="rounded text-indigo-600 focus:ring-indigo-500 h-3.5 w-3.5"
+                                className="rounded text-primary focus:ring-indigo-500 h-3.5 w-3.5"
                               />
                               <label htmlFor={`req-${index}`} className="text-[9px] font-extrabold text-slate-500 select-none">Zorunlu</label>
                             </div>
@@ -937,7 +946,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                     type="button"
                     onClick={() => setIsActive(!isActive)}
                     className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                      isActive ? "bg-indigo-600" : "bg-slate-200 dark:bg-slate-800"
+                      isActive ? "bg-primary" : "bg-slate-200 dark:bg-slate-800"
                     }`}
                   >
                     <span
@@ -963,7 +972,7 @@ export default function UniversalAPISettings({ backendHost = "localhost:8000" })
                 <button
                   type="submit"
                   form="api-form"
-                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-550 text-white rounded-xl shadow-md font-bold transition flex items-center gap-1.5"
+                  className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl shadow-md font-bold transition flex items-center gap-1.5`}
                 >
                   <Save size={13} /> Kaydet
                 </button>

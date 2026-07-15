@@ -106,14 +106,14 @@ export default function CalendarPanel({ backendHost = "localhost:8000" }) {
         onClick={() => setSelectedDate(dayDate)}
         className={`h-14 border border-slate-200/80 dark:border-slate-850 p-1.5 flex flex-col justify-between items-start transition relative group ${
           isSelected 
-            ? "bg-purple-100/40 dark:bg-purple-600/10 border-purple-500/60 z-10" 
+            ? "bg-purple-100/40 dark:bg-primary/10 border-purple-500/60 z-10" 
             : isToday
             ? "bg-purple-50/50 dark:bg-slate-850/80 border-purple-250 dark:border-slate-700"
             : "hover:bg-slate-100/50 dark:hover:bg-slate-850/40 bg-white dark:bg-slate-900/50"
         }`}
       >
         <span className={`text-xs font-semibold px-1.5 py-0.5 rounded-md ${
-          isToday ? "bg-purple-600 text-white shadow-sm shadow-purple-600/20" : isSelected ? "text-purple-600 dark:text-purple-400 font-extrabold" : "text-slate-500 dark:text-slate-400"
+          isToday ? "bg-primary text-white shadow-sm shadow-purple-600/20" : isSelected ? "text-primary dark:text-purple-400 font-extrabold" : "text-slate-500 dark:text-slate-400"
         }`}>
           {day}
         </span>
@@ -121,10 +121,10 @@ export default function CalendarPanel({ backendHost = "localhost:8000" }) {
         {/* Indicators for appointments */}
         {dayApps.length > 0 && (
           <div className="flex gap-1 w-full justify-end items-center mt-1">
-            <span className="text-[9px] font-bold text-purple-650 dark:text-purple-400 px-1 py-0.2 bg-purple-50 dark:bg-purple-500/10 rounded border border-purple-100 dark:border-purple-900/20">
+            <span className="text-[9px] font-bold text-primary dark:text-purple-400 px-1 py-0.2 bg-purple-50 dark:bg-primary/10 rounded border border-purple-100 dark:border-purple-900/20">
               {dayApps.length} Rnd
             </span>
-            <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse shrink-0"></span>
+            <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse shrink-0"></span>
           </div>
         )}
       </button>
@@ -132,14 +132,14 @@ export default function CalendarPanel({ backendHost = "localhost:8000" }) {
   }
 
   return (
-    <div className="w-full max-w-6xl h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100">
+    <div className="w-full h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100">
       {/* Left Side: Calendar Grid */}
       <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-5 flex flex-col overflow-hidden shadow-sm transition-colors duration-300">
         {/* Month Selector Header */}
         <div className="flex items-center justify-between mb-5">
           <div>
             <h3 className="font-extrabold text-sm tracking-wide flex items-center gap-2 text-slate-900 dark:text-white">
-              <CalendarIcon className="text-purple-650 dark:text-purple-400" size={18} />
+              <CalendarIcon className="text-primary dark:text-purple-400" size={18} />
               Randevu Takvimi
             </h3>
             <p className="text-[10px] text-slate-500 dark:text-slate-500 font-bold uppercase mt-0.5">
@@ -193,7 +193,7 @@ export default function CalendarPanel({ backendHost = "localhost:8000" }) {
           <h4 className="font-bold text-[10px] tracking-wider text-slate-400 dark:text-slate-500 uppercase">
             Randevu Listesi
           </h4>
-          <p className="text-xs font-bold text-purple-650 dark:text-purple-400">
+          <p className="text-xs font-bold text-primary dark:text-purple-400">
             {selectedDate.toLocaleDateString("tr-TR", {
               day: "numeric",
               month: "long",
@@ -223,14 +223,14 @@ export default function CalendarPanel({ backendHost = "localhost:8000" }) {
               >
                 {/* Time & Status header */}
                 <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-900 pb-2">
-                  <div className="flex items-center gap-1.5 text-xs text-purple-650 dark:text-purple-400 font-bold">
+                  <div className="flex items-center gap-1.5 text-xs text-primary dark:text-purple-400 font-bold">
                     <Clock size={12} />
                     <span>{new Date(app.appointment_time).toLocaleTimeString("tr-TR", {
                       hour: "2-digit",
                       minute: "2-digit"
                     })}</span>
                   </div>
-                  <span className="text-[9px] font-bold bg-emerald-50 dark:bg-emerald-500/15 text-emerald-650 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-500/10 px-2 py-0.5 rounded-full uppercase tracking-wide">
+                  <span className="text-[9px] font-bold bg-emerald-50 dark:bg-primary/15 text-emerald-650 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-500/10 px-2 py-0.5 rounded-full uppercase tracking-wide">
                     Onaylandı
                   </span>
                 </div>
@@ -263,7 +263,7 @@ export default function CalendarPanel({ backendHost = "localhost:8000" }) {
                 {app.call_id && (
                   <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-900 text-[10px] font-bold">
                     <span className="text-slate-400 dark:text-slate-500 font-mono">Görüşme: {app.call_id.slice(0, 8)}...</span>
-                    <div className="flex items-center gap-1 text-purple-650 dark:text-purple-400 hover:text-purple-500 transition cursor-pointer">
+                    <div className="flex items-center gap-1 text-primary dark:text-purple-400 hover:text-primary transition cursor-pointer">
                       <PhoneCall size={10} />
                       <span>Çağrı Raporu</span>
                     </div>

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Shield, Plus, Trash2, Search, X, Check, AlertCircle, AlertTriangle, FileText, Type } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("list"); // list, words
   const [blacklist, setBlacklist] = useState([]);
   const [blockWords, setBlockWords] = useState([]);
@@ -180,94 +182,93 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
   );
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-md p-6 space-y-6 transition-all duration-300">
-      {/* Title & Tabs Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+    <div className="w-full space-y-6 transition-all duration-300">
+      {/* Title & Tabs Header Card */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <div className="p-2.5 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 rounded-xl">
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
             <Shield size={20} />
           </div>
           <div>
-            <h3 className="text-base font-bold text-slate-800 dark:text-white">
-              Kara Liste ve Suistimal Koruması
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
+            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">KARA LİSTE VE SUİSTİMAL KORUMASI</h3>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
               Telefon, e-posta veya yazılı sohbetlerdeki suistimal teşebbüslerini engelleyin.
             </p>
           </div>
         </div>
 
-        {/* Tab Buttons */}
-        <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl shrink-0">
-          <button
-            onClick={() => { setActiveTab("list"); setSearchQuery(""); }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              activeTab === "list"
-                ? "bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-            }`}
-          >
-            Engellenen Kişiler
-          </button>
-          <button
-            onClick={() => { setActiveTab("words"); setSearchQuery(""); }}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${
-              activeTab === "words"
-                ? "bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-sm"
-                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-            }`}
-          >
-            Yasaklı Kelimeler
-          </button>
+        {/* Tab & Search Wrapper */}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
+          {/* Tab Buttons */}
+          <div className="flex bg-slate-100 dark:bg-slate-950 p-1 rounded-xl shrink-0">
+            <button
+              onClick={() => { setActiveTab("list"); setSearchQuery(""); }}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition ${
+                activeTab === "list"
+                  ? "bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              Engellenen Kişiler
+            </button>
+            <button
+              onClick={() => { setActiveTab("words"); setSearchQuery(""); }}
+              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition ${
+                activeTab === "words"
+                  ? "bg-white dark:bg-slate-900 text-slate-800 dark:text-white shadow-sm"
+                  : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
+              }`}
+            >
+              Yasaklı Kelimeler
+            </button>
+          </div>
+
+          {/* Search + Plus */}
+          <div className="flex items-center gap-2.5">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder={activeTab === "list" ? "Numara veya e-posta ara..." : "Kelime veya cümle ara..."}
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
+              />
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
+            </div>
+
+            {permissions.write && (
+              <button
+                onClick={() => activeTab === "list" ? setShowAddModal(true) : setShowAddWordModal(true)}
+                className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+                title={activeTab === "list" ? "Yeni Engelleme Ekle" : "Yasaklı Kelime Ekle"}
+              >
+                <Plus size={16} />
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
       {/* Notifications */}
       {error && (
-        <div className="p-3.5 bg-rose-50 dark:bg-rose-950/20 border border-rose-100 dark:border-rose-900/30 text-rose-600 dark:text-rose-450 rounded-xl text-xs flex items-center gap-2.5">
+        <div className={`p-3.5 ${lightBg} border ${borderLight} ${text} rounded-xl text-xs flex items-center gap-2.5`}>
           <AlertCircle size={15} />
           <span className="font-semibold">{error}</span>
         </div>
       )}
       {success && (
-        <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-emerald-600 dark:text-emerald-450 rounded-xl text-xs flex items-center gap-2.5">
+        <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-primary dark:text-emerald-450 rounded-xl text-xs flex items-center gap-2.5">
           <Check size={15} />
           <span className="font-semibold">{success}</span>
         </div>
       )}
-
-      {/* Action Controls & Search */}
-      <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Search */}
-        <div className="w-full sm:max-w-xs relative">
-          <Search className="absolute left-3 top-2.5 text-slate-400 dark:text-slate-550 font-semibold" size={14} />
-          <input
-            type="text"
-            placeholder={activeTab === "list" ? "Numara veya e-posta ara..." : "Kelime veya cümle ara..."}
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-rose-500 dark:text-white font-medium"
-          />
-        </div>
-
-        {/* Add Action Buttons */}
-        {permissions.write && (
-          <button
-            onClick={() => activeTab === "list" ? setShowAddModal(true) : setShowAddWordModal(true)}
-            className="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-2"
-          >
-            <Plus size={14} />
-            {activeTab === "list" ? "Kişi Engelle" : "Yasaklı Kelime Ekle"}
-          </button>
-        )}
-      </div>
 
       {/* Main List Rendering */}
       {loading ? (
         <div className="p-12 text-center text-xs text-slate-500 font-bold">Veriler yükleniyor...</div>
       ) : activeTab === "list" ? (
         /* Blacklist Table */
-        <div className="border border-slate-100 dark:border-slate-850 rounded-xl overflow-hidden">
+        <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-950/40 text-[10px] text-slate-500 uppercase tracking-wider font-bold border-b border-slate-100 dark:border-slate-850">
@@ -291,8 +292,8 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
                     <td className="px-4 py-3.5">
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                         item.type === "phone"
-                          ? "bg-blue-50 dark:bg-blue-950/30 text-blue-600"
-                          : "bg-purple-50 dark:bg-purple-950/30 text-purple-600"
+                          ? "bg-blue-50 dark:bg-blue-950/30 text-primary"
+                          : "bg-purple-50 dark:bg-purple-950/30 text-primary"
                       }`}>
                         {item.type === "phone" ? "Telefon" : "E-posta"}
                       </span>
@@ -310,7 +311,7 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
                       <td className="px-4 py-3.5 text-right">
                         <button
                           onClick={() => setDeleteTarget({ id: item.id, type: "blacklist", value: item.value })}
-                          className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-rose-600 rounded-lg transition"
+                          className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-primary rounded-lg transition"
                           title="Engeli Kaldır"
                         >
                           <Trash2 size={13} />
@@ -325,7 +326,7 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
         </div>
       ) : (
         /* Block Words Table */
-        <div className="border border-slate-100 dark:border-slate-850 rounded-xl overflow-hidden">
+        <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="bg-slate-50/50 dark:bg-slate-950/40 text-[10px] text-slate-500 uppercase tracking-wider font-bold border-b border-slate-100 dark:border-slate-850">
@@ -354,7 +355,7 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
                       <td className="px-4 py-3.5 text-right">
                         <button
                           onClick={() => setDeleteTarget({ id: item.id, type: "word", value: `"${item.word}"` })}
-                          className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-rose-600 rounded-lg transition"
+                          className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-primary rounded-lg transition"
                           title="Yasaklı Kelimeyi Sil"
                         >
                           <Trash2 size={13} />
@@ -375,7 +376,7 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-scale-up">
             <div className="p-5 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between">
               <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                <Shield size={16} className="text-rose-500" />
+                <Shield size={16} className="text-primary" />
                 Yeni Kişi Engelle
               </h4>
               <button
@@ -427,13 +428,11 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => { setShowAddModal(false); setFormValue(""); setFormReason(""); }}
-                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-850 rounded-xl text-xs font-bold text-slate-655 dark:text-slate-300 transition"
-                >
-                  Vazgeç
-                </button>
+                  className="px-4 py-2 border dark: hover: dark:hover: rounded-xl font-bold dark: transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                >Vazgeç</button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition"
+                  className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition`}
                 >
                   Engelle
                 </button>
@@ -449,7 +448,7 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-scale-up">
             <div className="p-5 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between">
               <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
-                <Type size={16} className="text-rose-500" />
+                <Type size={16} className="text-primary" />
                 Yasaklı Kelime/Cümle Ekle
               </h4>
               <button
@@ -479,13 +478,11 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => { setShowAddWordModal(false); setFormWord(""); }}
-                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-850 rounded-xl text-xs font-bold text-slate-655 dark:text-slate-300 transition"
-                >
-                  Vazgeç
-                </button>
+                  className="px-4 py-2 border dark: hover: dark:hover: rounded-xl font-bold dark: transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                >Vazgeç</button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition"
+                  className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition`}
                 >
                   Kelimeyi Ekle
                 </button>

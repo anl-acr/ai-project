@@ -136,15 +136,15 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
     if (agentState.status === "online") {
       return {
         text: "Müsait (Çağrı Alabilir)",
-        badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30",
-        indicatorClass: "bg-emerald-500 animate-pulse"
+        badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30",
+        indicatorClass: "bg-primary animate-pulse"
       };
     }
     if (agentState.status === "break" && agentState.current_break) {
       return {
         text: `Molada (${agentState.current_break.name})`,
-        badgeClass: "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-200/50 dark:border-amber-900/30",
-        indicatorClass: "bg-amber-500 animate-pulse",
+        badgeClass: "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-200/50 dark:border-amber-900/30",
+        indicatorClass: "bg-primary animate-pulse",
         customColor: agentState.current_break.color
       };
     }
@@ -218,7 +218,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
               <button
                 onClick={handleLogin}
                 disabled={!selectedUser}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10"
+                className="w-full flex items-center justify-center gap-2 py-3 bg-primary hover:bg-primary disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10"
               >
                 <LogIn size={15} />
                 <span>Sistem Girişi Yap</span>
@@ -234,7 +234,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
                 /* IN BREAK: End Break Button */
                 <button
                   onClick={handleEndBreak}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-emerald-500/10"
+                  className="w-full flex items-center justify-center gap-2 py-3 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-emerald-500/10"
                 >
                   <Play size={15} />
                   <span>Molayı Bitir (Çağrı Almaya Başla)</span>
@@ -243,7 +243,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
                 /* ONLINE: Break Options Toggle */
                 <button
                   onClick={() => setShowDropdown(!showDropdown)}
-                  className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                  className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition-all shadow-sm"
                 >
                   <div className="flex items-center gap-2">
                     <Coffee size={15} />
@@ -271,7 +271,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
                   {/* LOGOUT (Top Option) */}
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl transition-all text-left border border-transparent"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-primary dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl transition-all text-left border border-transparent"
                   >
                     <LogOut size={14} />
                     <span>Oturumu Kapat (Logout)</span>

@@ -9,7 +9,7 @@ export default function ChangelogPanel({ onBack }) {
       version: "1.1.0",
       date: "12 Temmuz 2026",
       badge: "Güncel",
-      badgeColor: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30",
+      badgeColor: "bg-emerald-50 text-primary dark:bg-emerald-950/30 dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30",
       type: "major",
       summary: "Görsel Arama Akışı Yönetimi ve Sol Menü Akordiyon Güncellemesi",
       features: [
@@ -40,7 +40,7 @@ export default function ChangelogPanel({ onBack }) {
       version: "1.0.1",
       date: "10 Temmuz 2026",
       badge: "Stabil",
-      badgeColor: "bg-indigo-50 text-indigo-600 dark:bg-indigo-950/30 dark:text-indigo-400 border-indigo-200/50 dark:border-indigo-900/30",
+      badgeColor: "bg-indigo-50 text-primary dark:bg-indigo-950/30 dark:text-indigo-400 border-indigo-200/50 dark:border-indigo-900/30",
       type: "minor",
       summary: "Kalite Değerlendirme Modülü ve DID Yönetim Entegrasyonu",
       features: [
@@ -75,11 +75,11 @@ export default function ChangelogPanel({ onBack }) {
   ];
 
   return (
-    <div className="w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-3xl shadow-sm p-6 space-y-6 transition-colors duration-300 animate-in fade-in duration-200">
+    <div className="w-full bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-3xl shadow-sm p-6 space-y-6 transition-colors duration-300 animate-in fade-in duration-200">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/80 pb-4">
         <div className="flex items-center gap-3">
-          <div className="h-10 w-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 flex items-center justify-center border border-indigo-100/50 dark:border-indigo-900/30 shadow-sm">
+          <div className="h-10 w-10 rounded-2xl bg-indigo-50 dark:bg-indigo-950/30 text-primary dark:text-indigo-400 flex items-center justify-center border border-indigo-100/50 dark:border-indigo-900/30 shadow-sm">
             <GitCommit size={20} />
           </div>
           <div>
@@ -101,7 +101,7 @@ export default function ChangelogPanel({ onBack }) {
       {/* Hero Badge */}
       <div className="p-4 bg-gradient-to-r from-indigo-50/50 via-purple-50/20 to-violet-50/30 dark:from-indigo-950/20 dark:via-purple-950/5 dark:to-violet-950/10 border border-indigo-100/40 dark:border-indigo-900/20 rounded-2xl flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-xl bg-indigo-500 text-white flex items-center justify-center shadow-md shadow-indigo-500/20">
+          <div className="h-8 w-8 rounded-xl bg-primary text-white flex items-center justify-center shadow-md shadow-indigo-500/20">
             <Sparkles size={15} />
           </div>
           <div>
@@ -110,10 +110,10 @@ export default function ChangelogPanel({ onBack }) {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="font-mono text-sm font-black text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+          <span className="font-mono text-sm font-black text-primary dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/40 px-2.5 py-1 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
             v{currentVersion}
           </span>
-          <span className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 dark:border-emerald-900/30 text-emerald-600 dark:text-emerald-400 font-bold text-[10px] rounded-xl">
+          <span className="flex items-center gap-1 px-2.5 py-1 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200/50 dark:border-emerald-900/30 text-primary dark:text-emerald-400 font-bold text-[10px] rounded-xl">
             <ShieldCheck size={12} />
             Güvenli & Çevrimiçi
           </span>
@@ -127,7 +127,7 @@ export default function ChangelogPanel({ onBack }) {
             {/* Timeline Dot */}
             <span className={`absolute -left-[31px] top-1 h-3.5 w-3.5 rounded-full border-2 border-white dark:border-slate-950 shadow-sm transition-all duration-300 ${
               item.version === currentVersion 
-                ? "bg-indigo-500 group-hover:scale-125 ring-4 ring-indigo-500/15" 
+                ? "bg-primary group-hover:scale-125 ring-4 ring-indigo-500/15" 
                 : "bg-slate-300 dark:bg-slate-700"
             }`} />
 
@@ -156,7 +156,7 @@ export default function ChangelogPanel({ onBack }) {
                     {item.features.map((feat, fIdx) => (
                       <div key={fIdx} className="p-3 bg-slate-50/50 dark:bg-slate-950/20 border border-slate-150 dark:border-slate-850 rounded-xl space-y-1">
                         <h4 className="text-[10px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                          <CheckCircle2 size={12} className="text-emerald-500 shrink-0" />
+                          <CheckCircle2 size={12} className="text-primary shrink-0" />
                           {feat.title}
                         </h4>
                         <p className="text-[9px] text-slate-550 dark:text-slate-450 leading-relaxed font-semibold">
@@ -175,7 +175,7 @@ export default function ChangelogPanel({ onBack }) {
                   <ul className="space-y-1">
                     {item.fixes.map((fix, fxIdx) => (
                       <li key={fxIdx} className="text-[10px] text-slate-500 dark:text-slate-450 flex items-start gap-1.5 font-semibold">
-                        <AlertCircle size={11} className="text-amber-500 shrink-0 mt-0.5" />
+                        <AlertCircle size={11} className="text-primary shrink-0 mt-0.5" />
                         <span>{fix}</span>
                       </li>
                     ))}

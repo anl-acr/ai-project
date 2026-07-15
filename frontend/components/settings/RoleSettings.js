@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 const SYSTEM_FEATURES = [
   { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
@@ -23,10 +24,12 @@ const SYSTEM_FEATURES = [
   { id: "mobile_transfer", name: "Mobil Numaraya Akıllı AI Transferi", icon: Smartphone, type: "crud_partial", color: "indigo" },
   { id: "qa", name: "Otomatik Kalite Değerlendirme (Automated QA)", icon: FileText, type: "crud", color: "indigo" },
   { id: "universal_api", name: "Evrensel API & Webhook Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
-  { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" }
+  { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" },
+  { id: "reports", name: "Gelişmiş Çağrı Raporları ve KPI Panosu", icon: FileText, type: "access", color: "purple" }
 ];
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [roles, setRoles] = useState([]);
   const [breaks, setBreaks] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -176,23 +179,23 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       return {
         borderClass: "border-l-4 border-l-purple-500 border-slate-200/80 dark:border-slate-800/85",
         bgClass: "from-purple-50/10 to-transparent",
-        iconColor: "text-purple-500",
-        badgeClass: "bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border-purple-200/50"
+        iconColor: "text-primary",
+        badgeClass: "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-200/50"
       };
     }
     if (code === "supervisor") {
       return {
         borderClass: "border-l-4 border-l-emerald-500 border-slate-200/80 dark:border-slate-800/85",
         bgClass: "from-emerald-50/10 to-transparent",
-        iconColor: "text-emerald-500",
-        badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200/50"
+        iconColor: "text-primary",
+        badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50"
       };
     }
     return {
       borderClass: "border-l-4 border-l-blue-500 border-slate-200/80 dark:border-slate-800/85",
       bgClass: "from-blue-50/10 to-transparent",
-      iconColor: "text-blue-500",
-      badgeClass: "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200/50"
+      iconColor: "text-primary",
+      badgeClass: "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200/50"
     };
   };
 
@@ -205,37 +208,37 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   });
 
   return (
-    <div className="space-y-6">
-      {/* Premium Gradient Header */}
-      <div className="p-6 bg-gradient-to-br from-white via-white to-slate-50/40 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 border border-slate-200/80 dark:border-slate-800/80 rounded-3xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="p-3 bg-gradient-to-tr from-rose-500 to-pink-500 text-white rounded-2xl shadow-md shadow-rose-500/10">
-            <Shield size={22} className="animate-pulse" />
+    <div className="w-full space-y-6">
+      {/* Standalone Header Card */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+            <Shield size={20} />
           </div>
           <div>
-            <h3 className="font-extrabold text-sm text-slate-850 dark:text-white uppercase tracking-wider">ROL YETKİLENDİRME PANELİ</h3>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium max-w-md leading-relaxed">
+            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">ROL YETKİLENDİRME PANELİ</h3>
+            <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
               Sistemdeki modüllerin eylem yetkilerini (Okuma, Yazma, Silme) detaylı olarak sınırlayın ve rol-mola ilişkilerini yönetin.
             </p>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Search Bar + "+" Icon Wrapper */}
+        <div className="flex items-center gap-2.5">
           <div className="relative">
             <input
               type="text"
               placeholder="Rollerde ara..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-52 text-xs pl-9 pr-4 py-2.5 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500/20 dark:focus:ring-rose-500/15 transition-all shadow-inner"
+              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
             />
-            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
           </div>
 
           <button
             onClick={openAddModal}
-            className="p-3 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl text-xs font-bold transition-all shadow-md shadow-rose-600/10 flex items-center justify-center hover:scale-105 active:scale-95 shrink-0"
+            className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
             title="Yeni Rol Ekle"
           >
             <Plus size={16} />
@@ -245,7 +248,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
 
       {/* Success Alert Banner */}
       {success && (
-        <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-2xl text-emerald-600 dark:text-emerald-450 text-xs font-bold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
+        <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-2xl text-primary dark:text-emerald-450 text-xs font-bold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
           <CheckCircle size={15} /> Değişiklikler başarıyla kaydedildi!
         </div>
       )}
@@ -310,17 +313,17 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                             <div className="flex gap-1 shrink-0">
                               {feat.type === "crud" ? (
                                 <>
-                                  <span title="Görüntüleme (Oku)" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasRead ? "bg-indigo-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>G</span>
-                                  <span title="Düzenleme (Yaz)" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasWrite ? "bg-blue-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>D</span>
-                                  <span title="Silme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasDelete ? "bg-rose-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>S</span>
+                                  <span title="Görüntüleme (Oku)" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasRead ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>G</span>
+                                  <span title="Düzenleme (Yaz)" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasWrite ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>D</span>
+                                  <span title="Silme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasDelete ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>S</span>
                                 </>
                               ) : feat.type === "crud_partial" ? (
                                 <>
-                                  <span title="Görüntüleme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasRead ? "bg-indigo-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>G</span>
-                                  <span title="Güncelleme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasWrite ? "bg-blue-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>D</span>
+                                  <span title="Görüntüleme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasRead ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>G</span>
+                                  <span title="Güncelleme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasWrite ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>D</span>
                                 </>
                               ) : (
-                                <span title="Modül Erişimi" className={`w-6 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasAccess ? "bg-emerald-500 text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>Erişim</span>
+                                <span title="Modül Erişimi" className={`w-6 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasAccess ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>Erişim</span>
                               )}
                             </div>
                           </div>
@@ -369,7 +372,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                   </button>
                   <button
                     onClick={() => handleDeleteRole(r.id)}
-                    className="flex-1 xl:flex-none p-2.5 text-slate-450 hover:text-rose-600 dark:hover:text-rose-500 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-rose-50/20 dark:hover:bg-rose-950/20 flex items-center gap-2 text-xs font-bold transition-all"
+                    className="flex-1 xl:flex-none p-2.5 text-slate-450 hover:text-primary dark:hover:text-primary rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-rose-50/20 dark:hover:bg-rose-950/20 flex items-center gap-2 text-xs font-bold transition-all"
                   >
                     <Trash2 size={13} />
                     <span className="xl:hidden">Rolü Sil</span>
@@ -389,7 +392,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20">
               <div className="flex items-center gap-2">
-                <Shield size={16} className="text-rose-500" />
+                <Shield size={16} className="text-primary" />
                 <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
                   {editingRole ? "Rolü Düzenle" : "Yeni Rol Tanımla"}
                 </h3>
@@ -469,7 +472,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                 onClick={() => togglePermission(`${feat.id}:read`)}
                                 className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
                                   selectedPermissions.includes(`${feat.id}:read`)
-                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
                                     : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
                                 }`}
                               >
@@ -483,7 +486,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                 onClick={() => togglePermission(`${feat.id}:write`)}
                                 className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
                                   selectedPermissions.includes(`${feat.id}:write`)
-                                    ? "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
+                                    ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
                                     : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
                                 }`}
                               >
@@ -497,7 +500,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                 onClick={() => togglePermission(`${feat.id}:delete`)}
                                 className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
                                   selectedPermissions.includes(`${feat.id}:delete`)
-                                    ? "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-455 border-rose-200 dark:border-rose-900/40"
+                                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-200 dark:border-rose-900/40"
                                     : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
                                 }`}
                               >
@@ -515,7 +518,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                 onClick={() => togglePermission(`${feat.id}:read`)}
                                 className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
                                   selectedPermissions.includes(`${feat.id}:read`)
-                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
                                     : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
                                 }`}
                               >
@@ -529,7 +532,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                 onClick={() => togglePermission(`${feat.id}:write`)}
                                 className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
                                   selectedPermissions.includes(`${feat.id}:write`)
-                                    ? "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
+                                    ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
                                     : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
                                 }`}
                               >
@@ -545,7 +548,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                               onClick={() => togglePermission(`${feat.id}:access`)}
                               className={`px-3 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
                                 selectedPermissions.includes(`${feat.id}:access`)
-                                  ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/40"
+                                  ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/40"
                                   : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
                               }`}
                             >
@@ -617,13 +620,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 py-3 rounded-2xl text-xs font-bold border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-650 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all animate-none"
-                >
-                  Vazgeç
-                </button>
+                  className="flex-1 py-3 rounded-2xl font-bold border dark: dark: dark: hover: dark:hover: transition-all animate-none bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                >Vazgeç</button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-2xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-md shadow-rose-500/10"
+                  className={`flex-1 py-3 rounded-2xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-md`}
                 >
                   Kaydet
                 </button>

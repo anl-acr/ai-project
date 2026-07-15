@@ -1,0 +1,2109 @@
+
+> ai-pbx-frontend@1.0.0 dev
+> next dev
+
+  ▲ Next.js 14.2.35
+  - Local:        http://localhost:3001
+
+ ✓ Starting...
+ ✓ Ready in 11.2s
+ ○ Compiling / ...
+ ✓ Compiled / in 698ms (807 modules)
+ GET / 200 in 825ms
+ ✓ Compiled in 949ms (807 modules)
+ ✓ Compiled in 194ms (807 modules)
+ ✓ Compiled in 214ms (807 modules)
+ ✓ Compiled in 133ms (807 modules)
+ ✓ Compiled in 86ms (576 modules)
+ ✓ Compiled in 176ms (807 modules)
+ ✓ Compiled in 250ms (807 modules)
+ ✓ Compiled in 135ms (807 modules)
+ ✓ Compiled in 130ms (807 modules)
+ ✓ Compiled in 182ms (807 modules)
+ ✓ Compiled in 162ms (807 modules)
+ ✓ Compiled in 180ms (807 modules)
+ ✓ Compiled in 140ms (807 modules)
+ ✓ Compiled in 154ms (807 modules)
+ ✓ Compiled in 229ms (807 modules)
+ ✓ Compiled in 213ms (807 modules)
+ ✓ Compiled in 201ms (807 modules)
+ ✓ Compiled in 177ms (807 modules)
+ ✓ Compiled in 169ms (807 modules)
+ ✓ Compiled in 176ms (807 modules)
+ ✓ Compiled in 229ms (807 modules)
+ ✓ Compiled in 176ms (807 modules)
+ ✓ Compiled in 276ms (807 modules)
+ ✓ Compiled in 434ms (807 modules)
+ ✓ Compiled in 184ms (807 modules)
+ ✓ Compiled in 143ms (807 modules)
+ ✓ Compiled in 128ms (807 modules)
+ ⨯ ./components/settings/AIAgentsSettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/AIAgentsSettings.js[0m:367:1]
+ [2m367[0m |               </div>
+ [2m368[0m |             ))}
+ [2m369[0m |           </div>
+ [2m370[0m |         )}
+     : [31;1m         ^[0m
+ [2m371[0m | 
+ [2m372[0m |         <ConfirmDeleteModal
+ [2m373[0m |           isOpen={isDeleteModalOpen}
+     `----
+
+  [31mx[0m Expected ':', got ';'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/AIAgentsSettings.js[0m:381:1]
+ [2m381[0m |         />
+ [2m382[0m | 
+ [2m383[0m |       </div>
+ [2m384[0m |     );
+     : [31;1m     ^[0m
+ [2m385[0m |   }
+ [2m386[0m | 
+ [2m387[0m |   // Standard Page-Integrated Edit View (Keep sidebar and header visible!)
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/AIAgentsSettings.js
+ ✓ Compiled in 195ms (807 modules)
+ ✓ Compiled in 413ms (807 modules)
+ ✓ Compiled in 200ms (807 modules)
+ ✓ Compiled in 248ms (807 modules)
+ ✓ Compiled in 253ms (807 modules)
+ ⨯ ./components/settings/CallFlowEditor.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:843:1]
+ [2m843[0m |               </div>
+ [2m844[0m |             ))}
+ [2m845[0m |           </div>
+ [2m846[0m |         )}      </div>
+     : [31;1m         ^[0m
+ [2m847[0m |                 </div>
+ [2m848[0m |               );
+ [2m849[0m |             })}
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:846:1]
+ [2m846[0m |         )}      </div>
+ [2m847[0m |                 </div>
+ [2m848[0m |               );
+ [2m849[0m |             })}
+     : [31;1m            ^[0m
+ [2m850[0m |           </div>
+ [2m851[0m |         )}
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:846:1]
+ [2m846[0m |         )}      </div>
+ [2m847[0m |                 </div>
+ [2m848[0m |               );
+ [2m849[0m |             })}
+     : [31;1m              ^[0m
+ [2m850[0m |           </div>
+ [2m851[0m |         )}
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:861:1]
+ [2m861[0m |           title="Akış Şemasını Sil"
+ [2m862[0m |           message="Bu arama akış şemasını silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+ [2m863[0m |         />
+ [2m864[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m865[0m |     );
+ [2m866[0m |   }
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/CallFlowEditor.js
+ ⨯ ./components/settings/CallFlowEditor.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:843:1]
+ [2m843[0m |               </div>
+ [2m844[0m |             ))}
+ [2m845[0m |           </div>
+ [2m846[0m |         )}
+     : [31;1m         ^[0m
+ [2m847[0m |       </div>
+ [2m848[0m |     );
+ [2m849[0m |   }
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:846:1]
+ [2m846[0m |         )}
+ [2m847[0m |       </div>
+ [2m848[0m |     );
+ [2m849[0m |   }
+     : [31;1m  ^[0m
+ [2m850[0m | 
+ [2m851[0m |         {/* Custom Delete Confirmation Modal */}
+ [2m852[0m |         <ConfirmDeleteModal
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:861:1]
+ [2m861[0m |         />
+ [2m862[0m |       </div>
+ [2m863[0m |     );
+ [2m864[0m |   }
+     : [31;1m  ^[0m
+ [2m865[0m | 
+ [2m866[0m |   // Render visual node canvas editor
+ [2m867[0m |   return (
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2410:1]
+ [2m2410[0m | 
+ [2m2411[0m |     </div>
+ [2m2412[0m |   );
+ [2m2413[0m | }
+      : [31;1m^[0m
+      `----
+
+  [31mx[0m Unexpected eof
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2411:1]
+ [2m2411[0m |     </div>
+ [2m2412[0m |   );
+ [2m2413[0m | }
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/CallFlowEditor.js
+ ⨯ ./components/settings/CallFlowEditor.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:843:1]
+ [2m843[0m |               </div>
+ [2m844[0m |             ))}
+ [2m845[0m |           </div>
+ [2m846[0m |         )}
+     : [31;1m         ^[0m
+ [2m847[0m |       </div>
+ [2m848[0m |     );
+ [2m849[0m |   }
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:846:1]
+ [2m846[0m |         )}
+ [2m847[0m |       </div>
+ [2m848[0m |     );
+ [2m849[0m |   }
+     : [31;1m  ^[0m
+ [2m850[0m | 
+ [2m851[0m |         {/* Custom Delete Confirmation Modal */}
+ [2m852[0m |         <ConfirmDeleteModal
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:861:1]
+ [2m861[0m |         />
+ [2m862[0m |       </div>
+ [2m863[0m |     );
+ [2m864[0m |   }
+     : [31;1m  ^[0m
+ [2m865[0m | 
+ [2m866[0m |   // Render visual node canvas editor
+ [2m867[0m |   return (
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2410:1]
+ [2m2410[0m | 
+ [2m2411[0m |     </div>
+ [2m2412[0m |   );
+ [2m2413[0m | }
+      : [31;1m^[0m
+      `----
+
+  [31mx[0m Unexpected eof
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2411:1]
+ [2m2411[0m |     </div>
+ [2m2412[0m |   );
+ [2m2413[0m | }
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/CallFlowEditor.js
+ ⨯ ./components/settings/AIAgentsSettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/AIAgentsSettings.js[0m:373:1]
+ [2m373[0m |                   </div>
+ [2m374[0m |                 </div>
+ [2m375[0m |               </div>
+ [2m376[0m |             ))}}
+     : [31;1m               ^[0m
+ [2m377[0m |           </div>
+ [2m378[0m |         )}
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/AIAgentsSettings.js
+ ⨯ ./components/settings/CallFlowEditor.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:843:1]
+ [2m843[0m |               </div>
+ [2m844[0m |             ))}
+ [2m845[0m |           </div>
+ [2m846[0m |         )}
+     : [31;1m         ^[0m
+ [2m847[0m |       </div>
+ [2m848[0m |     );
+ [2m849[0m |   }
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:846:1]
+ [2m846[0m |         )}
+ [2m847[0m |       </div>
+ [2m848[0m |     );
+ [2m849[0m |   }
+     : [31;1m  ^[0m
+ [2m850[0m | 
+ [2m851[0m |         {/* Custom Delete Confirmation Modal */}
+ [2m852[0m |         <ConfirmDeleteModal
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:861:1]
+ [2m861[0m |         />
+ [2m862[0m |       </div>
+ [2m863[0m |     );
+ [2m864[0m |   }
+     : [31;1m  ^[0m
+ [2m865[0m | 
+ [2m866[0m |   // Render visual node canvas editor
+ [2m867[0m |   return (
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2410:1]
+ [2m2410[0m | 
+ [2m2411[0m |     </div>
+ [2m2412[0m |   );
+ [2m2413[0m | }
+      : [31;1m^[0m
+      `----
+
+  [31mx[0m Unexpected eof
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2411:1]
+ [2m2411[0m |     </div>
+ [2m2412[0m |   );
+ [2m2413[0m | }
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/CallFlowEditor.js
+ ⨯ ./components/settings/CallFlowEditor.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:843:1]
+ [2m843[0m |               </div>
+ [2m844[0m |             ))}
+ [2m845[0m |           </div>
+ [2m846[0m |         )}
+     : [31;1m         ^[0m
+ [2m847[0m | 
+ [2m848[0m |         {/* Custom Delete Confirmation Modal */}
+ [2m849[0m |         <ConfirmDeleteModal
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:858:1]
+ [2m858[0m |         />
+ [2m859[0m |       </div>
+ [2m860[0m |     );
+ [2m861[0m |   }
+     : [31;1m  ^[0m
+ [2m862[0m | 
+ [2m863[0m |   // Render visual node canvas editor
+ [2m864[0m |   return (
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2407:1]
+ [2m2407[0m | 
+ [2m2408[0m |     </div>
+ [2m2409[0m |   );
+ [2m2410[0m | }
+      : [31;1m^[0m
+      `----
+
+  [31mx[0m Unexpected eof
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2408:1]
+ [2m2408[0m |     </div>
+ [2m2409[0m |   );
+ [2m2410[0m | }
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/CallFlowEditor.js
+ ⨯ ./components/settings/CallFlowEditor.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:841:1]
+ [2m841[0m |                   </div>
+ [2m842[0m |                 </div>
+ [2m843[0m |               </div>
+ [2m844[0m |             ))}}
+     : [31;1m               ^[0m
+ [2m845[0m |           </div>
+ [2m846[0m |         )}
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:843:1]
+ [2m843[0m |               </div>
+ [2m844[0m |             ))}}
+ [2m845[0m |           </div>
+ [2m846[0m |         )}
+     : [31;1m         ^[0m
+ [2m847[0m | 
+ [2m848[0m |         {/* Custom Delete Confirmation Modal */}
+ [2m849[0m |         <ConfirmDeleteModal
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:858:1]
+ [2m858[0m |         />
+ [2m859[0m |       </div>
+ [2m860[0m |     );
+ [2m861[0m |   }
+     : [31;1m  ^[0m
+ [2m862[0m | 
+ [2m863[0m |   // Render visual node canvas editor
+ [2m864[0m |   return (
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2407:1]
+ [2m2407[0m | 
+ [2m2408[0m |     </div>
+ [2m2409[0m |   );
+ [2m2410[0m | }
+      : [31;1m^[0m
+      `----
+
+  [31mx[0m Unexpected eof
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:2408:1]
+ [2m2408[0m |     </div>
+ [2m2409[0m |   );
+ [2m2410[0m | }
+      `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/CallFlowEditor.js
+ ⨯ ./components/settings/CallFlowEditor.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/CallFlowEditor.js[0m:849:1]
+ [2m849[0m |                   </div>
+ [2m850[0m |                 </div>
+ [2m851[0m |               </div>
+ [2m852[0m |             ))}}
+     : [31;1m               ^[0m
+ [2m853[0m |           </div>
+ [2m854[0m |         )}
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/CallFlowEditor.js
+ ✓ Compiled in 426ms (807 modules)
+ ⨯ ./components/settings/BlacklistSettings.js
+Error: 
+  [31mx[0m Unexpected token `numeric literal (0.5, .5)`. Expected jsx identifier
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/BlacklistSettings.js[0m:233:1]
+ [2m233[0m |         <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-100 dark:border-emerald-900/30 text-emerald-600 dark:text-emerald-450 rounded-xl text-xs flex items-center gap-2.5">
+ [2m234[0m |           <Check size={15} />
+ [2m235[0m |           <span className="font-semibold      {/* Action Controls & Search */}
+ [2m236[0m |       <div className="flex items-center justify-end gap-2.5">
+     : [31;1m                                                         ^^[0m
+ [2m237[0m |         {/* Search */}
+ [2m238[0m |         <div className="relative">
+ [2m239[0m |           <input
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/BlacklistSettings.js
+ ✓ Compiled in 170ms (807 modules)
+ ✓ Compiled in 127ms (807 modules)
+ ✓ Compiled in 128ms (807 modules)
+ ✓ Compiled in 189ms (807 modules)
+ ✓ Compiled in 330ms (807 modules)
+ ✓ Compiled in 185ms (807 modules)
+ ✓ Compiled in 158ms (807 modules)
+ ✓ Compiled in 170ms (807 modules)
+ ✓ Compiled in 114ms (807 modules)
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token `numeric literal (80, 80)`. Expected > (jsx closing tag)
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:405:1]
+ [2m405[0m |   };
+ [2m406[0m | 
+ [2m407[0m |   return (
+ [2m408[0m |     <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full animate-in fade      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-150 dark:border-slate-800/80 pb-4">
+     : [31;1m                                                                                                                                                                                                                                       ^^[0m
+ [2m409[0m |         <div className="flex items-center gap-3">
+ [2m410[0m |           <div className="p-2.5 bg-indigo-50 dark:bg-indigo-600/20 text-indigo-650 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 rounded-2xl">
+ [2m411[0m |             <Cable size={22} />
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Expected ',', got '{'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:718:1]
+ [2m718[0m |         </div>
+ [2m719[0m |       </div>
+ [2m720[0m | 
+ [2m721[0m |       {/* NEW/EDIT API MODAL (GLASSMORPHISM BACKDROP) */}
+     : [31;1m      ^[0m
+ [2m722[0m |       {showModal && (
+ [2m723[0m |         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[90] p-4 transition-all duration-300">
+ [2m724[0m |           <div className="w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ✓ Compiled in 201ms (807 modules)
+ ✓ Compiled in 200ms (807 modules)
+ ✓ Compiled in 241ms (807 modules)
+ ✓ Compiled in 122ms (807 modules)
+ ✓ Compiled in 128ms (807 modules)
+ ✓ Compiled in 127ms (807 modules)
+ ✓ Compiled in 121ms (807 modules)
+ ✓ Compiled in 218ms (807 modules)
+ ✓ Compiled in 193ms (807 modules)
+ ✓ Compiled in 208ms (807 modules)
+ ✓ Compiled in 149ms (807 modules)
+ ✓ Compiled in 267ms (807 modules)
+ ✓ Compiled in 161ms (807 modules)
+ ✓ Compiled in 296ms (807 modules)
+ ✓ Compiled in 186ms (807 modules)
+ ⨯ ./components/settings/UserSettings.js
+Error: 
+  [31mx[0m Expected ',', got 'className'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UserSettings.js[0m:230:1]
+ [2m230[0m |         <div className="p-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl text-slate-500 text-xs">
+ [2m231[0m |           Arama kriterine uygun veya kayıtlı sistem kullanıcısı bulunmuyor.
+ [2m232[0m |         </div>
+ [2m233[0m |         <div className="space-y-3.5 w-full">
+     : [31;1m             ^^^^^^^^^[0m
+ [2m234[0m |           {/* Column Header Row */}
+ [2m235[0m |           <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
+ [2m236[0m |             <div className="flex items-center gap-4 flex-1">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UserSettings.js
+ ⨯ ./components/settings/UserSettings.js
+Error: 
+  [31mx[0m Expected ',', got 'className'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UserSettings.js[0m:230:1]
+ [2m230[0m |         <div className="p-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl text-slate-500 text-xs">
+ [2m231[0m |           Arama kriterine uygun veya kayıtlı sistem kullanıcısı bulunmuyor.
+ [2m232[0m |         </div>
+ [2m233[0m |         <div className="space-y-3.5 w-full">
+     : [31;1m             ^^^^^^^^^[0m
+ [2m234[0m |           {/* Column Header Row */}
+ [2m235[0m |           <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
+ [2m236[0m |             <div className="flex items-center gap-4 flex-1">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UserSettings.js
+ ⨯ ./components/settings/UserSettings.js
+Error: 
+  [31mx[0m Expected ',', got 'className'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UserSettings.js[0m:230:1]
+ [2m230[0m |         <div className="p-12 text-center border-2 border-dashed border-slate-100 dark:border-slate-800 rounded-2xl text-slate-500 text-xs">
+ [2m231[0m |           Arama kriterine uygun veya kayıtlı sistem kullanıcısı bulunmuyor.
+ [2m232[0m |         </div>
+ [2m233[0m |         <div className="space-y-3.5 w-full">
+     : [31;1m             ^^^^^^^^^[0m
+ [2m234[0m |           {/* Column Header Row */}
+ [2m235[0m |           <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
+ [2m236[0m |             <div className="flex items-center gap-4 flex-1">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UserSettings.js
+ ✓ Compiled in 192ms (807 modules)
+ ⨯ ./components/settings/BlacklistSettings.js
+Error: 
+  [31mx[0m Expected ',', got 'return'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/BlacklistSettings.js[0m:176:1]
+ [2m176[0m |   );
+ [2m177[0m | 
+ [2m178[0m |   const filteredWords = blockWords.filter(item =>
+ [2m179[0m |     item.word.toLowerCase().inclu  return (
+     : [31;1m                                   ^^^^^^[0m
+ [2m180[0m |     <div className="w-full space-y-6 transition-all duration-300">
+ [2m181[0m |       {/* Title & Tabs Header Card */}
+ [2m182[0m |       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/BlacklistSettings.js
+ ✓ Compiled in 226ms (807 modules)
+ ✓ Compiled in 174ms (807 modules)
+ ✓ Compiled in 169ms (807 modules)
+ ✓ Compiled in 193ms (807 modules)
+ ⨯ ./components/settings/RoleSettings.js
+Error: 
+  [31mx[0m Expected ',', got 'className'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/RoleSettings.js[0m:206:1]
+ [2m206[0m |   });
+ [2m207[0m | 
+ [2m208[0m |   return (      {/* Standalone Header Card */}
+ [2m209[0m |       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+     : [31;1m           ^^^^^^^^^[0m
+ [2m210[0m |         <div className="flex items-center gap-3">
+ [2m211[0m |           <div className="p-2.5 bg-rose-50 dark:bg-rose-955/20 text-rose-500 rounded-xl">
+ [2m212[0m |             <Shield size={20} />
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/RoleSettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/RoleSettings.js
+Error: 
+  [31mx[0m Expected ',', got '{'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/RoleSettings.js[0m:245:1]
+ [2m245[0m |       </div>
+ [2m246[0m |       </div>
+ [2m247[0m | 
+ [2m248[0m |       {/* Success Alert Banner */}
+     : [31;1m      ^[0m
+ [2m249[0m |       {success && (
+ [2m250[0m |         <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-2xl text-emerald-600 dark:text-emerald-450 text-xs font-bold flex items-center gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
+ [2m251[0m |           <CheckCircle size={15} /> Değişiklikler başarıyla kaydedildi!
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/RoleSettings.js
+./components/settings/SettingsPanel.js
+ ✓ Compiled in 181ms (807 modules)
+ ✓ Compiled in 155ms (807 modules)
+ ✓ Compiled in 177ms (807 modules)
+ ⨯ ./components/dashboard/ContactsPanel.js
+Error: 
+  [31mx[0m Unexpected token `numeric literal (80, 80)`. Expected > (jsx closing tag)
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/dashboard/ContactsPanel.js[0m:194:1]
+ [2m194[0m | 
+ [2m195[0m |   return (
+ [2m196[0m |     <div className="w-full space-y-6 animate-in fade-in durati      {/* Standalone Header Card */}
+ [2m197[0m |       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+     : [31;1m                                                                             ^^[0m
+ [2m198[0m |         <div className="flex items-center gap-3">
+ [2m199[0m |           <div className="p-2.5 bg-rose-50 dark:bg-rose-955/20 text-rose-500 rounded-xl">
+ [2m200[0m |             <BookOpen size={20} />
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/dashboard/ContactsPanel.js
+ ⨯ ./components/dashboard/ContactsPanel.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/dashboard/ContactsPanel.js[0m:241:1]
+ [2m241[0m |       )}
+ [2m242[0m | 
+ [2m243[0m |       {/* Contacts List Grid/Table Card */}
+ [2m244[0m |       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">n-colors duration-300">
+     : [31;1m                                                                                                                                                                                     ^[0m
+ [2m245[0m |         <table className="w-full border-collapse text-left">
+ [2m246[0m |           <thead>
+ [2m247[0m |             <tr className="bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-850">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/dashboard/ContactsPanel.js
+ ✓ Compiled in 255ms (807 modules)
+ ✓ Compiled in 325ms (809 modules)
+ ✓ Compiled in 279ms (809 modules)
+ ✓ Compiled in 213ms (809 modules)
+ ✓ Compiled in 256ms (809 modules)
+ ✓ Compiled in 227ms (809 modules)
+ ⨯ ./pages/index.js
+Error: 
+  [31mx[0m Expected '}', got 'p'
+      ,-[[36;1;4m/Users/anilacar/ai-project/frontend/pages/index.js[0m:1714:1]
+ [2m1714[0m |                         key={t.code}
+ [2m1715[0m |                         type="button"
+ [2m1716[0m |                         onClick={() => setTempThemeColor(t.code)}
+ [2m1717[0m |                         className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
+      : [31;1m                                    ^[0m
+ [2m1718[0m |                           tempThemeColor === t.code
+ [2m1719[0m |                             ? "border-slate-800 dark:border-white ring-2 ring-slate-800/10 dark:ring-white/10"
+ [2m1720[0m |                             : "border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+      `----
+
+Caused by:
+    Syntax Error
+ ✓ Compiled in 314ms (809 modules)
+ ✓ Compiled in 255ms (809 modules)
+ ✓ Compiled in 140ms (809 modules)
+ ⨯ ./components/settings/UserSettings.js
+Error: 
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UserSettings.js[0m:215:1]
+ [2m215[0m |             <Plus size={16} />
+ [2m216[0m |           </button>
+ [2m217[0m |         </div>
+ [2m218[0m |       </div>   </div>
+     : [31;1m                ^^^^^[0m
+ [2m219[0m |       </div>
+ [2m220[0m | 
+ [2m221[0m |       {/* Status Bar */}
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UserSettings.js
+ ✓ Compiled in 125ms (809 modules)
+ ✓ Compiled in 142ms (809 modules)
+ ✓ Compiled in 178ms (809 modules)
+ ✓ Compiled in 138ms (809 modules)
+ ✓ Compiled in 190ms (809 modules)
+ ✓ Compiled in 181ms (809 modules)
+ ✓ Compiled in 182ms (809 modules)
+ ✓ Compiled in 169ms (809 modules)
+ ✓ Compiled in 161ms (809 modules)
+ ✓ Compiled in 145ms (809 modules)
+ ✓ Compiled in 177ms (809 modules)
+ ✓ Compiled in 224ms (809 modules)
+ ✓ Compiled in 270ms (809 modules)
+ ✓ Compiled in 199ms (809 modules)
+ ✓ Compiled in 240ms (809 modules)
+ ✓ Compiled in 225ms (809 modules)
+ ✓ Compiled in 210ms (809 modules)
+ ✓ Compiled in 136ms (809 modules)
+ ✓ Compiled in 156ms (809 modules)
+ ✓ Compiled in 138ms (809 modules)
+ ✓ Compiled in 235ms (809 modules)
+ ✓ Compiled in 177ms (809 modules)
+ ✓ Compiled in 139ms (809 modules)
+ ✓ Compiled in 166ms (809 modules)
+ ✓ Compiled in 140ms (809 modules)
+ ✓ Compiled in 160ms (809 modules)
+ ✓ Compiled in 171ms (809 modules)
+ ✓ Compiled in 138ms (809 modules)
+ ✓ Compiled in 120ms (809 modules)
+ ✓ Compiled in 145ms (809 modules)
+ ✓ Compiled in 172ms (809 modules)
+ ✓ Compiled in 176ms (809 modules)
+ ✓ Compiled in 136ms (809 modules)
+ ✓ Compiled in 172ms (809 modules)
+ ✓ Compiled in 146ms (809 modules)
+ ⨯ ./components/settings/QASettings.js
+Error: 
+  [31mx[0m Expected ',', got 'iv'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/QASettings.js[0m:173:1]
+ [2m173[0m |             <Plus size={16} />
+ [2m174[0m |           </button>
+ [2m175[0m |         </div>
+ [2m176[0m |       </div>iv>
+     : [31;1m            ^^[0m
+ [2m177[0m |       </div>
+ [2m178[0m | 
+ [2m179[0m |       {success && (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/QASettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/QASettings.js
+Error: 
+  [31mx[0m Expected ';', got 'iv'
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/QASettings.js[0m:174:1]
+ [2m174[0m |           </button>
+ [2m175[0m |         </div>
+ [2m176[0m |       </div>
+ [2m177[0m |       </div>iv>
+     : [31;1m            ^^[0m
+ [2m178[0m |       </div>
+ [2m179[0m | 
+ [2m180[0m |       {success && (
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/QASettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/QASettings.js
+Error: 
+  [31mx[0m Expected a semicolon
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/QASettings.js[0m:135:1]
+ [2m135[0m | 
+ [2m136[0m |   const filteredQuestions = questions.filter((q) =>
+ [2m137[0m |     q.question.toLowerCase().includes(searchTerm.toLowerCase())
+ [2m138[0m |   )  return (
+     : [31;1m     ^^^^^^[0m
+ [2m139[0m |     <div className="w-full space-y-6">
+ [2m140[0m |       {/* Standalone Header Card */}
+ [2m141[0m |       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/QASettings.js[0m:172:1]
+ [2m172[0m |             <Plus size={16} />
+ [2m173[0m |           </button>
+ [2m174[0m |         </div>
+ [2m175[0m |       </div>iv>
+     : [31;1m              ^[0m
+ [2m176[0m |       </div>
+ [2m177[0m | 
+ [2m178[0m |       {success && (
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/QASettings.js[0m:331:1]
+ [2m331[0m |         title="Kriteri Sil"
+ [2m332[0m |         message="Seçilen otomatik kalite kriterini silmek istediğinize emin misiniz? Bu işlem geçmiş değerlendirmeleri etkilemez ancak yeni görüşmelerde bu kriter artık sorgulanmayacaktır."
+ [2m333[0m |       />
+ [2m334[0m |     </div>
+     : [31;1m     ^^^^^[0m
+ [2m335[0m |   );
+ [2m336[0m | }
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/QASettings.js
+./components/settings/SettingsPanel.js
+ ✓ Compiled in 180ms (809 modules)
+ ✓ Compiled in 176ms (809 modules)
+ ✓ Compiled in 168ms (809 modules)
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Expression expected
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:407:1]
+ [2m407[0m |   };
+ [2m408[0m | 
+ [2m409[0m |   return (
+ [2m410[0m |     <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full animate-in fade-in duration-300"      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+     : [31;1m                                                                                                                        ^[0m
+ [2m411[0m |         <div className="flex items-center gap-3">
+ [2m412[0m |           <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+ [2m413[0m |             <Cable size={20} />
+     `----
+
+  [31mx[0m Expression expected
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:407:1]
+ [2m407[0m |   };
+ [2m408[0m | 
+ [2m409[0m |   return (
+ [2m410[0m |     <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full animate-in fade-in duration-300"      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+     : [31;1m                                                                                                                         ^^^[0m
+ [2m411[0m |         <div className="flex items-center gap-3">
+ [2m412[0m |           <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+ [2m413[0m |             <Cable size={20} />
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Expected ';', '}' or <eof>
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:400:1]
+ [2m400[0m |     });
+ [2m401[0m |     
+ [2m402[0m |     if (queryParams.length > 0) {
+ [2m403[0m |       preview += (preview.includes("?") ? "&" : "?") + queryParams.join("&")  return (
+     : [31;1m      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^[0m[33;1m  ^^^^^^[0m
+     :                                          [31;1m`-- [31;1mThis is the expression part of an expression statement[0m[0m
+ [2m404[0m |     <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full animate-in fade-in duration-300">
+ [2m405[0m |       {/* Standalone Header Card */}
+ [2m406[0m |       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ ⨯ ./components/settings/KnowledgeBase.js
+Error: Failed to read source code from /Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js
+
+Caused by:
+    stream did not contain valid UTF-8
+
+Import trace for requested module:
+./components/settings/KnowledgeBase.js
+ ⨯ ./components/settings/KnowledgeBase.js
+Error: Failed to read source code from /Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js
+
+Caused by:
+    stream did not contain valid UTF-8
+
+Import trace for requested module:
+./components/settings/KnowledgeBase.js
+ GET / 500 in 467ms
+ ○ Compiling /_error ...
+ ⨯ ./components/settings/KnowledgeBase.js
+Error: Failed to read source code from /Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js
+
+Caused by:
+    stream did not contain valid UTF-8
+
+Import trace for requested module:
+./components/settings/KnowledgeBase.js
+ ⨯ ./components/settings/KnowledgeBase.js
+Error: Failed to read source code from /Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js
+
+Caused by:
+    stream did not contain valid UTF-8
+
+Import trace for requested module:
+./components/settings/KnowledgeBase.js
+ ⨯ ./components/settings/KnowledgeBase.js
+Error: Failed to read source code from /Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js
+
+Caused by:
+    stream did not contain valid UTF-8
+
+Import trace for requested module:
+./components/settings/KnowledgeBase.js
+ ⨯ ./components/settings/KnowledgeBase.js
+Error: Failed to read source code from /Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js
+
+Caused by:
+    stream did not contain valid UTF-8
+
+Import trace for requested module:
+./components/settings/KnowledgeBase.js
+ ⨯ ./components/settings/KnowledgeBase.js
+Error: 
+  [31mx[0m Expression expected
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js[0m:342:1]
+ [2m342[0m |                     step="0.05"
+ [2m343[0m |                     value={ragParams.similarity_threshold}
+ [2m344[0m |                     onChange={(e) => setRagParams((prev) => ({ ...prev, similarity_threshold: parseFloat(e.target.value) || 0.5 }))}
+ [2m345[0m |                            <button
+     : [31;1m                           ^[0m
+ [2m346[0m |                     type="submit"
+ [2m347[0m |                     disabled={loading.saveParams}
+ [2m348[0m |                     className={`px-3 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition flex items-center justify-center shrink-0 shadow-sm`}
+     `----
+
+  [31mx[0m Expression expected
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js[0m:342:1]
+ [2m342[0m |                     step="0.05"
+ [2m343[0m |                     value={ragParams.similarity_threshold}
+ [2m344[0m |                     onChange={(e) => setRagParams((prev) => ({ ...prev, similarity_threshold: parseFloat(e.target.value) || 0.5 }))}
+ [2m345[0m |                            <button
+     : [31;1m                            ^^^^^^[0m
+ [2m346[0m |                     type="submit"
+ [2m347[0m |                     disabled={loading.saveParams}
+ [2m348[0m |                     className={`px-3 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition flex items-center justify-center shrink-0 shadow-sm`}
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/KnowledgeBase.js
+ GET / 500 in 37ms
+ ⨯ ./components/settings/KnowledgeBase.js
+Error: 
+  [31mx[0m Expected corresponding JSX closing tag for <div>
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/KnowledgeBase.js[0m:422:1]
+ [2m422[0m |                 </div>
+ [2m423[0m |                 <p className="text-[10px] text-slate-400 dark:text-slate-505 font-medium mt-3">PDF dökümanı parse edilerek anlam vektörleri üretilecektir.</p>
+ [2m424[0m |               </form>
+ [2m425[0m |             </div>� parse edilerek anlam vektörleri üretilecektir.</p>
+     : [31;1m                                                                      ^^^^[0m
+ [2m426[0m |               </form>
+ [2m427[0m |             </div>
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/KnowledgeBase.js
+ GET / 500 in 15ms
+ ⨯ ./components/settings/UniversalAPISettings.js
+Error: 
+  [31mx[0m Unexpected token. Did you mean `{'>'}` or `&gt;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:445:1]
+ [2m445[0m |             </button>
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+     : [31;1m             ^[0m
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:446:1]
+ [2m446[0m |           )}
+ [2m447[0m |         </div>
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+     : [31;1m           ^[0m
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     `----
+
+  [31mx[0m Unterminated regexp literal
+     ,-[[36;1;4m/Users/anilacar/ai-project/frontend/components/settings/UniversalAPISettings.js[0m:448:1]
+ [2m448[0m |       </div>n>
+ [2m449[0m |           )}
+ [2m450[0m |         </div>
+ [2m451[0m |       </div>
+     : [31;1m       ^^^^^[0m
+ [2m452[0m | 
+ [2m453[0m |       {success && (
+ [2m454[0m |         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-305 text-xs flex items-center gap-2 font-semibold shadow-sm">
+     `----
+
+Caused by:
+    Syntax Error
+
+Import trace for requested module:
+./components/settings/UniversalAPISettings.js
+./components/settings/SettingsPanel.js
+ GET / 500 in 32ms
+ ✓ Compiled /_error in 389ms (817 modules)
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ],
+  page: '/'
+}
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ GET /_next/static/webpack/1beb302f71430bcb.webpack.hot-update.json 500 in 57ms
+ GET / 500 in 64ms
+ ⚠ Fast Refresh had to perform a full reload due to a runtime error.
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ],
+  page: '/'
+}
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ GET / 500 in 13ms
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ ⨯ Error: Cannot find module './chunks/vendor-chunks/next.js'
+Require stack:
+- /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js
+- /Users/anilacar/ai-project/frontend/.next/server/pages/_document.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js
+- /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1421:15)
+    at /Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:55:36
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1059:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1064:22)
+    at Module._load (node:internal/modules/cjs/loader:1227:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:328:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:245:24)
+    at Module.<anonymous> (node:internal/modules/cjs/loader:1504:12)
+    at mod.require (/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require-hook.js:65:28)
+    at require (node:internal/modules/helpers:152:16)
+    at o.f.require (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1888)
+    at /Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1361
+    at Array.reduce (<anonymous>)
+    at o.e (/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js:1:1340)
+    at Array.map (<anonymous>) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: [
+    '/Users/anilacar/ai-project/frontend/.next/server/webpack-runtime.js',
+    '/Users/anilacar/ai-project/frontend/.next/server/pages/_document.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/require.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/load-components.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/build/utils.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-middleware.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/dev/hot-reloader-webpack.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-utils/setup-dev-bundler.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/router-server.js',
+    '/Users/anilacar/ai-project/frontend/node_modules/next/dist/server/lib/start-server.js'
+  ]
+}
+ GET /_next/static/chunks/fallback/webpack.js 500 in 9ms
+ GET /_next/static/chunks/fallback/main.js 500 in 9ms
+ GET /_next/static/chunks/fallback/pages/_app.js 500 in 9ms
+ GET /_next/static/chunks/fallback/react-refresh.js 500 in 11ms
+ GET /_next/static/chunks/fallback/pages/_error.js 500 in 10ms
+ GET / 200 in 11ms
+ GET / 404 in 11ms
+ GET / 404 in 6ms
+ GET / 404 in 10ms
+ GET / 404 in 5ms
+ GET / 404 in 5ms
+ GET / 404 in 6ms
+ GET / 404 in 8ms
+ GET / 404 in 5ms
+ GET / 404 in 4ms
+ GET / 404 in 7ms
+ GET / 404 in 7ms
+ GET / 404 in 8ms
+ GET / 404 in 6ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 8ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 7ms
+ GET / 404 in 6ms
+ GET / 404 in 4ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 7ms
+ GET / 404 in 7ms
+ GET / 404 in 10ms
+ GET / 404 in 4ms
+ GET / 404 in 7ms
+ GET / 404 in 4ms
+ GET / 404 in 5ms
+ GET / 404 in 6ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 8ms
+ GET / 404 in 4ms
+ GET / 404 in 6ms
+ GET / 404 in 8ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 5ms
+ GET / 404 in 9ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 5ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 4ms
+ GET / 404 in 5ms
+ GET / 404 in 5ms
+ GET / 404 in 6ms
+ GET / 404 in 7ms
+ GET / 404 in 8ms
+ GET / 404 in 6ms
+ GET / 404 in 4ms
+ GET / 404 in 4ms
+ GET / 404 in 6ms
+ GET / 404 in 5ms
+ GET / 404 in 4ms
+ GET / 404 in 9ms
+ GET / 404 in 5ms
+ GET / 404 in 4ms
+ GET / 404 in 5ms
+ GET / 404 in 4ms
+ GET / 404 in 5ms
+ GET / 404 in 5ms
+ GET / 404 in 8ms
+ GET / 404 in 5ms
+ GET / 404 in 9ms
+ GET / 404 in 8ms
+ GET / 404 in 5ms
+ GET / 404 in 6ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 4ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 8ms
+ GET / 404 in 7ms
+ GET / 404 in 6ms
+ GET / 404 in 5ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 5ms
+ GET / 404 in 6ms
+ GET / 404 in 7ms
+ GET / 404 in 8ms
+ GET / 404 in 5ms
+ GET / 404 in 5ms
+ GET / 404 in 7ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 8ms
+ GET / 404 in 4ms
+ GET / 404 in 7ms
+ GET / 404 in 7ms
+ GET / 404 in 18ms
+ GET / 404 in 6ms
+ GET / 404 in 4ms
+ GET / 404 in 7ms
+ GET / 404 in 4ms
+ GET / 404 in 5ms
+ GET / 404 in 7ms
+ GET / 404 in 6ms
+ GET / 404 in 4ms
+ GET / 404 in 5ms
+ GET / 404 in 7ms
+ GET / 404 in 5ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 4ms
+ GET / 404 in 6ms
+ GET / 404 in 6ms
+ GET / 404 in 5ms
+ GET / 404 in 7ms
+ GET / 404 in 4ms
+ GET / 404 in 7ms
+ GET / 404 in 8ms
+ GET / 404 in 4ms
+ GET / 404 in 4ms
+ GET / 404 in 5ms
+ GET / 404 in 6ms
+ GET / 404 in 4ms
+ GET / 404 in 6ms
+ ✓ Compiled in 581ms (817 modules)
+ ✓ Compiled in 198ms (817 modules)
+ ✓ Compiled in 1748ms (817 modules)
+ ✓ Compiled in 204ms (817 modules)
+ ⨯ ./components/settings/ThemeSettings.js
+Error: Failed to read source code from /Users/anilacar/ai-project/frontend/components/settings/ThemeSettings.js
+
+Caused by:
+    No such file or directory (os error 2)
+
+Import trace for requested module:
+./components/settings/ThemeSettings.js
+./components/settings/SettingsPanel.js
+ ✓ Compiled in 252ms (813 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/anilacar/ai-project/frontend/.next/cache/webpack/server-development/1.pack.gz_' -> '/Users/anilacar/ai-project/frontend/.next/cache/webpack/server-development/1.pack.gz'
+ ✓ Compiled in 391ms (813 modules)
+ ✓ Compiled in 328ms (813 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/anilacar/ai-project/frontend/.next/cache/webpack/client-development/0.pack.gz_' -> '/Users/anilacar/ai-project/frontend/.next/cache/webpack/client-development/0.pack.gz'
+ ✓ Compiled in 457ms (813 modules)
+ ✓ Compiled in 434ms (813 modules)
+ ✓ Compiled in 108ms (579 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/anilacar/ai-project/frontend/.next/cache/webpack/server-development/1.pack.gz_' -> '/Users/anilacar/ai-project/frontend/.next/cache/webpack/server-development/1.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/anilacar/ai-project/frontend/.next/cache/webpack/client-development/1.pack.gz_' -> '/Users/anilacar/ai-project/frontend/.next/cache/webpack/client-development/1.pack.gz'
+ ✓ Compiled in 203ms (813 modules)
+ ✓ Compiled in 197ms (813 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/anilacar/ai-project/frontend/.next/cache/webpack/server-development/0.pack.gz_' -> '/Users/anilacar/ai-project/frontend/.next/cache/webpack/server-development/0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/anilacar/ai-project/frontend/.next/cache/webpack/client-development/0.pack.gz_' -> '/Users/anilacar/ai-project/frontend/.next/cache/webpack/client-development/0.pack.gz'
+ ✓ Compiled in 941ms (813 modules)
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/anilacar/ai-project/frontend/.next/cache/webpack/server-development/0.pack.gz_' -> '/Users/anilacar/ai-project/frontend/.next/cache/webpack/server-development/0.pack.gz'
+<w> [webpack.cache.PackFileCacheStrategy] Caching failed for pack: Error: ENOENT: no such file or directory, rename '/Users/anilacar/ai-project/frontend/.next/cache/webpack/client-development/0.pack.gz_' -> '/Users/anilacar/ai-project/frontend/.next/cache/webpack/client-development/0.pack.gz'

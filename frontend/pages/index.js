@@ -5,6 +5,7 @@ import {
   Database, 
   MessageSquare, 
   Phone, 
+  Clock,
   Sliders, 
   Smartphone, 
   Sparkles, 
@@ -23,14 +24,30 @@ import {
   Play,
   Square,
   Check,
+  CheckCircle,
   PhoneCall,
   GitBranch,
   BookOpen,
   ShieldAlert,
   ChevronDown,
-  Award
+  User,
+  Cable,
+  Award,
+  ClipboardList,
+  Users,
+  PhoneOff,
+  Cpu,
+  Shuffle,
+  PhoneForwarded,
+  Frown,
+  ShieldCheck,
+  AlertTriangle,
+  Eye,
+  MicOff,
+  Crown
 } from "lucide-react";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
+import { useTheme, setThemeColor } from "../utils/theme";
 
 import dynamic from "next/dynamic";
 
@@ -56,8 +73,11 @@ import ChangelogPanel from "../components/settings/ChangelogPanel";
 import OmnichannelPanel from "../components/dashboard/OmnichannelPanel";
 import ContactsPanel from "../components/dashboard/ContactsPanel";
 import BlacklistSettings from "../components/settings/BlacklistSettings";
+import UserSettings from "../components/settings/UserSettings";
+import PBXSettings from "../components/settings/PBXSettings";
 
 export default function Home() {
+  const { theme, colorCode } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
   const [isEditingCallFlow, setIsEditingCallFlow] = useState(false);
   const [activeCallId, setActiveCallId] = useState(null);
@@ -66,16 +86,58 @@ export default function Home() {
   const [hasContactsPermission, setHasContactsPermission] = useState(false);
   const [hasBlacklistPermission, setHasBlacklistPermission] = useState(false);
   const [hasMobileTransferPermission, setHasMobileTransferPermission] = useState(false);
+  const [hasReportsPermission, setHasReportsPermission] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [gsmNumber, setGsmNumber] = useState("");
   const [mobileTransferEnabled, setMobileTransferEnabled] = useState(false);
+  const [tempThemeColor, setTempThemeColor] = useState("99, 102, 241");
+  const [activeModalTab, setActiveModalTab] = useState("profile");
   const [openCategories, setOpenCategories] = useState({
     operations: true,
     ai: true,
+    pbxGroup: true,
     routing: true,
     reportsGroup: true,
     system: true
   });
+
+  const renderPlaceholderReport = (title, description, IconComponent) => {
+    return (
+      <div className="w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-3xl p-8 shadow-2xl flex flex-col items-center justify-center text-center gap-6 min-h-[450px] animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md">
+        <div className="h-16 w-16 bg-purple-50 dark:bg-purple-950/30 text-primary dark:text-purple-400 rounded-3xl flex items-center justify-center shadow-inner hover:scale-110 transition duration-300">
+          <IconComponent size={32} />
+        </div>
+        <div className="flex flex-col gap-2 max-w-lg">
+          <h2 className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-tight">{title}</h2>
+          <p className="text-[10px] text-primary font-extrabold uppercase tracking-widest">Çok Yakında</p>
+          <p className="text-xs text-slate-500 dark:text-slate-405 leading-relaxed font-semibold mt-2">{description}</p>
+        </div>
+        <div className="w-24 h-1 bg-gradient-to-r from-purple-500/20 via-purple-500 to-purple-500/20 rounded-full" />
+        <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+          Bu rapor modülü için altyapı ve yapay zeka analiz şablonları hazırlanmaktadır.
+        </p>
+      </div>
+    );
+  };
+
+  const renderPlaceholderSantral = (title, description, IconComponent) => {
+    return (
+      <div className="w-full max-w-4xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-3xl p-8 shadow-2xl flex flex-col items-center justify-center text-center gap-6 min-h-[450px] animate-in fade-in zoom-in-95 duration-200 backdrop-blur-md">
+        <div className="h-16 w-16 bg-rose-50 dark:bg-rose-955/30 text-primary dark:text-rose-400 rounded-3xl flex items-center justify-center shadow-inner hover:scale-110 transition duration-300">
+          <IconComponent size={32} />
+        </div>
+        <div className="flex flex-col gap-2 max-w-lg">
+          <h2 className="text-xl font-black text-slate-800 dark:text-slate-100 tracking-tight">{title}</h2>
+          <p className="text-[10px] text-primary font-extrabold uppercase tracking-widest">Çok Yakında</p>
+          <p className="text-xs text-slate-500 dark:text-slate-405 leading-relaxed font-semibold mt-2">{description}</p>
+        </div>
+        <div className="w-24 h-1 bg-gradient-to-r from-rose-500/20 via-rose-500 to-rose-500/20 rounded-full" />
+        <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">
+          Bu santral modülü için yönetim şablonları hazırlanmaktadır.
+        </p>
+      </div>
+    );
+  };
 
   const toggleCategory = (cat) => {
     setOpenCategories((prev) => ({
@@ -100,6 +162,7 @@ export default function Home() {
     if (settingsModalOpen && currentUser) {
       setGsmNumber(currentUser.gsm_number || "");
       setMobileTransferEnabled(currentUser.mobile_transfer_enabled || false);
+      setTempThemeColor(currentUser.theme_color || "99, 102, 241");
     }
   }, [settingsModalOpen, currentUser]);
 
@@ -176,6 +239,7 @@ export default function Home() {
           setHasContactsPermission(true);
           setHasBlacklistPermission(true);
           setHasMobileTransferPermission(true);
+          setHasReportsPermission(true);
           return;
         }
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
@@ -186,11 +250,16 @@ export default function Home() {
           setHasContactsPermission(true);
           setHasBlacklistPermission(true);
           setHasMobileTransferPermission(true);
+          setHasReportsPermission(true);
           return;
         }
         setCurrentUser(currentUserData);
         if (currentUserData.avatar) {
           setAgentAvatar(currentUserData.avatar);
+        }
+        if (currentUserData.theme_color) {
+          document.documentElement.style.setProperty("--color-primary", currentUserData.theme_color);
+          localStorage.setItem("theme_primary_color", currentUserData.theme_color);
         }
         const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
         const rolesData = await resRoles.json();
@@ -200,18 +269,21 @@ export default function Home() {
           setHasContactsPermission(true);
           setHasBlacklistPermission(true);
           setHasMobileTransferPermission(true);
+          setHasReportsPermission(true);
           return;
         }
         setHasOmnichannelPermission(currentRole.permissions.includes("omnichannel:access"));
         setHasContactsPermission(currentRole.permissions.includes("contacts:read"));
         setHasBlacklistPermission(currentRole.permissions.includes("blacklist:read"));
         setHasMobileTransferPermission(currentRole.permissions.includes("mobile_transfer:write"));
+        setHasReportsPermission(currentRole.permissions.includes("reports:access"));
       } catch (err) {
         console.error("Permission check error:", err);
         setHasOmnichannelPermission(true);
         setHasContactsPermission(true);
         setHasBlacklistPermission(true);
         setHasMobileTransferPermission(true);
+        setHasReportsPermission(true);
       }
     };
     syncAgentPresence();
@@ -367,11 +439,11 @@ export default function Home() {
                 onClick={() => setActiveTab("wallboard")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "wallboard"
-                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Monitor size={16} className={activeTab === "wallboard" ? "text-indigo-500" : ""} />
+                <Monitor size={16} className={activeTab === "wallboard" ? "text-primary" : ""} />
                 <span>Canlı İzleme Paneli</span>
               </button>
 
@@ -379,11 +451,11 @@ export default function Home() {
                 onClick={() => setActiveTab("call-center")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "call-center"
-                    ? "bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
+                    ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Phone size={16} className={activeTab === "call-center" ? "text-purple-500" : ""} />
+                <Phone size={16} className={activeTab === "call-center" ? "text-primary" : ""} />
                 <span>Temsilci Çağrı Paneli</span>
               </button>
 
@@ -392,11 +464,11 @@ export default function Home() {
                   onClick={() => setActiveTab("omnichannel")}
                   className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "omnichannel"
-                      ? "bg-purple-50 dark:bg-purple-950/20 text-purple-650 dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
+                      ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <MessageSquare size={16} className={activeTab === "omnichannel" ? "text-purple-500" : ""} />
+                  <MessageSquare size={16} className={activeTab === "omnichannel" ? "text-primary" : ""} />
                   <span>Ortak Gelen Kutusu</span>
                 </button>
               )}
@@ -431,7 +503,7 @@ export default function Home() {
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Bot size={16} className={activeTab === "ai-agents" ? "text-purple-500" : ""} />
+                <Bot size={16} className={activeTab === "ai-agents" ? "text-primary" : ""} />
                 <span>AI Temsilcileri</span>
               </button>
 
@@ -439,11 +511,11 @@ export default function Home() {
                 onClick={() => setActiveTab("rag-kb")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "rag-kb"
-                    ? "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-100/80 dark:border-blue-900/30 shadow-sm"
+                    ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-100/80 dark:border-blue-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Database size={16} className={activeTab === "rag-kb" ? "text-blue-500" : ""} />
+                <Database size={16} className={activeTab === "rag-kb" ? "text-primary" : ""} />
                 <span>Bilgi Bankası (RAG)</span>
               </button>
 
@@ -451,13 +523,183 @@ export default function Home() {
                 onClick={() => setActiveTab("rule-editor")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "rule-editor"
-                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Sliders size={16} className={activeTab === "rule-editor" ? "text-indigo-500" : ""} />
+                <Sliders size={16} className={activeTab === "rule-editor" ? "text-primary" : ""} />
                 <span>Kural & Senaryo Editörü</span>
               </button>
+            </div>
+          </div>
+
+          {/* Group 2.5: Santral */}
+          <div className="flex flex-col gap-1">
+            <button
+              onClick={() => toggleCategory("pbxGroup")}
+              className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
+            >
+              <span>Santral</span>
+              <ChevronDown
+                size={12}
+                className={`transform transition-transform duration-200 ${
+                  openCategories.pbxGroup ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
+                }`}
+              />
+            </button>
+            
+            <div
+              className={`space-y-1 overflow-hidden transition-all duration-300 ${
+                openCategories.pbxGroup ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+              }`}
+            >
+              <button
+                onClick={() => setActiveTab("users")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "users"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <User size={16} className={activeTab === "users" ? "text-primary" : ""} />
+                <span>Kullanıcılar</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("announcements")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "announcements"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Volume2 size={16} className={activeTab === "announcements" ? "text-primary" : ""} />
+                <span>Anons Yönetimi</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("acd-queues")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "acd-queues"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Users size={16} className={activeTab === "acd-queues" ? "text-primary" : ""} />
+                <span>ACD Kuyruk</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("auto-provision")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "auto-provision"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Cpu size={16} className={activeTab === "auto-provision" ? "text-primary" : ""} />
+                <span>Oto Provizyon</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("outbound-rules")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "outbound-rules"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <PhoneCall size={16} className={activeTab === "outbound-rules" ? "text-primary" : ""} />
+                <span>Giden Arama Kuralı</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("inbound-rules")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "inbound-rules"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Phone size={16} className={activeTab === "inbound-rules" ? "text-primary" : ""} />
+                <span>Gelen Arama Kuralı</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("call-pickup-groups")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "call-pickup-groups"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Users size={16} className={activeTab === "call-pickup-groups" ? "text-primary" : ""} />
+                <span>Çağrı Toplama Grubu</span>
+              </button>
+
+              {hasContactsPermission && (
+                <button
+                  onClick={() => setActiveTab("contacts")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "contacts"
+                      ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <BookOpen size={16} className={activeTab === "contacts" ? "text-primary" : ""} />
+                  <span>Rehber</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setActiveTab("trunks")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "trunks"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Cable size={16} className={activeTab === "trunks" ? "text-primary" : ""} />
+                <span>Dış Hat Tanımı</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("conferences")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "conferences"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Users size={16} className={activeTab === "conferences" ? "text-primary" : ""} />
+                <span>Konferans</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("speed-dial")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "speed-dial"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <PhoneCall size={16} className={activeTab === "speed-dial" ? "text-primary" : ""} />
+                <span>Hızlı Arama</span>
+              </button>
+
+              {hasBlacklistPermission && (
+                <button
+                  onClick={() => setActiveTab("blacklist")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "blacklist"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-rose-650 dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <ShieldAlert size={16} className={activeTab === "blacklist" ? "text-primary" : ""} />
+                  <span>Numara Engelleme</span>
+                </button>
+              )}
             </div>
           </div>
 
@@ -485,11 +727,11 @@ export default function Home() {
                 onClick={() => setActiveTab("call-flow")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "call-flow"
-                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <GitBranch size={16} className={activeTab === "call-flow" ? "text-indigo-500" : ""} />
+                <GitBranch size={16} className={activeTab === "call-flow" ? "text-primary" : ""} />
                 <span>Arama Akış Yönetimi</span>
               </button>
 
@@ -497,11 +739,11 @@ export default function Home() {
                 onClick={() => setActiveTab("dialer")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "dialer"
-                    ? "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-100/80 dark:border-blue-900/30 shadow-sm"
+                    ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-100/80 dark:border-blue-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <PhoneCall size={16} className={activeTab === "dialer" ? "text-blue-500" : ""} />
+                <PhoneCall size={16} className={activeTab === "dialer" ? "text-primary" : ""} />
                 <span>Dış Arama (Dialer)</span>
               </button>
 
@@ -509,36 +751,23 @@ export default function Home() {
                 onClick={() => setActiveTab("calendar")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "calendar"
-                    ? "bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-100/80 dark:border-amber-900/30 shadow-sm"
+                    ? "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/80 dark:border-amber-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Calendar size={16} className={activeTab === "calendar" ? "text-amber-500" : ""} />
+                <Calendar size={16} className={activeTab === "calendar" ? "text-primary" : ""} />
                 <span>Randevu Takvimi</span>
               </button>
-
-              {hasContactsPermission && (
-                <button
-                  onClick={() => setActiveTab("contacts")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                    activeTab === "contacts"
-                      ? "bg-purple-50 dark:bg-purple-950/20 text-purple-650 dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
-                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                  }`}
-                >
-                  <BookOpen size={16} className={activeTab === "contacts" ? "text-purple-500" : ""} />
-                  <span>Rehber</span>
-                </button>
-              )}
             </div>
           </div>
 
           {/* Group 4: Çağrı Raporları & Analiz */}
-          <div className="flex flex-col gap-1">
-            <button
-              onClick={() => toggleCategory("reportsGroup")}
-              className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
-            >
+          {hasReportsPermission && (
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={() => toggleCategory("reportsGroup")}
+                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
+              >
               <span>Çağrı Raporları & Analiz</span>
               <ChevronDown
                 size={12}
@@ -549,19 +778,31 @@ export default function Home() {
             </button>
             
             <div
-              className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                openCategories.reportsGroup ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+              className={`space-y-1 overflow-y-auto transition-all duration-300 scrollbar-thin pr-1.5 ${
+                openCategories.reportsGroup ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
+              <button
+                onClick={() => setActiveTab("reports-pano")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-pano"
+                    ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Monitor size={16} className={activeTab === "reports-pano" ? "text-primary" : ""} />
+                <span>Pano</span>
+              </button>
+
               <button
                 onClick={() => setActiveTab("reports-cdr")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-cdr"
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <FileText size={16} className={activeTab === "reports-cdr" ? "text-emerald-500" : ""} />
+                <FileText size={16} className={activeTab === "reports-cdr" ? "text-primary" : ""} />
                 <span>CDR</span>
               </button>
 
@@ -569,11 +810,11 @@ export default function Home() {
                 onClick={() => setActiveTab("reports-audio")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-audio"
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Volume2 size={16} className={activeTab === "reports-audio" ? "text-emerald-500" : ""} />
+                <Volume2 size={16} className={activeTab === "reports-audio" ? "text-primary" : ""} />
                 <span>Ses Kayıtları</span>
               </button>
 
@@ -581,11 +822,11 @@ export default function Home() {
                 onClick={() => setActiveTab("reports-transcripts")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-transcripts"
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <MessageSquare size={16} className={activeTab === "reports-transcripts" ? "text-emerald-500" : ""} />
+                <MessageSquare size={16} className={activeTab === "reports-transcripts" ? "text-primary" : ""} />
                 <span>Çağrı Transkripti</span>
               </button>
 
@@ -593,11 +834,11 @@ export default function Home() {
                 onClick={() => setActiveTab("reports-sentiment")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-sentiment"
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Sparkles size={16} className={activeTab === "reports-sentiment" ? "text-emerald-500" : ""} />
+                <Sparkles size={16} className={activeTab === "reports-sentiment" ? "text-primary" : ""} />
                 <span>Duygu Analizi</span>
               </button>
 
@@ -605,15 +846,275 @@ export default function Home() {
                 onClick={() => setActiveTab("reports-qa")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-qa"
-                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Award size={16} className={activeTab === "reports-qa" ? "text-indigo-500" : ""} />
+                <Award size={16} className={activeTab === "reports-qa" ? "text-primary" : ""} />
                 <span>Kalite Değerlendirmeleri</span>
+              </button>
+
+              <button
+                onClick={() => setActiveTab("reports-notes")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-notes"
+                    ? "bg-emerald-50 dark:bg-emerald-955/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <ClipboardList size={16} className={activeTab === "reports-notes" ? "text-primary" : ""} />
+                <span>Temsilci Notları</span>
+              </button>
+
+              {/* Temsilci Performans ve KPI Raporu */}
+              <button
+                onClick={() => setActiveTab("reports-perf")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-perf"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Award size={16} className={activeTab === "reports-perf" ? "text-primary" : ""} />
+                <span>Temsilci Performans & KPI</span>
+              </button>
+
+              {/* Kuyruk / Bekleme Analitiği */}
+              <button
+                onClick={() => setActiveTab("reports-queue")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-queue"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Users size={16} className={activeTab === "reports-queue" ? "text-primary" : ""} />
+                <span>Kuyruk / Bekleme Analitiği</span>
+              </button>
+
+              {/* Duygu Durumu Isı Haritası */}
+              <button
+                onClick={() => setActiveTab("reports-sentiment-heat")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-sentiment-heat"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Activity size={16} className={activeTab === "reports-sentiment-heat" ? "text-primary" : ""} />
+                <span>Duygu Durumu Isı Haritası</span>
+              </button>
+
+              {/* Kelime Bulutu ve Konu Trendleri */}
+              <button
+                onClick={() => setActiveTab("reports-wordcloud")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-wordcloud"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <MessageSquare size={16} className={activeTab === "reports-wordcloud" ? "text-primary" : ""} />
+                <span>Kelime Bulutu & Trendler</span>
+              </button>
+
+              {/* FCR */}
+              <button
+                onClick={() => setActiveTab("reports-fcr")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-fcr"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <CheckCircle size={16} className={activeTab === "reports-fcr" ? "text-primary" : ""} />
+                <span>İlk Aramada Çözüm (FCR)</span>
+              </button>
+
+              {/* AI vs. İnsan Karşılaştırmalı ROI Paneli */}
+              <button
+                onClick={() => setActiveTab("reports-roi")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-roi"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <TrendingUp size={16} className={activeTab === "reports-roi" ? "text-primary" : ""} />
+                <span>AI vs. İnsan ROI Paneli</span>
+              </button>
+
+              {/* Kaçan Çağrı Analizi */}
+              <button
+                onClick={() => setActiveTab("reports-missed")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-missed"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <PhoneOff size={16} className={activeTab === "reports-missed" ? "text-primary" : ""} />
+                <span>Kaçan Çağrı Analizi</span>
+              </button>
+
+              {/* Agent Status Timeline */}
+              <button
+                onClick={() => setActiveTab("reports-agent-status-timeline")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-agent-status-timeline"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Clock size={16} className={activeTab === "reports-agent-status-timeline" ? "text-primary" : ""} />
+                <span>Temsilci Kronolojisi</span>
+              </button>
+
+              {/* Hourly/Daily Traffic Load */}
+              <button
+                onClick={() => setActiveTab("reports-traffic-load")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-traffic-load"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Calendar size={16} className={activeTab === "reports-traffic-load" ? "text-primary" : ""} />
+                <span>Yoğunluk Raporu</span>
+              </button>
+
+              {/* Trunk Utilization */}
+              <button
+                onClick={() => setActiveTab("reports-trunk")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-trunk"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Cpu size={16} className={activeTab === "reports-trunk" ? "text-primary" : ""} />
+                <span>Trunk Utilization</span>
+              </button>
+
+              {/* IVR Drop-Off */}
+              <button
+                onClick={() => setActiveTab("reports-ivr-drop")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-ivr-drop"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Shuffle size={16} className={activeTab === "reports-ivr-drop" ? "text-primary" : ""} />
+                <span>IVR Terk Oranı</span>
+              </button>
+
+              {/* Transfer & Hold Analytics */}
+              <button
+                onClick={() => setActiveTab("reports-transfer-hold")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-transfer-hold"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <PhoneForwarded size={16} className={activeTab === "reports-transfer-hold" ? "text-primary" : ""} />
+                <span>Aktarma & Bekletme Raporu</span>
+              </button>
+
+              {/* AI vs. Human A/B Testing */}
+              <button
+                onClick={() => setActiveTab("reports-ab-testing")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-ab-testing"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Layers size={16} className={activeTab === "reports-ab-testing" ? "text-primary" : ""} />
+                <span>Verimlilik Karşılaştırması</span>
+              </button>
+
+              {/* Customer Frustration / Friction Points */}
+              <button
+                onClick={() => setActiveTab("reports-friction")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-friction"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Frown size={16} className={activeTab === "reports-friction" ? "text-primary" : ""} />
+                <span>Müşteri Çile Noktaları</span>
+              </button>
+
+              {/* Agent Compliance & Script Adherence */}
+              <button
+                onClick={() => setActiveTab("reports-compliance")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-compliance"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <ShieldCheck size={16} className={activeTab === "reports-compliance" ? "text-primary" : ""} />
+                <span>Senaryo Sadakati Raporu</span>
+              </button>
+
+              {/* Predictive Churn & Dissatisfaction Alert */}
+              <button
+                onClick={() => setActiveTab("reports-churn")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-churn"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <AlertTriangle size={16} className={activeTab === "reports-churn" ? "text-primary" : ""} />
+                <span>Abonelik İptal Riski</span>
+              </button>
+
+              {/* Competitor Mention Tracker */}
+              <button
+                onClick={() => setActiveTab("reports-competitor")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-competitor"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Eye size={16} className={activeTab === "reports-competitor" ? "text-primary" : ""} />
+                <span>Rakip Analiz Raporu</span>
+              </button>
+
+              {/* Silence & Interruption Analytics */}
+              <button
+                onClick={() => setActiveTab("reports-silence")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-silence"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <MicOff size={16} className={activeTab === "reports-silence" ? "text-primary" : ""} />
+                <span>Sessizlik & Söz Kesme</span>
+              </button>
+
+              {/* Executive Summary Generator */}
+              <button
+                onClick={() => setActiveTab("reports-ceo-summary")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-ceo-summary"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Crown size={16} className={activeTab === "reports-ceo-summary" ? "text-primary" : ""} />
+                <span>CEO Özet Raporu</span>
               </button>
             </div>
           </div>
+          )}
 
           {/* Group 5: Yönetim & Ayarlar */}
           <div className="flex flex-col gap-1">
@@ -639,11 +1140,11 @@ export default function Home() {
                 onClick={() => setActiveTab("settings")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "settings"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Settings size={16} className={activeTab === "settings" ? "text-rose-500" : ""} />
+                <Settings size={16} className={activeTab === "settings" ? "text-primary" : ""} />
                 <span>Sistem Ayarları</span>
               </button>
 
@@ -658,19 +1159,31 @@ export default function Home() {
                 <Server size={16} className={activeTab === "system-status" ? "text-cyan-500" : ""} />
                 <span>Sistem Panosu & Sağlık</span>
               </button>
+
+              <button
+                onClick={() => setActiveTab("event-logs")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "event-logs"
+                    ? "bg-rose-50 dark:bg-rose-955/20 text-primary dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <FileText size={16} className={activeTab === "event-logs" ? "text-primary" : ""} />
+                <span>Olay Günlükleri</span>
+              </button>
             </div>
           </div>
         </nav>
 
         {/* Footer info */} 
         <div className="border-t border-slate-100 dark:border-slate-800 pt-4 text-[10px] text-slate-500 dark:text-slate-400 space-y-2 transition-colors duration-300">
-          <p className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 dark:bg-emerald-400 animate-pulse"></span>
+          <p className="flex items-center gap-1.5 text-primary dark:text-emerald-400 font-bold">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary dark:bg-emerald-400 animate-pulse"></span>
             Sistem Çevrimiçi
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
+            className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
             <span>v1.1.0 (On-Premise)</span>
           </button>
@@ -688,8 +1201,8 @@ export default function Home() {
             <span className="text-slate-400 dark:text-slate-500 font-bold text-xs tracking-wider">AKTİF İŞLEMLER</span>
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
             {activeCallId ? (
-              <span className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 px-3 py-1 rounded-full border border-amber-200/50 dark:border-amber-800/40">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 dark:bg-amber-400 animate-ping"></span>
+              <span className="flex items-center gap-1.5 text-xs text-primary dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 px-3 py-1 rounded-full border border-amber-200/50 dark:border-amber-800/40">
+                <span className="h-1.5 w-1.5 rounded-full bg-primary dark:bg-amber-400 animate-ping"></span>
                 Görüşme Aktif (ID: {activeCallId})
               </span>
             ) : (
@@ -706,7 +1219,7 @@ export default function Home() {
               className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
               title={isDarkMode ? "Aydınlık Mod" : "Karanlık Mod"}
             >
-              {isDarkMode ? <Sun size={14} className="text-amber-450" /> : <Moon size={14} className="text-indigo-500" />}
+              {isDarkMode ? <Sun size={14} className="text-amber-450" /> : <Moon size={14} className="text-primary" />}
             </button>
 
             {/* Profile Dropdown */}
@@ -737,7 +1250,7 @@ export default function Home() {
                   <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
                   <button
                     onClick={handleLogout}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-600 dark:text-rose-450 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-primary dark:text-rose-450 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center gap-2"
                   >
                     <LogOut size={14} />
                     <span>Çıkış Yap</span>
@@ -750,7 +1263,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-churn", "reports-competitor", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "conferences", "speed-dial", "event-logs"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           {activeTab === "call-center" && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full max-w-6xl">
               <div className="lg:col-span-1 flex flex-col gap-6">
@@ -760,7 +1273,7 @@ export default function Home() {
                 {/* Stats Info Widget */}
                 <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
                   <h4 className="font-bold text-xs text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2 uppercase tracking-wide">
-                    <TrendingUp size={14} className="text-purple-500 dark:text-purple-400" />
+                    <TrendingUp size={14} className="text-primary dark:text-purple-400" />
                     Bugünkü Çağrı İstatistikleri
                   </h4>
                   <div className="grid grid-cols-2 gap-3 text-center">
@@ -770,7 +1283,7 @@ export default function Home() {
                     </div>
                     <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/50 dark:border-slate-800">
                       <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide">Temsilciye</p>
-                      <p className="text-xl font-extrabold text-amber-600 dark:text-amber-400 mt-1">5</p>
+                      <p className="text-xl font-extrabold text-primary dark:text-amber-400 mt-1">5</p>
                     </div>
                   </div>
                 </div>
@@ -787,12 +1300,64 @@ export default function Home() {
             <SettingsPanel backendHost={backendHost} />
           )}
 
+          {activeTab === "users" && (
+            <UserSettings backendHost={backendHost} />
+          )}
+
+          {activeTab === "trunks" && (
+            <PBXSettings viewMode="trunks" backendHost={backendHost} />
+          )}
+
+          {activeTab === "blacklist" && (
+            <BlacklistSettings backendHost={backendHost} />
+          )}
+
+          {activeTab === "announcements" && (
+            renderPlaceholderSantral("Anons Yönetimi", "Gelen çağrılar için karşılama anonsları, mesai dışı seslendirmeler ve özel anons dosyalarının sisteme yüklenip yönetildiği alan.", Volume2)
+          )}
+
+          {activeTab === "acd-queues" && (
+            renderPlaceholderSantral("ACD Kuyruk Yönetimi", "Çağrı merkezi destek ve satış kuyrukları, temsilci atamaları ve dağıtım stratejilerinin yapılandırıldığı alan.", Users)
+          )}
+
+          {activeTab === "auto-provision" && (
+            renderPlaceholderSantral("Oto Provizyon", "Sistemdeki IP telefonlar ve donanım terminallerinin otomatik kurulum, şablon ve provizyon ayarlarının yönetildiği alan.", Cpu)
+          )}
+
+          {activeTab === "outbound-rules" && (
+            renderPlaceholderSantral("Giden Arama Kuralları", "Dış aramalar için rota seçimi, arama yetkileri ve giden arama kurallarının tanımlandığı alan.", PhoneCall)
+          )}
+
+          {activeTab === "inbound-rules" && (
+            renderPlaceholderSantral("Gelen Arama Kuralları", "Dış hatlardan gelen çağrıların hedeflerine (dahili, kuyruk, IVR, anons) yönlendirilme kuralları.", Phone)
+          )}
+
+          {activeTab === "call-pickup-groups" && (
+            renderPlaceholderSantral("Çağrı Toplama Grubu", "Aynı gruptaki temsilcilerin birbirlerinin çalan telefonlarını uzaktan cevaplayabilmesini sağlayan grupların yönetimi.", Users)
+          )}
+
+          {activeTab === "conferences" && (
+            renderPlaceholderSantral("Konferans Odaları", "Sanal toplantı ve çoklu görüşme konferans odalarının tanımlanması ve oda şifre ayarları.", Users)
+          )}
+
+          {activeTab === "speed-dial" && (
+            renderPlaceholderSantral("Hızlı Arama Listesi", "Sistem genelinde veya temsilci bazlı tanımlanan hızlı arama kısa kodları ve rehber entegrasyonu.", PhoneCall)
+          )}
+
+          {activeTab === "event-logs" && (
+            renderPlaceholderSantral("Olay Günlükleri (Event Logs)", "Sistem, kullanıcı işlemleri ve çağrı yönlendirme olaylarına ait detaylı olay geçmişi log kayıtları.", FileText)
+          )}
+
           {activeTab === "rag-kb" && (
             <KnowledgeBase backendHost={backendHost} />
           )}
 
           {activeTab === "rule-editor" && (
             <RuleEditor backendHost={backendHost} />
+          )}
+
+          {activeTab === "reports-pano" && (
+            <ReportsPanel backendHost={backendHost} viewMode="pano" />
           )}
 
           {activeTab === "reports-cdr" && (
@@ -813,6 +1378,86 @@ export default function Home() {
 
           {activeTab === "reports-qa" && (
             <ReportsPanel backendHost={backendHost} viewMode="qa" />
+          )}
+
+          {activeTab === "reports-notes" && (
+            <ReportsPanel backendHost={backendHost} viewMode="notes" />
+          )}
+
+          {activeTab === "reports-perf" && (
+            renderPlaceholderReport("Temsilci Performans ve KPI Raporu", "Temsilcilerin günlük/haftalık performans metrikleri, ortalama çağrı süreleri ve KPI hedeflerine ulaşma yüzdelerini içeren detaylı analiz paneli.", Award)
+          )}
+
+          {activeTab === "reports-queue" && (
+            renderPlaceholderReport("Kuyruk / Bekleme Analitiği Raporu", "Kuyrukta bekleme süreleri, kuyruk doluluk oranları ve bekleme esnasındaki müşteri davranış analizleri.", Users)
+          )}
+
+          {activeTab === "reports-sentiment-heat" && (
+            renderPlaceholderReport("Duygu Durumu Isı Haritası", "Çağrı bazlı müşteri duygu değişimlerinin gün içi saatlere ve günlere göre dağılımını gösteren ısı haritası grafikleri.", Activity)
+          )}
+
+          {activeTab === "reports-wordcloud" && (
+            renderPlaceholderReport("Kelime Bulutu ve Konu Trendleri", "Görüşmelerde en sık geçen anahtar kelimeler ve konu başlıklarının dönemsel trend analizleri.", MessageSquare)
+          )}
+
+          {activeTab === "reports-fcr" && (
+            renderPlaceholderReport("İlk Aramada Çözüm (FCR) Raporu", "Müşteri sorunlarının ilk temasta çözülme oranları ve FCR performansını etkileyen faktörlerin analizi.", Check)
+          )}
+
+          {activeTab === "reports-roi" && (
+            renderPlaceholderReport("AI vs. İnsan Karşılaştırmalı ROI Paneli", "Yapay zeka asistanları ile insan müşteri temsilcilerinin maliyet ve verimlilik karşılaştırmasını gösteren ROI analizleri.", TrendingUp)
+          )}
+
+          {activeTab === "reports-missed" && (
+            renderPlaceholderReport("Kaçan Çağrı Analizi", "Cevapsız kalan veya kuyrukta terk edilen çağrıların zaman dağılımları ve geri dönüş performans raporları.", PhoneOff)
+          )}
+
+          {activeTab === "reports-agent-status-timeline" && (
+            renderPlaceholderReport("Agent Status Timeline (Temsilci Kronolojisi)", "Müşteri temsilcilerinin gün içindeki durum (aktif, mola, meşgul) değişimlerinin zaman çizelgesi formatında takibi.", Clock)
+          )}
+
+          {activeTab === "reports-traffic-load" && (
+            renderPlaceholderReport("Hourly/Daily Traffic Load (Yoğunluk Raporu)", "Çağrı trafiğinin saatlik, günlük ve haftalık periyotlardaki yoğunluk dağılımları ve kapasite planlama önerileri.", Calendar)
+          )}
+
+          {activeTab === "reports-trunk" && (
+            renderPlaceholderReport("Trunk Utilization Raporu", "SIP Trunk hatlarının doluluk ve eşzamanlı çağrı kapasitesi kullanım oranlarının analizi.", Cpu)
+          )}
+
+          {activeTab === "reports-ivr-drop" && (
+            renderPlaceholderReport("IVR Drop-Off (IVR Terk Oranı) Raporu", "Müşterilerin IVR menüsünde hangi adımlarda çağrıyı sonlandırdığını gösteren terk analiz paneli.", Shuffle)
+          )}
+
+          {activeTab === "reports-transfer-hold" && (
+            renderPlaceholderReport("Transfer & Hold Analytics (Aktarma ve Bekletme Raporu)", "Çağrı aktarma sıklığı, bekletme süreleri ve bu sürelerin müşteri memnuniyetine etkileri.", PhoneForwarded)
+          )}
+
+          {activeTab === "reports-ab-testing" && (
+            renderPlaceholderReport("AI vs. Human A/B Testing (Verimlilik Karşılaştırması)", "Farklı arama senaryolarında yapay zeka ile insan performansının kontrollü A/B test karşılaştırma metrikleri.", Layers)
+          )}
+
+          {activeTab === "reports-friction" && (
+            renderPlaceholderReport("Customer Frustration / Friction Points (Müşteri Çile Noktaları)", "Müşterilerin görüşmelerde yaşadığı zorluk, tıkanıklık ve çile hissettiği aşamaların yapay zeka tespiti.", Frown)
+          )}
+
+          {activeTab === "reports-compliance" && (
+            renderPlaceholderReport("Agent Compliance & Script Adherence (Sözleşme ve Senaryo Sadakati)", "Müşteri temsilcilerinin KVKK, zorunlu yasal metinler ve kurum senaryolarına bağlılık oranlarının takibi.", ShieldCheck)
+          )}
+
+          {activeTab === "reports-churn" && (
+            renderPlaceholderReport("Predictive Churn & Dissatisfaction Alert (Abonelik İptal Riski)", "Hizmet iptali veya abonelikten ayrılma riski taşıyan müşterilerin çağrı analizleri üzerinden yapay zeka ile önceden tespiti.", AlertTriangle)
+          )}
+
+          {activeTab === "reports-competitor" && (
+            renderPlaceholderReport("Competitor Mention Tracker (Rakip Analiz Raporu)", "Görüşmeler esnasında rakiplerin isimlerinin geçme sıklığı ve rakip marka algısı analiz paneli.", Eye)
+          )}
+
+          {activeTab === "reports-silence" && (
+            renderPlaceholderReport("Silence & Interruption Analytics (Sessizlik ve Söz Kesme Raporu)", "Görüşmelerdeki karşılıklı sessizlik süreleri ile temsilci/müşteri söz kesme oranlarının analizi.", MicOff)
+          )}
+
+          {activeTab === "reports-ceo-summary" && (
+            renderPlaceholderReport("Executive Summary Generator (CEO Özet Raporu)", "Tüm sistem operasyonlarının ve yapay zeka analizlerinin CEO/Yönetici seviyesi için otomatik hazırlanan yönetici özeti.", Crown)
           )}
 
           {activeTab === "dialer" && (
@@ -872,11 +1517,27 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* Modal Tabs */}
+              <div className="flex gap-2 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl mb-4">
+                <button 
+                  onClick={() => setActiveModalTab("profile")}
+                  className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "profile" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                >
+                  Profil & Tema
+                </button>
+                <button 
+                  onClick={() => setActiveModalTab("hardware")}
+                  className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "hardware" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                >
+                  Donanım & Santral
+                </button>
+              </div>
+
               {/* Modal Body */}
               <div className="space-y-4">
                 
                 {/* Avatar Selection */}
-                <div className="space-y-2">
+                <div className={`space-y-2 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
                   <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Profil Avatarı Seçin</label>
                   <div className="grid grid-cols-6 gap-2">
                     {[
@@ -905,8 +1566,54 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* System Theme Color Selection */}
+                <div className={`space-y-2 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
+                  <label className="text-[9px] font-extrabold text-slate-455 dark:text-slate-550 uppercase tracking-widest block">Sistem Tema Rengi</label>
+                  <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                    {[
+                      { name: "İndigo", value: "99, 102, 241", hex: "#6366f1" },
+                      { name: "Okyanus", value: "59, 130, 246", hex: "#3b82f6" },
+                      { name: "Zümrüt", value: "16, 185, 129", hex: "#10b981" },
+                      { name: "Gül", value: "225, 29, 72", hex: "#e11d48" },
+                      { name: "Ametist", value: "168, 85, 247", hex: "#a855f7" },
+                      { name: "Gece", value: "15, 23, 42", hex: "#0f172a" },
+                      { name: "Güneş", value: "245, 158, 11", hex: "#f59e0b" },
+                      { name: "Kızılcık", value: "220, 38, 38", hex: "#dc2626" },
+                      { name: "Turkuaz", value: "6, 182, 212", hex: "#06b6d4" },
+                      { name: "Deniz", value: "14, 165, 233", hex: "#0ea5e9" },
+                      { name: "Lavanta", value: "139, 92, 246", hex: "#8b5cf6" },
+                      { name: "Vişne", value: "190, 18, 60", hex: "#be123c" },
+                      { name: "Turuncu", value: "234, 88, 12", hex: "#ea580c" },
+                      { name: "Orman", value: "21, 128, 61", hex: "#15803d" },
+                      { name: "Çikolata", value: "120, 53, 15", hex: "#78350f" },
+                      { name: "Siyah", value: "63, 63, 70", hex: "#3f3f46" },
+                    ].map((t) => (
+                      <button
+                        key={t.value}
+                        type="button"
+                        onClick={() => {
+                          setTempThemeColor(t.value);
+                          document.documentElement.style.setProperty("--color-primary", t.value);
+                        }}
+                        className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
+                          tempThemeColor === t.value
+                            ? "border-slate-800 dark:border-white ring-2 ring-slate-800/10 dark:ring-white/10"
+                            : "border-slate-100 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                        }`}
+                        title={t.name}
+                      >
+                        <span 
+                          className="w-5 h-5 rounded-full shrink-0 shadow-sm"
+                          style={{ backgroundColor: t.hex }}
+                        />
+                        <span className="text-[8px] font-bold text-slate-600 dark:text-slate-300 truncate w-full text-center">{t.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 {/* Ringtone Selection */}
-                <div className="space-y-2">
+                <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Çağrı Zil Sesi</label>
                   <div className="flex gap-2">
                     <select
@@ -946,12 +1653,12 @@ export default function Home() {
                     >
                       {localStorage.getItem("temp_playing") === "true" ? (
                         <>
-                          <Square size={12} className="text-rose-500 fill-rose-500 animate-pulse" />
+                          <Square size={12} className="text-primary fill-rose-500 animate-pulse" />
                           <span>Durdur</span>
                         </>
                       ) : (
                         <>
-                          <Play size={12} className="text-emerald-500 fill-emerald-500" />
+                          <Play size={12} className="text-primary fill-emerald-500" />
                           <span>Dinle</span>
                         </>
                       )}
@@ -960,7 +1667,7 @@ export default function Home() {
                 </div>
 
                 {/* Microphone Selection */}
-                <div className="space-y-2">
+                <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Ses Giriş Aygıtı (Mikrofon)</label>
                   <select
                     value={selectedMic}
@@ -980,7 +1687,7 @@ export default function Home() {
                 </div>
 
                 {/* Speaker Selection (Call output) */}
-                <div className="space-y-2">
+                <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Konuşma Çıkış Aygıtı (Kulaklık)</label>
                   <select
                     value={selectedSpeaker}
@@ -1000,7 +1707,7 @@ export default function Home() {
                 </div>
 
                 {/* Ringtone Speaker Selection */}
-                <div className="space-y-2">
+                <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Zil Sesi Çıkış Aygıtı (Hoparlör)</label>
                   <select
                     value={selectedRingtoneSpeaker}
@@ -1024,7 +1731,9 @@ export default function Home() {
                     )}
                   </select>
                 </div>
-                <div className="p-4 bg-violet-50/40 dark:bg-violet-950/10 border border-violet-100 dark:border-violet-900/30 rounded-2xl space-y-3">
+                
+                {/* Mobile Transfer */}
+                <div className={`p-4 bg-violet-50/40 dark:bg-violet-955/10 border border-violet-105 dark:border-violet-900/30 rounded-2xl space-y-3 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Smartphone size={15} className="text-violet-500" />
@@ -1041,7 +1750,7 @@ export default function Home() {
                         <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
                       </button>
                     ) : (
-                      <span className="text-[8px] font-bold text-rose-500 bg-rose-50 dark:bg-rose-950/20 px-2 py-0.5 rounded-lg">Yetkisiz</span>
+                      <span className="text-[8px] font-bold text-primary bg-rose-50 dark:bg-rose-955/20 px-2 py-0.5 rounded-lg">Yetkisiz</span>
                     )}
                   </div>
                   
@@ -1054,7 +1763,7 @@ export default function Home() {
                         value={gsmNumber}
                         onChange={(e) => setGsmNumber(e.target.value)}
                         disabled={!mobileTransferEnabled}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500 disabled:opacity-50"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-955/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500 disabled:opacity-50"
                       />
                       <p className="text-[8px] text-slate-400 dark:text-slate-500 font-medium">
                         WebPhone kapalıyken mesai saatlerinde gelen çağrılar bu numaraya aktarılır ve yapay zeka size çağrı özetini fısıldar.
@@ -1077,10 +1786,8 @@ export default function Home() {
                     localStorage.setItem("temp_playing", "false");
                     setSettingsModalOpen(false);
                   }}
-                  className="flex-1 py-2 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-500 dark:text-slate-455 transition-all uppercase tracking-wider"
-                >
-                  Vazgeç
-                </button>
+                  className="flex-1 py-2 rounded-xl border dark: hover: dark:hover: font-bold dark: transition-all uppercase tracking-wider bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                >Vazgeç</button>
                 <button
                   onClick={async () => {
                     stopRingtoneSound();
@@ -1100,12 +1807,17 @@ export default function Home() {
                           body: JSON.stringify({
                             avatar: agentAvatar,
                             gsm_number: gsmNumber,
-                            mobile_transfer_enabled: mobileTransferEnabled
+                            mobile_transfer_enabled: mobileTransferEnabled,
+                            theme_color: tempThemeColor
                           })
                         });
                         if (res.ok) {
                           const data = await res.json();
                           setCurrentUser(data.user);
+                          if (data.user.theme_color) {
+                            document.documentElement.style.setProperty("--color-primary", data.user.theme_color);
+                            localStorage.setItem("theme_primary_color", data.user.theme_color);
+                          }
                         }
                       } catch (err) {
                         console.error("Failed to save profile on backend:", err);

@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Edit2, Trash2, Save, X, Search, FileText, CheckCircle } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
 
 export default function CannedResponsesSettings({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [responses, setResponses] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -197,51 +199,54 @@ export default function CannedResponsesSettings({ backendHost = "localhost:8000"
     <div className="w-full space-y-6 text-left animate-in fade-in duration-200">
       
       {/* Banner / Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800 pb-5">
-        <div>
-          <h3 className="text-sm font-bold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
-            <FileText size={18} className="text-pink-500" />
-            Hızlı Cevap Taslakları (Canned Responses)
-          </h3>
-          <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-            Omnichannel sohbet pencerelerinde temsilcilerin hızlıca gönderebileceği şablonları tanımlayın.
-          </p>
+      {/* Banner / Header Card */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+            <FileText size={20} />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">HIZLI CEVAP TASLAKLARI (CANNED RESPONSES)</h3>
+            <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
+              Omnichannel sohbet pencerelerinde temsilcilerin hızlıca gönderebileceği şablonları tanımlayın.
+            </p>
+          </div>
         </div>
 
-        {hasWritePermission && (
-          <button
-            onClick={() => openFormModal()}
-            className="flex items-center gap-2 px-4 py-2.5 bg-pink-600 hover:bg-pink-500 text-white rounded-xl text-xs font-bold shadow-md shadow-pink-500/10 transition"
-          >
-            <Plus size={14} />
-            <span>Yeni Şablon Ekle</span>
-          </button>
-        )}
+        {/* Search Bar + "+" Icon Wrapper */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Şablon ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
+            />
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
+          </div>
+
+          {hasWritePermission && (
+            <button
+              onClick={() => openFormModal()}
+              className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+              title="Yeni Şablon Ekle"
+            >
+              <Plus size={16} />
+            </button>
+          )}
+        </div>
       </div>
 
       {successMsg && (
-        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-emerald-600 dark:text-emerald-450 text-xs font-semibold flex items-center gap-1.5">
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-primary dark:text-emerald-450 text-xs font-semibold flex items-center gap-1.5">
           <CheckCircle size={14} />
           <span>{successMsg}</span>
         </div>
       )}
 
-      {/* Search Input */}
-      <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/85 dark:border-slate-800 rounded-2xl shadow-sm flex items-center gap-3">
-        <div className="relative flex-1">
-          <Search size={14} className="absolute left-3.5 top-3 text-slate-400 dark:text-slate-550" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Taslak adı, kısayol veya metne göre arayın..."
-            className="w-full pl-9 pr-4 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800/80 rounded-xl text-xs focus:outline-none focus:border-pink-500 dark:text-slate-200"
-          />
-        </div>
-      </div>
-
       {/* Table List */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/85 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
         <table className="w-full border-collapse">
           <thead>
             <tr className="bg-slate-50/50 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-850">
@@ -287,7 +292,7 @@ export default function CannedResponsesSettings({ backendHost = "localhost:8000"
                       {hasDeletePermission && (
                         <button
                           onClick={() => setDeleteTargetId(item.id)}
-                          className="p-1.5 text-slate-450 hover:text-rose-600 dark:hover:text-rose-455 transition"
+                          className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-rose-455 transition"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -316,7 +321,7 @@ export default function CannedResponsesSettings({ backendHost = "localhost:8000"
 
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               {errorMsg && (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold">
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-primary dark:text-rose-400 text-xs font-semibold">
                   {errorMsg}
                 </div>
               )}
@@ -368,7 +373,7 @@ export default function CannedResponsesSettings({ backendHost = "localhost:8000"
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-pink-600 hover:bg-pink-500 text-white rounded-xl text-xs font-bold shadow-md shadow-pink-500/10 transition"
+                  className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold shadow-md transition`}
                 >
                   Kaydet
                 </button>

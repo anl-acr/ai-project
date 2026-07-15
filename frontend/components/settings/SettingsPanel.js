@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import ChannelSettings from "./ChannelSettings";
 import BreakDefinitions from "./BreakDefinitions";
@@ -77,7 +77,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   }, [backendHost]);
 
   return (
-    <div className={`w-full ${["universal-api", "voice-biometrics"].includes(activeSubTab) ? "max-w-full" : "max-w-6xl"} space-y-6`}>
+    <div className="w-full space-y-6">
       {/* Page Title & Status Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/85 dark:border-slate-800/80 pb-5">
         <div>
@@ -100,33 +100,22 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             onClick={() => setActiveSubTab("pbx")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "pbx"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
+                ? "bg-rose-50/50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
                 : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
             }`}
           >
-            <Server size={14} className={activeSubTab === "pbx" ? "text-rose-500" : ""} />
+            <Server size={14} className={activeSubTab === "pbx" ? "text-primary" : ""} />
             <span>Santral Entegrasyonu</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab("trunks")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "trunks"
-                ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-450 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Cable size={14} className={activeSubTab === "trunks" ? "text-indigo-500" : ""} />
-            <span>Dış Hat Entegrasyonu</span>
           </button>
           <button
             onClick={() => setActiveSubTab("smart-callback")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "smart-callback"
-                ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-450 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
+                ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-primary dark:text-primary border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
                 : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
             }`}
           >
-            <Shuffle size={14} className={activeSubTab === "smart-callback" ? "text-indigo-500" : ""} />
+            <Shuffle size={14} className={activeSubTab === "smart-callback" ? "text-primary" : ""} />
             <span>Akıllı Geri Arama</span>
           </button>
 
@@ -134,11 +123,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             onClick={() => setActiveSubTab("lang-detect")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "lang-detect"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
+                ? "bg-rose-50/50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
                 : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
             }`}
           >
-            <Languages size={14} className={activeSubTab === "lang-detect" ? "text-rose-500" : ""} />
+            <Languages size={14} className={activeSubTab === "lang-detect" ? "text-primary" : ""} />
             <span>Otomatik Dil Algılama</span>
           </button>
 
@@ -146,11 +135,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             onClick={() => setActiveSubTab("emotion-management")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "emotion-management"
-                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
+                ? "bg-rose-50/50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
                 : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
             }`}
           >
-            <Heart size={14} className={activeSubTab === "emotion-management" ? "text-rose-500 fill-rose-500" : ""} />
+            <Heart size={14} className={activeSubTab === "emotion-management" ? "text-primary fill-rose-500" : ""} />
             <span>Dinamik Duygu Yönetimi</span>
           </button>
           
@@ -158,11 +147,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             onClick={() => setActiveSubTab("whisper-management")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "whisper-management"
-                ? "bg-amber-50/50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
+                ? "bg-amber-50/50 dark:bg-amber-950/20 text-primary dark:text-amber-450 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
                 : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
             }`}
           >
-            <Bot size={14} className={activeSubTab === "whisper-management" ? "text-amber-500" : ""} />
+            <Bot size={14} className={activeSubTab === "whisper-management" ? "text-primary" : ""} />
             <span>AI Fısıldama Yönetimi</span>
           </button>
 
@@ -171,11 +160,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               onClick={() => setActiveSubTab("voice-biometrics")}
               className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
                 activeSubTab === "voice-biometrics"
-                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-455 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
+                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-primary dark:text-indigo-455 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
                   : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
               }`}
             >
-              <Fingerprint size={14} className={activeSubTab === "voice-biometrics" ? "text-indigo-550" : ""} />
+              <Fingerprint size={14} className={activeSubTab === "voice-biometrics" ? "text-primary" : ""} />
               <span>Biyometrik Ses Analizi</span>
             </button>
           )}
@@ -195,35 +184,26 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             onClick={() => setActiveSubTab("breaks")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "breaks"
-                ? "bg-amber-50/50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
+                ? "bg-amber-50/50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
                 : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
             }`}
           >
-            <Coffee size={14} className={activeSubTab === "breaks" ? "text-amber-500" : ""} />
+            <Coffee size={14} className={activeSubTab === "breaks" ? "text-primary" : ""} />
             <span>Mola Tanımları</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab("users")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "users"
-                ? "bg-blue-50/50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-100/50 dark:border-blue-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <User size={14} className={activeSubTab === "users" ? "text-blue-500" : ""} />
-            <span>Kullanıcılar</span>
           </button>
           <button
             onClick={() => setActiveSubTab("roles")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "roles"
-                ? "bg-purple-50/50 dark:bg-purple-950/20 text-purple-650 dark:text-purple-400 border-purple-100/50 dark:border-purple-900/30 shadow-sm"
+                ? "bg-purple-50/50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/50 dark:border-purple-900/30 shadow-sm"
                 : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
             }`}
           >
-            <Shield size={14} className={activeSubTab === "roles" ? "text-purple-500" : ""} />
+            <Shield size={14} className={activeSubTab === "roles" ? "text-primary" : ""} />
             <span>Roller</span>
           </button>
+
+
 
           {hasCannedPermission && (
             <button
@@ -239,30 +219,18 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             </button>
           )}
 
-          {hasBlacklistPermission && (
-            <button
-              onClick={() => setActiveSubTab("blacklist")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "blacklist"
-                  ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-455 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <ShieldAlert size={14} className={activeSubTab === "blacklist" ? "text-rose-550" : ""} />
-              <span>Kara Liste</span>
-            </button>
-          )}
+
 
           {hasQAPermission && (
             <button
               onClick={() => setActiveSubTab("qa")}
               className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
                 activeSubTab === "qa"
-                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-450 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
+                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-primary dark:text-primary border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
                   : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
               }`}
             >
-              <FileText size={14} className={activeSubTab === "qa" ? "text-indigo-550" : ""} />
+              <FileText size={14} className={activeSubTab === "qa" ? "text-primary" : ""} />
               <span>Otomatik QA Kuralları</span>
             </button>
           )}
@@ -272,11 +240,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               onClick={() => setActiveSubTab("universal-api")}
               className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
                 activeSubTab === "universal-api"
-                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-650 dark:text-indigo-450 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
+                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-primary dark:text-primary border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
                   : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
               }`}
             >
-              <Cable size={14} className={activeSubTab === "universal-api" ? "text-indigo-550" : ""} />
+              <Cable size={14} className={activeSubTab === "universal-api" ? "text-primary" : ""} />
               <span>Evrensel API Sihirbazı</span>
             </button>
           )}
@@ -287,9 +255,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           {activeSubTab === "pbx" && (
             <PBXSettings viewMode="pbx" backendHost={backendHost} />
           )}
-          {activeSubTab === "trunks" && (
-            <PBXSettings viewMode="trunks" backendHost={backendHost} />
-          )}
+
           {activeSubTab === "smart-callback" && (
             <SmartCallbackSettings backendHost={backendHost} />
           )}
@@ -308,18 +274,14 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           {activeSubTab === "breaks" && (
             <BreakDefinitions backendHost={backendHost} />
           )}
-          {activeSubTab === "users" && (
-            <UserSettings backendHost={backendHost} />
-          )}
+
           {activeSubTab === "roles" && (
             <RoleSettings backendHost={backendHost} />
           )}
           {activeSubTab === "canned-responses" && (
             <CannedResponsesSettings backendHost={backendHost} />
           )}
-          {activeSubTab === "blacklist" && (
-            <BlacklistSettings backendHost={backendHost} />
-          )}
+
           {activeSubTab === "qa" && (
             <QASettings backendHost={backendHost} />
           )}

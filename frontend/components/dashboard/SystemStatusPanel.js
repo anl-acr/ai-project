@@ -93,7 +93,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
   if (loading || !stats) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center min-h-[400px]">
-        <Activity className="animate-spin text-indigo-500 mb-4" size={32} />
+        <Activity className="animate-spin text-primary mb-4" size={32} />
         <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">Sistem Sağlık Verileri Yükleniyor...</p>
       </div>
     );
@@ -103,7 +103,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
   const currentNetSpeed = networkHistory[networkHistory.length - 1] || { up: 0, down: 0 };
 
   return (
-    <div className="w-full max-w-6xl space-y-6">
+    <div className="w-full space-y-6">
       
       {/* Page Title & Status Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800/80 pb-5">
@@ -116,8 +116,8 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="flex items-center gap-1.5 text-xs text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/20 px-3 py-1.5 rounded-xl border border-emerald-250/30 dark:border-emerald-900/30 shadow-sm">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="flex items-center gap-1.5 text-xs text-primary dark:text-emerald-400 font-bold bg-emerald-50 dark:bg-emerald-950/20 px-3 py-1.5 rounded-xl border border-emerald-250/30 dark:border-emerald-900/30 shadow-sm">
+            <span className="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
             Tüm Servisler Aktif
           </span>
         </div>
@@ -128,7 +128,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
         
         {/* Asterisk AMI Status Card */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 flex items-start gap-4">
-          <div className={`p-3 rounded-xl ${stats.asterisk_ami_status === "OK" ? "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450" : "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450"}`}>
+          <div className={`p-3 rounded-xl ${stats.asterisk_ami_status === "OK" ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450" : "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-450"}`}>
             <Server size={22} className={stats.asterisk_ami_status === "OK" ? "animate-pulse" : ""} />
           </div>
           <div className="flex-1 min-w-0">
@@ -136,8 +136,8 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
               <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">Asterisk AMI Bağlantısı</h3>
               <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${
                 stats.asterisk_ami_status === "OK" 
-                  ? "bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-450 border-emerald-200/50 dark:border-emerald-900/30" 
-                  : "bg-rose-50/50 dark:bg-rose-950/10 text-rose-600 dark:text-rose-450 border-rose-200/50 dark:border-rose-900/30"
+                  ? "bg-emerald-50/50 dark:bg-emerald-950/10 text-primary dark:text-emerald-450 border-emerald-200/50 dark:border-emerald-900/30" 
+                  : "bg-rose-50/50 dark:bg-rose-950/10 text-primary dark:text-rose-450 border-rose-200/50 dark:border-rose-900/30"
               }`}>
                 {stats.asterisk_ami_status}
               </span>
@@ -154,7 +154,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
 
         {/* Gemini Live API Status Card */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 flex items-start gap-4">
-          <div className={`p-3 rounded-xl ${stats.gemini_live_status === "OK" ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400" : "bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450"}`}>
+          <div className={`p-3 rounded-xl ${stats.gemini_live_status === "OK" ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400" : "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-450"}`}>
             <Zap size={22} className={stats.gemini_live_status === "OK" ? "animate-bounce" : ""} />
           </div>
           <div className="flex-1 min-w-0">
@@ -162,8 +162,8 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
               <h3 className="font-bold text-sm text-slate-800 dark:text-slate-200">Gemini Live Audio API</h3>
               <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide border ${
                 stats.gemini_live_status === "OK" 
-                  ? "bg-indigo-50/50 dark:bg-indigo-950/10 text-indigo-600 dark:text-indigo-400 border-indigo-200/50 dark:border-indigo-900/30" 
-                  : "bg-rose-50/50 dark:bg-rose-950/10 text-rose-600 dark:text-rose-450 border-rose-200/50 dark:border-rose-900/30"
+                  ? "bg-indigo-50/50 dark:bg-indigo-950/10 text-primary dark:text-indigo-400 border-indigo-200/50 dark:border-indigo-900/30" 
+                  : "bg-rose-50/50 dark:bg-rose-950/10 text-primary dark:text-rose-450 border-rose-200/50 dark:border-rose-900/30"
               }`}>
                 {stats.gemini_live_status === "OK" ? "AKTİF" : "HATA"}
               </span>
@@ -173,7 +173,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2 text-[10px] font-semibold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/60 p-2.5 rounded-xl border border-slate-100 dark:border-slate-800/60">
               <p>Model: <b className="text-slate-700 dark:text-slate-300">gemini-2.5-flash-audio</b></p>
-              <p>API Key: <b className="text-emerald-600 dark:text-emerald-400">Doğrulandı ✓</b></p>
+              <p>API Key: <b className="text-primary dark:text-emerald-400">Doğrulandı ✓</b></p>
             </div>
           </div>
         </div>
@@ -193,12 +193,12 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
           <div className="relative h-14 w-14 flex items-center justify-center">
             <svg className="absolute transform -rotate-90 w-full h-full">
               <circle cx="28" cy="28" r="22" stroke="currentColor" strokeWidth="4.5" className="text-slate-100 dark:text-slate-800" fill="transparent" />
-              <circle cx="28" cy="28" r="22" stroke="currentColor" strokeWidth="4.5" className="text-amber-500" fill="transparent"
+              <circle cx="28" cy="28" r="22" stroke="currentColor" strokeWidth="4.5" className="text-primary" fill="transparent"
                 strokeDasharray={2 * Math.PI * 22}
                 strokeDashoffset={2 * Math.PI * 22 * (1 - stats.cpu_usage / 100)}
               />
             </svg>
-            <Cpu size={18} className="text-amber-500" />
+            <Cpu size={18} className="text-primary" />
           </div>
         </div>
 
@@ -212,12 +212,12 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
           <div className="relative h-14 w-14 flex items-center justify-center">
             <svg className="absolute transform -rotate-90 w-full h-full">
               <circle cx="28" cy="28" r="22" stroke="currentColor" strokeWidth="4.5" className="text-slate-100 dark:text-slate-800" fill="transparent" />
-              <circle cx="28" cy="28" r="22" stroke="currentColor" strokeWidth="4.5" className="text-indigo-500" fill="transparent"
+              <circle cx="28" cy="28" r="22" stroke="currentColor" strokeWidth="4.5" className="text-primary" fill="transparent"
                 strokeDasharray={2 * Math.PI * 22}
                 strokeDashoffset={2 * Math.PI * 22 * (1 - stats.ram_usage / 100)}
               />
             </svg>
-            <Database size={18} className="text-indigo-500" />
+            <Database size={18} className="text-primary" />
           </div>
         </div>
 
@@ -228,13 +228,13 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
               <p className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Disk Depolama</p>
               <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1">{stats.disk_usage}%</p>
             </div>
-            <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-xl">
+            <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-primary rounded-xl">
               <HardDrive size={18} />
             </div>
           </div>
           <div className="mt-4 space-y-1.5">
             <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-              <div className="h-full bg-amber-500 rounded-full" style={{ width: `${stats.disk_usage}%` }}></div>
+              <div className="h-full bg-primary rounded-full" style={{ width: `${stats.disk_usage}%` }}></div>
             </div>
             <div className="flex justify-between text-[9px] font-semibold text-slate-500 dark:text-slate-400">
               <span>{stats.disk_used_gb} GB Kullanılan</span>
@@ -253,17 +253,17 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
                 <span className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">MB/s</span>
               </div>
             </div>
-            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 rounded-xl">
+            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-primary rounded-xl">
               <Network size={18} />
             </div>
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 text-[9px] font-bold text-slate-500 dark:text-slate-400 border-t border-slate-100 dark:border-slate-800 pt-2.5">
             <div className="flex items-center gap-1">
-              <ArrowDownLeft size={10} className="text-emerald-500" />
+              <ArrowDownLeft size={10} className="text-primary" />
               <span>Giriş: {stats.net_recv_mb > 1024 ? `${(stats.net_recv_mb/1024).toFixed(1)} GB` : `${stats.net_recv_mb} MB`}</span>
             </div>
             <div className="flex items-center gap-1">
-              <ArrowUpRight size={10} className="text-blue-500" />
+              <ArrowUpRight size={10} className="text-primary" />
               <span>Çıkış: {stats.net_sent_mb > 1024 ? `${(stats.net_sent_mb/1024).toFixed(1)} GB` : `${stats.net_sent_mb} MB`}</span>
             </div>
           </div>
@@ -280,8 +280,8 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
             <h4 className="font-bold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wide">Ses Kayıt Depolama (NAS)</h4>
             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${
               stats.nas_mounted 
-                ? "bg-emerald-50/50 dark:bg-emerald-950/10 text-emerald-600 dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30" 
-                : "bg-amber-50/50 dark:bg-amber-950/10 text-amber-600 dark:text-amber-500 border-amber-200/50 dark:border-amber-900/30"
+                ? "bg-emerald-50/50 dark:bg-emerald-950/10 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30" 
+                : "bg-amber-50/50 dark:bg-amber-950/10 text-primary dark:text-primary border-amber-200/50 dark:border-amber-900/30"
             }`}>
               {stats.nas_mounted ? "Bağlı ✓" : "Yerel Mod"}
             </span>
@@ -305,7 +305,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60 mb-3.5">
             <h4 className="font-bold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wide">Bilgi Bankası (RAG)</h4>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border bg-blue-50/50 dark:bg-blue-950/10 text-blue-600 dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border bg-blue-50/50 dark:bg-blue-950/10 text-primary dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30">
               Vektör DB
             </span>
           </div>
@@ -328,7 +328,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60 mb-3.5">
             <h4 className="font-bold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wide">Çağrı Sağlığı & Kapasite</h4>
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border bg-indigo-50/50 dark:bg-indigo-950/10 text-indigo-600 dark:text-indigo-400 border-indigo-200/50 dark:border-indigo-900/30">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border bg-indigo-50/50 dark:bg-indigo-950/10 text-primary dark:text-indigo-400 border-indigo-200/50 dark:border-indigo-900/30">
               Canlı Akış
             </span>
           </div>
@@ -336,7 +336,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
             <div className="flex justify-between text-xs">
               <span className="text-slate-500 dark:text-slate-400">Anlık Eşzamanlı Çağrı:</span>
               <span className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                <span className={`h-1.5 w-1.5 rounded-full ${stats.active_calls_count > 0 ? "bg-amber-500 animate-ping" : "bg-slate-400"}`}></span>
+                <span className={`h-1.5 w-1.5 rounded-full ${stats.active_calls_count > 0 ? "bg-primary animate-ping" : "bg-slate-400"}`}></span>
                 {stats.active_calls_count} / 10 kanal
               </span>
             </div>
@@ -361,17 +361,17 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
           <div className="flex items-center justify-between pb-4">
             <div>
               <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200 uppercase tracking-wide flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-ping"></span>
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping"></span>
                 KAYNAK KULLANIM AKIŞI (CPU / RAM)
               </h4>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">Son 60 saniyedeki yük eğrileri.</p>
             </div>
             <div className="flex items-center gap-3 text-[10px] font-extrabold">
-              <span className="flex items-center gap-1 text-amber-500">
-                <span className="h-2 w-2 rounded-full bg-amber-500"></span> CPU
+              <span className="flex items-center gap-1 text-primary">
+                <span className="h-2 w-2 rounded-full bg-primary"></span> CPU
               </span>
-              <span className="flex items-center gap-1 text-indigo-500">
-                <span className="h-2 w-2 rounded-full bg-indigo-500"></span> RAM
+              <span className="flex items-center gap-1 text-primary">
+                <span className="h-2 w-2 rounded-full bg-primary"></span> RAM
               </span>
             </div>
           </div>
@@ -415,17 +415,17 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
           <div className="flex items-center justify-between pb-4">
             <div>
               <h4 className="font-bold text-xs text-slate-800 dark:text-slate-200 uppercase tracking-wide flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-ping"></span>
+                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-ping"></span>
                 AĞ TRAFİĞİ ETKİNLİĞİ (THROUGHPUT)
               </h4>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">Saniye başına indirilen/yüklenen veri hızı.</p>
             </div>
             <div className="flex items-center gap-3 text-[10px] font-extrabold">
-              <span className="flex items-center gap-1 text-emerald-500">
-                <span className="h-2 w-2 rounded-full bg-emerald-500"></span> İNDİRME
+              <span className="flex items-center gap-1 text-primary">
+                <span className="h-2 w-2 rounded-full bg-primary"></span> İNDİRME
               </span>
-              <span className="flex items-center gap-1 text-blue-500">
-                <span className="h-2 w-2 rounded-full bg-blue-500"></span> YÜKLEME
+              <span className="flex items-center gap-1 text-primary">
+                <span className="h-2 w-2 rounded-full bg-primary"></span> YÜKLEME
               </span>
             </div>
           </div>
@@ -470,7 +470,7 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col font-mono text-xs text-slate-800 dark:text-slate-200 transition-all duration-300">
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-3 text-[10px] uppercase tracking-wider font-bold text-slate-500 dark:text-slate-400">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="h-2 w-2 rounded-full bg-primary animate-pulse"></span>
             <span>Canlı Sistem Log Terminali</span>
           </div>
           <div>Bileşen: backend.main</div>
@@ -478,15 +478,15 @@ export default function SystemStatusPanel({ backendHost = "localhost:8000" }) {
         <div className="h-44 overflow-y-auto space-y-1.5 p-2 bg-slate-50/80 dark:bg-slate-950/60 rounded-xl border border-slate-200/50 dark:border-slate-800/80 text-left">
           {stats.system_logs && stats.system_logs.length > 0 ? (
             stats.system_logs.map((log, index) => {
-              let sourceColor = "text-indigo-600 dark:text-indigo-400";
-              if (log.source === "ASTERISK") sourceColor = "text-purple-600 dark:text-purple-400";
+              let sourceColor = "text-primary dark:text-indigo-400";
+              if (log.source === "ASTERISK") sourceColor = "text-primary dark:text-purple-400";
               if (log.source === "BROWSER") sourceColor = "text-cyan-600 dark:text-cyan-400";
-              if (log.source === "DATABASE") sourceColor = "text-amber-600 dark:text-amber-400";
+              if (log.source === "DATABASE") sourceColor = "text-primary dark:text-amber-400";
 
               let levelColor = "text-slate-500 dark:text-slate-400";
-              if (log.level === "ERROR") levelColor = "text-rose-600 dark:text-rose-500 font-bold animate-pulse";
-              if (log.level === "WARN") levelColor = "text-amber-600 dark:text-amber-500 font-bold";
-              if (log.level === "INFO") levelColor = "text-emerald-600 dark:text-emerald-500";
+              if (log.level === "ERROR") levelColor = "text-primary dark:text-primary font-bold animate-pulse";
+              if (log.level === "WARN") levelColor = "text-primary dark:text-primary font-bold";
+              if (log.level === "INFO") levelColor = "text-primary dark:text-primary";
 
               return (
                 <div key={index} className="flex gap-2 hover:bg-slate-100/50 dark:hover:bg-slate-900/60 p-0.5 rounded transition-colors text-[10px]">

@@ -218,7 +218,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
             <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500"></span>
           )}
         </span>
-        <Phone size={14} className={registered ? "text-emerald-500 dark:text-emerald-400" : "text-rose-500 dark:text-rose-450"} />
+        <Phone size={14} className={registered ? "text-primary dark:text-emerald-400" : "text-primary dark:text-rose-450"} />
         <span className="text-xs font-bold tracking-wide">
           {registered ? `Dahili ${agentExtension}` : `Dahili ${agentExtension} (Bağlı Değil)`}
         </span>
@@ -235,11 +235,11 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 text-[10px]">
             {registered ? (
-              <span className="flex items-center text-emerald-600 dark:text-emerald-400 gap-1 font-bold">
+              <span className="flex items-center text-primary dark:text-emerald-400 gap-1 font-bold">
                 <Wifi size={10} /> ÇEVRİMİÇİ
               </span>
             ) : (
-              <span className="flex items-center text-rose-500 dark:text-rose-400 gap-1 font-bold">
+              <span className="flex items-center text-primary dark:text-rose-400 gap-1 font-bold">
                 <WifiOff size={10} /> BAĞLANTI YOK
               </span>
             )}
@@ -271,20 +271,20 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
 
         {callStatus === "Ringing" && (
           <div className="text-center py-2 animate-pulse">
-            <div className="h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 flex items-center justify-center mx-auto mb-3 text-amber-500 dark:text-amber-400 animate-bounce">
+            <div className="h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900/50 flex items-center justify-center mx-auto mb-3 text-primary dark:text-amber-400 animate-bounce">
               <Phone size={20} className="animate-spin" />
             </div>
-            <p className="text-amber-600 dark:text-amber-400 font-extrabold text-sm tracking-wide uppercase">Yapay Zekadan Aktarım!</p>
+            <p className="text-primary dark:text-amber-400 font-extrabold text-sm tracking-wide uppercase">Yapay Zekadan Aktarım!</p>
             <p className="text-xs text-slate-500 dark:text-slate-350 mt-1.5 font-medium">Gelen Çağrı Alınıyor...</p>
           </div>
         )}
 
         {callStatus === "InCall" && (
           <div className="text-center py-2">
-            <div className="h-12 w-12 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-900/50 flex items-center justify-center mx-auto mb-2 text-emerald-600 dark:text-emerald-400">
+            <div className="h-12 w-12 rounded-full bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-250 dark:border-emerald-900/50 flex items-center justify-center mx-auto mb-2 text-primary dark:text-emerald-400">
               <Phone size={20} className="animate-pulse" />
             </div>
-            <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-base tracking-wide uppercase">Görüşme Aktif</p>
+            <p className="text-primary dark:text-emerald-400 font-extrabold text-base tracking-wide uppercase">Görüşme Aktif</p>
             <p className="text-xl font-bold font-mono text-slate-800 dark:text-slate-200 mt-1.5">
               {formatDuration(callDuration)}
             </p>
@@ -298,7 +298,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
         {callStatus === "Ringing" && (
           <button
             onClick={answerCall}
-            className="flex items-center gap-2 px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white transition rounded-xl font-semibold text-xs tracking-wide shadow-lg shadow-emerald-500/20"
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary active:bg-emerald-700 text-white transition rounded-xl font-semibold text-xs tracking-wide shadow-lg shadow-emerald-500/20"
           >
             <Phone size={14} /> Cevapla
           </button>
@@ -307,7 +307,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
         {callStatus !== "Idle" && (
           <button
             onClick={hangupCall}
-            className="flex items-center gap-2 px-5 py-2.5 bg-rose-600 hover:bg-rose-500 active:bg-rose-700 text-white transition rounded-xl font-semibold text-xs tracking-wide shadow-lg shadow-rose-500/20"
+            className="flex items-center gap-2 px-5 py-2.5 bg-primary hover:bg-primary active:bg-rose-700 text-white transition rounded-xl font-semibold text-xs tracking-wide shadow-lg shadow-rose-500/20"
           >
             <PhoneOff size={14} /> {callStatus === "Ringing" ? "Reddet" : "Kapat"}
           </button>
@@ -315,7 +315,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
       </div>
 
       {error && (
-        <div className="mt-4 p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/50 rounded-xl text-rose-600 dark:text-rose-300 text-xs flex items-start gap-2">
+        <div className="mt-4 p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-100 dark:border-rose-900/50 rounded-xl text-primary dark:text-rose-300 text-xs flex items-start gap-2">
           <ShieldAlert size={14} className="shrink-0 mt-0.5" />
           <span className="font-medium">{error}</span>
         </div>
