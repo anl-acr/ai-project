@@ -91,6 +91,11 @@ class AgentStateSchema(BaseModel):
     current_break: Optional[dict] = None
     user_id: Optional[int] = None
 
+class UserSessionSchema(BaseModel):
+    device_type: str
+    ip_address: str
+    last_seen: Optional[str] = None
+
 class UserSchema(BaseModel):
     id: Optional[int] = None
     full_name: str
@@ -102,6 +107,18 @@ class UserSchema(BaseModel):
     gsm_number: Optional[str] = None
     mobile_transfer_enabled: Optional[bool] = False
     theme_color: Optional[str] = "rose"
+    sip_password: Optional[str] = None
+    outbound_caller_id: Optional[str] = None
+    forwarding_always: Optional[dict] = None
+    forwarding_busy: Optional[dict] = None
+    forwarding_no_answer: Optional[dict] = None
+    voicemail_active: Optional[bool] = False
+    voicemail_announcement: Optional[str] = None
+    voicemail_pin: Optional[str] = None
+    voicemail_to_email: Optional[bool] = False
+    recording_active: Optional[bool] = False
+    transport: Optional[str] = "UDP"
+    active_sessions: Optional[List[UserSessionSchema]] = []
 
 class RoleSchema(BaseModel):
     id: Optional[int] = None

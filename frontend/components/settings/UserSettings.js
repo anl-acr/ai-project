@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -10,6 +10,12 @@ const PRESET_AVATARS = [
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Adrian",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Jack",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"
+];
+
+const ANNOUNCEMENTS = [
+  "Varsayılan Anons",
+  "Kişisel Anons 1",
+  "Mesai Dışı Anonsu"
 ];
 
 export default function UserSettings({ backendHost = "localhost:8000" }) {
@@ -27,15 +33,44 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
   // Modal / Popup States
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
+  const [activeTab, setActiveTab] = useState("login_sip");
 
-  // Form Fields
+  // Basic Form Fields
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [extension, setExtension] = useState("");
   const [avatar, setAvatar] = useState(PRESET_AVATARS[0]);
-  const [role, setRole] = useState("agent"); // admin, agent, supervisor
+  const [role, setRole] = useState("agent");
   const [isActive, setIsActive] = useState(true);
   const [password, setPassword] = useState("");
+
+  // SIP Fields
+  const [sipPassword, setSipPassword] = useState("");
+  const [outboundCallerId, setOutboundCallerId] = useState("");
+
+  // Forwarding Fields
+  const [fwdAlwaysActive, setFwdAlwaysActive] = useState(false);
+  const [fwdAlwaysType, setFwdAlwaysType] = useState("internal");
+  const [fwdAlwaysTarget, setFwdAlwaysTarget] = useState("");
+  
+  const [fwdBusyActive, setFwdBusyActive] = useState(false);
+  const [fwdBusyType, setFwdBusyType] = useState("internal");
+  const [fwdBusyTarget, setFwdBusyTarget] = useState("");
+  
+  const [fwdNoAnswerActive, setFwdNoAnswerActive] = useState(false);
+  const [fwdNoAnswerType, setFwdNoAnswerType] = useState("internal");
+  const [fwdNoAnswerTarget, setFwdNoAnswerTarget] = useState("");
+  const [fwdNoAnswerTimeout, setFwdNoAnswerTimeout] = useState(30);
+
+  // Voicemail Fields
+  const [voicemailActive, setVoicemailActive] = useState(false);
+  const [voicemailAnnouncement, setVoicemailAnnouncement] = useState(ANNOUNCEMENTS[0]);
+  const [voicemailPin, setVoicemailPin] = useState("");
+  const [voicemailToEmail, setVoicemailToEmail] = useState(false);
+
+  // Feature Fields
+  const [recordingActive, setRecordingActive] = useState(false);
+  const [transport, setTransport] = useState("UDP");
 
   const [systemRoles, setSystemRoles] = useState([]);
 
@@ -56,7 +91,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
       const dataRoles = await resRoles.json();
       if (dataRoles) setSystemRoles(dataRoles);
     } catch (err) {
-      console.error("Kullanıcılar veya Roller yüklenemedi:", err);
+      console.error(`Kullanıcılar veya Roller yüklenemedi:`, err);
     } finally {
       setLoading(false);
     }
@@ -80,8 +115,22 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
-  const openAddModal = () => {
+  const generateSipPassword = () => {
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$*()";
+    let pwd = "";
+    for(let i=0; i<16; i++) {
+        pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    setSipPassword(pwd);
+  };
+
+  const copySipPassword = () => {
+    navigator.clipboard.writeText(sipPassword);
+  };
+
+  const resetForm = () => {
     setEditingUser(null);
+    setActiveTab("login_sip");
     setFullName("");
     setEmail("");
     setExtension("");
@@ -89,18 +138,53 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
     setRole("agent");
     setIsActive(true);
     setPassword("");
+    setSipPassword("");
+    setOutboundCallerId("");
+
+    setFwdAlwaysActive(false); setFwdAlwaysType("internal"); setFwdAlwaysTarget("");
+    setFwdBusyActive(false); setFwdBusyType("internal"); setFwdBusyTarget("");
+    setFwdNoAnswerActive(false); setFwdNoAnswerType("internal"); setFwdNoAnswerTarget(""); setFwdNoAnswerTimeout(30);
+
+    setVoicemailActive(false); setVoicemailAnnouncement(ANNOUNCEMENTS[0]);
+    setVoicemailPin(""); setVoicemailToEmail(false);
+
+    setRecordingActive(false); setTransport("UDP");
+  };
+
+  const openAddModal = () => {
+    resetForm();
+    generateSipPassword();
     setShowModal(true);
   };
 
   const openEditModal = (u) => {
+    resetForm();
     setEditingUser(u);
-    setFullName(u.full_name);
-    setEmail(u.email);
-    setExtension(u.extension);
-    setAvatar(u.avatar);
-    setRole(u.role);
-    setIsActive(u.is_active);
+    setFullName(u.full_name || "");
+    setEmail(u.email || "");
+    setExtension(u.extension || "");
+    setAvatar(u.avatar || PRESET_AVATARS[0]);
+    setRole(u.role || "agent");
+    setIsActive(u.is_active !== undefined ? u.is_active : true);
     setPassword(u.password || "");
+    
+    setSipPassword(u.sip_password || "");
+    if(!u.sip_password) generateSipPassword();
+    
+    setOutboundCallerId(u.outbound_caller_id || "");
+
+    if (u.forwarding_always) { setFwdAlwaysActive(u.forwarding_always.active || false); setFwdAlwaysType(u.forwarding_always.type || "internal"); setFwdAlwaysTarget(u.forwarding_always.target || ""); }
+    if (u.forwarding_busy) { setFwdBusyActive(u.forwarding_busy.active || false); setFwdBusyType(u.forwarding_busy.type || "internal"); setFwdBusyTarget(u.forwarding_busy.target || ""); }
+    if (u.forwarding_no_answer) { setFwdNoAnswerActive(u.forwarding_no_answer.active || false); setFwdNoAnswerType(u.forwarding_no_answer.type || "internal"); setFwdNoAnswerTarget(u.forwarding_no_answer.target || ""); setFwdNoAnswerTimeout(u.forwarding_no_answer.timeout || 30); }
+
+    setVoicemailActive(u.voicemail_active || false);
+    setVoicemailAnnouncement(u.voicemail_announcement || ANNOUNCEMENTS[0]);
+    setVoicemailPin(u.voicemail_pin || "");
+    setVoicemailToEmail(u.voicemail_to_email || false);
+
+    setRecordingActive(u.recording_active || false);
+    setTransport(u.transport || "UDP");
+
     setShowModal(true);
   };
 
@@ -108,20 +192,32 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
     e.preventDefault();
     if (!fullName.trim() || !email.trim() || !extension.trim()) return;
 
+    const userData = {
+      full_name: fullName.trim(),
+      email: email.trim(),
+      extension: extension.trim(),
+      avatar,
+      role,
+      is_active: isActive,
+      password,
+      sip_password: sipPassword,
+      outbound_caller_id: outboundCallerId.trim(),
+      forwarding_always: fwdAlwaysTarget ? { active: fwdAlwaysActive, type: fwdAlwaysType, target: fwdAlwaysTarget } : null,
+      forwarding_busy: fwdBusyTarget ? { active: fwdBusyActive, type: fwdBusyType, target: fwdBusyTarget } : null,
+      forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null,
+      voicemail_active: voicemailActive,
+      voicemail_announcement: voicemailAnnouncement,
+      voicemail_pin: voicemailPin,
+      voicemail_to_email: voicemailToEmail,
+      recording_active: recordingActive,
+      transport: transport
+    };
+
     if (editingUser) {
       // Edit mode
       const updated = users.map((u) => {
         if (u.id === editingUser.id) {
-          return {
-            ...u,
-            full_name: fullName.trim(),
-            email: email.trim(),
-            extension: extension.trim(),
-            avatar,
-            role,
-            is_active: isActive,
-            password
-          };
+          return { ...u, ...userData };
         }
         return u;
       });
@@ -129,16 +225,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
       handleSaveAll(updated);
     } else {
       // Add mode
-      const newUser = {
-        id: Date.now(),
-        full_name: fullName.trim(),
-        email: email.trim(),
-        extension: extension.trim(),
-        avatar,
-        role,
-        is_active: isActive,
-        password
-      };
+      const newUser = { id: Date.now(), ...userData };
       const updated = [...users, newUser];
       setUsers(updated);
       handleSaveAll(updated);
@@ -173,11 +260,70 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
   const filteredUsers = users.filter((u) => {
     const query = searchQuery.toLowerCase();
     return (
-      u.full_name.toLowerCase().includes(query) ||
-      u.email.toLowerCase().includes(query) ||
-      u.extension.includes(query)
+      (u.full_name || "").toLowerCase().includes(query) ||
+      (u.email || "").toLowerCase().includes(query) ||
+      (u.extension || "").includes(query)
     );
   });
+
+  const renderForwardingRow = (label, active, setActive, type, setType, target, setTarget, timeout, setTimeoutVal) => (
+    <div className={`grid grid-cols-12 gap-3 items-end p-3 rounded-xl border transition-all ${active ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-slate-50 dark:bg-slate-900/30 border-slate-100 dark:border-slate-800/40 opacity-70'}`}>
+        <div className="col-span-12 flex items-center justify-between mb-1 pb-2 border-b border-slate-100 dark:border-slate-800/60">
+            <label className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">{label}</label>
+            <button type="button" onClick={() => setActive(!active)} className="text-slate-400 hover:text-slate-700 transition-colors">
+                {active ? <ToggleRight size={24} className={text} /> : <ToggleLeft size={24} />}
+            </button>
+        </div>
+        <div className="col-span-12 sm:col-span-3">
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Tip</label>
+            <select
+                disabled={!active}
+                value={type}
+                onChange={e => setType(e.target.value)}
+                className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+            >
+                <option value="internal">Dahili Hat</option>
+                <option value="external">Dış Numara</option>
+            </select>
+        </div>
+        <div className="col-span-12 sm:col-span-6">
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Hedef</label>
+            {type === "internal" ? (
+                <select
+                    disabled={!active}
+                    value={target}
+                    onChange={e => setTarget(e.target.value)}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                >
+                    <option value="">Seçiniz...</option>
+                    {users.map(u => <option key={u.id} value={u.extension}>{u.full_name} ({u.extension})</option>)}
+                </select>
+            ) : (
+                <input
+                    disabled={!active}
+                    type="text"
+                    placeholder="Numara giriniz"
+                    value={target}
+                    onChange={e => setTarget(e.target.value)}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                />
+            )}
+        </div>
+        {setTimeoutVal && (
+            <div className="col-span-12 sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Süre (sn)</label>
+                <input
+                    disabled={!active}
+                    type="number"
+                    min="1"
+                    value={timeout}
+                    onChange={e => setTimeoutVal(parseInt(e.target.value) || 30)}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                />
+            </div>
+        )}
+    </div>
+  );
 
   return (
     <div className="w-full space-y-6">
@@ -203,14 +349,14 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
               placeholder="Kullanıcı ara..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
+              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}  transition-all`}
             />
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
+            <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555`} />
           </div>
 
           <button
             onClick={openAddModal}
-            className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+            className={`p-2 ${bg} ${hover} text-white rounded-xl font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
             title="Yeni Kullanıcı Ekle"
           >
             <Plus size={16} />
@@ -256,6 +402,29 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
             >
               {/* Left Side: Avatar & Details */}
               <div className="flex items-center gap-4 flex-1">
+                <div className="relative group shrink-0 flex items-center justify-center cursor-pointer">
+                  <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm ${u.active_sessions?.length > 0 ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-rose-500 shadow-rose-500/50 opacity-60'}`} />
+                  {u.active_sessions?.length > 0 && (
+                    <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 w-48 bg-slate-900/95 backdrop-blur-md rounded-xl p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl border border-slate-700/50">
+                      <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-slate-900/95 border-l border-b border-slate-700/50 rotate-45"></div>
+                      <h5 className="text-[10px] font-extrabold text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-700/50 pb-1.5">Aktif Oturumlar</h5>
+                      <div className="space-y-2 relative z-10">
+                        {u.active_sessions.map((sess, idx) => (
+                          <div key={idx} className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5 text-white text-xs font-bold">
+                              {sess.device_type === "web" ? <Monitor size={12} className="text-blue-400" /> : sess.device_type === "sip" ? <Phone size={12} className="text-emerald-400" /> : <Smartphone size={12} className="text-purple-400" />}
+                              <span className="capitalize">{sess.device_type}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px]">
+                              <span className="text-slate-400 font-mono">{sess.ip_address}</span>
+                              {sess.last_seen && <span className="text-slate-500">{sess.last_seen}</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <img
                   src={u.avatar}
                   alt={u.full_name}
@@ -302,19 +471,6 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
               {/* Right Side: Actions */}
               <div className="flex items-center gap-4 justify-between sm:justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 dark:border-slate-800/60">
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-bold text-slate-450 dark:text-slate-550 mr-1">
-                    {u.is_active ? "Etkin" : "Devre Dışı"}
-                  </span>
-                  <button
-                    onClick={() => toggleUserActive(u)}
-                    className="text-slate-400 dark:text-slate-550 hover:text-slate-700 dark:hover:text-slate-350 transition-colors"
-                    title={u.is_active ? "Kullanıcıyı Devre Dışı Bırak" : "Kullanıcıyı Etkinleştir"}
-                  >
-                    {u.is_active ? <ToggleRight size={22} className="text-primary" /> : <ToggleLeft size={22} />}
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-2">
                   <button
                     onClick={() => openEditModal(u)}
                     className="p-1.5 text-slate-450 hover:text-slate-700 dark:hover:text-white rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-200"
@@ -336,12 +492,12 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
         </div>
       )}
 
-      {/* POPUP MODAL (Add / Edit Form) */}
+      {/* POPUP MODAL (Add / Edit Form with Tabs) */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all duration-300">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-full max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
               <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
                 {editingUser ? "Kullanıcı Düzenle" : "Yeni Kullanıcı Ekle"}
               </h3>
@@ -353,153 +509,244 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
               </button>
             </div>
 
-            {/* Modal Body Form */}
-            <form onSubmit={handleFormSubmit} className="p-6 space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                {/* Full name */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                    İsim Soyisim
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Örn: Ahmet Yılmaz"
-                    value={fullName}
-                    onChange={(e) => setFullName(e.target.value)}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                  />
+            <div className="flex flex-1 overflow-hidden">
+                {/* Sidebar Tabs */}
+                <div className="w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto">
+                    <nav className="space-y-1">
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("login_sip")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'login_sip' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <KeyRound size={16} />
+                            Giriş ve SIP
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("forwarding")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'forwarding' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <PhoneCall size={16} />
+                            Yönlendirme & Voicemail
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("features")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'features' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <Settings size={16} />
+                            Özellikler
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("avatar")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'avatar' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <ImageIcon size={16} />
+                            Avatar Seçimi
+                        </button>
+                    </nav>
                 </div>
-                {/* Email */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                    Mail Adresi
-                  </label>
-                  <input
-                    type="email"
-                    required
-                    placeholder="ahmet@company.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                  />
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                {/* Extension */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                    Dahili Numarası
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Örn: 202, 203"
-                    value={extension}
-                    onChange={(e) => setExtension(e.target.value)}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                  />
-                </div>
-                {/* Password */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                    Şifre (Login)
-                  </label>
-                  <input
-                    type="password"
-                    placeholder="Şifre belirleyin"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                  />
-                </div>
-              </div>
+                {/* Tab Content Area */}
+                <div className="flex-1 overflow-y-auto">
+                    <form onSubmit={handleFormSubmit} className="p-6 space-y-6 h-full flex flex-col justify-between">
+                        
+                        {/* TAB 1: GİRİŞ VE SIP */}
+                        {activeTab === "login_sip" && (
+                            <div className="space-y-5 animate-in fade-in duration-300">
+                                <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                                    <div>
+                                        <h5 className="text-xs font-bold text-slate-700 dark:text-white">Kullanıcı Aktif mi?</h5>
+                                        <p className="text-[10px] text-slate-400">Pasif kullanıcılar sisteme giremez ve SIP kaydedemez.</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setIsActive(!isActive)}
+                                        className="text-slate-400 hover:text-slate-700 transition-colors"
+                                    >
+                                        {isActive ? <ToggleRight size={30} className={text} /> : <ToggleLeft size={30} />}
+                                    </button>
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">İsim Soyisim</label>
+                                        <input type="text" required placeholder="Örn: Ahmet Yılmaz" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">E-posta Adresi</label>
+                                        <input type="email" required placeholder="ahmet@company.com" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                    </div>
+                                </div>
 
-              {/* Role Selection */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                  Kullanıcı Rolü
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {systemRoles.map((r) => (
-                    <button
-                      key={r.role_code}
-                      type="button"
-                      onClick={() => setRole(r.role_code)}
-                      className={`px-3 py-2 rounded-xl text-xs font-bold uppercase transition-all border ${
-                        role === r.role_code
-                          ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-200 dark:border-rose-900/40"
-                          : "bg-slate-50/50 dark:bg-slate-950/20 text-slate-500 dark:text-slate-400 border-slate-200/60 dark:border-slate-800/80 hover:bg-slate-50"
-                      }`}
-                    >
-                      {r.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Kullanıcı Rolü</label>
+                                        <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none">
+                                            {systemRoles.map(r => <option key={r.role_code} value={r.role_code}>{r.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Arayüz Şifresi (Login)</label>
+                                        <input type="password" placeholder="Şifre belirleyin" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                    </div>
+                                </div>
 
-              {/* Avatar Selector */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                  Profil Avatarı Seçin
-                </label>
-                <div className="flex items-center gap-3">
-                  <div className="grid grid-cols-6 gap-2 flex-1">
-                    {PRESET_AVATARS.map((av) => (
-                      <button
-                        key={av}
-                        type="button"
-                        onClick={() => setAvatar(av)}
-                        className={`p-1.5 rounded-xl border bg-slate-50 dark:bg-slate-950 transition-all ${
-                          avatar === av
-                            ? "border-rose-500 dark:border-rose-400 scale-105"
-                            : "border-transparent hover:scale-102"
-                        }`}
-                      >
-                        <img src={av} alt="Avatar" className="w-8 h-8" />
-                      </button>
-                    ))}
-                  </div>
-                  <div className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1 flex items-center justify-center shrink-0">
-                    <img src={avatar} alt="Seçili Avatar" className="w-10 h-10" />
-                  </div>
-                </div>
-              </div>
+                                <div className={`p-4 rounded-xl border ${borderLight} ${lightBg} space-y-4 mt-2`}>
+                                    <h4 className={`text-xs font-bold ${text} border-b ${borderLight} pb-2`}>SIP AYARLARI</h4>
+                                    
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Dahili Numarası (Extension)</label>
+                                            <input type="text" required placeholder="Örn: 202" value={extension} onChange={(e) => setExtension(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Dış Aramada Görünecek Numara</label>
+                                            <input type="text" placeholder="Boş bırakılırsa varsayılan kural" value={outboundCallerId} onChange={(e) => setOutboundCallerId(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                        </div>
+                                    </div>
 
-              {/* Active Toggle Switch */}
-              <div className="flex items-center justify-between pt-2">
-                <div>
-                  <h5 className="text-xs font-bold text-slate-700 dark:text-white">Kullanıcı Aktif mi?</h5>
-                  <p className="text-[9px] text-slate-400">Aktif olmayan kullanıcılar sisteme giriş yapamaz.</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsActive(!isActive)}
-                  className="text-slate-400 dark:text-slate-550 hover:text-slate-700 dark:hover:text-slate-350 transition-colors"
-                >
-                  {isActive ? <ToggleRight size={26} className={text} /> : <ToggleLeft size={26} />}
-                </button>
-              </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">SIP Register Şifresi</label>
+                                        <div className="flex gap-2">
+                                            <input type="text" readOnly value={sipPassword} className="flex-1 text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none font-mono" />
+                                            <button type="button" onClick={copySipPassword} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Şifreyi Kopyala"><Copy size={16}/></button>
+                                            <button type="button" onClick={generateSipPassword} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Yeni Şifre Üret"><RefreshCw size={16}/></button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
 
-              {/* Action Buttons */}
-              <div className="flex gap-3 pt-4 border-t border-slate-100 dark:border-slate-800/60">
-                <button
-                  type="button"
-                  onClick={() => setShowModal(false)}
-                  className="flex-1 py-2.5 rounded-xl font-bold border dark: dark: dark: hover: transition-all bg-slate-500 hover:bg-slate-600 text-white border-transparent"
-                >Vazgeç</button>
-                <button
-                  type="submit"
-                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-sm`}
-                >
-                  Kaydet
-                </button>
-              </div>
-            </form>
+                        {/* TAB 2: YÖNLENDİRME VE VOICEMAIL */}
+                        {activeTab === "forwarding" && (
+                            <div className="space-y-6 animate-in fade-in duration-300">
+                                <div>
+                                    <h4 className="text-sm font-bold text-slate-800 dark:text-white mb-3">Çağrı Yönlendirme Kuralları</h4>
+                                    <div className="space-y-3">
+                                        {renderForwardingRow("Her Zaman", fwdAlwaysActive, setFwdAlwaysActive, fwdAlwaysType, setFwdAlwaysType, fwdAlwaysTarget, setFwdAlwaysTarget, null, null)}
+                                        {renderForwardingRow("Meşgul Durumda", fwdBusyActive, setFwdBusyActive, fwdBusyType, setFwdBusyType, fwdBusyTarget, setFwdBusyTarget, null, null)}
+                                        {renderForwardingRow("Zaman Aşımında (Cevapsız)", fwdNoAnswerActive, setFwdNoAnswerActive, fwdNoAnswerType, setFwdNoAnswerType, fwdNoAnswerTarget, setFwdNoAnswerTarget, fwdNoAnswerTimeout, setFwdNoAnswerTimeout)}
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-slate-100 dark:border-slate-800 pt-5">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h4 className="text-sm font-bold text-slate-800 dark:text-white">Sesli Mesaj (Voicemail)</h4>
+                                        <button type="button" onClick={() => setVoicemailActive(!voicemailActive)} className="text-slate-400 hover:text-slate-700 transition-colors">
+                                            {voicemailActive ? <ToggleRight size={28} className={`${text}`} /> : <ToggleLeft size={28} />}
+                                        </button>
+                                    </div>
+
+                                    {voicemailActive && (
+                                        <div className="grid grid-cols-2 gap-4 p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Voicemail Anonsu</label>
+                                                <select value={voicemailAnnouncement} onChange={(e) => setVoicemailAnnouncement(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus:outline-none">
+                                                    {ANNOUNCEMENTS.map(a => <option key={a} value={a}>{a}</option>)}
+                                                </select>
+                                            </div>
+                                            <div>
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Voicemail Şifresi (Sadece 4 Rakam)</label>
+                                                <input type="text" maxLength={4} pattern="\d{4}" placeholder="Örn: 1234" value={voicemailPin} onChange={(e) => setVoicemailPin(e.target.value.replace(/\D/g, ''))} className="w-full text-xs px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 focus:outline-none" />
+                                            </div>
+                                            <div className="col-span-2 flex items-center justify-between pt-2">
+                                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Sesli mesajları e-posta ile gönder</span>
+                                                <button type="button" onClick={() => setVoicemailToEmail(!voicemailToEmail)} className="text-slate-400 hover:text-slate-700 transition-colors">
+                                                    {voicemailToEmail ? <ToggleRight size={24} className={`${text}`} /> : <ToggleLeft size={24} />}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB 3: ÖZELLİKLER */}
+                        {activeTab === "features" && (
+                            <div className="space-y-6 animate-in fade-in duration-300">
+                                <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    <div>
+                                        <h5 className="text-sm font-bold text-slate-800 dark:text-white">Ses Kayıt</h5>
+                                        <p className="text-[10px] text-slate-500 mt-0.5">Bu kullanıcının tüm görüşmeleri kaydedilsin mi?</p>
+                                    </div>
+                                    <button type="button" onClick={() => setRecordingActive(!recordingActive)} className="text-slate-400 hover:text-slate-700 transition-colors">
+                                        {recordingActive ? <ToggleRight size={30} className={`${text}`} /> : <ToggleLeft size={30} />}
+                                    </button>
+                                </div>
+
+                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    <label className="block text-xs font-bold text-slate-800 dark:text-white mb-2">Transport Protokolü</label>
+                                    <p className="text-[10px] text-slate-500 mb-3">Kullanıcının SIP cihazı veya softphone'u için geçerli protokol.</p>
+                                    <div className="flex gap-3">
+                                        {["UDP", "TCP", "TLS"].map(t => (
+                                            <button
+                                                key={t}
+                                                type="button"
+                                                onClick={() => setTransport(t)}
+                                                className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${transport === t ? (lightBg + " " + border + " " + text) : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'}`}
+                                            >
+                                                {t}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB 4: AVATAR */}
+                        {activeTab === "avatar" && (
+                            <div className="space-y-4 animate-in fade-in duration-300">
+                                <label className="block text-sm font-bold text-slate-800 dark:text-white mb-4">Profil Avatarı Seçin</label>
+                                <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
+                                    {PRESET_AVATARS.map((av) => (
+                                        <button
+                                            key={av}
+                                            type="button"
+                                            onClick={() => setAvatar(av)}
+                                            className={`aspect-square rounded-2xl border-2 transition-all p-2 bg-slate-50 dark:bg-slate-950 ${
+                                            avatar === av
+                                                ? (border + " shadow-md scale-105")
+                                                : "border-transparent hover:border-slate-200 dark:hover:border-slate-800"
+                                            }`}
+                                        >
+                                            <img src={av} alt="Avatar" className="w-full h-full object-contain" />
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="mt-8 flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800">
+                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Seçili Görünüm</span>
+                                    <div className="w-24 h-24 rounded-full border-4 border-white dark:border-slate-800 shadow-lg bg-slate-100 dark:bg-slate-950 overflow-hidden">
+                                        <img src={avatar} alt="Seçili Avatar" className="w-full h-full object-cover" />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-3 pt-4 mt-auto border-t border-slate-100 dark:border-slate-800/60">
+                            <button
+                                type="button"
+                                onClick={() => setShowModal(false)}
+                                className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                            >
+                                Vazgeç
+                            </button>
+                            <button
+                                type="submit"
+                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-sm`}
+                            >
+                                Kaydet
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
           </div>
         </div>
       )}
+
       {/* Confirm Delete Modal */}
       <ConfirmDeleteModal
         isOpen={!!deleteTargetId}

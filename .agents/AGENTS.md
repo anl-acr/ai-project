@@ -24,3 +24,9 @@
   - Text & Icon: No label text, just a `<Plus size={16} />` icon.
   - Tooltip: A standard `title="..."` attribute describing what is being added (e.g., `title="Yeni Kullanıcı Ekle"`, `title="Yeni Kriter Ekle"`, `title="Kişi Engelle"`, etc.) to show a hover tooltip.
 - Apply this rule automatically for all existing screens and future new feature screens without requiring explicit user instruction.
+
+## Dynamic Theme Color Rule
+- Never hardcode specific color classes like `rose-500`, `emerald-500`, `blue-500`, etc. for primary interactive elements, active states, tags, backgrounds or borders in new components.
+- Always use the `useTheme()` hook from `../../utils/theme.js` to extract dynamic variables: `bg`, `hover`, `text`, `border`, `ring`, `lightBg`, `lightText`, `borderLight`.
+- Apply these destructured variables directly in your `className` (e.g., `className={"p-2 rounded " + bg + " " + hover}`).
+- If you absolutely must use inline Tailwind classes, use the generic `primary` tailwind color mapped to CSS variables (e.g., `text-primary`, `bg-primary`, `border-primary`).
