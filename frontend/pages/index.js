@@ -78,6 +78,7 @@ import BlacklistSettings from "../components/settings/BlacklistSettings";
 import UserSettings from "../components/settings/UserSettings";
 import PBXSettings from "../components/settings/PBXSettings";
 import AnnouncementsPanel from "../components/settings/AnnouncementsPanel";
+import AcdQueuesPanel from "../components/settings/AcdQueuesPanel";
 
 export default function Home() {
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -1422,7 +1423,7 @@ export default function Home() {
           )}
 
           {activeTab === "acd-queues" && (
-            renderPlaceholderSantral("ACD Kuyruk Yönetimi", "Çağrı merkezi destek ve satış kuyrukları, temsilci atamaları ve dağıtım stratejilerinin yapılandırıldığı alan.", Users)
+            <AcdQueuesPanel backendHost={backendHost} />
           )}
 
           {activeTab === "auto-provision" && (

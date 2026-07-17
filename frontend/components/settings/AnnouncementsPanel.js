@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle } from "lucide-react";
+import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { createPortal } from "react-dom";
@@ -20,6 +20,10 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const [deleteTargetId, setDeleteTargetId] = useState(null);
   const [playingId, setPlayingId] = useState(null);
   const audioRef = useRef(null);
+
+  const [activeTab, setActiveTab] = useState("upload");
+  const [ttsText, setTtsText] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -75,6 +79,39 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     setIsUploading(false);
   };
 
+  const handleTTSUpload = async (e) => {
+    e.preventDefault();
+    if (!newAnnName || !ttsText) return;
+
+    setIsGenerating(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/announcements/tts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          name: newAnnName,
+          text: ttsText
+        })
+      });
+
+      if (res.ok) {
+        setShowModal(false);
+        setNewAnnName("");
+        setTtsText("");
+        setActiveTab("upload");
+        fetchAnnouncements();
+      } else {
+        const errorData = await res.json();
+        console.error("TTS Yükleme hatası", errorData);
+      }
+    } catch (err) {
+      console.error("TTS Yükleme hatası", err);
+    }
+    setIsGenerating(false);
+  };
+
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     try {
@@ -114,6 +151,25 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
           };
         }
       }, 50);
+    }
+  };
+
+  const handleDownload = async (ann) => {
+    try {
+      const response = await fetch(`${API_BASE}/uploads/announcements/${ann.filename}`);
+      if (!response.ok) throw new Error("Dosya bulunamadı");
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.style.display = "none";
+      a.href = url;
+      a.download = ann.original_filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error("İndirme hatası:", error);
     }
   };
 
@@ -171,14 +227,14 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       </div>
 
       {/* Announcements List */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden min-h-[400px]">
+      <div className="min-h-[400px]">
         {loading ? (
-          <div className="flex flex-col items-center justify-center h-64">
+          <div className="flex flex-col items-center justify-center h-64 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm">
             <div className={`w-8 h-8 rounded-full border-2 ${border} border-t-transparent animate-spin`} />
             <p className="text-xs text-slate-500 mt-4 font-medium animate-pulse">Anonslar yükleniyor...</p>
           </div>
         ) : filteredAnnouncements.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-64 text-slate-500 dark:text-slate-400 space-y-3">
+          <div className="flex flex-col items-center justify-center h-64 text-slate-500 dark:text-slate-400 space-y-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm">
             <div className={`p-4 rounded-full ${lightBg} ${text}`}>
               <Volume2 size={32} />
             </div>
@@ -186,36 +242,64 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
             <p className="text-[10px] text-slate-400">Yeni bir anons eklemek için sağ üstteki '+' butonunu kullanın.</p>
           </div>
         ) : (
-          <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
+          <div className="space-y-3">
             {filteredAnnouncements.map((ann) => (
-              <div key={ann.id} className="p-4 hover:bg-slate-50/50 dark:hover:bg-slate-950/30 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <button 
-                    onClick={() => playAudio(ann)}
-                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${playingId === ann.id ? "bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400" : `bg-slate-100 text-slate-500 hover:${bg} hover:text-white dark:bg-slate-800 dark:text-slate-400`}`}
-                  >
-                    {playingId === ann.id ? <StopCircle size={20} /> : <PlayCircle size={20} />}
-                  </button>
-                  <div>
-                    <h4 className="font-bold text-sm text-slate-800 dark:text-white">{ann.name}</h4>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <FileAudio size={10} className="text-slate-400" />
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">{ann.original_filename}</p>
-                      <span className="text-slate-300 dark:text-slate-700">•</span>
-                      <p className="text-[9px] text-slate-400">
-                        {new Date(ann.created_at * 1000).toLocaleString('tr-TR')}
-                      </p>
+              <div key={ann.id} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 rounded-[24px] p-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:shadow-md transition-all shadow-sm">
+                
+                <div className="flex items-center gap-4 min-w-0 sm:w-[35%] shrink-0">
+                  <div className={`w-14 h-14 rounded-[18px] ${lightBg} flex items-center justify-center shrink-0`}>
+                    <FileAudio size={26} className={text} />
+                  </div>
+                  <div className="flex flex-col min-w-0 pr-2">
+                    <h4 className="font-bold text-[14px] text-slate-800 dark:text-white truncate" title={ann.original_filename || ann.name}>
+                      {ann.original_filename || ann.name}
+                    </h4>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className={`text-[11px] font-bold ${text} truncate max-w-[100px]`} title={ann.name}>{ann.name}</span>
+                      <span className="text-slate-300 dark:text-slate-700 shrink-0">•</span>
+                      <span className="text-[11px] text-slate-500 font-medium tracking-wide shrink-0">{new Date(ann.created_at * 1000).toLocaleDateString('tr-TR')}</span>
                     </div>
                   </div>
                 </div>
                 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-4 flex-1 min-w-0 pb-2 sm:pb-0">
+                  <button 
+                    onClick={() => playAudio(ann)}
+                    className={`w-[42px] h-[42px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-transform active:scale-95 ${bg} text-white`}
+                  >
+                    {playingId === ann.id ? <Square size={16} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-1" />}
+                  </button>
+                  
+                  <div className="hidden sm:flex items-center justify-between h-8 flex-1 min-w-0 mx-2">
+                    {[2,4,3,6,5,8,4,3,7,9,5,4,8,10,7,5,4,6,8,5,4,3,2,4,5,7,4,3,5,6,4,3,2,1,2,1,3,4,6,5,8,4,3,5,6,7,5,4,3,5,2,4,3,6].map((h, i) => (
+                      <div 
+                        key={i} 
+                        className={`w-1 mx-[1px] rounded-full ${bg} transition-all duration-300`} 
+                        style={{ height: `${h * 10}%`, opacity: playingId === ann.id ? 0.8 : 0.25 }} 
+                      />
+                    ))}
+                  </div>
+                  
+                  <div className="hidden sm:flex items-center gap-3 shrink-0">
+                    <span className={`text-[11px] font-bold ${text} font-mono tracking-wider opacity-80`}>00:00</span>
+                    <Volume2 size={16} className={`${text} opacity-80`} />
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-1 sm:border-l border-slate-100 dark:border-slate-800 sm:pl-4 shrink-0 justify-end">
+                  <button
+                    onClick={() => handleDownload(ann)}
+                    className={`p-2.5 text-slate-400 hover:${text} hover:${lightBg} rounded-xl transition-colors`}
+                    title="Anonsu İndir"
+                  >
+                    <Download size={18} />
+                  </button>
                   <button
                     onClick={() => setDeleteTargetId(ann.id)}
-                    className="p-2 text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition-colors"
+                    className="p-2.5 text-rose-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl transition-colors"
                     title="Anonsu Sil"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={18} />
                   </button>
                 </div>
                 
@@ -242,6 +326,8 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                   setShowModal(false);
                   setNewAnnName("");
                   setSelectedFile(null);
+                  setTtsText("");
+                  setActiveTab("upload");
                 }}
                 className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
               >
@@ -249,7 +335,32 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
               </button>
             </div>
 
-            <form onSubmit={handleUpload} className="p-6 space-y-6">
+            <div className="flex px-6 pt-4 border-b border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 ${
+                  activeTab === "upload" 
+                    ? `border-${bg.split('-')[1] || 'primary'}-500 ${text}` 
+                    : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+                onClick={() => setActiveTab("upload")}
+              >
+                Dosya Yükle
+              </button>
+              <button
+                type="button"
+                className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 ${
+                  activeTab === "tts" 
+                    ? `border-${bg.split('-')[1] || 'primary'}-500 ${text}` 
+                    : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                }`}
+                onClick={() => setActiveTab("tts")}
+              >
+                Metinden Sese (TTS)
+              </button>
+            </div>
+
+            <form onSubmit={activeTab === "upload" ? handleUpload : handleTTSUpload} className="p-6 space-y-6">
               
               <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex items-start gap-3">
                 <Info size={16} className="text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
@@ -273,29 +384,43 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                 />
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Ses Dosyası</label>
-                <div className="w-full flex items-center justify-center w-full">
-                    <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-all ${selectedFile ? 'border-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10' : 'border-slate-300 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800/80'}`}>
-                        <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                            {selectedFile ? (
-                                <>
-                                  <FileAudio className="w-8 h-8 mb-3 text-emerald-500" />
-                                  <p className="mb-1 text-xs font-bold text-slate-700 dark:text-slate-200">{selectedFile.name}</p>
-                                  <p className="text-[10px] text-slate-500 dark:text-slate-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
-                                </>
-                            ) : (
-                                <>
-                                  <Volume2 className="w-8 h-8 mb-3 text-slate-400" />
-                                  <p className="mb-1 text-xs text-slate-500 dark:text-slate-400"><span className="font-bold">Yüklemek için tıklayın</span> veya sürükleyip bırakın</p>
-                                  <p className="text-[10px] text-slate-400 dark:text-slate-500">WAV veya MP3 (MAX. 10MB)</p>
-                                </>
-                            )}
-                        </div>
-                        <input type="file" className="hidden" accept=".wav,.mp3" onChange={handleFileChange} required />
-                    </label>
+              {activeTab === "upload" ? (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Ses Dosyası</label>
+                  <div className="w-full flex items-center justify-center w-full">
+                      <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-all ${selectedFile ? 'border-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10' : 'border-slate-300 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800/80'}`}>
+                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                              {selectedFile ? (
+                                  <>
+                                    <FileAudio className="w-8 h-8 mb-3 text-emerald-500" />
+                                    <p className="mb-1 text-xs font-bold text-slate-700 dark:text-slate-200">{selectedFile.name}</p>
+                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                                  </>
+                              ) : (
+                                  <>
+                                    <Volume2 className="w-8 h-8 mb-3 text-slate-400" />
+                                    <p className="mb-1 text-xs text-slate-500 dark:text-slate-400"><span className="font-bold">Yüklemek için tıklayın</span> veya sürükleyip bırakın</p>
+                                    <p className="text-[10px] text-slate-400 dark:text-slate-500">WAV veya MP3 (MAX. 10MB)</p>
+                                  </>
+                              )}
+                          </div>
+                          <input type="file" className="hidden" accept=".wav,.mp3" onChange={handleFileChange} required={activeTab === "upload"} />
+                      </label>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Okunacak Metin</label>
+                  <textarea
+                    required={activeTab === "tts"}
+                    placeholder="Sistemin okumasını istediğiniz metni buraya yazın..."
+                    value={ttsText}
+                    onChange={(e) => setTtsText(e.target.value)}
+                    rows={4}
+                    className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-800 transition-all resize-none"
+                  />
+                </div>
+              )}
 
               <div className="pt-2 flex gap-3">
                 <button
@@ -304,6 +429,8 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                     setShowModal(false);
                     setNewAnnName("");
                     setSelectedFile(null);
+                    setTtsText("");
+                    setActiveTab("upload");
                   }}
                   className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all"
                 >
@@ -311,15 +438,15 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                 </button>
                 <button
                   type="submit"
-                  disabled={isUploading || !selectedFile || !newAnnName}
+                  disabled={(activeTab === "upload" && (!selectedFile || !newAnnName || isUploading)) || (activeTab === "tts" && (!ttsText || !newAnnName || isGenerating))}
                   className={`flex-1 py-2.5 rounded-xl text-white text-xs font-extrabold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${bg} ${hover}`}
                 >
-                  {isUploading ? (
+                  {isUploading || isGenerating ? (
                     <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
                   ) : (
                     <>
                       <Check size={14} />
-                      Yükle
+                      {activeTab === "upload" ? "Yükle" : "Oluştur"}
                     </>
                   )}
                 </button>

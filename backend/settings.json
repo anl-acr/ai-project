@@ -8,7 +8,29 @@
         "nas_mount_path": "/mnt/nas/ai-recordings",
         "auto_language_detection": false,
         "auto_emotion_management": false,
-        "auto_whisper_enabled": true
+        "auto_whisper_enabled": true,
+        "numbering_plan": {
+            "extension_range": {
+                "start": 1000,
+                "end": 1999
+            },
+            "queue_range": {
+                "start": 2000,
+                "end": 2999
+            },
+            "conference_range": {
+                "start": 3000,
+                "end": 3999
+            },
+            "speed_dial_range": {
+                "start": 4000,
+                "end": 4999
+            },
+            "call_flow_range": {
+                "start": 5000,
+                "end": 5999
+            }
+        }
     },
     "channels": {
         "whatsapp_token": "",
@@ -445,21 +467,28 @@
             "filename": "4eacd42d-b48e-49b1-b4b4-6d1bd759cf83.wav",
             "original_filename": "TR_MASTRA_OPERATOR.wav",
             "created_at": 1784272661.706502
+        },
+        {
+            "id": "c2f9d76c-dba7-45d0-a52d-c127521f1f86",
+            "name": "TTS test",
+            "filename": "c2f9d76c-dba7-45d0-a52d-c127521f1f86.mp3",
+            "original_filename": "tts_c2f9d76c.mp3",
+            "created_at": 1784275072.805395
         }
     ],
     "users": [
         {
-            "id": 1783110580334,
+            "id": 1784287229522,
             "full_name": "ANIL ACAR",
             "email": "anl.acr@gmail.com",
-            "extension": "200",
+            "extension": "1000",
             "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
             "role": "admin",
             "is_active": true,
             "gsm_number": null,
             "mobile_transfer_enabled": false,
             "theme_color": "rose",
-            "sip_password": "H!gTan83d)c00WH!",
+            "sip_password": "jG5dyuO5*E#!RnV$",
             "outbound_caller_id": "",
             "forwarding_always": null,
             "forwarding_busy": null,
@@ -473,17 +502,17 @@
             "active_sessions": []
         },
         {
-            "id": 1784272705185,
-            "full_name": "MURAT BATTAL",
-            "email": "muratb@testteknoloji.com.tr",
-            "extension": "201",
+            "id": 1784287711314,
+            "full_name": "Murat BATTAL",
+            "email": "m@test.com",
+            "extension": "1001",
             "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
             "role": "admin",
             "is_active": true,
             "gsm_number": null,
             "mobile_transfer_enabled": false,
             "theme_color": "rose",
-            "sip_password": "0g(L2V7AfaLi(xz(",
+            "sip_password": "!3#DF)WXOD!FOdWa",
             "outbound_caller_id": "",
             "forwarding_always": null,
             "forwarding_busy": null,
@@ -499,148 +528,60 @@
     ],
     "roles": [
         {
-            "id": 1,
+            "id": 1784287209031,
             "role_code": "admin",
-            "name": "Yönetici",
+            "name": "Admin",
             "permissions": [
-                "contacts:write",
-                "announcements:read",
-                "ai_agents:access",
-                "omnichannel:access",
-                "blacklist:delete",
-                "universal_api:read",
-                "dialer:access",
-                "users:write",
-                "roles:delete",
-                "transcripts:access",
-                "blacklist:write",
-                "users:delete",
-                "users:read",
-                "contacts:delete",
-                "roles:write",
-                "breaks:write",
                 "pbx:read",
-                "channels:read",
+                "pbx:write",
                 "pbx:delete",
-                "qa:read",
-                "voice_biometrics:read",
                 "channels:write",
-                "breaks:delete",
-                "storage:access",
-                "pbx:write",
-                "call_flow:access",
-                "universal_api:delete",
-                "breaks:read",
-                "blacklist:read",
-                "voice_biometrics:write",
-                "call_panel:access",
-                "qa:delete",
-                "reports:access",
-                "recording_retention:delete",
-                "canned_responses:read",
-                "ai_whisper:access",
-                "logs:access",
-                "mobile_transfer:write",
-                "contacts:read",
-                "voice_biometrics:delete",
-                "canned_responses:delete",
-                "announcements:write",
-                "recording_retention:read",
-                "canned_responses:write",
-                "announcements:delete",
-                "roles:read",
-                "universal_api:write",
-                "wallboard:access",
-                "qa:write",
-                "mobile_transfer:read",
-                "recording_retention:write"
-            ],
-            "allowed_breaks": [
-                1,
-                2,
-                3,
-                4
-            ]
-        },
-        {
-            "id": 2,
-            "role_code": "supervisor",
-            "name": "Şef (Supervisor)",
-            "permissions": [
-                "contacts:write",
-                "ai_agents:access",
-                "omnichannel:access",
-                "blacklist:delete",
-                "universal_api:read",
-                "dialer:access",
-                "users:write",
-                "blacklist:write",
-                "users:read",
-                "contacts:delete",
-                "pbx:read",
                 "channels:read",
-                "qa:read",
-                "voice_biometrics:read",
-                "channels:write",
-                "storage:access",
-                "pbx:write",
-                "call_flow:access",
-                "universal_api:delete",
                 "breaks:read",
-                "blacklist:read",
-                "voice_biometrics:write",
-                "call_panel:access",
-                "qa:delete",
-                "reports:access",
-                "recording_retention:delete",
-                "canned_responses:read",
-                "ai_whisper:access",
-                "logs:access",
-                "mobile_transfer:write",
-                "contacts:read",
-                "voice_biometrics:delete",
-                "canned_responses:delete",
-                "recording_retention:read",
-                "canned_responses:write",
                 "breaks:write",
-                "universal_api:write",
-                "wallboard:access",
-                "qa:write",
-                "mobile_transfer:read",
-                "recording_retention:write"
-            ],
-            "allowed_breaks": [
-                1,
-                2,
-                3,
-                4
-            ]
-        },
-        {
-            "id": 3,
-            "role_code": "agent",
-            "name": "Müşteri Temsilcisi",
-            "permissions": [
-                "contacts:write",
-                "omnichannel:access",
-                "recording_retention:read",
-                "universal_api:read",
-                "qa:read",
-                "reports:access",
-                "voice_biometrics:read",
-                "canned_responses:read",
-                "mobile_transfer:write",
-                "contacts:read",
-                "blacklist:read",
+                "breaks:delete",
+                "users:delete",
+                "users:write",
+                "users:read",
+                "roles:read",
+                "roles:write",
                 "call_panel:access",
-                "mobile_transfer:read"
+                "logs:access",
+                "storage:access",
+                "transcripts:access",
+                "dialer:access",
+                "call_flow:access",
+                "ai_agents:delete",
+                "ai_agents:write",
+                "ai_agents:read",
+                "ai_whisper:access",
+                "omnichannel:access",
+                "contacts:read",
+                "contacts:write",
+                "contacts:delete",
+                "canned_responses:delete",
+                "canned_responses:write",
+                "canned_responses:read",
+                "blacklist:read",
+                "blacklist:write",
+                "blacklist:delete",
+                "mobile_transfer:write",
+                "mobile_transfer:read",
+                "qa:read",
+                "qa:write",
+                "qa:delete",
+                "universal_api:delete",
+                "universal_api:write",
+                "universal_api:read",
+                "voice_biometrics:read",
+                "voice_biometrics:write",
+                "voice_biometrics:delete",
+                "announcements:delete",
+                "announcements:write",
+                "announcements:read",
+                "reports:access"
             ],
-            "allowed_breaks": [
-                1,
-                2,
-                3,
-                4
-            ]
+            "allowed_breaks": []
         }
     ],
     "custom_apis": [
@@ -678,5 +619,85 @@
         "disk_threshold_pct": 80,
         "keep_days": 90,
         "delete_by_days": false
-    }
+    },
+    "queues": [
+        {
+            "extension": "2000",
+            "name": "TEST",
+            "strategy": "rrmemory",
+            "max_calls": 0,
+            "ring_time": 15,
+            "acw_time": 5,
+            "join_announcement_enabled": false,
+            "join_announcement": "",
+            "periodic_announcement_enabled": false,
+            "periodic_announcement": "",
+            "hold_music_class": "default",
+            "position_announcement_enabled": false,
+            "position_announcement_interval": 60,
+            "estimated_hold_time_enabled": false,
+            "estimated_hold_time_interval": 60,
+            "ivr_routes": {
+                "0": {
+                    "type": "",
+                    "target": ""
+                },
+                "1": {
+                    "type": "",
+                    "target": ""
+                },
+                "2": {
+                    "type": "",
+                    "target": ""
+                },
+                "3": {
+                    "type": "",
+                    "target": ""
+                },
+                "4": {
+                    "type": "",
+                    "target": ""
+                },
+                "5": {
+                    "type": "",
+                    "target": ""
+                },
+                "6": {
+                    "type": "",
+                    "target": ""
+                },
+                "7": {
+                    "type": "",
+                    "target": ""
+                },
+                "8": {
+                    "type": "",
+                    "target": ""
+                },
+                "9": {
+                    "type": "",
+                    "target": ""
+                },
+                "*": {
+                    "type": "",
+                    "target": ""
+                },
+                "#": {
+                    "type": "",
+                    "target": ""
+                }
+            },
+            "notify_missed_calls": false,
+            "queueMembers": [
+                {
+                    "user_id": 1784287229522,
+                    "type": "dynamic"
+                }
+            ],
+            "supervisors": [
+                1784287711314
+            ],
+            "id": 1784288131667
+        }
+    ]
 }

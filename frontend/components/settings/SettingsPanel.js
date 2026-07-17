@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash } from "lucide-react";
 import PBXSettings from "./PBXSettings";
+import NumberingPlanPanel from "./NumberingPlanPanel";
 import ChannelSettings from "./ChannelSettings";
 import BreakDefinitions from "./BreakDefinitions";
 import UserSettings from "./UserSettings";
@@ -106,6 +107,17 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           >
             <Server size={14} className={activeSubTab === "pbx" ? "text-primary" : ""} />
             <span>Santral Entegrasyonu</span>
+          </button>
+          <button
+            onClick={() => setActiveSubTab("numbering-plan")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "numbering-plan"
+                ? "bg-slate-100/50 dark:bg-slate-800/50 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <Hash size={14} className={activeSubTab === "numbering-plan" ? "text-slate-800 dark:text-white" : ""} />
+            <span>Numara Planı</span>
           </button>
           <button
             onClick={() => setActiveSubTab("smart-callback")}
@@ -254,6 +266,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         <div className={`${["universal-api", "voice-biometrics"].includes(activeSubTab) ? "xl:col-span-10" : "md:col-span-3"} transition-all duration-300`}>
           {activeSubTab === "pbx" && (
             <PBXSettings viewMode="pbx" backendHost={backendHost} />
+          )}
+
+          {activeSubTab === "numbering-plan" && (
+            <NumberingPlanPanel backendHost={backendHost} />
           )}
 
           {activeSubTab === "smart-callback" && (

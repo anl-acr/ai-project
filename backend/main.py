@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 import datetime
 
@@ -66,6 +66,17 @@ class RuleCreateSchema(BaseModel):
 class CrawlRequestSchema(BaseModel):
     url: str
 
+class NumberingPlanRangeSchema(BaseModel):
+    start: int
+    end: int
+
+class NumberingPlanSchema(BaseModel):
+    extension_range: NumberingPlanRangeSchema
+    queue_range: NumberingPlanRangeSchema
+    conference_range: NumberingPlanRangeSchema
+    speed_dial_range: NumberingPlanRangeSchema
+    call_flow_range: NumberingPlanRangeSchema
+
 class PBXSettingsSchema(BaseModel):
     ami_host: str
     ami_port: int
@@ -76,6 +87,7 @@ class PBXSettingsSchema(BaseModel):
     auto_language_detection: Optional[bool] = False
     auto_emotion_management: Optional[bool] = False
     auto_whisper_enabled: Optional[bool] = True
+    numbering_plan: Optional[NumberingPlanSchema] = None
 
 class ChannelSettingsSchema(BaseModel):
     whatsapp_token: Optional[str] = None
@@ -1308,12 +1320,72 @@ async def update_agent_status_endpoint(payload: AgentStateSchema):
     )
     return {"status": "success", "agent_state": new_state}
 
+def validate_number_range(number_str: str, entity_type: str):
+    if not number_str:
+        return
+    try:
+        num = int(number_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Numara sadece rakamlardan oluşmalıdır.")
+    
+    pbx_settings = settings_db.get("pbx", {})
+    plan = pbx_settings.get("numbering_plan")
+    if not plan:
+        return
+        
+    range_key_map = {
+        "extension": ("extension_range", "Dahili Numara"),
+        "queue": ("queue_range", "Kuyruk"),
+        "conference": ("conference_range", "Konferans Odası"),
+        "speed_dial": ("speed_dial_range", "Hızlı Arama"),
+        "call_flow": ("call_flow_range", "Arama Akışı")
+    }
+    
+    mapping = range_key_map.get(entity_type)
+    if not mapping:
+        return
+    
+    range_key, label = mapping
+    r = plan.get(range_key)
+    if not r:
+        return
+        
+    start_val = r.get("start", 0)
+    end_val = r.get("end", 0)
+    
+    if num < start_val or num > end_val:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Belirtilen numara ({num}), {label} aralığı ({start_val}-{end_val}) dışındadır!"
+        )
+
+@app.get("/api/settings/numbering-plan")
+async def get_numbering_plan():
+    pbx_settings = settings_db.get("pbx", {})
+    return pbx_settings.get("numbering_plan", {})
+
+@app.post("/api/settings/numbering-plan")
+async def save_numbering_plan(payload: NumberingPlanSchema):
+    if "pbx" not in settings_db:
+        settings_db["pbx"] = {}
+    settings_db["pbx"]["numbering_plan"] = payload.model_dump()
+    save_settings(settings_db)
+    return {"status": "success", "message": "Numara planı başarıyla kaydedildi."}
+
 @app.get("/api/settings/users")
 async def get_users_endpoint():
     return settings_db.get("users", [])
 
 @app.post("/api/settings/users")
 async def save_users_endpoint(payload: List[UserSchema]):
+    existing_users = {u.get("id"): u for u in settings_db.get("users", []) if u.get("id")}
+    
+    for item in payload:
+        if item.id and item.id in existing_users:
+            if str(existing_users[item.id].get("extension")) == str(item.extension):
+                continue
+        validate_number_range(item.extension, "extension")
+        
     settings_db["users"] = []
     for idx, item in enumerate(payload):
         data = item.model_dump()
@@ -1392,6 +1464,19 @@ async def save_roles_endpoint(payload: List[RoleSchema]):
     return {"status": "success", "roles": settings_db["roles"]}
 
 # ----------------------------------------------------
+# API Routes: Queues
+# ----------------------------------------------------
+@app.get("/api/settings/queues")
+async def get_queues_endpoint():
+    return settings_db.get("queues", [])
+
+@app.post("/api/settings/queues")
+async def save_queues_endpoint(payload: List[Dict[str, Any]]):
+    settings_db["queues"] = payload
+    save_settings(settings_db)
+    return {"status": "success", "queues": payload}
+
+# ----------------------------------------------------
 # API Routes: Announcements
 # ----------------------------------------------------
 @app.get("/api/settings/announcements")
@@ -1432,6 +1517,65 @@ async def create_announcement(
     settings_db["announcements"].append(new_announcement)
     save_settings(settings_db)
     return {"status": "success", "announcement": new_announcement}
+
+class TTSAnnouncementSchema(BaseModel):
+    name: str
+    text: str
+
+@app.post("/api/settings/announcements/tts")
+async def create_tts_announcement(payload: TTSAnnouncementSchema):
+    import uuid
+    import time
+    import os
+    
+    os.makedirs("uploads/announcements", exist_ok=True)
+    
+    file_id = str(uuid.uuid4())
+    filename = f"{file_id}.mp3"
+    filepath = os.path.join("uploads/announcements", filename)
+    
+    text = payload.text
+    if not text:
+        raise HTTPException(status_code=400, detail="Metin boş olamaz.")
+        
+    try:
+        import edge_tts
+        edge_voice = "tr-TR-DilaraNeural"
+        communicate = edge_tts.Communicate(text, edge_voice)
+        
+        async def gather_audio():
+            audio_data = b""
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_data += chunk["data"]
+            return audio_data
+            
+        audio_bytes = await gather_audio()
+        with open(filepath, "wb") as fp:
+            fp.write(audio_bytes)
+    except Exception as edge_err:
+        try:
+            from gtts import gTTS
+            tts = gTTS(text=text, lang="tr")
+            tts.save(filepath)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"TTS Sentezleme hatası: gTTS failed: {str(e)}, edge-tts failed: {str(edge_err)}")
+        
+    new_announcement = {
+        "id": file_id,
+        "name": payload.name,
+        "filename": filename,
+        "original_filename": f"tts_{file_id[:8]}.mp3",
+        "created_at": time.time()
+    }
+    
+    if "announcements" not in settings_db:
+        settings_db["announcements"] = []
+        
+    settings_db["announcements"].append(new_announcement)
+    save_settings(settings_db)
+    return {"status": "success", "announcement": new_announcement}
+
 
 @app.delete("/api/settings/announcements/{announcement_id}")
 async def delete_announcement(announcement_id: str):

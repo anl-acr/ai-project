@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -24,6 +24,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState(null);
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -98,7 +99,14 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
+  useEffect(() => {
+    if (systemRoles.length > 0 && !systemRoles.find(r => r.role_code === role)) {
+      setRole(systemRoles[0].role_code);
+    }
+  }, [systemRoles, role]);
+
   const handleSaveAll = async (updatedUsers) => {
+    setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/settings/users`, {
         method: "POST",
@@ -110,9 +118,15 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
         setUsers(data.users);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
+      } else {
+        const errData = await res.json();
+        setError(errData.detail || "Kullanıcı kaydedilirken bir hata oluştu.");
+        fetchUsersAndRoles(); // reload previous state
       }
     } catch (err) {
       console.error("Kullanıcı ayarları kaydedilemedi:", err);
+      setError("Bağlantı hatası oluştu.");
+      fetchUsersAndRoles();
     }
   };
 
@@ -136,7 +150,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
     setEmail("");
     setExtension("");
     setAvatar(PRESET_AVATARS[0]);
-    setRole("agent");
+    setRole(systemRoles.length > 0 ? systemRoles[0].role_code : "agent");
     setIsActive(true);
     setPassword("");
     setSipPassword("");
@@ -372,6 +386,12 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
         </div>
       )}
 
+      {error && (
+        <div className="p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center gap-2">
+          <AlertTriangle size={14} /> {error}
+        </div>
+      )}
+
       {/* Users List (Responsive Full Width Table Rows) */}
       {loading ? (
         <div className="text-center py-10 text-xs text-slate-500">Kullanıcı listesi yükleniyor...</div>
@@ -384,14 +404,16 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
           {/* Column Header Row */}
           <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
             <div className="flex items-center gap-4 flex-1">
+              <div className="w-10 text-center shrink-0">Durum</div>
               <div className="w-12 text-center shrink-0">Profil</div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1 items-center">
-                <div className="pl-1">Kullanıcı Adı / Rol</div>
-                <div className="pl-1">E-Posta Adresi</div>
-                <div className="pl-1">Dahili Numarası</div>
+              <div className="grid grid-cols-12 gap-4 flex-1 items-center">
+                <div className="col-span-3">Kullanıcı Adı</div>
+                <div className="col-span-2">Rol</div>
+                <div className="col-span-4">E-Posta Adresi</div>
+                <div className="col-span-3">Dahili Numarası</div>
               </div>
             </div>
-            <div className="w-36 text-right pr-4 shrink-0">Durum / İşlem</div>
+            <div className="w-24 text-right shrink-0">İşlem</div>
           </div>
 
           {filteredUsers.map((u) => (
@@ -403,66 +425,73 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
             >
               {/* Left Side: Avatar & Details */}
               <div className="flex items-center gap-4 flex-1">
-                <div className="relative group shrink-0 flex items-center justify-center cursor-pointer">
-                  <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm ${u.active_sessions?.length > 0 ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-rose-500 shadow-rose-500/50 opacity-60'}`} />
-                  {u.active_sessions?.length > 0 && (
-                    <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 w-48 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-xl p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl border border-slate-200 dark:border-slate-700/50">
-                      <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white/95 dark:bg-slate-900/95 border-l border-b border-slate-200 dark:border-slate-700/50 rotate-45"></div>
-                      <h5 className="text-[10px] font-extrabold text-slate-500 dark:text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-200 dark:border-slate-700/50 pb-1.5">Aktif Oturumlar</h5>
-                      <div className="space-y-2 relative z-10">
-                        {u.active_sessions.map((sess, idx) => (
-                          <div key={idx} className="flex flex-col gap-0.5">
-                            <div className="flex items-center gap-1.5 text-slate-800 dark:text-white text-xs font-bold">
-                              {sess.device_type === "web" ? <Monitor size={12} className="text-blue-500 dark:text-blue-400" /> : sess.device_type === "sip" ? <Phone size={12} className="text-emerald-500 dark:text-emerald-400" /> : <Smartphone size={12} className="text-purple-500 dark:text-purple-400" />}
-                              <span className="capitalize">{sess.device_type}</span>
+                <div className="w-10 flex items-center justify-center shrink-0">
+                  <div className="relative group flex items-center justify-center cursor-pointer">
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm ${u.active_sessions?.length > 0 ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-rose-500 shadow-rose-500/50 opacity-60'}`} />
+                    {u.active_sessions?.length > 0 && (
+                      <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 w-48 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-xl p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl border border-slate-200 dark:border-slate-700/50">
+                        <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white/95 dark:bg-slate-900/95 border-l border-b border-slate-200 dark:border-slate-700/50 rotate-45"></div>
+                        <h5 className="text-[10px] font-extrabold text-slate-500 dark:text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-200 dark:border-slate-700/50 pb-1.5">Aktif Oturumlar</h5>
+                        <div className="space-y-2 relative z-10">
+                          {u.active_sessions.map((sess, idx) => (
+                            <div key={idx} className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-1.5 text-slate-800 dark:text-white text-xs font-bold">
+                                {sess.device_type === "web" ? <Monitor size={12} className="text-blue-500 dark:text-blue-400" /> : sess.device_type === "sip" ? <Phone size={12} className="text-emerald-500 dark:text-emerald-400" /> : <Smartphone size={12} className="text-purple-500 dark:text-purple-400" />}
+                                <span className="capitalize">{sess.device_type}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="text-slate-500 dark:text-slate-400 font-mono">{sess.ip_address}</span>
+                                {sess.last_seen && <span className="text-slate-400 dark:text-slate-500">{sess.last_seen}</span>}
+                              </div>
                             </div>
-                            <div className="flex items-center justify-between text-[10px]">
-                              <span className="text-slate-500 dark:text-slate-400 font-mono">{sess.ip_address}</span>
-                              {sess.last_seen && <span className="text-slate-400 dark:text-slate-500">{sess.last_seen}</span>}
-                            </div>
-                          </div>
-                        ))}
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
-                <img
-                  src={u.avatar}
-                  alt={u.full_name}
-                  className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1 shrink-0"
-                />
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 flex-1 items-center">
-                  <div>
-                    <h4 className="font-bold text-xs text-slate-800 dark:text-white flex items-center gap-1.5">
+                <div className="w-12 flex items-center justify-center shrink-0">
+                  <img
+                    src={u.avatar}
+                    alt={u.full_name}
+                    className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1 shrink-0"
+                  />
+                </div>
+                <div className="grid grid-cols-12 gap-4 flex-1 items-center">
+                  <div className="col-span-3">
+                    <h4 className="font-bold text-xs text-slate-800 dark:text-white truncate">
                       {u.full_name}
-                      {(() => {
-                        const userRoleObj = systemRoles.find(r => r.role_code === u.role);
-                        const roleLabel = userRoleObj ? userRoleObj.name : u.role;
-                        const roleColor = 
-                          u.role === "admin"
-                            ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-200/50 dark:border-purple-900/30"
-                            : u.role === "supervisor"
-                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30"
-                            : "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30";
-                        return (
-                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border ${roleColor}`}>
-                            {roleLabel}
-                          </span>
-                        );
-                      })()}
                     </h4>
                   </div>
                   
-                  <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+                  <div className="col-span-2 flex items-center">
+                    {(() => {
+                      const userRoleObj = systemRoles.find(r => r.role_code === u.role);
+                      const roleLabel = userRoleObj ? userRoleObj.name : u.role;
+                      const roleColor = 
+                        u.role === "admin"
+                          ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-200/50 dark:border-purple-900/30"
+                          : u.role === "supervisor"
+                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30"
+                          : "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30";
+                      return (
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border ${roleColor} truncate`}>
+                          {roleLabel}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  
+                  <div className="col-span-4 text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 truncate">
                     <Mail size={12} className="text-slate-400 shrink-0" />
                     <span className="truncate">{u.email}</span>
                   </div>
 
-                  <div className="text-[10px] text-slate-500 dark:text-slate-450 flex items-center gap-2">
-                    <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-bold">
+                  <div className="col-span-3 text-[10px] text-slate-500 dark:text-slate-450 flex items-center gap-2">
+                    <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-bold shrink-0">
                       <Phone size={10} /> Dahili:
                     </span>
-                    <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-extrabold text-slate-700 dark:text-slate-300 text-[9px]">
+                    <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-extrabold text-slate-700 dark:text-slate-300 text-[9px] shrink-0">
                       {u.extension}
                     </span>
                   </div>
@@ -470,7 +499,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
               </div>
 
               {/* Right Side: Actions */}
-              <div className="flex items-center gap-4 justify-between sm:justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 dark:border-slate-800/60">
+              <div className="flex items-center gap-2 justify-between sm:justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 dark:border-slate-800/60 w-24 shrink-0">
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => openEditModal(u)}
@@ -585,6 +614,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Kullanıcı Rolü</label>
                                         <select value={role} onChange={(e) => setRole(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none">
+                                            {systemRoles.length === 0 && <option value="agent">Agent</option>}
                                             {systemRoles.map(r => <option key={r.role_code} value={r.role_code}>{r.name}</option>)}
                                         </select>
                                     </div>
