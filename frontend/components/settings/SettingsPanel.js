@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
 import ChannelSettings from "./ChannelSettings";
@@ -15,6 +15,7 @@ import BlacklistSettings from "./BlacklistSettings";
 import QASettings from "./QASettings";
 import UniversalAPISettings from "./UniversalAPISettings";
 import VoiceBiometricsSettings from "./VoiceBiometricsSettings";
+import AutoprovisionTemplatesPanel from "./AutoprovisionTemplatesPanel";
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [activeSubTab, setActiveSubTab] = useState("pbx"); // pbx, trunks, channels
@@ -23,6 +24,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasQAPermission, setHasQAPermission] = useState(false);
   const [hasAPIPermission, setHasAPIPermission] = useState(false);
   const [hasBioPermission, setHasBioPermission] = useState(false);
+  const [hasAutoprovTemplatesPermission, setHasAutoprovTemplatesPermission] = useState(false);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -36,6 +38,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasQAPermission(true);
           setHasAPIPermission(true);
           setHasBioPermission(true);
+          setHasAutoprovTemplatesPermission(true);
           return;
         }
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
@@ -47,6 +50,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasQAPermission(true);
           setHasAPIPermission(true);
           setHasBioPermission(true);
+          setHasAutoprovTemplatesPermission(true);
           return;
         }
         const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
@@ -58,6 +62,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasQAPermission(true);
           setHasAPIPermission(true);
           setHasBioPermission(true);
+          setHasAutoprovTemplatesPermission(true);
           return;
         }
         setHasCannedPermission(currentRole.permissions.includes("canned_responses:read"));
@@ -65,6 +70,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasQAPermission(currentRole.permissions.includes("qa:read"));
         setHasAPIPermission(currentRole.permissions.includes("universal_api:read"));
         setHasBioPermission(currentRole.permissions.includes("voice_biometrics:read"));
+        setHasAutoprovTemplatesPermission(currentRole.permissions.includes("autoprovision_templates:read"));
       } catch (err) {
         console.error("Canned/Blacklist permission check error:", err);
         setHasCannedPermission(true);
@@ -72,6 +78,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasQAPermission(true);
         setHasAPIPermission(true);
         setHasBioPermission(true);
+        setHasAutoprovTemplatesPermission(true);
       }
     };
     checkPermissions();
@@ -93,10 +100,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       </div>
 
       {/* Side-by-Side Settings Layout */}
-      <div className={`grid grid-cols-1 ${["universal-api", "voice-biometrics"].includes(activeSubTab) ? "xl:grid-cols-12" : "md:grid-cols-4"} gap-6 items-start`}>
+      <div className={`grid grid-cols-1 ${["universal-api", "voice-biometrics", "autoprovision-templates"].includes(activeSubTab) ? "xl:grid-cols-12" : "md:grid-cols-4"} gap-6 items-start`}>
         
         {/* Left Side Sub-Tab Menu (Vertical Stack) */}
-        <div className={`${["universal-api", "voice-biometrics"].includes(activeSubTab) ? "xl:col-span-2" : "md:col-span-1"} p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1`}>
+        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates"].includes(activeSubTab) ? "xl:col-span-2" : "md:col-span-1"} p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1`}>
           <button
             onClick={() => setActiveSubTab("pbx")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
@@ -260,10 +267,24 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               <span>Evrensel API Sihirbazı</span>
             </button>
           )}
+
+          {hasAutoprovTemplatesPermission && (
+            <button
+              onClick={() => setActiveSubTab("autoprovision-templates")}
+              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+                activeSubTab === "autoprovision-templates"
+                  ? "bg-amber-50/50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <FileText size={14} className={activeSubTab === "autoprovision-templates" ? "text-primary" : ""} />
+              <span>Otoprovizyon Şablonları</span>
+            </button>
+          )}
         </div>
 
         {/* Right Side Content Panel */}
-        <div className={`${["universal-api", "voice-biometrics"].includes(activeSubTab) ? "xl:col-span-10" : "md:col-span-3"} transition-all duration-300`}>
+        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates"].includes(activeSubTab) ? "xl:col-span-10" : "md:col-span-3"} transition-all duration-300`}>
           {activeSubTab === "pbx" && (
             <PBXSettings viewMode="pbx" backendHost={backendHost} />
           )}
@@ -277,6 +298,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           )}
           {activeSubTab === "lang-detect" && (
             <LanguageDetectionSettings backendHost={backendHost} />
+          )}
+
+          {activeSubTab === "autoprovision-templates" && (
+            <AutoprovisionTemplatesPanel backendHost={backendHost} />
           )}
           {activeSubTab === "emotion-management" && (
             <EmotionManagementSettings backendHost={backendHost} />

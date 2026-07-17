@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2 } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -23,10 +23,13 @@ const SYSTEM_FEATURES = [
   { id: "blacklist", name: "Kara Liste ve Suistimal Koruması (AI Abuse Shield)", icon: Shield, type: "crud", color: "rose" },
   { id: "mobile_transfer", name: "Mobil Numaraya Akıllı AI Transferi", icon: Smartphone, type: "crud_partial", color: "indigo" },
   { id: "qa", name: "Otomatik Kalite Değerlendirme (Automated QA)", icon: FileText, type: "crud", color: "indigo" },
+  { id: "autoprovision_templates", name: "Otoprovizyon Şablonları", icon: FileText, type: "crud", color: "amber" },
+  { id: "outbound_rules", name: "Giden Arama Kuralları", icon: ArrowUpRight, type: "crud", color: "indigo" },
   { id: "universal_api", name: "Evrensel API & Webhook Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
   { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" },
   { id: "announcements", name: "Anons Yönetimi", icon: Volume2, type: "crud", color: "pink" },
-  { id: "reports", name: "Gelişmiş Çağrı Raporları ve KPI Panosu", icon: FileText, type: "access", color: "purple" }
+  { id: "reports", name: "Gelişmiş Çağrı Raporları ve KPI Panosu", icon: FileText, type: "access", color: "purple" },
+  { id: "autoprovision", name: "Otoprovizyon", icon: Smartphone, type: "crud", color: "indigo" }
 ];
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {
@@ -121,7 +124,10 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
             ...r,
             role_code: roleCode.trim().toLowerCase(),
             name: roleName.trim(),
-            permissions: selectedPermissions,
+            permissions: Array.from(new Set([
+              ...(r.permissions || []).filter(p => !SYSTEM_FEATURES.some(f => p.startsWith(f.id + ':'))),
+              ...selectedPermissions
+            ])),
             allowed_breaks: selectedBreaks
           };
         }

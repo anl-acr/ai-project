@@ -79,6 +79,8 @@ import UserSettings from "../components/settings/UserSettings";
 import PBXSettings from "../components/settings/PBXSettings";
 import AnnouncementsPanel from "../components/settings/AnnouncementsPanel";
 import AcdQueuesPanel from "../components/settings/AcdQueuesPanel";
+import AutoprovisionPanel from "../components/settings/AutoprovisionPanel";
+import OutboundRulesPanel from "../components/settings/OutboundRulesPanel";
 
 export default function Home() {
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -1427,11 +1429,11 @@ export default function Home() {
           )}
 
           {activeTab === "auto-provision" && (
-            renderPlaceholderSantral("Oto Provizyon", "Sistemdeki IP telefonlar ve donanım terminallerinin otomatik kurulum, şablon ve provizyon ayarlarının yönetildiği alan.", Cpu)
+            <AutoprovisionPanel backendHost={backendHost} />
           )}
 
           {activeTab === "outbound-rules" && (
-            renderPlaceholderSantral("Giden Arama Kuralları", "Dış aramalar için rota seçimi, arama yetkileri ve giden arama kurallarının tanımlandığı alan.", PhoneCall)
+            <OutboundRulesPanel backendHost={backendHost} />
           )}
 
           {activeTab === "inbound-rules" && (
