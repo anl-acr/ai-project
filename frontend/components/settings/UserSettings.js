@@ -76,13 +76,19 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
 
   const [systemRoles, setSystemRoles] = useState([]);
 
+  // Associations Fields
+  const [outboundRules, setOutboundRules] = useState([]);
+  const [callPickupGroups, setCallPickupGroups] = useState([]);
+  const [selectedOutboundRules, setSelectedOutboundRules] = useState([]);
+  const [selectedCallPickupGroups, setSelectedCallPickupGroups] = useState([]);
+
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
   useEffect(() => {
-    fetchUsersAndRoles();
+    fetchAllData();
   }, []);
 
-  const fetchUsersAndRoles = async () => {
+  const fetchAllData = async () => {
     setLoading(true);
     try {
       const resUsers = await fetch(`${API_BASE}/api/settings/users`);
@@ -92,8 +98,16 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
       const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
       const dataRoles = await resRoles.json();
       if (dataRoles) setSystemRoles(dataRoles);
+
+      const resOut = await fetch(`${API_BASE}/api/settings/outbound_rules`);
+      const dataOut = await resOut.json();
+      if (dataOut) setOutboundRules(dataOut);
+
+      const resGroups = await fetch(`${API_BASE}/api/settings/call_pickup_groups`);
+      const dataGroups = await resGroups.json();
+      if (dataGroups) setCallPickupGroups(dataGroups);
     } catch (err) {
-      console.error(`Kullanıcılar veya Roller yüklenemedi:`, err);
+      console.error(`Veriler yüklenemedi:`, err);
     } finally {
       setLoading(false);
     }
@@ -121,12 +135,12 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
       } else {
         const errData = await res.json();
         setError(errData.detail || "Kullanıcı kaydedilirken bir hata oluştu.");
-        fetchUsersAndRoles(); // reload previous state
+        fetchAllData(); // reload previous state
       }
     } catch (err) {
       console.error("Kullanıcı ayarları kaydedilemedi:", err);
       setError("Bağlantı hatası oluştu.");
-      fetchUsersAndRoles();
+      fetchAllData();
     }
   };
 
@@ -164,6 +178,9 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
     setVoicemailPin(""); setVoicemailToEmail(false);
 
     setRecordingActive(false); setTransport("UDP");
+
+    setSelectedOutboundRules([]);
+    setSelectedCallPickupGroups([]);
   };
 
   const openAddModal = () => {
@@ -200,10 +217,54 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
     setRecordingActive(u.recording_active || false);
     setTransport(u.transport || "UDP");
 
+    const activeOutbound = outboundRules.filter(r => r.allowed_users && r.allowed_users.includes(u.id)).map(r => r.id);
+    setSelectedOutboundRules(activeOutbound);
+    
+    const activePickup = callPickupGroups.filter(g => g.extensions && g.extensions.includes(u.id)).map(g => g.id);
+    setSelectedCallPickupGroups(activePickup);
+
     setShowModal(true);
   };
 
-  const handleFormSubmit = (e) => {
+  const syncUserAssociations = async (userId, isDelete = false) => {
+    // For Outbound Rules
+    for (let rule of outboundRules) {
+      const wasInRule = rule.allowed_users && rule.allowed_users.includes(userId);
+      const isInRule = !isDelete && selectedOutboundRules.includes(rule.id);
+      
+      if (wasInRule !== isInRule) {
+        let newAllowed = [...(rule.allowed_users || [])];
+        if (isInRule) newAllowed.push(userId);
+        else newAllowed = newAllowed.filter(id => id !== userId);
+        
+        await fetch(`${API_BASE}/api/settings/outbound_rules`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...rule, allowed_users: newAllowed })
+        });
+      }
+    }
+
+    // For Call Pickup Groups
+    for (let group of callPickupGroups) {
+      const wasInGroup = group.extensions && group.extensions.includes(userId);
+      const isInGroup = !isDelete && selectedCallPickupGroups.includes(group.id);
+      
+      if (wasInGroup !== isInGroup) {
+        let newExtensions = [...(group.extensions || [])];
+        if (isInGroup) newExtensions.push(userId);
+        else newExtensions = newExtensions.filter(id => id !== userId);
+        
+        await fetch(`${API_BASE}/api/settings/call_pickup_groups`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...group, extensions: newExtensions })
+        });
+      }
+    }
+  };
+
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     if (!fullName.trim() || !email.trim() || !extension.trim()) return;
 
@@ -238,12 +299,14 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
       });
       setUsers(updated);
       handleSaveAll(updated);
+      await syncUserAssociations(editingUser.id);
     } else {
       // Add mode
       const newUser = { id: Date.now(), ...userData };
       const updated = [...users, newUser];
       setUsers(updated);
       handleSaveAll(updated);
+      await syncUserAssociations(newUser.id);
     }
     setShowModal(false);
   };
@@ -252,11 +315,12 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
     setDeleteTargetId(id);
   };
 
-  const confirmDeleteUser = () => {
+  const confirmDeleteUser = async () => {
     if (deleteTargetId) {
       const filtered = users.filter((u) => u.id !== deleteTargetId);
       setUsers(filtered);
       handleSaveAll(filtered);
+      await syncUserAssociations(deleteTargetId, true);
       setDeleteTargetId(null);
     }
   };
@@ -621,6 +685,35 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Arayüz Şifresi (Login)</label>
                                         <input type="password" placeholder="Şifre belirleyin" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Giden Arama Kuralları</label>
+                                        <select 
+                                            value={selectedOutboundRules[0] || ""} 
+                                            onChange={(e) => setSelectedOutboundRules(e.target.value ? [e.target.value] : [])} 
+                                            className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                        >
+                                            <option value="">Kural Seçilmedi</option>
+                                            {outboundRules.map(opt => (
+                                                <option key={opt.id} value={opt.id}>{opt.name || opt.id}</option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Çağrı Toplama Grubu</label>
+                                        <select 
+                                            value={selectedCallPickupGroups[0] || ""} 
+                                            onChange={(e) => setSelectedCallPickupGroups(e.target.value ? [e.target.value] : [])} 
+                                            className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                        >
+                                            <option value="">Grup Seçilmedi</option>
+                                            {callPickupGroups.map(opt => (
+                                                <option key={opt.id} value={opt.id}>{opt.name || opt.id}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -25,6 +25,8 @@ const SYSTEM_FEATURES = [
   { id: "qa", name: "Otomatik Kalite Değerlendirme (Automated QA)", icon: FileText, type: "crud", color: "indigo" },
   { id: "autoprovision_templates", name: "Otoprovizyon Şablonları", icon: FileText, type: "crud", color: "amber" },
   { id: "outbound_rules", name: "Giden Arama Kuralları", icon: ArrowUpRight, type: "crud", color: "indigo" },
+  { id: "speed_dials", name: "Hızlı Arama Yönetimi", icon: PhoneCall, type: "crud", color: "rose" },
+  { id: "conferences", name: "Konferans Yönetimi", icon: Users, type: "crud", color: "blue" },
   { id: "universal_api", name: "Evrensel API & Webhook Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
   { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" },
   { id: "announcements", name: "Anons Yönetimi", icon: Volume2, type: "crud", color: "pink" },

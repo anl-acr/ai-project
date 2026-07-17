@@ -452,23 +452,23 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                             <td className="py-3 text-center">
                               <div className="flex items-center justify-center">
                                 <span className="relative flex h-2 w-2">
-                                  {status === "registered" && (
+                                  {(status === "registered" || status === "active") && (
                                     <>
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary shadow-lg shadow-emerald-500/50" title="Kayıtlı (Aktif)"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 shadow-lg shadow-emerald-500/50" title="Kayıtlı (Aktif)"></span>
                                     </>
                                   )}
                                   {status === "trying" && (
                                     <>
                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-primary shadow-lg shadow-amber-500/50" title="Deneniyor"></span>
+                                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500 shadow-lg shadow-amber-500/50" title="Deneniyor"></span>
                                     </>
                                   )}
                                   {status === "inactive" && (
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary shadow-lg shadow-rose-500/50" title="Bağlantı Yok"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500 shadow-lg shadow-rose-500/50" title="Bağlantı Yok"></span>
                                   )}
                                   {status === "passive" && (
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-400 dark:bg-slate-655 shadow-lg shadow-slate-500/50" title="Pasif (Devre Dışı)"></span>
+                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-400 dark:bg-slate-600 shadow-lg shadow-slate-500/50" title="Pasif (Devre Dışı)"></span>
                                   )}
                                 </span>
                               </div>
@@ -688,47 +688,6 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                   </div>
                 </div>
 
-                {/* AI GREETING PROMPT */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Karşılama Promptu / AI Görevi</label>
-                  <textarea
-                    name="greeting_prompt"
-                    value={newTrunk.greeting_prompt || ""}
-                    onChange={handleNewTrunkChange}
-                    placeholder="Örn: Müşteri aradığında kendini Satış Temsilcisi olarak tanıt, kampanyalardan bahset..."
-                    rows={3}
-                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 resize-none"
-                  />
-                </div>
-
-                {/* TRANSFER CONFIGURATION */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Çağrı Aktarma Hedefi</label>
-                    <select
-                      name="transfer_target_type"
-                      value={newTrunk.transfer_target_type || "extension"}
-                      onChange={handleNewTrunkChange}
-                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-700 dark:text-slate-350 focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="extension">Dahili Numaraya Aktar</option>
-                      <option value="queue">Çağrı Kuyruğuna (Queue) Aktar</option>
-                      <option value="custom">Özel Numaraya Aktar</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Hedef Numara / Kuyruk</label>
-                    <input
-                      type="text"
-                      name="transfer_target"
-                      value={newTrunk.transfer_target || ""}
-                      onChange={handleNewTrunkChange}
-                      placeholder={newTrunk.transfer_target_type === "queue" ? "Örn: support_queue" : "Örn: 200"}
-                      required
-                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
-                    />
-                  </div>
-                </div>
 
                 {/* CODEC SELECTION */}
                 <div className="flex flex-col gap-1">

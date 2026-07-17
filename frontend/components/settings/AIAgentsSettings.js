@@ -34,10 +34,11 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const [agentName, setAgentName] = useState("");
   const [agentVoice, setAgentVoice] = useState("Dilara (Türkçe - Dişi - Premium)");
   const [agentTone, setAgentTone] = useState("normal"); // normal, calm, attractive, firm
-  const [agentModel, setAgentModel] = useState("gemini-1.5-flash");
+  const [agentModel, setAgentModel] = useState("models/gemini-2.5-flash-native-audio-latest");
   const [agentTemperature, setAgentTemperature] = useState(0.7);
   const [agentMaxTokens, setAgentMaxTokens] = useState(300);
   const [agentInstruction, setAgentInstruction] = useState("");
+  const [agentGreetingPrompt, setAgentGreetingPrompt] = useState("");
   const [agentStatus, setAgentStatus] = useState("active");
   const [agentTransferTarget, setAgentTransferTarget] = useState("200");
 
@@ -68,7 +69,8 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const MODEL_OPTIONS = [
     "gemini-1.5-flash",
     "gemini-1.5-pro",
-    "gemini-2.0-flash"
+    "gemini-2.0-flash",
+    "models/gemini-2.5-flash-native-audio-latest"
   ];
 
   const fetchAgents = () => {
@@ -91,10 +93,11 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setAgentName("Yeni Yapay Zeka Asistanı");
     setAgentVoice("Dilara (Türkçe - Dişi - Premium)");
     setAgentTone("normal");
-    setAgentModel("gemini-1.5-flash");
+    setAgentModel("models/gemini-2.5-flash-native-audio-latest");
     setAgentTemperature(0.7);
     setAgentMaxTokens(300);
     setAgentInstruction("Sen yardımsever bir müşteri temsilcisisin.");
+    setAgentGreetingPrompt("Merhaba, ben yeni yapay zeka temsilciniz. Size nasıl yardımcı olabilirim?");
     setAgentStatus("active");
     setAgentTransferTarget("200");
     setTestText("Merhaba, ben yeni yapay zeka temsilciniz. Size nasıl yardımcı olabilirim?");
@@ -111,6 +114,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setAgentTemperature(agent.temperature);
     setAgentMaxTokens(agent.max_tokens);
     setAgentInstruction(agent.system_instruction);
+    setAgentGreetingPrompt(agent.greeting_prompt || "");
     setAgentStatus(agent.status);
     setAgentTransferTarget(agent.transfer_target || "200");
     
@@ -134,6 +138,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       temperature: parseFloat(agentTemperature) || 0.7,
       max_tokens: parseInt(agentMaxTokens) || 300,
       system_instruction: agentInstruction,
+      greeting_prompt: agentGreetingPrompt,
       status: agentStatus,
       transfer_target: agentTransferTarget
     };
@@ -640,10 +645,20 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
               />
             </div>
 
+            <div className="flex flex-col gap-1.5 flex-1 mt-4">
+              <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Çağrı Karşılama Metni</label>
+              <textarea
+                value={agentGreetingPrompt}
+                onChange={(e) => setAgentGreetingPrompt(e.target.value)}
+                placeholder="Örn: Merhaba, ben Anıl. Size nasıl yardımcı olabilirim?"
+                className="w-full p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/85 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 leading-relaxed font-semibold font-sans resize-none h-[80px]"
+              />
+            </div>
+
             <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 flex items-start gap-2 text-[9px] text-slate-455 dark:text-slate-500 leading-normal">
               <HelpCircle size={12} className="text-slate-400 mt-0.5 shrink-0" />
               <span>
-                Sistem talimatları yapay zekanın anayasasıdır. Her görüşmede buradaki karakter yönergelerine sadık kalır.
+                Sistem talimatları yapay zekanın anayasasıdır. Karşılama metni ise çağrı başladığında doğrudan söyleyeceği ilk cümledir.
               </span>
             </div>
           </div>

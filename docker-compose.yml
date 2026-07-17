@@ -43,6 +43,8 @@ services:
       - ./asterisk_config/pjsip.conf:/etc/asterisk/pjsip.conf:ro
       - ./asterisk_config/rtp.conf:/etc/asterisk/rtp.conf:ro
       - ./asterisk_config/pjsip_custom.conf:/etc/asterisk/pjsip_custom.conf:ro
+      - ./asterisk_config/queues.conf:/etc/asterisk/queues.conf:ro
+      - ./asterisk_config/queues_custom.conf:/etc/asterisk/queues_custom.conf:ro
       - ./asterisk_config/manager.conf:/etc/asterisk/manager.conf:ro
       - ./asterisk_config/http.conf:/etc/asterisk/http.conf:ro
       - ./asterisk_config/keys:/etc/asterisk/keys:ro

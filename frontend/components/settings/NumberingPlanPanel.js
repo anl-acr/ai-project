@@ -10,7 +10,8 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
     queue_range: { start: 2000, end: 2999 },
     conference_range: { start: 3000, end: 3999 },
     speed_dial_range: { start: 4000, end: 4999 },
-    call_flow_range: { start: 5000, end: 5999 }
+    call_flow_range: { start: 5000, end: 5999 },
+    call_pickup: { group: "*8", directed: "**" }
   });
 
   const [loading, setLoading] = useState(true);
@@ -46,12 +47,24 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
     }));
   };
 
-  const validateOverlaps = () => {
-    const ranges = Object.entries(plan).map(([key, r]) => ({
-      key,
-      start: r.start,
-      end: r.end
+  const handlePrefixChange = (field, value) => {
+    setPlan(prev => ({
+      ...prev,
+      call_pickup: {
+        ...(prev.call_pickup || { group: "*8", directed: "**" }),
+        [field]: value
+      }
     }));
+  };
+
+  const validateOverlaps = () => {
+    const ranges = Object.entries(plan)
+      .filter(([key]) => key.endsWith('_range'))
+      .map(([key, r]) => ({
+        key,
+        start: r.start,
+        end: r.end
+      }));
 
     for (let i = 0; i < ranges.length; i++) {
       if (ranges[i].start > ranges[i].end) {
@@ -179,6 +192,46 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50">
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 uppercase tracking-wider">
+            Çağrı Toplama (Call Pickup) Prefix'leri
+          </h4>
+        </div>
+        <div className="p-5 space-y-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 pb-6 border-b border-slate-100 dark:border-slate-800/60 last:border-0 last:pb-0">
+            <div className="flex-1">
+              <h5 className="text-xs font-bold text-slate-800 dark:text-white">Grup İçinden / Dışından Çekme</h5>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
+                Aynı gruptaki çalan telefonları veya belirtilen dahiliye gelen çağrıları uzaktan çekmek için kullanılacak prefix'leri ayarlayın.
+              </p>
+            </div>
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] font-bold text-slate-400 uppercase">Grup İçinden</label>
+                <input
+                  type="text"
+                  value={plan.call_pickup?.group || "*8"}
+                  onChange={(e) => handlePrefixChange("group", e.target.value)}
+                  placeholder="*8"
+                  className={`w-28 text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-[9px] font-bold text-slate-400 uppercase">Grup Dışından</label>
+                <input
+                  type="text"
+                  value={plan.call_pickup?.directed || "**"}
+                  onChange={(e) => handlePrefixChange("directed", e.target.value)}
+                  placeholder="**"
+                  className={`w-28 text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

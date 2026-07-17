@@ -48,6 +48,7 @@ import {
   ToggleRight,
   ToggleLeft
 } from "lucide-react";
+import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
 import { useTheme, setThemeColor } from "../utils/theme";
 
@@ -81,6 +82,10 @@ import AnnouncementsPanel from "../components/settings/AnnouncementsPanel";
 import AcdQueuesPanel from "../components/settings/AcdQueuesPanel";
 import AutoprovisionPanel from "../components/settings/AutoprovisionPanel";
 import OutboundRulesPanel from "../components/settings/OutboundRulesPanel";
+import InboundRulesPanel from "../components/settings/InboundRulesPanel";
+import CallPickupGroupsPanel from "../components/settings/CallPickupGroupsPanel";
+import SpeedDialsPanel from "../components/settings/SpeedDialsPanel";
+import ConferencesPanel from "../components/settings/ConferencesPanel";
 
 export default function Home() {
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -197,7 +202,7 @@ export default function Home() {
     if (settingsModalOpen && currentUser) {
       setGsmNumber(currentUser.gsm_number || "");
       setMobileTransferEnabled(currentUser.mobile_transfer_enabled || false);
-      setTempThemeColor(currentUser.theme_color || "99, 102, 241");
+      setTempThemeColor(getSafeThemeColor(currentUser.theme_color));
       
       setFwdAlwaysActive(currentUser.forwarding_always?.active || false);
       setFwdAlwaysType(currentUser.forwarding_always?.type || "internal");
@@ -307,8 +312,9 @@ export default function Home() {
           setAgentAvatar(currentUserData.avatar);
         }
         if (currentUserData.theme_color) {
-          document.documentElement.style.setProperty("--color-primary", currentUserData.theme_color);
-          localStorage.setItem("theme_primary_color", currentUserData.theme_color);
+          const safeColor = getSafeThemeColor(currentUserData.theme_color);
+          document.documentElement.style.setProperty("--color-primary", safeColor);
+          localStorage.setItem("theme_primary_color", safeColor);
         }
         const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
         const rolesData = await resRoles.json();
@@ -1437,19 +1443,19 @@ export default function Home() {
           )}
 
           {activeTab === "inbound-rules" && (
-            renderPlaceholderSantral("Gelen Arama Kuralları", "Dış hatlardan gelen çağrıların hedeflerine (dahili, kuyruk, IVR, anons) yönlendirilme kuralları.", Phone)
+            <InboundRulesPanel backendHost={backendHost} />
           )}
 
           {activeTab === "call-pickup-groups" && (
-            renderPlaceholderSantral("Çağrı Toplama Grubu", "Aynı gruptaki temsilcilerin birbirlerinin çalan telefonlarını uzaktan cevaplayabilmesini sağlayan grupların yönetimi.", Users)
+            <CallPickupGroupsPanel backendHost={backendHost} />
           )}
 
           {activeTab === "conferences" && (
-            renderPlaceholderSantral("Konferans Odaları", "Sanal toplantı ve çoklu görüşme konferans odalarının tanımlanması ve oda şifre ayarları.", Users)
+            <ConferencesPanel backendHost={backendHost} />
           )}
 
           {activeTab === "speed-dial" && (
-            renderPlaceholderSantral("Hızlı Arama Listesi", "Sistem genelinde veya temsilci bazlı tanımlanan hızlı arama kısa kodları ve rehber entegrasyonu.", PhoneCall)
+            <SpeedDialsPanel backendHost={backendHost} />
           )}
 
           {activeTab === "event-logs" && (
@@ -1706,8 +1712,9 @@ export default function Home() {
                         key={t.value}
                         type="button"
                         onClick={() => {
-                          setTempThemeColor(t.value);
-                          document.documentElement.style.setProperty("--color-primary", t.value);
+                          const safeColor = getSafeThemeColor(t.value);
+                          setTempThemeColor(safeColor);
+                          document.documentElement.style.setProperty("--color-primary", safeColor);
                         }}
                         className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
                           tempThemeColor === t.value
@@ -1940,9 +1947,11 @@ export default function Home() {
                         if (res.ok) {
                           const data = await res.json();
                           setCurrentUser(data.user);
+                          // Force update the UI theme color if they changed it
                           if (data.user.theme_color) {
-                            document.documentElement.style.setProperty("--color-primary", data.user.theme_color);
-                            localStorage.setItem("theme_primary_color", data.user.theme_color);
+                            const safeColor = getSafeThemeColor(data.user.theme_color);
+                            document.documentElement.style.setProperty("--color-primary", safeColor);
+                            localStorage.setItem("theme_primary_color", safeColor);
                           }
                         }
                       } catch (err) {

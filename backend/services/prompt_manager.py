@@ -3,9 +3,9 @@ from sqlalchemy import select
 from backend.database.config import AsyncSessionLocal
 from backend.database.models import Rule
 
-DEFAULT_SYSTEM_PROMPT = """Sen şirketimizi temsil eden güler yüzlü yapay zeka asistanı Anıl'sın. Karşındaki kişiyle canlı bir telefon görüşmesindesin. Müşterilerle doğal bir ses tonuyla, kısa ve net Türkçe cümlelerle konuş. Yazılı metin (text) çıktılarında kesinlikle İngilizce açıklamalar, planlama başlıkları, 'Initiating', 'Concluding', 'Acknowledge' gibi düşünce süreçleri veya meta-yorumlar üretme; sadece seslendirdiğin Türkçe cümlelerin birebir yazılı transkriptini üret. Müşteri "Merhaba" diyerek arama başlattığında, tam olarak şu cümleyle yanıt ver: "{greeting_prompt}". Müşterinin bilgi bankasında yer alan sorularını yanıtlamak için 'query_knowledge_base' aracını çalıştır. Müşterinin sorusunu yanıtladıktan veya bilgi verdikten sonra hemen arkasından mutlaka 'Yardımcı olabileceğim başka bir konu var mı?' veya benzeri bir takip sorusu yönelterek sözü müşteriye bırak. Müşteri randevu almak isterse adını, soyadını, telefon numarasını, tarih ve saat bilgilerini alarak 'book_appointment' aracını çalıştır. Müşteri yetkiliye bağlanmak isterse veya çözemediğin bir durum olursa 'transfer_to_human' aracını çalıştır. Müşterinin başka bir talebi kalmadığında vedalaşırken mutlaka '{time_farewell}' dileğinde bulun ve 'hangup_call' aracını çalıştırarak telefonu kapat."""
+DEFAULT_SYSTEM_PROMPT = """Sen şirketimizi temsil eden güler yüzlü yapay zeka asistanı Anıl'sın. Karşındaki kişiyle canlı bir telefon görüşmesindesin. Müşterilerle doğal bir ses tonuyla, kısa ve net Türkçe cümlelerle konuş. Yazılı metin (text) çıktılarında kesinlikle İngilizce açıklamalar, planlama başlıkları, 'Initiating', 'Concluding', 'Acknowledge' gibi düşünce süreçleri veya meta-yorumlar üretme; sadece seslendirdiğin Türkçe cümlelerin birebir yazılı transkriptini üret. Müşterinin bilgi bankasında yer alan sorularını yanıtlamak için 'query_knowledge_base' aracını çalıştır. Müşterinin sorusunu yanıtladıktan veya bilgi verdikten sonra hemen arkasından mutlaka 'Yardımcı olabileceğim başka bir konu var mı?' veya benzeri bir takip sorusu yönelterek sözü müşteriye bırak. Müşteri randevu almak isterse adını, soyadını, telefon numarasını, tarih ve saat bilgilerini alarak 'book_appointment' aracını çalıştır. Müşteri yetkiliye bağlanmak isterse veya çözemediğin bir durum olursa 'transfer_to_human' aracını çalıştır. Müşterinin başka bir talebi kalmadığında vedalaşırken mutlaka '{time_farewell}' dileğinde bulun ve 'hangup_call' aracını çalıştırarak telefonu kapat."""
 
-async def compile_system_prompt(greeting_prompt: str = "") -> str:
+async def compile_system_prompt(agent: dict = None) -> str:
     """
     Fetches active rules and FAQ from the database, 
     and compiles them into a single system instruction string.
@@ -24,7 +24,15 @@ async def compile_system_prompt(greeting_prompt: str = "") -> str:
     else:
         time_farewell = "iyi geceler dilerim"
         
-    prompt = DEFAULT_SYSTEM_PROMPT.replace("{greeting_prompt}", greeting_prompt).replace("{time_farewell}", time_farewell)
+    if agent and agent.get("system_instruction"):
+        base_prompt = agent["system_instruction"]
+        greeting_text = agent.get("greeting_prompt", "")
+        if greeting_text:
+            base_prompt += f"\n\nÖNEMLİ: Müşteri telefonu açıp ilk sinyali/sesi ('Merhaba' vb.) gönderdiğinde, İLK CÜMLE OLARAK tam olarak şu şekilde yanıt ver: '{greeting_text}'"
+    else:
+        base_prompt = DEFAULT_SYSTEM_PROMPT.replace("{time_farewell}", time_farewell)
+        
+    prompt = base_prompt
     
     try:
         async with AsyncSessionLocal() as session:

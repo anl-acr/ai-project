@@ -6,8 +6,10 @@ echo "========================================================="
 echo "AI PBX Arama Simülasyonu Başlatılıyor..."
 echo "========================================================="
 
-# Asterisk konteyneri üzerinde s uzantısına arama yönlendir
-docker exec ai_pbx_asterisk asterisk -rx "channel originate Local/s@default extension s@default"
+DID=${1:-"s"}
+echo "Arama DID'si: $DID"
+# Asterisk konteyneri üzerinde belirlenen DID uzantısına arama yönlendir
+docker exec ai_pbx_asterisk asterisk -rx "channel originate Local/$DID@default extension $DID@default"
 
 echo "========================================================="
 echo "Arama simülasyon komutu Asterisk'e gönderildi."

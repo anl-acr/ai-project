@@ -55,61 +55,33 @@ async def get_call_did(call_id: str) -> str:
         print(f"Error querying call DID from DB: {e}")
     return "s"
 
-def get_ai_agent_for_did(did: str) -> dict:
-    """Finds the AI Agent configured for the dialed DID via Inbound Rules -> Call Flow."""
+def get_greeting_prompt_for_did(did: str) -> str:
+    """Finds the trunk config matching the dialed DID and returns its custom greeting prompt."""
     if not did:
         did = "s"
     
     settings = load_settings()
+    trunks = settings.get("trunks", [])
     
-    # 1. Match Inbound Rule
-    matched_rule = None
-    inbound_rules = settings.get("inbound_rules", [])
-    
-    # Try match
-    for rule in inbound_rules:
-        match_mode = rule.get("did_match_mode", "all")
-        if match_mode == "all":
-            matched_rule = rule
-            # Keep looking for a more specific match if any
-        elif match_mode == "specific":
-            patterns = rule.get("did_patterns", [])
-            for p in patterns:
-                if p and (p == did or did in p or p.strip('0') == did.strip('0')):
-                    matched_rule = rule
-                    break
-            if matched_rule and match_mode == "specific":
-                break
-
-    if not matched_rule:
-        return None
-
-    # 2. Match Call Flow
-    dest_type = matched_rule.get("destination_type")
-    dest_id = matched_rule.get("destination_id")
-    
-    if dest_type != "call_flow" or not dest_id:
-        return None
-        
-    # Find workflow
-    workflows = settings.get("workflows", [])
-    workflow = next((w for w in workflows if w.get("id") == dest_id), None)
-    if not workflow:
-        return None
-        
-    # 3. Extract AI Agent ID from Workflow nodes
-    agent_id = None
-    for node in workflow.get("nodes", []):
-        if node.get("type") == "ai_agent":
-            agent_id = node.get("value")
-            break
-            
-    if not agent_id:
-        return None
-        
-    # 4. Return AI Agent
-    ai_agents = settings.get("ai_agents", [])
-    return next((a for a in ai_agents if a.get("id") == agent_id), None)
+    # Try exact/substring match first for active trunks
+    for t in trunks:
+        if not t.get("is_active", True):
+            continue
+        t_did = t.get("did_number", "")
+        if t_did and (t_did in did or did in t_did or t_did.strip('0') == did.strip('0')):
+            prompt = t.get("greeting_prompt", "")
+            if prompt and prompt.strip():
+                return prompt
+                
+    # Fallback: If DID is "s" or we didn't find any match, use the first active trunk's prompt
+    for t in trunks:
+        if t.get("is_active", True):
+            prompt = t.get("greeting_prompt", "")
+            if prompt and prompt.strip():
+                return prompt
+                
+    # Fallback to default prompt if not found
+    return "Merhaba, ben sizin yapay zeka asistanınızım. Size nasıl yardımcı olabilirim?"
 
 def resample_8k_to_16k(data: bytes) -> bytes:
     """Resamples 8kHz mono 16-bit PCM to 16kHz mono 16-bit PCM (simple sample doubling)."""
@@ -336,7 +308,6 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
     rec_asterisk_task = None
     send_asterisk_task = None
     whisper_listener_task = None
-    write_asterisk_task = None
     silence_task = None
     call_state = None
 
@@ -371,17 +342,14 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         print(f"Arama Basladi. Benzersiz ID (call_id): {call_id}")
         await register_call_db(call_id)
         
-        # 2. Wait for Asterisk connection
-        
+        # Start sending silence to Asterisk immediately to keep RTP alive during handshake
+        silence_task = asyncio.create_task(send_initial_silence(writer))
 
-        # Get dynamic AI Agent based on dialed DID (Wait 200ms to ensure dialplan API request is fully processed)
+        # Get dynamic greeting prompt based on dialed DID (Wait 200ms to ensure dialplan API request is fully processed)
         await asyncio.sleep(0.2)
         did = await get_call_did(call_id)
-        ai_agent = get_ai_agent_for_did(did)
-        if ai_agent:
-            print(f"Arama DID: {did} -> Secilen AI Agent: {ai_agent.get('name')} ({ai_agent.get('id')})")
-        else:
-            print(f"Arama DID: {did} -> Uygun AI Agent bulunamadi. Varsayilan ayarlar kullanilacak.")
+        greeting_prompt = get_greeting_prompt_for_did(did)
+        print(f"Arama DID: {did} -> Secilen karsilama metni: {greeting_prompt}")
 
         # 2. Connect to Google Gemini Multimodal Live API via WebSocket
         if not GEMINI_API_KEY:
@@ -390,14 +358,11 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
             await writer.wait_closed()
             return
 
-        # Initialize Gemini WebSocket connection
-        gemini_ws = None
         gemini_url = f"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={GEMINI_API_KEY}"
         
-        # We need a long timeout for the WebSocket connection since the model can take time to answer
-        # The connection must stay alive during silence.
         print("Gemini Multimodal Live API WebSocket baglantisi kuruluyor...")
         
+        gemini_ws = None
         for attempt in range(3):
             try:
                 gemini_ws = await websockets.connect(gemini_url)
@@ -428,7 +393,7 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                 pass
 
         # Compile dynamic system instruction from database rules
-        system_instruction = await compile_system_prompt(ai_agent)
+        system_instruction = await compile_system_prompt(greeting_prompt)
         
         # Check if Dynamic Emotion Management is enabled
         try:
@@ -498,46 +463,20 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
             
         print(f"Sistem talimatlari derlendi: {len(system_instruction)} karakter.")
 
-        # Map frontend voice names to Gemini voice names
-        voice_map = {
-            "Puck (İngilizce - Erkek)": "Puck",
-            "Charon (İngilizce - Erkek)": "Charon",
-            "Aoede (İngilizce - Dişi)": "Aoede",
-            "Kore (İngilizce - Dişi)": "Kore",
-            "Fenrir (İngilizce - Erkek)": "Fenrir",
-            "Dilara (Türkçe - Dişi - Premium)": "Aoede"
-        }
-        
-        model_name = ai_agent.get("model", GEMINI_MODEL) if ai_agent else GEMINI_MODEL
-        
-        # Ensure we use a Live API compatible model
-        if "1.5" in model_name or "1.0" in model_name or model_name == "gemini-2.0-flash":
-            print(f"[Uyari] {model_name} Live API'yi tam desteklemiyor. Varsayilan Live API modeline geciliyor: models/gemini-2.5-flash-native-audio-latest")
-            model_name = "models/gemini-2.5-flash-native-audio-latest"
-            
-        formatted_model = model_name if model_name.startswith("models/") else f"models/{model_name}"
-            
-        agent_temperature = float(ai_agent.get("temperature", 0.1)) if ai_agent else 0.1
-        agent_voice_raw = ai_agent.get("voice", VOICE_NAME) if ai_agent else VOICE_NAME
-        agent_voice = voice_map.get(agent_voice_raw, VOICE_NAME)
-        
-        # Ensure model name includes "models/" prefix
-        formatted_model = f"models/{model_name}" if not model_name.startswith("models/") else model_name
-
         # Send Setup Config
         setup_msg = {
             "setup": {
-                "model": formatted_model,
+                "model": GEMINI_MODEL,
                 "generationConfig": {
                     "responseModalities": ["AUDIO"],
+                    "temperature": 0.1,
                     "speechConfig": {
                         "voiceConfig": {
                             "prebuiltVoiceConfig": {
                                 "voiceName": VOICE_NAME
                             }
                         }
-                    },
-                    "temperature": agent_temperature
+                    }
                 },
                 "systemInstruction": {
                     "parts": [
@@ -674,18 +613,17 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             audio_buffer.clear()
                             
                             b64_audio = base64.b64encode(pcm_16k).decode('utf-8')
-                            if not call_state.get("tool_call_in_progress", False):
-                                audio_msg = {
-                                    "realtimeInput": {
-                                        "mediaChunks": [
-                                            {
-                                                "mimeType": "audio/pcm;rate=16000",
-                                                "data": b64_audio
-                                            }
-                                        ]
-                                    }
+                            audio_msg = {
+                                "realtimeInput": {
+                                    "mediaChunks": [
+                                        {
+                                            "mimeType": "audio/pcm;rate=16000",
+                                            "data": b64_audio
+                                        }
+                                    ]
                                 }
-                                await gemini_ws.send(json.dumps(audio_msg))
+                            }
+                            await gemini_ws.send(json.dumps(audio_msg))
                         
                         # Sunucu tarafında VAD durum takibi ve loglama
                         if avg_amplitude > 40:
@@ -699,50 +637,28 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                     user_is_speaking = False
                                     silence_frames = 0
                                     
+                        # Perfect Clock Sync: Write exactly one 20ms frame to Asterisk for every 20ms frame received
+                        try:
+                            # Pull from write queue (AI speech)
+                            audio_out = asterisk_write_queue.get_nowait()
+                            # Ensure chunk is exactly 320 bytes
+                            if len(audio_out) < 320:
+                                audio_out = audio_out + b'\x00' * (320 - len(audio_out))
+                            elif len(audio_out) > 320:
+                                audio_out = audio_out[:320]
+                            asterisk_write_queue.task_done()
+                        except asyncio.QueueEmpty:
+                            if call_state["should_hangup"] and not call_state["model_is_speaking"]:
+                                print("Görüşme sonlandırma aracı çağrıldı ve ses kuyruğu boşaldı. Çağrı sonlandırılıyor...")
+                            audio_out = silence_frame
+                            
+                        # Write to Asterisk socket
+                        writer.write(header_out + audio_out)
+                        await writer.drain()
             except asyncio.IncompleteReadError:
                 print("Asterisk soket baglantisi koptu (IncompleteRead).")
             except Exception as e:
                 print(f"Asterisk okuma / Gemini gonderim hatasi: {e}")
-
-        async def write_to_asterisk_loop():
-            silence_frame = b'\x00' * 320
-            header_out = b'\x10' + (320).to_bytes(2, byteorder='big')
-            
-            loop = asyncio.get_event_loop()
-            next_time = loop.time()
-            
-            try:
-                while True:
-                    try:
-                        audio_out = asterisk_write_queue.get_nowait()
-                        if len(audio_out) < 320:
-                            audio_out = audio_out + b'\x00' * (320 - len(audio_out))
-                        elif len(audio_out) > 320:
-                            audio_out = audio_out[:320]
-                        asterisk_write_queue.task_done()
-                    except asyncio.QueueEmpty:
-                        if call_state["should_hangup"] and not call_state["model_is_speaking"]:
-                            print("Görüşme sonlandırma aracı çağrıldı ve ses kuyruğu boşaldı. Çağrı sonlandırılıyor...")
-                            break
-                        audio_out = silence_frame
-                    
-                    writer.write(header_out + audio_out)
-                    await writer.drain()
-                    
-                    # Absolute time pacing for exactly 50 FPS (20ms frames)
-                    next_time += 0.02
-                    delay = next_time - loop.time()
-                    if delay > 0:
-                        await asyncio.sleep(delay)
-                    else:
-                        # Reset clock if we fall behind to prevent sudden burst of frames
-                        next_time = loop.time()
-            except asyncio.CancelledError:
-                pass
-            except Exception as e:
-                print(f"Asterisk yazma hatasi: {e}")
-
-
 
         async def receive_from_gemini_and_send_to_asterisk():
             """Reads response from Gemini, handles interruption/barge-in, resamples to 8kHz, and writes to Asterisk."""
@@ -755,8 +671,6 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
             except Exception:
                 auto_detect_lang = False
                 
-            audio_buffer = bytearray()
-            
             try:
                 async for raw_response in gemini_ws:
                     resp = json.loads(raw_response)
@@ -868,24 +782,18 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                     # Resample 24kHz PCM to 8kHz PCM for Asterisk
                                     raw_pcm_8k = resample_24k_to_8k(raw_pcm_24k)
                                     
-                                    audio_buffer.extend(raw_pcm_8k)
-                                    
-                                    # Extract exact 320 byte chunks
-                                    while len(audio_buffer) >= 320:
-                                        chunk = bytes(audio_buffer[:320])
+                                    # Chunk into 320-byte blocks (20ms frames at 8kHz SLIN) to avoid RTP drops
+                                    for offset in range(0, len(raw_pcm_8k), 320):
+                                        chunk = raw_pcm_8k[offset:offset+320]
+                                        if len(chunk) < 320:
+                                            chunk = chunk + b'\x00' * (320 - len(chunk))
                                         await asterisk_write_queue.put(chunk)
-                                        del audio_buffer[:320]
 
                     # Save full AI response when turn is completed
                     if "serverContent" in resp and resp["serverContent"].get("turnComplete"):
                         if current_ai_text.strip():
                             await write_db_transcript(call_id, "ai", current_ai_text.strip())
                             current_ai_text = ""
-                            
-                        # Flush any remaining audio in the buffer at the end of the turn
-                        if len(audio_buffer) > 0:
-                            await asterisk_write_queue.put(bytes(audio_buffer))
-                            audio_buffer.clear()
 
                     # Check for Tool Calls (Gemini calls a function)
                     if "toolCall" in resp:
@@ -932,11 +840,10 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         whisper_listener_task = asyncio.create_task(listen_for_whispers(call_id, gemini_ws))
         rec_asterisk_task = asyncio.create_task(receive_from_asterisk_and_send_to_gemini())
         send_asterisk_task = asyncio.create_task(receive_from_gemini_and_send_to_asterisk())
-        write_asterisk_task = asyncio.create_task(write_to_asterisk_loop())
 
         # Wait until any stream handling task finishes (e.g. socket close, hangup tool execution)
         done, pending = await asyncio.wait(
-            [rec_asterisk_task, send_asterisk_task, write_asterisk_task],
+            [rec_asterisk_task, send_asterisk_task],
             return_when=asyncio.FIRST_COMPLETED
         )
         
@@ -944,9 +851,9 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         print(f"Audiosocket baglanti hatasi: {e}")
     finally:
         # Cancel running tasks
+        if silence_task: silence_task.cancel()
         if rec_asterisk_task: rec_asterisk_task.cancel()
         if send_asterisk_task: send_asterisk_task.cancel()
-        if write_asterisk_task: write_asterisk_task.cancel()
         if whisper_listener_task: whisper_listener_task.cancel()
         
         # Close Gemini WebSocket

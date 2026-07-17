@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 import shutil
 import socket
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List, Optional, Dict, Any
 
 import datetime
+import uuid
 
 system_logs = []
 
@@ -70,12 +71,17 @@ class NumberingPlanRangeSchema(BaseModel):
     start: int
     end: int
 
+class CallPickupPrefixSchema(BaseModel):
+    group: str = "*8"
+    directed: str = "**"
+
 class NumberingPlanSchema(BaseModel):
     extension_range: NumberingPlanRangeSchema
     queue_range: NumberingPlanRangeSchema
     conference_range: NumberingPlanRangeSchema
     speed_dial_range: NumberingPlanRangeSchema
     call_flow_range: NumberingPlanRangeSchema
+    call_pickup: Optional[CallPickupPrefixSchema] = None
 
 class PBXSettingsSchema(BaseModel):
     ami_host: str
@@ -255,6 +261,7 @@ class AIAgentSchema(BaseModel):
     temperature: float
     max_tokens: int
     system_instruction: str
+    greeting_prompt: Optional[str] = ""
     status: str
     transfer_target: Optional[str] = "200"
 
@@ -513,7 +520,9 @@ DEFAULT_SETTINGS = {
         "disk_threshold_pct": 80,
         "keep_days": 90,
         "delete_by_days": False
-    }
+    },
+    "speed_dials": [],
+    "conferences": []
 }
 
 def load_settings():
@@ -566,6 +575,10 @@ def load_settings():
                     new_perms.extend(["autoprovision_templates:read", "autoprovision_templates:write", "autoprovision_templates:delete"])
                 if "outbound_rules:read" not in new_perms:
                     new_perms.extend(["outbound_rules:read", "outbound_rules:write", "outbound_rules:delete"])
+                if "speed_dials:read" not in new_perms:
+                    new_perms.extend(["speed_dials:read", "speed_dials:write", "speed_dials:delete"])
+                if "conferences:read" not in new_perms:
+                    new_perms.extend(["conferences:read", "conferences:write", "conferences:delete"])
 
             
             # Auto assign wallboard, dialer, and call_flow to admin and supervisor if missing
@@ -796,6 +809,14 @@ def run_pjsip_reload():
     except Exception as e:
         print(f"[Asterisk Config] Failed to reload PJSIP in Asterisk: {e}")
 
+def run_queue_reload():
+    try:
+        import subprocess
+        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "queue reload all"], check=True, capture_output=True)
+        print("[Asterisk Config] Queue configurations reloaded successfully in Asterisk container.")
+    except Exception as e:
+        print(f"[Asterisk Config] Failed to reload queues in Asterisk: {e}")
+
 def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = None):
     conf_content = """; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK AYARLARI
@@ -811,7 +832,7 @@ type=transport
 protocol=tcp
 bind=0.0.0.0
 """
-    for t in settings_db["trunks"]:
+    for t in settings_db.get("trunks", []):
         if not t.get("is_active", True):
             print(f"[Asterisk Config] Pasif trunk atlandi: {t['trunk_name']}")
             continue
@@ -831,6 +852,7 @@ transport={transport}
 outbound_auth={name}-auth
 client_uri=sip:{t['username']}@{host}:{port}
 server_uri=sip:{host}:{port}
+contact_user={did}
 
 [{name}-auth]
 type=auth
@@ -863,6 +885,38 @@ endpoint={name}
 match={host}
 """
 
+    conf_content += "\n; ==========================================\n"
+    conf_content += "; DINAMIK OLARAK OLUŞTURULAN KULLANICI (DAHILI) AYARLARI\n"
+    conf_content += "; ==========================================\n"
+
+    for u in settings_db.get("users", []):
+        if not u.get("is_active", True):
+            continue
+        ext = u.get("extension")
+        if not ext:
+            continue
+        pwd = u.get("sip_password", "1234")
+        name = u.get("full_name", ext)
+        
+        conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
+        conf_content += f"""[{ext}](webrtc_agent_template)
+type=endpoint
+auth={ext}-auth
+aors={ext}
+callerid={name} <{ext}>
+
+[{ext}-auth]
+type=auth
+auth_type=userpass
+username={ext}
+password={pwd}
+
+[{ext}]
+type=aor
+max_contacts=5
+remove_existing=yes
+"""
+
     config_dir = "/Users/anilacar/ai-project/asterisk_config"
     os.makedirs(config_dir, exist_ok=True)
     config_path = os.path.join(config_dir, "pjsip_custom.conf")
@@ -874,6 +928,49 @@ match={host}
         background_tasks.add_task(run_pjsip_reload)
     else:
         run_pjsip_reload()
+
+def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
+    conf_content = """; ==========================================
+; DINAMIK OLARAK OLUŞTURULAN KUYRUK AYARLARI
+; ==========================================
+"""
+    for q in settings_db.get("queues", []):
+        if not q.get("is_active", True):
+            continue
+        name = q.get("name", "queue_temp")
+        strategy = q.get("strategy", "ringall")
+        timeout = q.get("timeout", 15)
+        retry = q.get("retry", 5)
+        wrapup = q.get("wrapuptime", 0)
+        
+        conf_content += f"\n[{name}]\n"
+        conf_content += f"strategy={strategy}\n"
+        conf_content += f"timeout={timeout}\n"
+        conf_content += f"retry={retry}\n"
+        conf_content += f"wrapuptime={wrapup}\n"
+        conf_content += "autopause=no\n"
+        conf_content += "maxlen=0\n"
+        conf_content += "joinempty=yes\n"
+        conf_content += "leavewhenempty=no\n"
+        
+        for member in q.get("queueMembers", []):
+            user_id = member.get("user_id")
+            # Find the user's extension
+            u = next((u for u in settings_db.get("users", []) if u["id"] == user_id), None)
+            if u and u.get("extension"):
+                conf_content += f"member => PJSIP/{u['extension']}\n"
+                
+    config_dir = "/Users/anilacar/ai-project/asterisk_config"
+    os.makedirs(config_dir, exist_ok=True)
+    config_path = os.path.join(config_dir, "queues_custom.conf")
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.write(conf_content)
+    print(f"[Asterisk Config] queues_custom.conf yeniden uretildi: {config_path}")
+
+    if background_tasks:
+        background_tasks.add_task(run_queue_reload)
+    else:
+        run_queue_reload()
 
 @app.get("/api/settings/trunks")
 async def list_trunks():
@@ -1384,7 +1481,7 @@ async def get_users_endpoint():
     return settings_db.get("users", [])
 
 @app.post("/api/settings/users")
-async def save_users_endpoint(payload: List[UserSchema]):
+async def save_users_endpoint(payload: List[UserSchema], background_tasks: BackgroundTasks):
     existing_users = {u.get("id"): u for u in settings_db.get("users", []) if u.get("id")}
     
     for item in payload:
@@ -1400,6 +1497,10 @@ async def save_users_endpoint(payload: List[UserSchema]):
             data["id"] = idx + 1
         settings_db["users"].append(data)
     save_settings(settings_db)
+    
+    # KULLANICILAR İÇİN PJSIP DOSYASINI YENİDEN OLUŞTUR VE ASTERISK'E RELOAD ET
+    regenerate_pjsip_custom_conf(background_tasks)
+    
     return {"status": "success", "users": settings_db["users"]}
 
 class ProfileUpdateSchema(BaseModel):
@@ -1478,9 +1579,13 @@ async def get_queues_endpoint():
     return settings_db.get("queues", [])
 
 @app.post("/api/settings/queues")
-async def save_queues_endpoint(payload: List[Dict[str, Any]]):
+async def save_queues_endpoint(payload: List[Dict[str, Any]], background_tasks: BackgroundTasks):
     settings_db["queues"] = payload
     save_settings(settings_db)
+    
+    # KUYRUKLAR İÇİN QUEUES_CUSTOM.CONF DOSYASINI YENİDEN OLUŞTUR VE ASTERISK'E RELOAD ET
+    regenerate_queues_conf(background_tasks)
+    
     return {"status": "success", "queues": payload}
 
 # ----------------------------------------------------
@@ -1746,8 +1851,7 @@ async def delete_autoprovision_template(template_id: str):
 # ----------------------------------------------------
 @app.get("/api/settings/outbound_rules")
 async def get_outbound_rules():
-    if "outbound_rules" in settings_db:
-        return settings_db["outbound_rules"]
+    return settings_db.get("outbound_rules", [])
     return []
 
 @app.post("/api/settings/outbound_rules")
@@ -1782,6 +1886,142 @@ async def delete_outbound_rule(rule_id: str):
     settings_db["outbound_rules"] = [r for r in settings_db["outbound_rules"] if r.get("id") != rule_id]
     save_settings(settings_db)
     return {"status": "success", "outbound_rules": settings_db["outbound_rules"]}
+
+@app.get("/api/settings/inbound_rules")
+async def get_inbound_rules():
+    return settings_db.get("inbound_rules", [])
+
+@app.post("/api/settings/inbound_rules")
+async def save_inbound_rule(request: Request):
+    payload = await request.json()
+    if "inbound_rules" not in settings_db:
+        settings_db["inbound_rules"] = []
+    
+    # Check if updating or creating
+    rule_id = payload.get("id")
+    if not rule_id:
+        payload["id"] = str(uuid.uuid4())
+        settings_db["inbound_rules"].append(payload)
+    else:
+        updated = False
+        for i, r in enumerate(settings_db["inbound_rules"]):
+            if r.get("id") == rule_id:
+                settings_db["inbound_rules"][i] = payload
+                updated = True
+                break
+        if not updated:
+            settings_db["inbound_rules"].append(payload)
+            
+    save_settings(settings_db)
+    return {"status": "success", "inbound_rules": settings_db["inbound_rules"]}
+
+@app.delete("/api/settings/inbound_rules/{rule_id}")
+async def delete_inbound_rule(rule_id: str):
+    if "inbound_rules" not in settings_db:
+        return {"status": "error", "message": "Kayıt bulunamadı."}
+        
+    settings_db["inbound_rules"] = [r for r in settings_db["inbound_rules"] if r.get("id") != rule_id]
+    save_settings(settings_db)
+    return {"status": "success", "inbound_rules": settings_db["inbound_rules"]}
+
+@app.get("/api/settings/call_pickup_groups")
+async def get_call_pickup_groups():
+    return settings_db.get("call_pickup_groups", [])
+
+@app.post("/api/settings/call_pickup_groups")
+async def save_call_pickup_group(request: Request):
+    data = await request.json()
+    if "call_pickup_groups" not in settings_db:
+        settings_db["call_pickup_groups"] = []
+    
+    group_id = data.get("id")
+    if group_id:
+        idx = next((i for i, g in enumerate(settings_db["call_pickup_groups"]) if g.get("id") == group_id), None)
+        if idx is not None:
+            settings_db["call_pickup_groups"][idx] = data
+        else:
+            settings_db["call_pickup_groups"].append(data)
+    else:
+        data["id"] = str(uuid.uuid4())
+        settings_db["call_pickup_groups"].append(data)
+        
+    save_settings(settings_db)
+    return {"status": "success", "call_pickup_groups": settings_db["call_pickup_groups"]}
+
+@app.delete("/api/settings/call_pickup_groups/{group_id}")
+async def delete_call_pickup_group(group_id: str):
+    if "call_pickup_groups" not in settings_db:
+        return {"status": "error", "message": "Kayıt bulunamadı."}
+        
+    settings_db["call_pickup_groups"] = [g for g in settings_db["call_pickup_groups"] if g.get("id") != group_id]
+    save_settings(settings_db)
+    return {"status": "success", "call_pickup_groups": settings_db["call_pickup_groups"]}
+
+# --- Speed Dials ---
+@app.get("/api/settings/speed_dials")
+async def get_speed_dials():
+    return settings_db.get("speed_dials", [])
+
+@app.post("/api/settings/speed_dials")
+async def save_speed_dial(request: Request):
+    data = await request.json()
+    if "speed_dials" not in settings_db:
+        settings_db["speed_dials"] = []
+        
+    if "id" in data and data["id"]:
+        # Update existing
+        for idx, sd in enumerate(settings_db["speed_dials"]):
+            if sd.get("id") == data["id"]:
+                settings_db["speed_dials"][idx] = data
+                break
+    else:
+        # Create new
+        data["id"] = str(uuid.uuid4())
+        settings_db["speed_dials"].append(data)
+        
+    save_settings(settings_db)
+    return {"status": "success", "speed_dials": settings_db["speed_dials"]}
+
+@app.delete("/api/settings/speed_dials/{sd_id}")
+async def delete_speed_dial(sd_id: str):
+    if "speed_dials" not in settings_db:
+        return {"status": "error", "message": "Kayıt bulunamadı."}
+        
+    settings_db["speed_dials"] = [s for s in settings_db["speed_dials"] if s.get("id") != sd_id]
+    save_settings(settings_db)
+    return {"status": "success", "speed_dials": settings_db["speed_dials"]}
+
+# --- Conferences ---
+@app.get("/api/settings/conferences")
+async def get_conferences():
+    return settings_db.get("conferences", [])
+
+@app.post("/api/settings/conferences")
+async def save_conference(request: Request):
+    data = await request.json()
+    if "conferences" not in settings_db:
+        settings_db["conferences"] = []
+        
+    if "id" in data and data["id"]:
+        for idx, conf in enumerate(settings_db["conferences"]):
+            if conf.get("id") == data["id"]:
+                settings_db["conferences"][idx] = data
+                break
+    else:
+        data["id"] = str(uuid.uuid4())
+        settings_db["conferences"].append(data)
+        
+    save_settings(settings_db)
+    return {"status": "success", "conferences": settings_db["conferences"]}
+
+@app.delete("/api/settings/conferences/{conf_id}")
+async def delete_conference(conf_id: str):
+    if "conferences" not in settings_db:
+        return {"status": "error", "message": "Kayıt bulunamadı."}
+        
+    settings_db["conferences"] = [c for c in settings_db["conferences"] if c.get("id") != conf_id]
+    save_settings(settings_db)
+    return {"status": "success", "conferences": settings_db["conferences"]}
 
 # ----------------------------------------------------
 # API Routes: Rules & Scenarios
@@ -2038,6 +2278,14 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
             )
             session.add(new_call)
             await session.commit()
+        else:
+            # Update existing record created by audiosocket
+            if caller and caller != "Bilinmeyen":
+                db_call.caller_number = caller
+            if did:
+                db_call.callee_number = did
+            await session.commit()
+
             print(f"[Asterisk Dialplan] Call registered successfully: {call_id} (Caller: {caller}, DID: {did}, Asterisk ID: {asterisk_id})")
             add_system_log("ASTERISK", "INFO", f"Yeni Arama Başlatıldı: Arayan={caller or 'Bilinmeyen'}, DID={did}, ID={call_id}")
     return {"status": "success"}
@@ -2053,12 +2301,13 @@ async def list_calls(
     call_id: str = None,
     db: AsyncSession = Depends(get_db)
 ):
-    from datetime import datetime, time
+    from datetime import datetime, time, timedelta
     stmt = select(Call)
     
     if start_date:
         try:
             start_dt = datetime.combine(datetime.strptime(start_date, "%Y-%m-%d").date(), time.min)
+            start_dt -= timedelta(hours=3)  # Adjust TR local time to UTC
             stmt = stmt.where(Call.start_time >= start_dt)
         except ValueError:
             pass
@@ -2066,6 +2315,7 @@ async def list_calls(
     if end_date:
         try:
             end_dt = datetime.combine(datetime.strptime(end_date, "%Y-%m-%d").date(), time.max)
+            end_dt -= timedelta(hours=3)  # Adjust TR local time to UTC
             stmt = stmt.where(Call.start_time <= end_dt)
         except ValueError:
             pass

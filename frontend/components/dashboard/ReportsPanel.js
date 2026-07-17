@@ -23,8 +23,10 @@ import {
   Clipboard,
   Crown
 } from "lucide-react";
+import { useTheme } from "../../utils/theme";
 
 export default function ReportsPanel({ backendHost = "localhost:8000", viewMode = "cdr" }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const getTodayDateString = () => {
     const today = new Date();
     const yyyy = today.getFullYear();
@@ -428,6 +430,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const getCallDurations = (call) => {
+    if (!call) return { talk: "0:00", queue: "0:00", ivr: "0:00", total: "0:00" };
     let totalSeconds = 0;
     if (call.end_time) {
       totalSeconds = Math.max(0, Math.floor((new Date(call.end_time) - new Date(call.start_time)) / 1000));
@@ -439,9 +442,27 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return { talk: "0:00", queue: "0:00", ivr: "0:00", total: "0:00" };
     }
 
-    // Deterministic split based on call.id hash
-    let ivrSeconds = (call.id.charCodeAt(0) % 20) + 10; // 10 to 29 seconds
-    let queueSeconds = (call.id.charCodeAt(1) % 2 === 0) ? 0 : (call.id.charCodeAt(1) % 35) + 5; // 0 or 5 to 39 seconds
+    const formatSecs = (secs) => {
+      const mins = Math.floor(secs / 60);
+      const remainingSecs = secs % 60;
+      return `${mins}:${remainingSecs.toString().padStart(2, "0")}`;
+    };
+
+    // If the call failed, there is no talk time
+    const status = getCallStatus(call);
+    if (status === "Başarısız") {
+      return { 
+        talk: "0:00", 
+        queue: "0:00", 
+        ivr: formatSecs(totalSeconds), // Entire time was just IVR/Ringing
+        total: formatSecs(totalSeconds) 
+      };
+    }
+
+    // Deterministic split based on call.id hash for mock effect on successful calls
+    const safeId = String(call.id || "");
+    let ivrSeconds = safeId.length > 0 ? (safeId.charCodeAt(0) % 20) + 10 : 15; // 10 to 29 seconds
+    let queueSeconds = safeId.length > 1 ? ((safeId.charCodeAt(1) % 2 === 0) ? 0 : (safeId.charCodeAt(1) % 35) + 5) : 0; // 0 or 5 to 39 seconds
 
     // Adjust if totalSeconds is too short
     if (ivrSeconds + queueSeconds >= totalSeconds) {
@@ -450,12 +471,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     const talkSeconds = totalSeconds - ivrSeconds - queueSeconds;
-
-    const formatSecs = (secs) => {
-      const mins = Math.floor(secs / 60);
-      const remainingSecs = secs % 60;
-      return `${mins}:${remainingSecs.toString().padStart(2, "0")}`;
-    };
 
     return {
       talk: formatSecs(talkSeconds),
@@ -466,31 +481,60 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const getConversant = (call) => {
+    if (!call) return "";
+    const safeId = String(call.id || "");
     if (call.status === "transferred") {
-      return call.id.charCodeAt(2) % 2 === 0 ? "Ahmet Yılmaz (Agent)" : "Merve Kaya (Agent)";
+      return safeId.length > 2 && safeId.charCodeAt(2) % 2 === 0 ? "Ahmet Yılmaz (Agent)" : "Merve Kaya (Agent)";
     }
-    const code = call.id.charCodeAt(2) % 3;
-    if (code === 0) return "AI Asistan";
-    if (code === 1) return "Ahmet Yılmaz (Agent)";
+    
+    const direction = getCallDirection(call);
+    if (direction === "Gelen" || direction === "Giden (AI)") {
+      return "AI Agent Ece";
+    }
+    
     return "Merve Kaya (Agent)";
   };
 
   const getCallDirection = (call) => {
-    // Deterministic direction based on call.id character
-    const code = call.id.charCodeAt(4) % 2;
-    if (code === 0) return "Gelen";
+    if (!call) return "";
+    const caller = String(call.caller_number || "");
+    const callee = String(call.callee_number || "");
     
-    const outgoingType = call.id.charCodeAt(5) % 3;
-    if (outgoingType === 0) return "Giden (AI)";
-    if (outgoingType === 1) return "Giden (Temsilci)";
-    return "Giden (Dialer)";
+    // If caller number is a standard long phone number, it is an inbound call from outside.
+    if (caller.length >= 10 || caller.startsWith("+")) {
+      return "Gelen";
+    }
+    
+    // If caller is an internal extension (e.g. 1000, 1001) and callee is external, it's outbound.
+    if (callee.length >= 10 || callee.startsWith("+")) {
+      // Assuming 1000 or similar is AI extension
+      if (caller === "1000" || caller.toLowerCase() === "ai") return "Giden (AI)";
+      return "Giden (Temsilci)";
+    }
+    
+    // Default fallback
+    return "Gelen";
   };
 
   const getCallStatus = (call) => {
-    if (call.status === "blocked") return "Başarısız";
-    // Deterministic failed state for short or no-answer simulations
-    const failCode = call.id.charCodeAt(3) % 10;
-    if (failCode === 0) return "Başarısız";
+    if (!call) return "Başarısız";
+    const st = call.status ? String(call.status).toLowerCase() : "";
+    
+    // Check actual DB status
+    if (st === "blocked" || st === "failed" || st === "no answer" || st === "no_answer" || st === "busy" || st === "canceled" || st === "missed") {
+      return "Başarısız";
+    }
+    
+    // Also if the call is "completed" but there's no recording and it's extremely short (e.g. less than 5 seconds),
+    // it likely dropped before connection was established, so consider it failed.
+    const end = call.end_time ? new Date(call.end_time) : new Date();
+    const start = new Date(call.start_time);
+    const totalSeconds = Math.max(0, Math.floor((end - start) / 1000));
+    
+    if (totalSeconds <= 5 && !call.recording_path && (st === "completed" || st === "in_progress")) {
+      return "Başarısız";
+    }
+
     return "Başarılı";
   };
 
@@ -762,16 +806,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
     // 6. Date Range Filter
     if (c.start_time) {
-      const callDate = new Date(c.start_time);
+      const callDateStr = c.start_time.endsWith("Z") ? c.start_time : c.start_time + "Z";
+      const callDate = new Date(callDateStr);
       if (filterStartDate) {
-        const start = new Date(filterStartDate);
+        const start = new Date(filterStartDate.length <= 10 ? filterStartDate + "T00:00:00" : filterStartDate);
         if (callDate < start) return false;
       }
       if (filterEndDate) {
-        const end = new Date(filterEndDate);
-        if (filterEndDate.length <= 10) {
-          end.setHours(23, 59, 59, 999);
-        }
+        const end = new Date(filterEndDate.length <= 10 ? filterEndDate + "T23:59:59.999" : filterEndDate);
         if (callDate > end) return false;
       }
     }
@@ -1146,8 +1188,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 onClick={() => setIsFilterOpen(true)}
                 className={`flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-xl border font-bold cursor-pointer transition-all duration-200 ${
                   filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId
-                    ? "bg-primary hover:bg-primary/90 text-white border-purple-600 shadow-sm"
-                    : "bg-purple-50 dark:bg-primary/20 text-primary dark:text-purple-400 border-purple-100 dark:border-purple-800/40 hover:bg-primary hover:text-white"
+                    ? `${bg} ${hover} text-white ${border} shadow-sm`
+                    : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
                 }`}
               >
                 <Filter size={10} />
@@ -1549,7 +1591,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     setSelectedQACall(null);
                     setQaModalData(null);
                   }}
-                  className="px-4 py-2 border dark: dark: font-bold rounded-xl hover: dark:hover: transition cursor-pointer bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                  className="px-4 py-2 border dark: dark: font-bold rounded-xl hover: dark:hover: transition cursor-pointer bg-slate-500 hover:bg-slate-600 text-white"
                 >Vazgeç</button>
                 <button
                   onClick={async () => {
@@ -1683,7 +1725,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     setIsNotesPopupOpen(false);
                     setSelectedNotesCall(null);
                   }}
-                  className="px-4 py-2 border dark: dark: font-bold rounded-xl hover: dark:hover: transition cursor-pointer bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                  className="px-4 py-2 border dark: dark: font-bold rounded-xl hover: dark:hover: transition cursor-pointer bg-slate-500 hover:bg-slate-600 text-white"
                 >Vazgeç</button>
                 <button
                   onClick={async () => {
@@ -2510,8 +2552,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   onClick={() => setActiveAudioCall(call)}
                                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border font-bold text-[10px] cursor-pointer transition-all ${
                                     activeAudioCall?.id === call.id
-                                      ? "bg-primary border-purple-600 text-white shadow-sm"
-                                      : "bg-purple-50 dark:bg-primary/20 text-primary dark:text-purple-400 border-purple-100 dark:border-purple-800/40 hover:bg-primary hover:text-white"
+                                      ? `${bg} ${border} text-white shadow-sm`
+                                      : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
                                   }`}
                                 >
                                   <Play size={10} />
