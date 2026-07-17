@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 import shutil
 import socket
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -45,6 +45,9 @@ app.add_middleware(
 RECORDINGS_DIR = "/Users/anilacar/ai-project/recordings"
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 app.mount("/api/recordings", StaticFiles(directory=RECORDINGS_DIR), name="recordings")
+
+os.makedirs("uploads/announcements", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Temp storage for PDF uploads
 UPLOAD_DIR = "/tmp/ai_pbx_uploads" if os.name != 'nt' else "C:\\temp\\ai_pbx_uploads"
@@ -412,6 +415,7 @@ DEFAULT_SETTINGS = {
         {"id": 3, "name": "Toplantı", "color": "#10b981"},
         {"id": 4, "name": "Özel İhtiyaç", "color": "#ec4899"}
     ],
+    "announcements": [],
     "users": [
         {
             "id": 1,
@@ -535,8 +539,15 @@ def load_settings():
                     new_perms.append("logs:access")
                 elif p == "storage":
                     new_perms.append("storage:access")
+                elif p == "announcements":
+                    new_perms.extend(["announcements:read", "announcements:write", "announcements:delete"])
                 else:
                     new_perms.append(p)
+            
+            # Make sure admin role gets announcements permissions
+            if r.get("role_code") == "admin":
+                if "announcements:read" not in new_perms:
+                    new_perms.extend(["announcements:read", "announcements:write", "announcements:delete"])
             
             # Auto assign wallboard, dialer, and call_flow to admin and supervisor if missing
             if r.get("role_code") in ["admin", "supervisor"]:
@@ -1317,6 +1328,9 @@ class ProfileUpdateSchema(BaseModel):
     gsm_number: Optional[str] = None
     mobile_transfer_enabled: Optional[bool] = None
     theme_color: Optional[str] = "rose"
+    forwarding_always: Optional[dict] = None
+    forwarding_busy: Optional[dict] = None
+    forwarding_no_answer: Optional[dict] = None
 
 @app.post("/api/agent/profile/{user_id}")
 async def update_agent_profile_endpoint(user_id: int, payload: ProfileUpdateSchema):
@@ -1351,6 +1365,13 @@ async def update_agent_profile_endpoint(user_id: int, payload: ProfileUpdateSche
         
     if payload.theme_color is not None:
         user["theme_color"] = payload.theme_color
+
+    if payload.forwarding_always is not None:
+        user["forwarding_always"] = payload.forwarding_always
+    if payload.forwarding_busy is not None:
+        user["forwarding_busy"] = payload.forwarding_busy
+    if payload.forwarding_no_answer is not None:
+        user["forwarding_no_answer"] = payload.forwarding_no_answer
         
     save_settings(settings_db)
     return {"status": "success", "user": user}
@@ -1369,6 +1390,65 @@ async def save_roles_endpoint(payload: List[RoleSchema]):
         settings_db["roles"].append(data)
     save_settings(settings_db)
     return {"status": "success", "roles": settings_db["roles"]}
+
+# ----------------------------------------------------
+# API Routes: Announcements
+# ----------------------------------------------------
+@app.get("/api/settings/announcements")
+async def get_announcements():
+    return settings_db.get("announcements", [])
+
+@app.post("/api/settings/announcements")
+async def create_announcement(
+    name: str = Form(...),
+    file: UploadFile = File(...)
+):
+    import uuid
+    import time
+    import shutil
+    import os
+    
+    os.makedirs("uploads/announcements", exist_ok=True)
+    
+    file_id = str(uuid.uuid4())
+    ext = file.filename.split(".")[-1] if "." in file.filename else "wav"
+    filename = f"{file_id}.{ext}"
+    filepath = os.path.join("uploads/announcements", filename)
+    
+    with open(filepath, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    new_announcement = {
+        "id": file_id,
+        "name": name,
+        "filename": filename,
+        "original_filename": file.filename,
+        "created_at": time.time()
+    }
+    
+    if "announcements" not in settings_db:
+        settings_db["announcements"] = []
+        
+    settings_db["announcements"].append(new_announcement)
+    save_settings(settings_db)
+    return {"status": "success", "announcement": new_announcement}
+
+@app.delete("/api/settings/announcements/{announcement_id}")
+async def delete_announcement(announcement_id: str):
+    import os
+    if "announcements" not in settings_db:
+        return {"status": "error", "message": "Not found"}
+        
+    for ann in settings_db["announcements"]:
+        if ann["id"] == announcement_id:
+            filepath = os.path.join("uploads/announcements", ann["filename"])
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            settings_db["announcements"].remove(ann)
+            save_settings(settings_db)
+            return {"status": "success"}
+            
+    return {"status": "error", "message": "Not found"}
 
 # ----------------------------------------------------
 # API Routes: Rules & Scenarios

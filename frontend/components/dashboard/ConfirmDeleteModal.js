@@ -1,4 +1,5 @@
 import React from "react";
+import { createPortal } from "react-dom";
 import { X, AlertTriangle } from "lucide-react";
 
 export default function ConfirmDeleteModal({
@@ -9,8 +10,9 @@ export default function ConfirmDeleteModal({
   message = "Bu kaydı silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
 }) {
   if (!isOpen) return null;
+  if (typeof document === "undefined") return null;
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4 transition-all duration-300">
       <div className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
@@ -55,6 +57,7 @@ export default function ConfirmDeleteModal({
         </div>
 
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

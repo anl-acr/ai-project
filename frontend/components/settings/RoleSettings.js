@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -25,6 +25,7 @@ const SYSTEM_FEATURES = [
   { id: "qa", name: "Otomatik Kalite Değerlendirme (Automated QA)", icon: FileText, type: "crud", color: "indigo" },
   { id: "universal_api", name: "Evrensel API & Webhook Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
   { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" },
+  { id: "announcements", name: "Anons Yönetimi", icon: Volume2, type: "crud", color: "pink" },
   { id: "reports", name: "Gelişmiş Çağrı Raporları ve KPI Panosu", icon: FileText, type: "access", color: "purple" }
 ];
 

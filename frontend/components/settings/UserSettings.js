@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -405,19 +406,19 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                 <div className="relative group shrink-0 flex items-center justify-center cursor-pointer">
                   <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm ${u.active_sessions?.length > 0 ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-rose-500 shadow-rose-500/50 opacity-60'}`} />
                   {u.active_sessions?.length > 0 && (
-                    <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 w-48 bg-slate-900/95 backdrop-blur-md rounded-xl p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl border border-slate-700/50">
-                      <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-slate-900/95 border-l border-b border-slate-700/50 rotate-45"></div>
-                      <h5 className="text-[10px] font-extrabold text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-700/50 pb-1.5">Aktif Oturumlar</h5>
+                    <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 w-48 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-xl p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl border border-slate-200 dark:border-slate-700/50">
+                      <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white/95 dark:bg-slate-900/95 border-l border-b border-slate-200 dark:border-slate-700/50 rotate-45"></div>
+                      <h5 className="text-[10px] font-extrabold text-slate-500 dark:text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-200 dark:border-slate-700/50 pb-1.5">Aktif Oturumlar</h5>
                       <div className="space-y-2 relative z-10">
                         {u.active_sessions.map((sess, idx) => (
                           <div key={idx} className="flex flex-col gap-0.5">
-                            <div className="flex items-center gap-1.5 text-white text-xs font-bold">
-                              {sess.device_type === "web" ? <Monitor size={12} className="text-blue-400" /> : sess.device_type === "sip" ? <Phone size={12} className="text-emerald-400" /> : <Smartphone size={12} className="text-purple-400" />}
+                            <div className="flex items-center gap-1.5 text-slate-800 dark:text-white text-xs font-bold">
+                              {sess.device_type === "web" ? <Monitor size={12} className="text-blue-500 dark:text-blue-400" /> : sess.device_type === "sip" ? <Phone size={12} className="text-emerald-500 dark:text-emerald-400" /> : <Smartphone size={12} className="text-purple-500 dark:text-purple-400" />}
                               <span className="capitalize">{sess.device_type}</span>
                             </div>
                             <div className="flex items-center justify-between text-[10px]">
-                              <span className="text-slate-400 font-mono">{sess.ip_address}</span>
-                              {sess.last_seen && <span className="text-slate-500">{sess.last_seen}</span>}
+                              <span className="text-slate-500 dark:text-slate-400 font-mono">{sess.ip_address}</span>
+                              {sess.last_seen && <span className="text-slate-400 dark:text-slate-500">{sess.last_seen}</span>}
                             </div>
                           </div>
                         ))}
@@ -493,8 +494,8 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
       )}
 
       {/* POPUP MODAL (Add / Edit Form with Tabs) */}
-      {showModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all duration-300">
+      {showModal && createPortal(
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-all duration-300">
           <div className="w-full max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
@@ -744,7 +745,8 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
                 </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Confirm Delete Modal */}

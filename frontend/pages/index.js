@@ -44,7 +44,9 @@ import {
   AlertTriangle,
   Eye,
   MicOff,
-  Crown
+  Crown,
+  ToggleRight,
+  ToggleLeft
 } from "lucide-react";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
 import { useTheme, setThemeColor } from "../utils/theme";
@@ -75,9 +77,10 @@ import ContactsPanel from "../components/dashboard/ContactsPanel";
 import BlacklistSettings from "../components/settings/BlacklistSettings";
 import UserSettings from "../components/settings/UserSettings";
 import PBXSettings from "../components/settings/PBXSettings";
+import AnnouncementsPanel from "../components/settings/AnnouncementsPanel";
 
 export default function Home() {
-  const { theme, colorCode } = useTheme();
+  const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
   const [isEditingCallFlow, setIsEditingCallFlow] = useState(false);
   const [activeCallId, setActiveCallId] = useState(null);
@@ -139,17 +142,46 @@ export default function Home() {
     );
   };
 
+  useEffect(() => {
+    const savedCategories = localStorage.getItem("sidebarCategories");
+    if (savedCategories) {
+      try {
+        setOpenCategories(JSON.parse(savedCategories));
+      } catch (e) {
+        console.error("Failed to parse sidebarCategories from localStorage", e);
+      }
+    }
+  }, []);
+
   const toggleCategory = (cat) => {
-    setOpenCategories((prev) => ({
-      ...prev,
-      [cat]: !prev[cat]
-    }));
+    setOpenCategories((prev) => {
+      const nextState = {
+        ...prev,
+        [cat]: !prev[cat]
+      };
+      localStorage.setItem("sidebarCategories", JSON.stringify(nextState));
+      return nextState;
+    });
   };
 
   // Profile and ringtone preferences states
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [systemUsers, setSystemUsers] = useState([]);
   const [agentAvatar, setAgentAvatar] = useState("https://api.dicebear.com/7.x/avataaars/svg?seed=Felix");
+  
+  const [fwdAlwaysActive, setFwdAlwaysActive] = useState(false);
+  const [fwdAlwaysType, setFwdAlwaysType] = useState("internal");
+  const [fwdAlwaysTarget, setFwdAlwaysTarget] = useState("");
+
+  const [fwdBusyActive, setFwdBusyActive] = useState(false);
+  const [fwdBusyType, setFwdBusyType] = useState("internal");
+  const [fwdBusyTarget, setFwdBusyTarget] = useState("");
+
+  const [fwdNoAnswerActive, setFwdNoAnswerActive] = useState(false);
+  const [fwdNoAnswerType, setFwdNoAnswerType] = useState("internal");
+  const [fwdNoAnswerTarget, setFwdNoAnswerTarget] = useState("");
+  const [fwdNoAnswerTimeout, setFwdNoAnswerTimeout] = useState(30);
   const [agentRingtone, setAgentRingtone] = useState("classic");
 
   // Audio devices selection states
@@ -163,6 +195,19 @@ export default function Home() {
       setGsmNumber(currentUser.gsm_number || "");
       setMobileTransferEnabled(currentUser.mobile_transfer_enabled || false);
       setTempThemeColor(currentUser.theme_color || "99, 102, 241");
+      
+      setFwdAlwaysActive(currentUser.forwarding_always?.active || false);
+      setFwdAlwaysType(currentUser.forwarding_always?.type || "internal");
+      setFwdAlwaysTarget(currentUser.forwarding_always?.target || "");
+
+      setFwdBusyActive(currentUser.forwarding_busy?.active || false);
+      setFwdBusyType(currentUser.forwarding_busy?.type || "internal");
+      setFwdBusyTarget(currentUser.forwarding_busy?.target || "");
+
+      setFwdNoAnswerActive(currentUser.forwarding_no_answer?.active || false);
+      setFwdNoAnswerType(currentUser.forwarding_no_answer?.type || "internal");
+      setFwdNoAnswerTarget(currentUser.forwarding_no_answer?.target || "");
+      setFwdNoAnswerTimeout(currentUser.forwarding_no_answer?.timeout || 30);
     }
   }, [settingsModalOpen, currentUser]);
 
@@ -244,6 +289,7 @@ export default function Home() {
         }
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
         const usersData = await resUsers.json();
+        setSystemUsers(usersData);
         const currentUserData = usersData.find(u => u.id === statusData.user_id);
         if (!currentUserData) {
           setHasOmnichannelPermission(true);
@@ -379,6 +425,65 @@ export default function Home() {
       console.error = originalError;
     };
   }, []);
+
+  const renderForwardingRow = (label, active, setActive, type, setType, target, setTarget, timeout, setTimeoutVal) => (
+    <div className={`grid grid-cols-12 gap-3 items-end p-3 rounded-xl border transition-all ${active ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800' : 'bg-slate-50 dark:bg-slate-900/30 border-slate-100 dark:border-slate-800/40 opacity-70'}`}>
+        <div className="col-span-12 flex items-center justify-between mb-1 pb-2 border-b border-slate-100 dark:border-slate-800/60">
+            <label className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">{label}</label>
+            <button type="button" onClick={() => setActive(!active)} className="text-slate-400 hover:text-slate-700 transition-colors focus:outline-none">
+                {active ? <ToggleRight size={24} className="text-violet-500" /> : <ToggleLeft size={24} />}
+            </button>
+        </div>
+        <div className="col-span-12 sm:col-span-3">
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Tip</label>
+            <select
+                disabled={!active}
+                value={type}
+                onChange={e => setType(e.target.value)}
+                className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+            >
+                <option value="internal">Dahili Hat</option>
+                <option value="external">Dış Numara</option>
+            </select>
+        </div>
+        <div className="col-span-12 sm:col-span-6">
+            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Hedef</label>
+            {type === "internal" ? (
+                <select
+                    disabled={!active}
+                    value={target}
+                    onChange={e => setTarget(e.target.value)}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                >
+                    <option value="">Seçiniz...</option>
+                    {systemUsers.map(u => <option key={u.id} value={u.extension}>{u.full_name} ({u.extension})</option>)}
+                </select>
+            ) : (
+                <input
+                    disabled={!active}
+                    type="text"
+                    placeholder="Numara giriniz"
+                    value={target}
+                    onChange={e => setTarget(e.target.value)}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                />
+            )}
+        </div>
+        {setTimeoutVal && (
+            <div className="col-span-12 sm:col-span-3">
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Süre (sn)</label>
+                <input
+                    disabled={!active}
+                    type="number"
+                    min="1"
+                    value={timeout}
+                    onChange={e => setTimeoutVal(parseInt(e.target.value) || 30)}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                />
+            </div>
+        )}
+    </div>
+  );
 
   return (
     <div className="h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
@@ -1196,7 +1301,7 @@ export default function Home() {
         
         {/* Top Header Navbar */}
         {!isEditingCallFlow && (
-        <header className="h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-8 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
+        <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-8 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
           <div className="flex items-center gap-4">
             <span className="text-slate-400 dark:text-slate-500 font-bold text-xs tracking-wider">AKTİF İŞLEMLER</span>
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
@@ -1250,7 +1355,7 @@ export default function Home() {
                   <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
                   <button
                     onClick={handleLogout}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-primary dark:text-rose-450 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center gap-2"
+                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-600 dark:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center gap-2"
                   >
                     <LogOut size={14} />
                     <span>Çıkış Yap</span>
@@ -1313,7 +1418,7 @@ export default function Home() {
           )}
 
           {activeTab === "announcements" && (
-            renderPlaceholderSantral("Anons Yönetimi", "Gelen çağrılar için karşılama anonsları, mesai dışı seslendirmeler ve özel anons dosyalarının sisteme yüklenip yönetildiği alan.", Volume2)
+            <AnnouncementsPanel backendHost={backendHost} />
           )}
 
           {activeTab === "acd-queues" && (
@@ -1504,7 +1609,7 @@ export default function Home() {
         {/* Profile & Ringtone Settings Modal */}
         {settingsModalOpen && (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
-            <div className="w-full max-w-md p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl space-y-6 animate-in zoom-in-95 duration-150">
+            <div className="w-full max-w-xl p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl space-y-6 animate-in zoom-in-95 duration-150">
               
               {/* Modal Header */}
               <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
@@ -1530,6 +1635,12 @@ export default function Home() {
                   className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "hardware" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
                 >
                   Donanım & Santral
+                </button>
+                <button 
+                  onClick={() => setActiveModalTab("forwarding")}
+                  className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "forwarding" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                >
+                  Yönlendirme
                 </button>
               </div>
 
@@ -1778,6 +1889,15 @@ export default function Home() {
 
               </div>
 
+              {/* Forwarding Selection */}
+              <div className={`space-y-4 max-h-[60vh] overflow-y-auto ${activeModalTab === "forwarding" ? "block" : "hidden"}`}>
+                <div className="space-y-3 pr-2">
+                    {renderForwardingRow("Her Zaman (Koşulsuz)", fwdAlwaysActive, setFwdAlwaysActive, fwdAlwaysType, setFwdAlwaysType, fwdAlwaysTarget, setFwdAlwaysTarget, null, null)}
+                    {renderForwardingRow("Meşgul Durumda", fwdBusyActive, setFwdBusyActive, fwdBusyType, setFwdBusyType, fwdBusyTarget, setFwdBusyTarget, null, null)}
+                    {renderForwardingRow("Zaman Aşımında (Cevapsız)", fwdNoAnswerActive, setFwdNoAnswerActive, fwdNoAnswerType, setFwdNoAnswerType, fwdNoAnswerTarget, setFwdNoAnswerTarget, fwdNoAnswerTimeout, setFwdNoAnswerTimeout)}
+                </div>
+              </div>
+
               {/* Modal Footer */}
               <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
@@ -1808,7 +1928,10 @@ export default function Home() {
                             avatar: agentAvatar,
                             gsm_number: gsmNumber,
                             mobile_transfer_enabled: mobileTransferEnabled,
-                            theme_color: tempThemeColor
+                            theme_color: tempThemeColor,
+                            forwarding_always: fwdAlwaysTarget ? { active: fwdAlwaysActive, type: fwdAlwaysType, target: fwdAlwaysTarget } : null,
+                            forwarding_busy: fwdBusyTarget ? { active: fwdBusyActive, type: fwdBusyType, target: fwdBusyTarget } : null,
+                            forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null
                           })
                         });
                         if (res.ok) {
@@ -1826,7 +1949,7 @@ export default function Home() {
                     
                     setSettingsModalOpen(false);
                   }}
-                  className="flex-1 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-950 dark:hover:bg-slate-200 text-xs font-extrabold text-white transition-all uppercase tracking-wider flex items-center justify-center gap-1.5"
+                  className={`flex-1 py-2 rounded-xl text-xs font-extrabold text-white transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 ${bg} ${hover}`}
                 >
                   <Check size={12} />
                   <span>Ayarları Kaydet</span>
