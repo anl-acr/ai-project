@@ -31,6 +31,12 @@ from backend.services.websocket_manager import ws_manager
 import redis.asyncio as aioredis
 redis_client = aioredis.Redis(host='localhost', port=6379, decode_responses=True)
 
+from backend.services.audit_logger import log_event
+
+def get_user_info(request: Request):
+    user_id = request.headers.get("X-User-ID", "Bilinmeyen")
+    return {"user_id": user_id, "ip_address": request.client.host if request.client else None}
+
 app = FastAPI(title="AI PBX & Omnichannel Backend API")
 
 # Enable CORS for frontend development
@@ -579,6 +585,14 @@ def load_settings():
                     new_perms.extend(["speed_dials:read", "speed_dials:write", "speed_dials:delete"])
                 if "conferences:read" not in new_perms:
                     new_perms.extend(["conferences:read", "conferences:write", "conferences:delete"])
+                if "acd_queues:read" not in new_perms:
+                    new_perms.extend(["acd_queues:read", "acd_queues:write", "acd_queues:delete"])
+                if "trunks:read" not in new_perms:
+                    new_perms.extend(["trunks:read", "trunks:write", "trunks:delete"])
+                if "inbound_rules:read" not in new_perms:
+                    new_perms.extend(["inbound_rules:read", "inbound_rules:write", "inbound_rules:delete"])
+                if "call_pickup_groups:read" not in new_perms:
+                    new_perms.extend(["call_pickup_groups:read", "call_pickup_groups:write", "call_pickup_groups:delete"])
 
             
             # Auto assign wallboard, dialer, and call_flow to admin and supervisor if missing
@@ -621,6 +635,8 @@ def load_settings():
                     new_perms.append("canned_responses:write")
                 if "canned_responses:delete" not in new_perms:
                     new_perms.append("canned_responses:delete")
+                if "call_panel:listen_records" not in new_perms:
+                    new_perms.append("call_panel:listen_records")
             elif r.get("role_code") == "agent":
                 if "canned_responses:read" not in new_perms:
                     new_perms.append("canned_responses:read")
@@ -992,10 +1008,19 @@ async def add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks: Ba
                 
     save_settings(settings_db)
     regenerate_pjsip_custom_conf(background_tasks)
+    
+    await log_event(
+        user_id=user_info["user_id"],
+        action="SAVE_TRUNK",
+        module="SIP Trunks",
+        details={"trunk_name": data.get("trunk_name")},
+        ip_address=user_info["ip_address"]
+    )
+    
     return {"status": "success", "message": "SIP Trunk başarıyla kaydedildi.", "trunk": data}
 
 @app.delete("/api/settings/trunks/{trunk_id}")
-async def delete_trunk(trunk_id: int, background_tasks: BackgroundTasks):
+async def delete_trunk(trunk_id: int, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info)):
     settings_db["trunks"] = [t for t in settings_db["trunks"] if t["id"] != trunk_id]
     save_settings(settings_db)
     regenerate_pjsip_custom_conf(background_tasks)
@@ -1481,7 +1506,7 @@ async def get_users_endpoint():
     return settings_db.get("users", [])
 
 @app.post("/api/settings/users")
-async def save_users_endpoint(payload: List[UserSchema], background_tasks: BackgroundTasks):
+async def save_users_endpoint(payload: List[UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info)):
     existing_users = {u.get("id"): u for u in settings_db.get("users", []) if u.get("id")}
     
     for item in payload:
@@ -1490,16 +1515,36 @@ async def save_users_endpoint(payload: List[UserSchema], background_tasks: Backg
                 continue
         validate_number_range(item.extension, "extension")
         
+    changes = []
     settings_db["users"] = []
     for idx, item in enumerate(payload):
         data = item.model_dump()
         if not data.get("id"):
             data["id"] = idx + 1
+            changes.append({"action": "CREATED", "name": data.get("name"), "extension": data.get("extension")})
+        else:
+            old_data = existing_users.get(data["id"])
+            if old_data:
+                diff = {}
+                for k, v in data.items():
+                    if k != "avatar" and old_data.get(k) != v:
+                        diff[k] = {"old": old_data.get(k), "new": v}
+                if diff:
+                    changes.append({"action": "UPDATED", "name": data.get("name"), "diff": diff})
         settings_db["users"].append(data)
+        
     save_settings(settings_db)
     
     # KULLANICILAR İÇİN PJSIP DOSYASINI YENİDEN OLUŞTUR VE ASTERISK'E RELOAD ET
     regenerate_pjsip_custom_conf(background_tasks)
+    
+    await log_event(
+        user_id=user_info["user_id"],
+        action="UPDATE_USERS",
+        module="Users",
+        details={"changes": changes} if changes else {"status": "No changes detected"},
+        ip_address=user_info["ip_address"]
+    )
     
     return {"status": "success", "users": settings_db["users"]}
 
@@ -1561,7 +1606,7 @@ async def get_roles_endpoint():
     return settings_db.get("roles", [])
 
 @app.post("/api/settings/roles")
-async def save_roles_endpoint(payload: List[RoleSchema]):
+async def save_roles_endpoint(payload: List[RoleSchema], user_info: dict = Depends(get_user_info)):
     settings_db["roles"] = []
     for idx, item in enumerate(payload):
         data = item.model_dump()
@@ -1569,6 +1614,15 @@ async def save_roles_endpoint(payload: List[RoleSchema]):
             data["id"] = idx + 1
         settings_db["roles"].append(data)
     save_settings(settings_db)
+    
+    await log_event(
+        user_id=user_info["user_id"],
+        action="UPDATE_ROLES",
+        module="Roles",
+        details={"roles": [r.role_id for r in payload]},
+        ip_address=user_info["ip_address"]
+    )
+    
     return {"status": "success", "roles": settings_db["roles"]}
 
 # ----------------------------------------------------
@@ -1579,12 +1633,20 @@ async def get_queues_endpoint():
     return settings_db.get("queues", [])
 
 @app.post("/api/settings/queues")
-async def save_queues_endpoint(payload: List[Dict[str, Any]], background_tasks: BackgroundTasks):
+async def save_queues_endpoint(payload: List[Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info)):
     settings_db["queues"] = payload
     save_settings(settings_db)
     
     # KUYRUKLAR İÇİN QUEUES_CUSTOM.CONF DOSYASINI YENİDEN OLUŞTUR VE ASTERISK'E RELOAD ET
     regenerate_queues_conf(background_tasks)
+    
+    await log_event(
+        user_id=user_info["user_id"],
+        action="UPDATE_QUEUES",
+        module="ACD Queues",
+        details={"queues_count": len(payload)},
+        ip_address=user_info["ip_address"]
+    )
     
     return {"status": "success", "queues": payload}
 
@@ -2633,6 +2695,34 @@ async def get_system_stats():
         "system_logs": system_logs[-15:]
     }
 
+@app.get("/api/system/logs")
+async def get_system_logs(limit: int = 100, offset: int = 0, module: Optional[str] = None):
+    import json
+    from backend.database.models import EventLog
+    async with AsyncSessionLocal() as session:
+        stmt = select(EventLog).order_by(EventLog.timestamp.desc())
+        if module:
+            stmt = stmt.where(EventLog.module == module)
+        stmt = stmt.offset(offset).limit(limit)
+        
+        result = await session.execute(stmt)
+        logs = result.scalars().all()
+        
+        return {
+            "status": "success",
+            "logs": [
+                {
+                    "id": l.id,
+                    "timestamp": l.timestamp.isoformat(),
+                    "user_id": l.user_id,
+                    "action": l.action,
+                    "module": l.module,
+                    "details": json.loads(l.details) if l.details else None,
+                    "ip_address": l.ip_address
+                }
+                for l in logs
+            ]
+        }
 
 # =====================================================================
 # CONTACTS (REHBER) ENDPOINTS
@@ -3210,6 +3300,133 @@ async def update_call_qa(call_id: str, payload: dict, db: AsyncSession = Depends
     db_call.qa_report = payload.get("qa_report")
     await db.commit()
     return {"status": "success", "qa_score": db_call.qa_score}
+# --- Agent Dashboard Endpoints ---
+@app.get("/api/agent/stats")
+async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_db)):
+    return {
+        "inbound": 12,
+        "outbound": 8,
+        "missed": 2,
+        "break_minutes": 45,
+        "break_details": [
+            {"name": "Yemek Molası", "minutes": 30},
+            {"name": "İhtiyaç Molası", "minutes": 15}
+        ]
+    }
+
+@app.get("/api/agent/directory")
+async def get_agent_directory():
+    settings = load_settings()
+    users = settings.get("users", [])
+    queues = settings.get("queues", [])
+    
+    directory = []
+    for u in users:
+        directory.append({
+            "type": "user",
+            "id": u.get("id"),
+            "name": u.get("name"),
+            "number": u.get("extension"),
+            "status": "available"
+        })
+    for q in queues:
+        directory.append({
+            "type": "queue",
+            "id": q.get("id"),
+            "name": q.get("name"),
+            "number": q.get("extension"),
+            "status": "active"
+        })
+    return directory
+
+@app.get("/api/agent/chat")
+async def get_internal_chat(extension: str, db: AsyncSession = Depends(get_db)):
+    from backend.database.models import InternalChatMessage
+    from sqlalchemy import select, or_
+    stmt = select(InternalChatMessage).where(
+        or_(
+            InternalChatMessage.sender_id == extension,
+            InternalChatMessage.receiver_id == extension,
+            InternalChatMessage.receiver_id == "broadcast"
+        )
+    ).order_by(InternalChatMessage.timestamp.asc())
+    res = await db.execute(stmt)
+    messages = res.scalars().all()
+    return messages
+
+@app.post("/api/agent/chat")
+async def post_internal_chat(payload: dict, db: AsyncSession = Depends(get_db)):
+    from backend.database.models import InternalChatMessage
+    msg = InternalChatMessage(
+        sender_id=payload.get("sender_id"),
+        receiver_id=payload.get("receiver_id"),
+        text=payload.get("text")
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+@app.get("/api/agent/speed_dials")
+async def get_agent_speed_dials(extension: str = None):
+    if not extension:
+        return []
+    agent_speed_dials = settings_db.get("agent_speed_dials", {})
+    return agent_speed_dials.get(extension, [])
+
+@app.post("/api/agent/speed_dials")
+async def save_agent_speed_dial(request: Request, extension: str = None):
+    if not extension:
+        raise HTTPException(status_code=400, detail="Extension is required")
+    data = await request.json()
+    
+    if "agent_speed_dials" not in settings_db:
+        settings_db["agent_speed_dials"] = {}
+        
+    if extension not in settings_db["agent_speed_dials"]:
+        settings_db["agent_speed_dials"][extension] = []
+        
+    if data.get("id"):
+        for idx, sd in enumerate(settings_db["agent_speed_dials"][extension]):
+            if str(sd.get("id")) == str(data["id"]):
+                settings_db["agent_speed_dials"][extension][idx] = data
+                save_settings(settings_db)
+                return {"status": "success", "speed_dials": settings_db["agent_speed_dials"][extension]}
+                
+    if not data.get("id"):
+        import time
+        data["id"] = int(time.time() * 1000)
+    
+    settings_db["agent_speed_dials"][extension].append(data)
+    save_settings(settings_db)
+    return {"status": "success", "speed_dials": settings_db["agent_speed_dials"][extension]}
+
+@app.delete("/api/agent/speed_dials/{sd_id}")
+async def delete_agent_speed_dial(sd_id: str, extension: str = None):
+    if not extension:
+        raise HTTPException(status_code=400, detail="Extension is required")
+        
+    if "agent_speed_dials" not in settings_db or extension not in settings_db["agent_speed_dials"]:
+        return {"status": "success", "speed_dials": []}
+        
+    settings_db["agent_speed_dials"][extension] = [
+        s for s in settings_db["agent_speed_dials"][extension] 
+        if str(s.get("id")) != sd_id
+    ]
+    save_settings(settings_db)
+    return {"status": "success", "speed_dials": settings_db["agent_speed_dials"][extension]}
+
+@app.get("/api/agent/voicemail")
+async def get_agent_voicemails(extension: str = None):
+    return []
+
+@app.get("/api/agent/history")
+async def get_agent_history(extension: str = None):
+    return []
+
+@app.get("/api/agent/missed_queue_calls")
+async def get_agent_missed_queue_calls(extension: str = None):
+    return []
 
 
 @app.on_event("startup")

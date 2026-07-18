@@ -68,6 +68,7 @@ import CalendarPanel from "../components/dashboard/CalendarPanel";
 import LiveDashboardPanel from "../components/dashboard/LiveDashboardPanel";
 import SystemStatusPanel from "../components/dashboard/SystemStatusPanel";
 import AgentSessionCard from "../components/phone/AgentSessionCard";
+import AgentPanel from "../components/callcenter/AgentPanel";
 import WallboardPanel from "../components/dashboard/WallboardPanel";
 import DialerSettings from "../components/settings/DialerSettings";
 import CallFlowEditor from "../components/settings/CallFlowEditor";
@@ -86,6 +87,7 @@ import InboundRulesPanel from "../components/settings/InboundRulesPanel";
 import CallPickupGroupsPanel from "../components/settings/CallPickupGroupsPanel";
 import SpeedDialsPanel from "../components/settings/SpeedDialsPanel";
 import ConferencesPanel from "../components/settings/ConferencesPanel";
+import EventLogsPanel from "../components/settings/EventLogsPanel";
 
 export default function Home() {
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -98,6 +100,9 @@ export default function Home() {
   const [hasBlacklistPermission, setHasBlacklistPermission] = useState(false);
   const [hasMobileTransferPermission, setHasMobileTransferPermission] = useState(false);
   const [hasReportsPermission, setHasReportsPermission] = useState(false);
+  const [hasUsersPermission, setHasUsersPermission] = useState(false);
+  const [hasAnnouncementsPermission, setHasAnnouncementsPermission] = useState(false);
+  const [hasQueuesPermission, setHasQueuesPermission] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [gsmNumber, setGsmNumber] = useState("");
   const [mobileTransferEnabled, setMobileTransferEnabled] = useState(false);
@@ -287,30 +292,45 @@ export default function Home() {
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
         const resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`);
         const statusData = await resStatus.json();
-        if (!statusData.is_logged_in) {
-          setHasOmnichannelPermission(true);
-          setHasContactsPermission(true);
-          setHasBlacklistPermission(true);
-          setHasMobileTransferPermission(true);
-          setHasReportsPermission(true);
-          return;
-        }
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
         const usersData = await resUsers.json();
-        setSystemUsers(usersData);
-        const currentUserData = usersData.find(u => u.id === statusData.user_id);
+        if (usersData) setSystemUsers(usersData);
+
+        let currentUserData = null;
+        if (statusData.is_logged_in && statusData.user_id) {
+          currentUserData = usersData.find(u => u.id === statusData.user_id);
+        }
+
         if (!currentUserData) {
+          const savedUserId = localStorage.getItem('current_user_id');
+          if (savedUserId) {
+            currentUserData = usersData.find(u => u.id === parseInt(savedUserId) || u.extension === savedUserId);
+          }
+        }
+
+        if (!currentUserData && usersData && usersData.length > 0) {
+          currentUserData = usersData[0]; // Default to first user if none found
+        }
+
+        if (!statusData.is_logged_in || !currentUserData) {
           setHasOmnichannelPermission(true);
           setHasContactsPermission(true);
           setHasBlacklistPermission(true);
           setHasMobileTransferPermission(true);
           setHasReportsPermission(true);
-          return;
+          setHasUsersPermission(true);
+          setHasAnnouncementsPermission(true);
+          setHasQueuesPermission(true);
         }
-        setCurrentUser(currentUserData);
-        if (currentUserData.avatar) {
-          setAgentAvatar(currentUserData.avatar);
+
+        if (currentUserData) {
+          setCurrentUser(currentUserData);
+          localStorage.setItem('current_user_id', currentUserData.extension || currentUserData.id);
+          if (currentUserData.avatar) {
+            setAgentAvatar(currentUserData.avatar);
+          }
         }
+
         if (currentUserData.theme_color) {
           const safeColor = getSafeThemeColor(currentUserData.theme_color);
           document.documentElement.style.setProperty("--color-primary", safeColor);
@@ -325,6 +345,9 @@ export default function Home() {
           setHasBlacklistPermission(true);
           setHasMobileTransferPermission(true);
           setHasReportsPermission(true);
+          setHasUsersPermission(true);
+          setHasAnnouncementsPermission(true);
+          setHasQueuesPermission(true);
           return;
         }
         setHasOmnichannelPermission(currentRole.permissions.includes("omnichannel:access"));
@@ -332,6 +355,9 @@ export default function Home() {
         setHasBlacklistPermission(currentRole.permissions.includes("blacklist:read"));
         setHasMobileTransferPermission(currentRole.permissions.includes("mobile_transfer:write"));
         setHasReportsPermission(currentRole.permissions.includes("reports:access"));
+        setHasUsersPermission(currentRole.permissions.includes("users:read"));
+        setHasAnnouncementsPermission(currentRole.permissions.includes("announcements:read"));
+        setHasQueuesPermission(currentRole.permissions.includes("acd_queues:read"));
       } catch (err) {
         console.error("Permission check error:", err);
         setHasOmnichannelPermission(true);
@@ -339,6 +365,9 @@ export default function Home() {
         setHasBlacklistPermission(true);
         setHasMobileTransferPermission(true);
         setHasReportsPermission(true);
+        setHasUsersPermission(true);
+        setHasAnnouncementsPermission(true);
+        setHasQueuesPermission(true);
       }
     };
     syncAgentPresence();
@@ -667,41 +696,47 @@ export default function Home() {
                 openCategories.pbxGroup ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
-              <button
-                onClick={() => setActiveTab("users")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "users"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <User size={16} className={activeTab === "users" ? "text-primary" : ""} />
-                <span>Kullanıcılar</span>
-              </button>
+              {hasUsersPermission && (
+                <button
+                  onClick={() => setActiveTab("users")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "users"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <User size={16} className={activeTab === "users" ? "text-primary" : ""} />
+                  <span>Kullanıcılar</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("announcements")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "announcements"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Volume2 size={16} className={activeTab === "announcements" ? "text-primary" : ""} />
-                <span>Anons Yönetimi</span>
-              </button>
+              {hasAnnouncementsPermission && (
+                <button
+                  onClick={() => setActiveTab("announcements")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "announcements"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Volume2 size={16} className={activeTab === "announcements" ? "text-primary" : ""} />
+                  <span>Anons Yönetimi</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("acd-queues")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "acd-queues"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Users size={16} className={activeTab === "acd-queues" ? "text-primary" : ""} />
-                <span>ACD Kuyruk</span>
-              </button>
+              {hasQueuesPermission && (
+                <button
+                  onClick={() => setActiveTab("acd-queues")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "acd-queues"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Users size={16} className={activeTab === "acd-queues" ? "text-primary" : ""} />
+                  <span>ACD Kuyruk</span>
+                </button>
+              )}
 
               <button
                 onClick={() => setActiveTab("auto-provision")}
@@ -1377,37 +1412,13 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-churn", "reports-competitor", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "conferences", "speed-dial", "event-logs"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-churn", "reports-competitor", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "conferences", "speed-dial", "event-logs", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           {activeTab === "call-center" && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full max-w-6xl">
-              <div className="lg:col-span-1 flex flex-col gap-6">
-                {/* Agent Break and Session Management Card */}
-                <AgentSessionCard backendHost={backendHost} />
-
-                {/* Stats Info Widget */}
-                <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
-                  <h4 className="font-bold text-xs text-slate-700 dark:text-slate-300 mb-3 flex items-center gap-2 uppercase tracking-wide">
-                    <TrendingUp size={14} className="text-primary dark:text-purple-400" />
-                    Bugünkü Çağrı İstatistikleri
-                  </h4>
-                  <div className="grid grid-cols-2 gap-3 text-center">
-                    <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/50 dark:border-slate-800">
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide">Yapay Zeka</p>
-                      <p className="text-xl font-extrabold text-slate-900 dark:text-white mt-1">24</p>
-                    </div>
-                    <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 rounded-xl border border-slate-200/50 dark:border-slate-800">
-                      <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide">Temsilciye</p>
-                      <p className="text-xl font-extrabold text-primary dark:text-amber-400 mt-1">5</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Transcript view Panel (2/3 width) */}
-              <div className="lg:col-span-2">
-                <TranscriptPanel callId={activeCallId} backendHost={backendHost} />
-              </div>
-            </div>
+            <AgentPanel 
+              backendHost={backendHost} 
+              currentUser={currentUser} 
+              activeCallId={activeCallId} 
+            />
           )}
 
           {activeTab === "settings" && (
@@ -1459,7 +1470,7 @@ export default function Home() {
           )}
 
           {activeTab === "event-logs" && (
-            renderPlaceholderSantral("Olay Günlükleri (Event Logs)", "Sistem, kullanıcı işlemleri ve çağrı yönlendirme olaylarına ait detaylı olay geçmişi log kayıtları.", FileText)
+            <EventLogsPanel backendHost={backendHost} />
           )}
 
           {activeTab === "rag-kb" && (

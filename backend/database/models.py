@@ -99,7 +99,14 @@ class ChatMessage(Base):
 
     session = relationship("ChatSession", back_populates="messages")
 
+class InternalChatMessage(Base):
+    __tablename__ = "internal_chat_messages"
 
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    sender_id = Column(String, nullable=False, index=True) # extension or username
+    receiver_id = Column(String, nullable=False, index=True) # extension, username or 'broadcast'
+    text = Column(Text, nullable=False)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 class Contact(Base):
     __tablename__ = "contacts"
 
@@ -145,3 +152,15 @@ class QAQuestion(Base):
     question = Column(String, nullable=False)
     max_score = Column(Integer, default=10)
     is_active = Column(Boolean, default=True)
+
+
+class EventLog(Base):
+    __tablename__ = "event_logs"
+
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    user_id = Column(String, nullable=True)  # Who did the action
+    action = Column(String, nullable=False)  # e.g., UPDATE_USER, DELETE_QUEUE
+    module = Column(String, nullable=False)  # e.g., Users, Queues, System
+    details = Column(Text, nullable=True)    # JSON string of the changes
+    ip_address = Column(String, nullable=True)

@@ -10,6 +10,7 @@ const SYSTEM_FEATURES = [
   { id: "users", name: "Kullanıcı Yönetimi", icon: User, type: "crud", color: "blue" },
   { id: "roles", name: "Rol Tanımları", icon: Shield, type: "crud", color: "purple" },
   { id: "call_panel", name: "Çağrı Paneli", icon: Coffee, type: "access", color: "emerald" },
+  { id: "call_panel:listen_records", name: "Temsilci Paneli Ses Kaydı Dinleme", icon: Volume2, type: "access", color: "emerald" },
   { id: "logs", name: "Sistem Logları", icon: Terminal, type: "access", color: "cyan" },
   { id: "storage", name: "Recording/NAS Depolama", icon: HardDrive, type: "access", color: "rose" },
   { id: "transcripts", name: "Maskesiz Görüşme Metinleri Yetkisi", icon: Terminal, type: "access", color: "orange" },
@@ -31,7 +32,11 @@ const SYSTEM_FEATURES = [
   { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" },
   { id: "announcements", name: "Anons Yönetimi", icon: Volume2, type: "crud", color: "pink" },
   { id: "reports", name: "Gelişmiş Çağrı Raporları ve KPI Panosu", icon: FileText, type: "access", color: "purple" },
-  { id: "autoprovision", name: "Otoprovizyon", icon: Smartphone, type: "crud", color: "indigo" }
+  { id: "autoprovision", name: "Otoprovizyon", icon: Smartphone, type: "crud", color: "indigo" },
+  { id: "acd_queues", name: "ACD Kuyruk Yönetimi", icon: Users, type: "crud", color: "blue" },
+  { id: "trunks", name: "Santral Dış Hatları (Trunks)", icon: Cable, type: "crud", color: "indigo" },
+  { id: "inbound_rules", name: "Gelen Arama Kuralları", icon: PhoneCall, type: "crud", color: "pink" },
+  { id: "call_pickup_groups", name: "Çağrı Toplama Grupları", icon: Users, type: "crud", color: "blue" }
 ];
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {

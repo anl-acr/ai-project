@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { LogIn, LogOut, Coffee, ShieldAlert, UserCheck, Play, ChevronDown, ChevronUp, User } from "lucide-react";
 
-export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
+export default function AgentSessionCard({ backendHost = "localhost:8000", currentUser }) {
   const [agentState, setAgentState] = useState({
     is_logged_in: false,
     status: "offline",
@@ -12,7 +12,6 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
   const [breaks, setBreaks] = useState([]);
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
-  const [selectedUser, setSelectedUser] = useState(null);
 
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -73,12 +72,12 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
   };
 
   const handleLogin = () => {
-    if (!selectedUser) return;
+    if (!currentUser) return;
     const newState = {
       is_logged_in: true,
       status: "online",
       current_break: null,
-      user_id: selectedUser.id
+      user_id: currentUser.id
     };
     updateStateOnBackend(newState);
   };
@@ -91,7 +90,6 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
       user_id: null
     };
     updateStateOnBackend(newState);
-    setSelectedUser(null);
     setShowDropdown(false);
   };
 
@@ -197,27 +195,11 @@ export default function AgentSessionCard({ backendHost = "localhost:8000" }) {
           {/* OFFLINE: User select and Login Button */}
           {!agentState.is_logged_in && (
             <div className="space-y-2.5">
-              <div className="relative">
-                <select
-                  value={selectedUser ? selectedUser.id : ""}
-                  onChange={(e) => {
-                    const u = users.find(usr => usr.id === Number(e.target.value));
-                    setSelectedUser(u);
-                  }}
-                  className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500/20 transition-all font-semibold"
-                >
-                  <option value="">Giriş Yapacak Temsilciyi Seçin...</option>
-                  {users.filter(u => u.is_active).map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.full_name} ({u.extension})
-                    </option>
-                  ))}
-                </select>
-              </div>
+
 
               <button
                 onClick={handleLogin}
-                disabled={!selectedUser}
+                disabled={!currentUser || loading}
                 className="w-full flex items-center justify-center gap-2 py-3 bg-primary hover:bg-primary disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-indigo-500/10"
               >
                 <LogIn size={15} />

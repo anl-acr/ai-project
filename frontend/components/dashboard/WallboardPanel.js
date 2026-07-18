@@ -120,7 +120,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
   const checkAccess = async () => {
     try {
-      const resStatus = await fetch(`${API_BASE}/api/agent/status`);
+      const resStatus = await fetch(`${API_BASE}/api/agent/status`, { cache: 'no-store' });
       const statusData = await resStatus.json();
       if (!statusData.is_logged_in) {
         setAuthorized(true); // Allow guest/admin by default
@@ -187,10 +187,45 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
   const fetchActiveCalls = async () => {
     try {
-      const res = await fetch(`${API_BASE}/api/calls/active`);
+      const res = await fetch(`${API_BASE}/api/calls/active`, { cache: 'no-store' });
       const data = await res.json();
       if (Array.isArray(data)) {
         setActiveCallsCount(data.length);
+      }
+
+      // Gerçek Temsilci Durumunu Senkronize Et
+      const resStatus = await fetch(`${API_BASE}/api/agent/status`, { cache: 'no-store' });
+      const statusData = await resStatus.json();
+      
+      if (statusData && statusData.user_id) {
+        setAgentsState(prev => {
+          const updated = { ...prev };
+          let realStatus = "Çevrimdışı";
+          let breakType = null;
+          let breakColor = null;
+
+          if (statusData.is_logged_in) {
+            if (statusData.status === "online") {
+              realStatus = "Müsait";
+            } else if (statusData.status === "break") {
+              realStatus = "Molada";
+              breakType = statusData.current_break?.name || "Mola";
+              breakColor = statusData.current_break?.color || "#f97316";
+            }
+          }
+          
+          if (updated[statusData.user_id]?.status !== "Görüşmede" || realStatus === "Molada" || realStatus === "Çevrimdışı") {
+            updated[statusData.user_id] = {
+                ...updated[statusData.user_id],
+                status: realStatus,
+                breakType: breakType,
+                breakColor: breakColor,
+                duration: realStatus === "Molada" || realStatus === "Çevrimdışı" ? 0 : updated[statusData.user_id]?.duration
+            };
+          }
+
+          return updated;
+        });
       }
     } catch (err) {
       console.error("Wallboard active calls poll error:", err);
