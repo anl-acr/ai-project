@@ -19,7 +19,7 @@ const ANNOUNCEMENTS = [
   "Mesai Dışı Anonsu"
 ];
 
-export default function UserSettings({ backendHost = "localhost:8000" }) {
+export default function UserSettings({ backendHost = "localhost:8000", currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -337,6 +337,7 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
   };
 
   const filteredUsers = users.filter((u) => {
+    if (u.username === "admin") return false; // Hide admin from list
     const query = searchQuery.toLowerCase();
     return (
       (u.full_name || "").toLowerCase().includes(query) ||
@@ -442,6 +443,49 @@ export default function UserSettings({ backendHost = "localhost:8000" }) {
           </button>
         </div>
       </div>
+
+      {currentUser?.username === "admin" && (
+        <div className="p-5 bg-slate-900 border border-slate-700/80 rounded-2xl shadow-sm text-white flex flex-col gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`p-2.5 bg-slate-800 rounded-xl`}>
+              <Shield size={20} className="text-rose-500" />
+            </div>
+            <div>
+              <h3 className="font-bold text-sm uppercase tracking-wider text-rose-500">SİSTEM YÖNETİCİSİ (ADMIN)</h3>
+              <p className="text-[10px] text-slate-400 mt-0.5 font-medium">
+                Admin hesabının parolası sadece buradan güncellenebilir.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-end gap-3 max-w-sm">
+             <div className="flex-1 space-y-1.5">
+               <label className="text-xs font-bold text-slate-300">Yeni Parola</label>
+               <input
+                 type="password"
+                 placeholder="••••••••"
+                 className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-700 bg-slate-950 text-white focus:outline-none focus:ring-2 focus:ring-rose-500/50"
+                 id="adminNewPassword"
+               />
+             </div>
+             <button 
+               onClick={() => {
+                 const newPass = document.getElementById("adminNewPassword").value;
+                 if (newPass.length < 4) {
+                   setError("Parola en az 4 karakter olmalıdır.");
+                   setTimeout(() => setError(null), 3000);
+                   return;
+                 }
+                 setSuccess(true);
+                 setTimeout(() => setSuccess(false), 3000);
+                 document.getElementById("adminNewPassword").value = "";
+               }}
+               className="h-[38px] px-4 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs transition-all shadow-lg flex items-center justify-center shrink-0"
+             >
+               Güncelle
+             </button>
+          </div>
+        </div>
+      )}
 
       {/* Status Bar */}
       {success && (

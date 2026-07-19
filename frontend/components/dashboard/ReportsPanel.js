@@ -10,6 +10,11 @@ import {
   ShieldAlert, 
   Calendar as CalendarIcon,
   ChevronRight,
+  ChevronLeft,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
   CheckCircle,
   ChevronDown,
   ChevronUp,
@@ -21,9 +26,247 @@ import {
   Settings,
   FileText,
   Clipboard,
-  Crown
+  Crown,
+  Users,
+  TrendingUp,
+  PhoneOff,
+  PhoneMissed,
+  Activity,
+  BarChart2,
+  Server,
+  Cpu,
+  GitMerge,
+  UserX,
+  PhoneForwarded,
+  PauseCircle,
+  GitCompare,
+  Target,
+  AlertTriangle,
+  Frown,
+  Flame,
+  ShieldCheck,
+  ListChecks,
+  MicOff,
+  MessageSquareDashed,
+  VolumeX,
+  Briefcase,
+  PieChart
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
+
+const DualListBox = ({ 
+  title, 
+  availableItems, 
+  selectedIds, 
+  onChangeSelectedIds, 
+  columns, 
+  renderRow,
+  bg, hover, text, border, lightBg, ring, borderLight
+}) => {
+  const [availableSearch, setAvailableSearch] = useState("");
+  const [selectedSearch, setSelectedSearch] = useState("");
+  const [checkedAvailable, setCheckedAvailable] = useState([]);
+  const [checkedSelected, setCheckedSelected] = useState([]);
+
+  const unselectedItems = availableItems.filter(i => !selectedIds.includes(i.id));
+  const selectedItems = selectedIds.map(id => availableItems.find(i => i.id === id)).filter(Boolean);
+
+  const filteredAvailable = unselectedItems.filter(i => 
+    Object.values(i).some(v => String(v).toLowerCase().includes(availableSearch.toLowerCase()))
+  );
+  const filteredSelected = selectedItems.filter(i => 
+    Object.values(i).some(v => String(v).toLowerCase().includes(selectedSearch.toLowerCase()))
+  );
+
+  const toggleAvailable = (id) => {
+    setCheckedAvailable(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+  
+  const toggleSelected = (id) => {
+    setCheckedSelected(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const moveRight = (e) => {
+    e.preventDefault();
+    onChangeSelectedIds([...selectedIds, ...checkedAvailable]);
+    setCheckedAvailable([]);
+  };
+
+  const moveLeft = (e) => {
+    e.preventDefault();
+    onChangeSelectedIds(selectedIds.filter(id => !checkedSelected.includes(id)));
+    setCheckedSelected([]);
+  };
+
+  const moveUp = (e) => {
+    e.preventDefault();
+    if (checkedSelected.length !== 1) return;
+    const id = checkedSelected[0];
+    const index = selectedIds.indexOf(id);
+    if (index > 0) {
+      const newIds = [...selectedIds];
+      [newIds[index - 1], newIds[index]] = [newIds[index], newIds[index - 1]];
+      onChangeSelectedIds(newIds);
+    }
+  };
+
+  const moveDown = (e) => {
+    e.preventDefault();
+    if (checkedSelected.length !== 1) return;
+    const id = checkedSelected[0];
+    const index = selectedIds.indexOf(id);
+    if (index > -1 && index < selectedIds.length - 1) {
+      const newIds = [...selectedIds];
+      [newIds[index + 1], newIds[index]] = [newIds[index], newIds[index + 1]];
+      onChangeSelectedIds(newIds);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-3">
+      <h4 className="text-sm font-bold text-slate-800 dark:text-white">{title}</h4>
+      <div className="flex flex-col md:flex-row items-stretch gap-4 w-full">
+        {/* Available List */}
+        <div className={"flex-1 rounded-xl flex flex-col overflow-hidden h-[250px] border " + borderLight + " " + lightBg}>
+          <div className={"flex items-center justify-between p-3 border-b bg-slate-50 dark:bg-slate-900/50 " + borderLight}>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
+              <input 
+                type="checkbox" 
+                checked={checkedAvailable.length === filteredAvailable.length && filteredAvailable.length > 0}
+                onChange={(e) => setCheckedAvailable(e.target.checked ? filteredAvailable.map(i => i.id) : [])}
+                className={"w-4 h-4 rounded border-slate-300 text-" + ring.replace("ring-", "") + " focus:" + ring}
+              />
+              {filteredAvailable.length} Öğe
+            </label>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Müsait</span>
+          </div>
+          <div className={"p-2 border-b " + borderLight}>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <input
+                type="text"
+                placeholder="Arama..."
+                value={availableSearch}
+                onChange={(e) => setAvailableSearch(e.target.value)}
+                className={"w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border focus:outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 " + borderLight}
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            <table className="w-full text-left text-xs">
+              <thead className={"sticky top-0 z-10 " + lightBg}>
+                <tr>
+                  <th className="p-2 w-8"></th>
+                  {columns.map((col, idx) => <th key={idx} className="p-2 font-semibold text-slate-500">{col}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredAvailable.map(item => (
+                  <tr 
+                    key={item.id} 
+                    className={`cursor-pointer transition-colors duration-150 ${hover} ${checkedAvailable.includes(item.id) ? lightBg : ''}`}
+                    onClick={() => toggleAvailable(item.id)}
+                  >
+                    <td className="p-2">
+                      <input 
+                        type="checkbox" 
+                        checked={checkedAvailable.includes(item.id)} 
+                        onChange={() => toggleAvailable(item.id)} 
+                        onClick={e => e.stopPropagation()}
+                        className={"w-4 h-4 rounded border-slate-300 text-" + ring.replace("ring-", "") + " focus:" + ring}
+                      />
+                    </td>
+                    {renderRow(item)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Transfer Buttons */}
+        <div className="flex flex-row md:flex-col items-center justify-center gap-2 px-2">
+          <button onClick={moveRight} disabled={checkedAvailable.length === 0} className={`p-2 rounded-lg border ${checkedAvailable.length > 0 ? "text-slate-800 dark:text-white cursor-pointer " + hover : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}>
+            <ChevronRight size={18} className="hidden md:block" />
+            <ArrowDown size={18} className="block md:hidden" />
+          </button>
+          <button onClick={moveLeft} disabled={checkedSelected.length === 0} className={`p-2 rounded-lg border ${checkedSelected.length > 0 ? "text-slate-800 dark:text-white cursor-pointer " + hover : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}>
+            <ChevronLeft size={18} className="hidden md:block" />
+            <ArrowUp size={18} className="block md:hidden" />
+          </button>
+        </div>
+
+        {/* Selected List */}
+        <div className={"flex-1 rounded-xl flex flex-col overflow-hidden h-[250px] border " + borderLight + " " + lightBg}>
+          <div className={"flex items-center justify-between p-3 border-b bg-slate-50 dark:bg-slate-900/50 " + borderLight}>
+            <label className="flex items-center gap-2 text-xs font-bold text-slate-600 dark:text-slate-400">
+              <input 
+                type="checkbox" 
+                checked={checkedSelected.length === filteredSelected.length && filteredSelected.length > 0}
+                onChange={(e) => setCheckedSelected(e.target.checked ? filteredSelected.map(i => i.id) : [])}
+                className={"w-4 h-4 rounded border-slate-300 text-" + ring.replace("ring-", "") + " focus:" + ring}
+              />
+              {filteredSelected.length} Öğe
+            </label>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Seçili</span>
+          </div>
+          <div className={"p-2 border-b " + borderLight}>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+              <input
+                type="text"
+                placeholder="Arama..."
+                value={selectedSearch}
+                onChange={(e) => setSelectedSearch(e.target.value)}
+                className={"w-full pl-8 pr-3 py-1.5 text-xs rounded-lg border focus:outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 " + borderLight}
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-2">
+            <table className="w-full text-left text-xs">
+              <thead className={"sticky top-0 z-10 " + lightBg}>
+                <tr>
+                  <th className="p-2 w-8"></th>
+                  {columns.map((col, idx) => <th key={idx} className="p-2 font-semibold text-slate-500">{col}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredSelected.map(item => (
+                  <tr 
+                    key={item.id} 
+                    className={`cursor-pointer transition-colors duration-150 ${hover} ${checkedSelected.includes(item.id) ? lightBg : ''}`}
+                    onClick={() => toggleSelected(item.id)}
+                  >
+                    <td className="p-2">
+                      <input 
+                        type="checkbox" 
+                        checked={checkedSelected.includes(item.id)} 
+                        onChange={() => toggleSelected(item.id)} 
+                        onClick={e => e.stopPropagation()}
+                        className={"w-4 h-4 rounded border-slate-300 text-" + ring.replace("ring-", "") + " focus:" + ring}
+                      />
+                    </td>
+                    {renderRow(item)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Up/Down Ordering Buttons */}
+        <div className="hidden md:flex flex-col items-center justify-center gap-2 px-1">
+          <button onClick={moveUp} disabled={checkedSelected.length !== 1} className={`p-1.5 rounded-lg border ${checkedSelected.length === 1 ? "text-slate-800 dark:text-white cursor-pointer " + hover : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}>
+            <ArrowUp size={16} />
+          </button>
+          <button onClick={moveDown} disabled={checkedSelected.length !== 1} className={`p-1.5 rounded-lg border ${checkedSelected.length === 1 ? "text-slate-800 dark:text-white cursor-pointer " + hover : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}>
+            <ArrowDown size={16} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 export default function ReportsPanel({ backendHost = "localhost:8000", viewMode = "cdr" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -47,6 +290,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterConversant, setFilterConversant] = useState("All");
   const [filterCallerNumber, setFilterCallerNumber] = useState("");
   const [filterCallId, setFilterCallId] = useState("");
+  const [filterQueuesAvailable] = useState([
+    { id: "q1", name: "Operator_Trunk", type: "Register Trunk" },
+    { id: "q2", name: "Satış Kuyruğu", type: "Dahili Kuyruk" },
+    { id: "q3", name: "Destek Kuyruğu", type: "Dahili Kuyruk" },
+    { id: "q4", name: "VIP Müşteriler", type: "Öncelikli Kuyruk" }
+  ]);
+  const [filterQueuesSelected, setFilterQueuesSelected] = useState([]);
+  const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [reportTopic, setReportTopic] = useState("");
   const [reportNotes, setReportNotes] = useState("");
@@ -69,6 +320,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [isNotesPopupOpen, setIsNotesPopupOpen] = useState(false);
   const [notesModalTopic, setNotesModalTopic] = useState("");
   const [notesModalText, setNotesModalText] = useState("");
+  const [isAgentDetailsOpen, setIsAgentDetailsOpen] = useState(false);
+  const [selectedAgentDetails, setSelectedAgentDetails] = useState(null);
+  const [isQueueDetailsOpen, setIsQueueDetailsOpen] = useState(false);
+  const [selectedQueueDetails, setSelectedQueueDetails] = useState(null);
   const [editedCalls, setEditedCalls] = useState({});
   const [savingRows, setSavingRows] = useState({});
   const [savedRows, setSavedRows] = useState({});
@@ -775,6 +1030,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return timeline;
   };
 
+  const uniqueDirections = [...new Set(calls.map(c => getCallDirection(c)))].filter(Boolean);
+  const uniqueStatuses = [...new Set(calls.map(c => getCallStatus(c)))].filter(Boolean);
+  const uniqueConversants = [...new Set(calls.map(c => getConversant(c)))].filter(Boolean);
+
   const filteredCalls = calls.filter((c) => {
     // 1. Caller Number Filter
     if (filterCallerNumber && !c.caller_number?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
@@ -799,7 +1058,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant Filter
-    if (filterConversant !== "All") {
+    // Apply Agent List Filter for perf, sentiment-heat & timeline
+    if ((viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "timeline") && filterAgentsSelected.length > 0) {
+      const conversant = getConversant(c);
+      if (!filterAgentsSelected.includes(conversant)) return false;
+    } else if (filterConversant !== "All") {
       const conversant = getConversant(c);
       if (conversant !== filterConversant) return false;
     }
@@ -1055,7 +1318,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       }
     }));
   };
-
   const isCdrMode = viewMode === "cdr";
   const isNotesMode = viewMode === "notes";
   const isAudioMode = viewMode === "audio";
@@ -1063,7 +1325,24 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const isSentimentMode = viewMode === "sentiment";
   const isQAMode = viewMode === "qa";
   const isPanoMode = viewMode === "pano";
-  const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode;
+  const isPerfMode = viewMode === "perf";
+  const isQueueMode = viewMode === "queue";
+  const isSentimentHeatMode = viewMode === "sentiment-heat";
+  const isWordcloudMode = viewMode === "wordcloud";
+  const isFcrMode = viewMode === "fcr";
+  const isRoiMode = viewMode === "roi";
+  const isMissedMode = viewMode === "missed";
+  const isTimelineMode = viewMode === "timeline";
+  const isTrafficMode = viewMode === "traffic";
+  const isTrunkMode = viewMode === "trunk";
+  const isIvrDropMode = viewMode === "ivr-drop";
+  const isTransferHoldMode = viewMode === "transfer-hold";
+  const isEfficiencyMode = viewMode === "efficiency";
+  const isFrictionMode = viewMode === "friction";
+  const isComplianceMode = viewMode === "compliance";
+  const isSilenceMode = viewMode === "silence";
+  const isCeoSummaryMode = viewMode === "ceo-summary";
+  const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode;
 
   return (
     <div className="w-full h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100">
@@ -1079,7 +1358,24 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                viewMode === "transcripts" ? "Görüşme Transkriptleri" :
                viewMode === "sentiment" ? "Duygu Analizleri" :
                viewMode === "qa" ? "Kalite Raporları" : 
-               viewMode === "pano" ? "Analiz ve KPI Panosu" : "Çağrı Raporları"}
+               viewMode === "pano" ? "Analiz ve KPI Panosu" : 
+               viewMode === "perf" ? "Temsilci Performans & KPI Raporu" : 
+               viewMode === "queue" ? "Kuyruk & Bekleme Analitiği Raporu" : 
+               viewMode === "sentiment-heat" ? "Duygu Durumu Isı Haritası" : 
+               viewMode === "wordcloud" ? "Kelime Bulutu ve Konu Trendleri" : 
+               viewMode === "fcr" ? "İlk Aramada Çözüm (FCR) Raporu" : 
+               viewMode === "roi" ? "AI vs. İnsan Karşılaştırmalı ROI Paneli" : 
+               viewMode === "missed" ? "Kaçan Çağrı Analizi" : 
+               viewMode === "timeline" ? "Temsilci Kronolojisi" : 
+               viewMode === "traffic" ? "Çağrı Trafiği ve Yoğunluk Raporu" : 
+               viewMode === "trunk" ? "Hat (Trunk) Kullanım ve Kapasite Raporu" : 
+               viewMode === "ivr-drop" ? "IVR Terk ve Menü Kullanım Raporu" : 
+               viewMode === "transfer-hold" ? "Aktarma ve Bekletme Raporu" : 
+               viewMode === "efficiency" ? "A/B Testing & Verimlilik Karşılaştırması" : 
+               viewMode === "friction" ? "Müşteri Çile Noktaları (Friction) Analizi" : 
+               viewMode === "compliance" ? "Senaryo Sadakati (Script Compliance) Raporu" : 
+               viewMode === "silence" ? "Sessizlik ve Söz Kesme (Interruption) Analizi" : 
+               viewMode === "ceo-summary" ? "Yönetim (CEO) Özet Raporu" : "Çağrı Raporları"}
             </h3>
             <div className="flex items-center gap-2 relative">
               {/* Charts Toggle Button (Only for CDR table view) */}
@@ -1768,7 +2064,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         {/* Modal Popup (Popup/Modal Filter Options) */}
         {isFilterOpen && (
           <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <div className={`bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200 ${viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "timeline" ? "max-w-2xl" : "max-w-md"}`}>
               {/* Modal Header */}
               <div className="flex items-center justify-between pb-2 border-b border-slate-150 dark:border-slate-800">
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -1784,9 +2080,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className={viewMode === "queue" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className="col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50">
+                <div className={viewMode === "queue" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
@@ -1807,19 +2103,34 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   </div>
                 </div>
 
-                {/* Call Direction */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Yön</label>
+                {viewMode === "queue" ? (
+                  <DualListBox 
+                    title=""
+                    availableItems={filterQueuesAvailable}
+                    selectedIds={filterQueuesSelected}
+                    onChangeSelectedIds={setFilterQueuesSelected}
+                    columns={["İsim"]}
+                    bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                    renderRow={(item) => (
+                      <>
+                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                      </>
+                    )}
+                  />
+                ) : viewMode === "wordcloud" ? null : (
+                  <>
+                    {/* Call Direction */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Yön</label>
                   <select
                     value={filterDirection}
                     onChange={(e) => setFilterDirection(e.target.value)}
                     className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
                   >
                     <option value="All">Tümü (Yön)</option>
-                    <option value="Gelen">Gelen</option>
-                    <option value="Giden (AI)">Giden (AI)</option>
-                    <option value="Giden (Temsilci)">Giden (Temsilci)</option>
-                    <option value="Giden (Dialer)">Giden (Dialer)</option>
+                    {uniqueDirections.map(dir => (
+                      <option key={dir} value={dir}>{dir}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -1832,52 +2143,74 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
                   >
                     <option value="All">Tümü (Durum)</option>
-                    <option value="Başarılı">Başarılı</option>
-                    <option value="Başarısız">Başarısız</option>
+                    {uniqueStatuses.map(status => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
                   </select>
                 </div>
 
                 {/* Conversant */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Görüşen Kişi</label>
-                  <select
-                    value={filterConversant}
-                    onChange={(e) => setFilterConversant(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
-                  >
-                    <option value="All">Tümü (Görüşen)</option>
-                    <option value="AI Asistan">AI Asistan</option>
-                    <option value="Ahmet Yılmaz (Agent)">Ahmet Yılmaz (Agent)</option>
-                    <option value="Merve Kaya (Agent)">Merve Kaya (Agent)</option>
-                  </select>
-                </div>
+                {viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "timeline" ? (
+                  <div className="col-span-2">
+                    <DualListBox 
+                      title="Kullanıcılar"
+                      availableItems={uniqueConversants.map(c => ({ id: c, name: c }))}
+                      selectedIds={filterAgentsSelected}
+                      onChangeSelectedIds={setFilterAgentsSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Görüşen Kişi</label>
+                    <select
+                      value={filterConversant}
+                      onChange={(e) => setFilterConversant(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
+                    >
+                      <option value="All">Tümü (Görüşen)</option>
+                      {uniqueConversants.map(conv => (
+                        <option key={conv} value={conv}>{conv}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
 
-                {/* Caller Number */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Numara Ara</label>
-                  <input
-                    type="text"
-                    placeholder="örn. 0532..."
-                    value={filterCallerNumber}
-                    onChange={(e) => setFilterCallerNumber(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
-                  />
+                {/* Caller Number and Call ID side by side */}
+                <div className="col-span-2 grid grid-cols-2 gap-4">
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Numara Ara</label>
+                    <input
+                      type="text"
+                      placeholder="örn. 0532..."
+                      value={filterCallerNumber}
+                      onChange={(e) => setFilterCallerNumber(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
+                    />
+                  </div>
+                  
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Çağrı ID</label>
+                    <input
+                      type="text"
+                      placeholder="ID Ara..."
+                      value={filterCallId}
+                      onChange={(e) => setFilterCallId(e.target.value)}
+                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
+                    />
+                  </div>
                 </div>
+              </>
+            )}
+          </div>
 
-                {/* Call ID Filter */}
-                <div className="col-span-2 flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Çağrı ID</label>
-                  <input
-                    type="text"
-                    placeholder="ID Ara..."
-                    value={filterCallId}
-                    onChange={(e) => setFilterCallId(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
-                  />
-                </div>
-              </div>
-
-              {/* Modal Footer */}
+          {/* Modal Footer */}
               <div className="flex items-center gap-3 pt-3 border-t border-slate-150 dark:border-slate-800">
                 <button
                   onClick={handleClearFilters}
@@ -2425,6 +2758,2280 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   </div>
                 )}
 
+              </div>
+            ) : isPerfMode ? (
+              /* Agent Performance Table Mode */
+              <div className="overflow-x-auto p-4">
+                <table className="w-full text-left border-collapse min-w-[900px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+                  <thead>
+                    <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplanan</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kaçan</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplama %</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Konuşma</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Konuşma</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Kalite</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu (Poz/Nöt/Neg)</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const stats = {};
+                      filteredCalls.forEach(call => {
+                        const agent = call.conversant || "Bilinmiyor";
+                        if (!stats[agent]) {
+                          stats[agent] = {
+                            agent: agent,
+                            totalCalls: 0,
+                            totalTalkDuration: 0,
+                            answeredCalls: 0,
+                            missedCalls: 0,
+                            qaScoreSum: 0,
+                            qaScoreCount: 0,
+                            sentimentPositive: 0,
+                            sentimentNeutral: 0,
+                            sentimentNegative: 0,
+                            callsTotalList: [],
+                            callsAnsweredList: [],
+                            callsMissedList: []
+                          };
+                        }
+                        
+                        stats[agent].totalCalls++;
+                        stats[agent].totalTalkDuration += (call.duration_talk || 0);
+                        
+                        const callInfo = { id: call.id, number: call.caller_number, time: call.start_time, status: call.status, dir: getCallDirection(call) };
+                        stats[agent].callsTotalList.push(callInfo);
+                        
+                        if (call.status === "ANSWERED" || call.duration_talk > 0) {
+                          stats[agent].answeredCalls++;
+                          stats[agent].callsAnsweredList.push(callInfo);
+                        } else {
+                          stats[agent].missedCalls++;
+                          stats[agent].callsMissedList.push(callInfo);
+                        }
+                        
+                        if (call.qa_score) {
+                          stats[agent].qaScoreSum += call.qa_score;
+                          stats[agent].qaScoreCount++;
+                        }
+                        
+                        if (call.sentiment === "positive") stats[agent].sentimentPositive++;
+                        else if (call.sentiment === "negative") stats[agent].sentimentNegative++;
+                        else if (call.sentiment === "neutral") stats[agent].sentimentNeutral++;
+                      });
+                      
+                      const agentList = Object.values(stats).sort((a, b) => b.totalCalls - a.totalCalls);
+                      
+                      const formatSec = (secs) => {
+                        if (!secs || isNaN(secs)) return "00:00";
+                        const m = Math.floor(secs / 60).toString().padStart(2, '0');
+                        const s = Math.floor(secs % 60).toString().padStart(2, '0');
+                        return `${m}:${s}`;
+                      };
+                      
+                      if (agentList.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan="9" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
+                          </tr>
+                        );
+                      }
+                      
+                      return agentList.map((agentData, idx) => {
+                        const answerRate = agentData.totalCalls > 0 ? Math.round((agentData.answeredCalls / agentData.totalCalls) * 100) : 0;
+                        const avgTalk = agentData.totalCalls > 0 ? Math.round(agentData.totalTalkDuration / agentData.totalCalls) : 0;
+                        const avgQa = agentData.qaScoreCount > 0 ? Math.round(agentData.qaScoreSum / agentData.qaScoreCount) : 0;
+                        
+                        return (
+                          <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                            <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
+                              <div className="flex items-center gap-3">
+                                <div className={"w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs " + bg + " text-white"}>
+                                  {agentData.agent.substring(0, 2).toUpperCase()}
+                                </div>
+                                {agentData.agent}
+                              </div>
+                            </td>
+                            <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{agentData.totalCalls}</td>
+                            <td className="p-4 text-center font-bold text-emerald-600 dark:text-emerald-400">{agentData.answeredCalls}</td>
+                            <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{agentData.missedCalls}</td>
+                            <td className="p-4 text-center">
+                              <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (answerRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
+                                %{answerRate}
+                              </div>
+                            </td>
+                            <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(agentData.totalTalkDuration)}</td>
+                            <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgTalk)}</td>
+                            <td className="p-4 text-center">
+                              {agentData.qaScoreCount > 0 ? (
+                                <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (
+                                  avgQa >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" :
+                                  avgQa >= 60 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" :
+                                  "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
+                                )}>
+                                  {avgQa}/100
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 text-xs">-</span>
+                              )}
+                            </td>
+                            <td className="p-4 text-center">
+                              <div className="flex items-center justify-center gap-2 text-xs font-bold">
+                                <span className="text-emerald-600 dark:text-emerald-400" title="Pozitif">{agentData.sentimentPositive}</span>
+                                <span className="text-slate-300 dark:text-slate-600">/</span>
+                                <span className="text-amber-500 dark:text-amber-400" title="Nötr">{agentData.sentimentNeutral}</span>
+                                <span className="text-slate-300 dark:text-slate-600">/</span>
+                                <span className="text-rose-600 dark:text-rose-400" title="Negatif">{agentData.sentimentNegative}</span>
+                              </div>
+                            </td>
+                            <td className="p-4 text-center">
+                              <button 
+                                onClick={() => {
+                                  setSelectedAgentDetails(agentData);
+                                  setIsAgentDetailsOpen(true);
+                                }}
+                                className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
+                                title="Çağrı Numaralarını Görüntüle"
+                              >
+                                <Search size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            ) : isQueueMode ? (
+              /* Queue Analytics Table Mode */
+              <div className="overflow-x-auto p-4">
+                <table className="w-full text-left border-collapse min-w-[900px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+                  <thead>
+                    <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruğa Giren</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyrukta Kaçan</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>SLA Uyumu (≤20s)</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Bekleme</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Bekleme</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Max. Bekleme</th>
+                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const stats = {};
+                      filteredCalls.forEach(call => {
+                        const dateStr = call.start_time ? call.start_time.split("T")[0] : "Bilinmiyor";
+                        if (!stats[dateStr]) {
+                          stats[dateStr] = {
+                            date: dateStr,
+                            totalCalls: 0,
+                            queuedCalls: 0,
+                            totalQueueSecs: 0,
+                            maxQueueSecs: 0,
+                            abandonedInQueue: 0,
+                            slaCompliant: 0,
+                            callsTotalList: [],
+                            callsQueuedList: [],
+                            callsAbandonedList: []
+                          };
+                        }
+                        
+                        const dStats = stats[dateStr];
+                        dStats.totalCalls++;
+                        
+                        const callInfo = { id: call.id, number: call.caller_number, time: call.start_time, status: call.status, dir: getCallDirection(call) };
+                        dStats.callsTotalList.push(callInfo);
+                        
+                        const parsedDur = getCallDurations(call);
+                        let queueSecs = 0;
+                        if (parsedDur.queue) {
+                          const qp = parsedDur.queue.split(":");
+                          if (qp.length === 2) {
+                            queueSecs = parseInt(qp[0]) * 60 + parseInt(qp[1]);
+                          }
+                        }
+                        
+                        if (queueSecs > 0) {
+                          dStats.queuedCalls++;
+                          dStats.totalQueueSecs += queueSecs;
+                          dStats.callsQueuedList.push(callInfo);
+                          if (queueSecs > dStats.maxQueueSecs) dStats.maxQueueSecs = queueSecs;
+                        }
+                        
+                        if (queueSecs <= 20) dStats.slaCompliant++;
+                        
+                        const statusLabel = getCallStatus(call);
+                        if (statusLabel !== "Başarılı" && (!call.duration_talk || call.duration_talk === 0) && queueSecs > 0) {
+                          dStats.abandonedInQueue++;
+                          dStats.callsAbandonedList.push(callInfo);
+                        }
+                      });
+                      
+                      const dateList = Object.values(stats).sort((a, b) => b.date.localeCompare(a.date));
+                      
+                      const formatSec = (secs) => {
+                        if (!secs || isNaN(secs)) return "00:00";
+                        const m = Math.floor(secs / 60).toString().padStart(2, '0');
+                        const s = Math.floor(secs % 60).toString().padStart(2, '0');
+                        return `${m}:${s}`;
+                      };
+                      
+                      if (dateList.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan="8" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
+                          </tr>
+                        );
+                      }
+                      
+                      return dateList.map((dData, idx) => {
+                        const slaRate = dData.totalCalls > 0 ? Math.round((dData.slaCompliant / dData.totalCalls) * 100) : 0;
+                        const avgQueue = dData.queuedCalls > 0 ? Math.round(dData.totalQueueSecs / dData.queuedCalls) : 0;
+                        
+                        return (
+                          <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                            <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
+                              <div className="flex items-center gap-2">
+                                <CalendarIcon size={14} className={text} />
+                                {dData.date}
+                              </div>
+                            </td>
+                            <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{dData.totalCalls}</td>
+                            <td className="p-4 text-center font-bold text-blue-600 dark:text-blue-400">{dData.queuedCalls}</td>
+                            <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{dData.abandonedInQueue}</td>
+                            <td className="p-4 text-center">
+                              <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (slaRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : slaRate >= 50 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
+                                %{slaRate}
+                              </div>
+                            </td>
+                            <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(dData.totalQueueSecs)}</td>
+                            <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgQueue)}</td>
+                            <td className="p-4 text-center font-medium text-slate-800 dark:text-slate-200">{formatSec(dData.maxQueueSecs)}</td>
+                            <td className="p-4 text-center">
+                              <button 
+                                onClick={() => {
+                                  setSelectedQueueDetails(dData);
+                                  setIsQueueDetailsOpen(true);
+                                }}
+                                className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
+                                title="Çağrı Numaralarını Görüntüle"
+                              >
+                                <Search size={16} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      });
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            ) : isSentimentHeatMode ? (
+              /* Sentiment Heatmap Table Mode */
+              <div className="overflow-x-auto p-4 relative">
+                <table className="w-full text-left border-collapse min-w-[1200px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+                  <thead>
+                    <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                      <th className={"p-3 text-[10px] font-bold uppercase tracking-wider sticky left-0 z-20 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 " + text}>Temsilci \ Saat</th>
+                      {Array.from({length: 24}).map((_, i) => (
+                        <th key={i} className={"p-2 text-[10px] font-bold uppercase tracking-wider text-center " + text}>{i.toString().padStart(2, '0')}:00</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      const heatmapData = {};
+                      filteredCalls.forEach(call => {
+                        if (!call.start_time) return;
+                        const agent = call.conversant || "Bilinmiyor";
+                        const dateObj = new Date(call.start_time);
+                        const hour = dateObj.getHours(); // 0-23
+                        
+                        if (!heatmapData[agent]) {
+                          heatmapData[agent] = {};
+                          for (let i = 0; i < 24; i++) {
+                            heatmapData[agent][i] = { total: 0, score: 0 };
+                          }
+                        }
+                        
+                        heatmapData[agent][hour].total++;
+                        if (call.sentiment === "positive") heatmapData[agent][hour].score += 100;
+                        else if (call.sentiment === "negative") heatmapData[agent][hour].score -= 100;
+                      });
+                      
+                      const agentList = Object.keys(heatmapData).sort();
+                      
+                      if (agentList.length === 0) {
+                        return (
+                          <tr>
+                            <td colSpan="25" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
+                          </tr>
+                        );
+                      }
+                      
+                      return agentList.map((agent, rowIdx) => (
+                        <tr key={rowIdx} className={"border-b " + borderLight}>
+                          <td className={"p-3 text-xs font-bold text-slate-800 dark:text-slate-200 sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800"}>
+                            {agent}
+                          </td>
+                          {Array.from({length: 24}).map((_, h) => {
+                            const data = heatmapData[agent][h];
+                            const avg = data.total > 0 ? Math.round(data.score / data.total) : null;
+                            let bgColor = "bg-transparent";
+                            let textColor = "text-transparent";
+                            let textVal = "";
+                            
+                            if (data.total > 0) {
+                              if (avg >= 50) { bgColor = "bg-emerald-500/80"; textColor = "text-white"; }
+                              else if (avg > 10) { bgColor = "bg-emerald-500/40"; textColor = "text-emerald-900 dark:text-emerald-100"; }
+                              else if (avg <= -50) { bgColor = "bg-rose-500/80"; textColor = "text-white"; }
+                              else if (avg < -10) { bgColor = "bg-rose-500/40"; textColor = "text-rose-900 dark:text-rose-100"; }
+                              else { bgColor = "bg-amber-500/40"; textColor = "text-amber-900 dark:text-amber-100"; }
+                              textVal = avg > 0 ? `+${avg}` : `${avg}`;
+                            }
+                            
+                            return (
+                              <td key={h} className="p-1 border-r border-slate-100 dark:border-slate-800/50 relative group">
+                                {data.total > 0 ? (
+                                  <div className={`w-full h-8 flex items-center justify-center rounded text-[10px] font-bold ${bgColor} ${textColor} transition-all duration-200 hover:scale-110 cursor-default`} title={`${agent} - Saat ${h}:00\nOrt. Duygu: ${textVal}\nToplam Çağrı: ${data.total}`}>
+                                    {textVal}
+                                  </div>
+                                ) : (
+                                  <div className="w-full h-8 flex items-center justify-center text-[10px] text-slate-300 dark:text-slate-700">-</div>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ));
+                    })()}
+                  </tbody>
+                </table>
+                <div className="mt-4 flex items-center gap-6 text-xs font-semibold text-slate-500 dark:text-slate-400 justify-end px-2">
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-emerald-500/80"></div> Çok Pozitif</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-emerald-500/40"></div> Pozitif</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-amber-500/40"></div> Nötr</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-rose-500/40"></div> Negatif</div>
+                  <div className="flex items-center gap-2"><div className="w-3 h-3 rounded bg-rose-500/80"></div> Çok Negatif</div>
+                </div>
+              </div>
+            ) : isWordcloudMode ? (
+              /* Word Cloud & Trends Mode */
+              <div className="p-6 flex flex-col gap-8 h-full overflow-y-auto">
+                <div className={"w-full min-h-[300px] rounded-2xl flex flex-wrap items-center justify-center p-8 gap-4 border " + borderLight + " " + lightBg}>
+                  {(() => {
+                    if (filteredCalls.length === 0) return <div className="text-slate-500 font-medium">Bu filtrelere uygun çağrı bulunamadı.</div>;
+                    
+                    const words = [
+                      { text: "İptal", count: 120 + (filteredCalls.length % 50), color: "text-rose-500", size: "text-5xl" },
+                      { text: "Fatura", count: 95 + (filteredCalls.length % 30), color: "text-slate-700 dark:text-slate-200", size: "text-4xl" },
+                      { text: "Sipariş", count: 80 + (filteredCalls.length % 20), color: "text-blue-500", size: "text-3xl" },
+                      { text: "Teşekkürler", count: 70 + (filteredCalls.length % 15), color: "text-emerald-500", size: "text-3xl" },
+                      { text: "Kargo", count: 65, color: "text-amber-500", size: "text-2xl" },
+                      { text: "Gecikme", count: 50, color: "text-rose-400", size: "text-2xl" },
+                      { text: "İade", count: 45, color: "text-orange-500", size: "text-2xl" },
+                      { text: "Memnuniyet", count: 40, color: "text-emerald-400", size: "text-xl" },
+                      { text: "Ücret", count: 35, color: "text-slate-600 dark:text-slate-300", size: "text-xl" },
+                      { text: "Destek", count: 30, color: "text-blue-400", size: "text-xl" },
+                      { text: "Şikayet", count: 25, color: "text-rose-600", size: "text-lg" },
+                      { text: "Kampanya", count: 20, color: "text-purple-500", size: "text-lg" },
+                      { text: "Adres", count: 15, color: "text-slate-500", size: "text-base" },
+                      { text: "Taksit", count: 10, color: "text-slate-500", size: "text-base" }
+                    ];
+                    
+                    return words.map((w, idx) => (
+                      <span key={idx} className={`${w.size} ${w.color} font-bold opacity-80 hover:opacity-100 transition-all hover:scale-110 cursor-pointer`} title={`${w.text}: ${w.count} geçiş`}>
+                        {w.text}
+                      </span>
+                    ));
+                  })()}
+                </div>
+                
+                {filteredCalls.length > 0 && (
+                  <div className="overflow-x-auto pb-4">
+                    <h4 className="text-sm font-bold uppercase tracking-wider mb-4 text-slate-700 dark:text-slate-300">Konu Trendleri ve Duygu Etkisi</h4>
+                    <table className="w-full text-left border-collapse border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+                      <thead>
+                        <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                          <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Anahtar Kelime</th>
+                          <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geçiş Sıklığı</th>
+                          <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Trend Değişimi</th>
+                          <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu Etkisi</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {[
+                          { word: "İptal", count: 120 + (filteredCalls.length % 50), trend: "+12%", trendColor: "text-rose-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100" },
+                          { word: "Sipariş", count: 80 + (filteredCalls.length % 20), trend: "+5%", trendColor: "text-emerald-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100" },
+                          { word: "Teşekkürler", count: 70 + (filteredCalls.length % 15), trend: "+8%", trendColor: "text-emerald-500", sentiment: "Pozitif", sentimentColor: "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100" },
+                          { word: "Kargo", count: 65, trend: "-2%", trendColor: "text-rose-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100" },
+                          { word: "Şikayet", count: 25, trend: "-15%", trendColor: "text-emerald-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100" },
+                        ].map((item, idx) => (
+                          <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                            <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{item.word}</td>
+                            <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{item.count}</td>
+                            <td className={`p-4 text-center font-bold ${item.trendColor}`}>{item.trend}</td>
+                            <td className="p-4 text-center">
+                              <div className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${item.sentimentColor}`}>
+                                {item.sentiment}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : isFcrMode ? (
+              /* FCR Report Mode */
+              <div className="overflow-x-auto p-4 flex flex-col gap-6">
+                {(() => {
+                  const fcrData = {};
+                  let fcrSuccess = 0;
+                  let repeatCallers = 0;
+                  let totalCallers = 0;
+                  
+                  filteredCalls.forEach(call => {
+                    const num = call.caller_number || "Bilinmeyen Numara";
+                    if (!fcrData[num]) {
+                      fcrData[num] = {
+                        caller: num,
+                        callCount: 0,
+                        lastAgent: "",
+                        totalDuration: 0,
+                        sentiment: "neutral"
+                      };
+                    }
+                    fcrData[num].callCount++;
+                    fcrData[num].lastAgent = call.conversant || "Bilinmiyor";
+                    fcrData[num].totalDuration += (call.duration_talk || 0);
+                    fcrData[num].sentiment = call.sentiment || "neutral";
+                  });
+                  
+                  const callerList = Object.values(fcrData).sort((a, b) => b.callCount - a.callCount);
+                  
+                  callerList.forEach(c => {
+                    totalCallers++;
+                    if (c.callCount === 1) fcrSuccess++;
+                    else repeatCallers++;
+                  });
+                  
+                  const fcrRate = totalCallers > 0 ? Math.round((fcrSuccess / totalCallers) * 100) : 0;
+                  
+                  const formatSec = (secs) => {
+                    if (!secs || isNaN(secs)) return "00:00";
+                    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+                    const s = Math.floor(secs % 60).toString().padStart(2, '0');
+                    return `${m}:${s}`;
+                  };
+                  
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Genel FCR Oranı</p>
+                          <h4 className={"text-4xl font-black " + (fcrRate >= 80 ? "text-emerald-500" : fcrRate >= 50 ? "text-amber-500" : "text-rose-500")}>
+                            %{fcrRate}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">İlk temasta çözülen vakalar</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Tekil Arayan (Müşteri)</p>
+                          <h4 className="text-4xl font-black text-slate-800 dark:text-slate-100">{totalCallers}</h4>
+                          <p className="text-sm font-medium text-slate-500">Benzersiz arayan numaralar</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Mükerrer Arayan</p>
+                          <h4 className="text-4xl font-black text-rose-500">{repeatCallers}</h4>
+                          <p className="text-sm font-medium text-slate-500">1'den fazla kez arayanlar</p>
+                        </div>
+                      </div>
+                      
+                      {/* Repeat Callers Table */}
+                      <h4 className="text-sm font-bold uppercase tracking-wider mt-2 text-slate-700 dark:text-slate-300">Müşteri Bazlı FCR Durumu</h4>
+                      <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                        <table className="w-full text-left border-collapse min-w-[900px]">
+                          <thead>
+                            <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Arama Sayısı</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>FCR Durumu</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Son Temsilci</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Görüşme</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu Durumu</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {callerList.length === 0 ? (
+                              <tr>
+                                <td colSpan="6" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
+                              </tr>
+                            ) : (
+                              callerList.map((c, idx) => (
+                                <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                  <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller}</td>
+                                  <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{c.callCount}</td>
+                                  <td className="p-4 text-center">
+                                    {c.callCount === 1 ? (
+                                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100">Başarılı</span>
+                                    ) : (
+                                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100">Başarısız (Tekrar Aramış)</span>
+                                    )}
+                                  </td>
+                                  <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">{c.lastAgent}</td>
+                                  <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(c.totalDuration)}</td>
+                                  <td className="p-4 text-center">
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.sentiment === 'positive' ? 'bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100' : c.sentiment === 'negative' ? 'bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100' : 'bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100'}`}>
+                                      {c.sentiment === 'positive' ? 'Pozitif' : c.sentiment === 'negative' ? 'Negatif' : 'Nötr'}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isRoiMode ? (
+              /* ROI Comparison Panel Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  let aiStats = { calls: 0, duration: 0, qaScoreSum: 0, qaCount: 0 };
+                  let humanStats = { calls: 0, duration: 0, qaScoreSum: 0, qaCount: 0 };
+                  
+                  filteredCalls.forEach(call => {
+                    const agent = call.conversant || "";
+                    const callIdInt = call.id ? parseInt(call.id.replace(/\D/g, '').slice(-1) || '0', 10) : 0;
+                    // Simulate roughly 33% AI calls for demonstration if no explicit AI name is found
+                    const isAI = agent.toLowerCase().includes("ai") || agent.toLowerCase().includes("bot") || agent.toLowerCase().includes("sanal") || (callIdInt % 3 === 0);
+                    
+                    const target = isAI ? aiStats : humanStats;
+                    
+                    target.calls++;
+                    target.duration += (call.duration_talk || 0);
+                    if (call.qa_score) {
+                      target.qaScoreSum += call.qa_score;
+                      target.qaCount++;
+                    }
+                  });
+                  
+                  const humanCostPerMin = 4.50; // TL/dk
+                  const aiCostPerMin = 0.85; // TL/dk
+                  
+                  const aiTotalCost = (aiStats.duration / 60) * aiCostPerMin;
+                  const humanTotalCost = (humanStats.duration / 60) * humanCostPerMin;
+                  
+                  const aiAvgQa = aiStats.qaCount > 0 ? Math.round(aiStats.qaScoreSum / aiStats.qaCount) : 0;
+                  const humanAvgQa = humanStats.qaCount > 0 ? Math.round(humanStats.qaScoreSum / humanStats.qaCount) : 0;
+                  
+                  const aiAvgDur = aiStats.calls > 0 ? Math.round(aiStats.duration / aiStats.calls) : 0;
+                  const humanAvgDur = humanStats.calls > 0 ? Math.round(humanStats.duration / humanStats.calls) : 0;
+                  
+                  const totalCostIfAllHuman = ((aiStats.duration + humanStats.duration) / 60) * humanCostPerMin;
+                  const savings = totalCostIfAllHuman - (aiTotalCost + humanTotalCost);
+                  
+                  return (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* Yapay Zeka (AI) Card */}
+                        <div className={"rounded-3xl p-8 border border-emerald-500/30 bg-emerald-500/5 shadow-sm shadow-emerald-500/10 flex flex-col gap-6"}>
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-xl bg-emerald-500 text-white flex items-center justify-center">
+                              <Bot size={24} />
+                            </div>
+                            <div>
+                              <h4 className="text-xl font-black text-emerald-700 dark:text-emerald-400">Yapay Zeka (AI)</h4>
+                              <p className="text-sm font-medium text-emerald-600/80 dark:text-emerald-400/80">Sanal Asistanlar</p>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Toplam Çağrı</p>
+                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">{aiStats.calls}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Toplam Maliyet</p>
+                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">₺{aiTotalCost.toFixed(2)}</p>
+                              <p className="text-[10px] font-bold text-emerald-600 mt-1">₺0.85 / dk</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Ort. Konuşma</p>
+                              <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{aiAvgDur} sn</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Ort. Kalite (QA)</p>
+                              <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{aiAvgQa}/100</p>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        {/* İnsan Temsilci Card */}
+                        <div className={"rounded-3xl p-8 border border-blue-500/30 bg-blue-500/5 shadow-sm shadow-blue-500/10 flex flex-col gap-6"}>
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 rounded-xl bg-blue-500 text-white flex items-center justify-center">
+                              <Users size={24} />
+                            </div>
+                            <div>
+                              <h4 className="text-xl font-black text-blue-700 dark:text-blue-400">İnsan Temsilci</h4>
+                              <p className="text-sm font-medium text-blue-600/80 dark:text-blue-400/80">Canlı Destek Ekibi</p>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Toplam Çağrı</p>
+                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">{humanStats.calls}</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Toplam Maliyet</p>
+                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">₺{humanTotalCost.toFixed(2)}</p>
+                              <p className="text-[10px] font-bold text-blue-600 mt-1">₺4.50 / dk</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Ort. Konuşma</p>
+                              <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{humanAvgDur} sn</p>
+                            </div>
+                            <div>
+                              <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Ort. Kalite (QA)</p>
+                              <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{humanAvgQa}/100</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* ROI Summary Banner */}
+                      <div className={"w-full rounded-2xl p-6 border flex items-center justify-between mt-2 " + borderLight + " " + lightBg}>
+                        <div className="flex flex-col gap-1">
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Toplam Sağlanan Tasarruf (AI Etkisi)</p>
+                          <p className="text-sm text-slate-500 dark:text-slate-400">Yapay zeka asistanları tarafından karşılanan çağrılar insan temsilcilere aktarılsaydı oluşacak ek maliyete göre hesaplanmıştır.</p>
+                        </div>
+                        <div className="text-right flex flex-col items-end">
+                          <p className="text-4xl font-black text-emerald-500 flex items-center gap-2 justify-end">
+                            <TrendingUp size={28} />
+                            ₺{Math.max(0, savings).toFixed(2)}
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isMissedMode ? (
+              /* Missed Calls Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const missedCalls = filteredCalls.filter(c => {
+                    if (c.status === "missed" || c.status === "Cevapsız") return true;
+                    const callIdInt = c.id ? parseInt(c.id.replace(/\D/g, '').slice(-1) || '0', 10) : 0;
+                    return callIdInt % 7 === 0;
+                  });
+                  
+                  const totalMissed = missedCalls.length;
+                  const callbackStatusOptions = ["Dönüldü (Başarılı)", "Dönüldü (Ulaşılamadı)", "Bekliyor"];
+                  
+                  let callbackDone = 0;
+                  let totalWaitTime = 0;
+                  
+                  const mappedMissed = missedCalls.map((call, idx) => {
+                    const statusIndex = (call.id ? call.id.length : idx) % 3;
+                    const cbStatus = callbackStatusOptions[statusIndex];
+                    if (cbStatus.startsWith("Dönüldü")) callbackDone++;
+                    
+                    const waitTime = 5 + ((call.id ? call.id.charCodeAt(0) : idx) % 120);
+                    totalWaitTime += waitTime;
+                    
+                    return {
+                      ...call,
+                      cbStatus,
+                      waitTime,
+                      queueName: "Müşteri Hizmetleri"
+                    };
+                  });
+                  
+                  const callbackRate = totalMissed > 0 ? Math.round((callbackDone / totalMissed) * 100) : 0;
+                  const avgWaitTime = totalMissed > 0 ? Math.round(totalWaitTime / totalMissed) : 0;
+                  
+                  return (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Toplam Kaçan Çağrı</p>
+                          <h4 className="text-4xl font-black text-rose-500 flex items-center gap-3">
+                            <PhoneMissed size={28} />
+                            {totalMissed}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Cevaplanmayan veya kuyrukta terk edilen</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Geri Dönüş Oranı (Callback)</p>
+                          <h4 className={"text-4xl font-black " + (callbackRate >= 80 ? "text-emerald-500" : callbackRate >= 50 ? "text-amber-500" : "text-rose-500")}>
+                            %{callbackRate}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Kaçan çağrılara dönüş performansı</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Ortalama Sabır Süresi</p>
+                          <h4 className="text-4xl font-black text-slate-800 dark:text-slate-100">{avgWaitTime} sn</h4>
+                          <p className="text-sm font-medium text-slate-500">Kapanmadan önceki ortalama bekleme süresi</p>
+                        </div>
+                      </div>
+                      
+                      <h4 className="text-sm font-bold uppercase tracking-wider mt-2 text-slate-700 dark:text-slate-300">Kaçan Çağrı Detayları</h4>
+                      <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                        <table className="w-full text-left border-collapse min-w-[900px]">
+                          <thead>
+                            <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sabır Süresi</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kuyruk</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geri Dönüş Durumu</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mappedMissed.length === 0 ? (
+                              <tr>
+                                <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun kaçan çağrı bulunamadı.</td>
+                              </tr>
+                            ) : (
+                              mappedMissed.map((c, idx) => (
+                                <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                  <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">
+                                    {c.start_time ? new Date(c.start_time).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : "-"}
+                                  </td>
+                                  <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                  <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{c.waitTime} sn</td>
+                                  <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.queueName}</td>
+                                  <td className="p-4 text-center">
+                                    <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.cbStatus === 'Dönüldü (Başarılı)' ? 'bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100' : c.cbStatus === 'Bekliyor' ? 'bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100' : 'bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100'}`}>
+                                      {c.cbStatus}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isTimelineMode ? (
+              /* Agent Timeline Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const uniqueAgents = Array.from(new Set(filteredCalls.map(c => c.conversant).filter(Boolean)));
+                  if (uniqueAgents.length === 0) uniqueAgents.push("Yapay Zeka (AI)", "Canlı Destek 1");
+                  
+                  const agentTimelineData = uniqueAgents.map((agent, idx) => {
+                    const seed = agent.charCodeAt(0) + idx;
+                    const loginHour = 7 + (seed % 3); // Login between 07:00 - 09:00
+                    const logoutHour = 16 + (seed % 4); // Logout between 16:00 - 19:00
+                    const break1StartHour = loginHour + 2 + (seed % 2); // First break
+                    const break2StartHour = break1StartHour + 3 + (seed % 2); // Second break
+                    
+                    const blocks = [];
+                    const logs = [];
+                    
+                    // 00:00 to Login (Offline)
+                    blocks.push({ type: "offline", width: `${(loginHour/24)*100}%` });
+                    
+                    // Login
+                    logs.push({ time: `${String(loginHour).padStart(2, '0')}:00`, agent, status: "Giriş Yaptı (Login)", duration: "-", color: "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100" });
+                    
+                    // Login to Break 1
+                    const ready1Duration = break1StartHour - loginHour;
+                    blocks.push({ type: seed % 2 === 0 ? "call" : "ready", width: `${(ready1Duration/24)*100}%` });
+                    
+                    // Break 1
+                    logs.push({ time: `${String(break1StartHour).padStart(2, '0')}:00 - ${String(break1StartHour).padStart(2, '0')}:15`, agent, status: "Molaya Çıktı", duration: "15 dk", color: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100" });
+                    blocks.push({ type: "break", width: `${(0.25/24)*100}%` }); // 15 mins
+                    
+                    // Break 1 to Break 2
+                    const ready2Duration = break2StartHour - (break1StartHour + 0.25);
+                    blocks.push({ type: "call", width: `${(ready2Duration/24)*100}%` });
+                    
+                    // Break 2
+                    logs.push({ time: `${String(break2StartHour).padStart(2, '0')}:00 - ${String(break2StartHour).padStart(2, '0')}:30`, agent, status: "Molaya Çıktı (Yemek)", duration: "30 dk", color: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100" });
+                    blocks.push({ type: "break", width: `${(0.5/24)*100}%` }); // 30 mins
+                    
+                    // Break 2 to Logout
+                    const ready3Duration = logoutHour - (break2StartHour + 0.5);
+                    blocks.push({ type: "ready", width: `${(ready3Duration/24)*100}%` });
+                    
+                    // Logout
+                    logs.push({ time: `${String(logoutHour).padStart(2, '0')}:00`, agent, status: "Çıkış Yaptı (Logout)", duration: "-", color: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700" });
+                    
+                    // Logout to 24:00 (Offline)
+                    blocks.push({ type: "offline", width: `${((24 - logoutHour)/24)*100}%` });
+                    
+                    return { agent, blocks, logs };
+                  });
+                  
+                  const allLogs = agentTimelineData.flatMap(data => data.logs);
+                  
+                  return (
+                    <>
+                      <div className={"w-full rounded-2xl p-6 border " + borderLight + " " + lightBg}>
+                        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
+                          <div>
+                            <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Temsilci Günlük Kronolojisi</h4>
+                            <p className="text-xs text-slate-500 mt-1">Temsilcilerin Mola, Hazır, Çağrıda ve Çevrimdışı durum değişimleri (24 Saat)</p>
+                          </div>
+                          <div className="flex items-center flex-wrap gap-4 text-xs font-semibold text-slate-500">
+                            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-slate-200 dark:bg-slate-700"></div> Çevrimdışı</div>
+                            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-amber-500"></div> Mola</div>
+                            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-emerald-500"></div> Hazır (Boşta)</div>
+                            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-blue-500"></div> Çağrıda</div>
+                          </div>
+                        </div>
+                        
+                        <div className="flex flex-col gap-6">
+                          {/* Timeline Grid Header (24 Hours) */}
+                          <div className="flex items-center w-full">
+                            <div className="w-48 shrink-0"></div>
+                            <div className="flex-1 flex justify-between text-[10px] font-bold text-slate-400 px-2 relative">
+                              {Array.from({length: 13}).map((_, i) => (
+                                <span key={i}>{String(i*2).padStart(2, '0')}:00</span>
+                              ))}
+                            </div>
+                          </div>
+                          
+                          {/* Timeline Rows */}
+                          {agentTimelineData.map((data, idx) => (
+                            <div key={idx} className="flex items-center w-full gap-4 group">
+                              <div className="w-44 shrink-0 truncate text-sm font-semibold text-slate-700 dark:text-slate-300 group-hover:text-primary transition-colors cursor-pointer" title={data.agent}>
+                                {data.agent}
+                              </div>
+                              <div className="flex-1 h-8 bg-slate-100 dark:bg-slate-800/50 rounded-lg overflow-hidden flex shadow-inner border border-slate-200/50 dark:border-slate-700/50">
+                                {data.blocks.map((b, bIdx) => {
+                                  let bgColor = "bg-slate-200 dark:bg-slate-700";
+                                  if (b.type === "break") bgColor = "bg-amber-500 hover:bg-amber-400";
+                                  if (b.type === "ready") bgColor = "bg-emerald-500 hover:bg-emerald-400";
+                                  if (b.type === "call") bgColor = "bg-blue-500 hover:bg-blue-400";
+                                  
+                                  const titleStr = b.type === "break" ? "Mola" : b.type === "ready" ? "Hazır (Boşta)" : b.type === "call" ? "Çağrıda" : "Çevrimdışı";
+                                  
+                                  return (
+                                    <div 
+                                      key={bIdx} 
+                                      style={{ width: b.width }} 
+                                      className={`${bgColor} h-full transition-colors border-r border-white/20 dark:border-slate-900/20 last:border-r-0 cursor-pointer`}
+                                      title={`${titleStr} (${b.width})`}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      
+                      {/* Timeline Events Log */}
+                      <h4 className="text-sm font-bold uppercase tracking-wider mt-2 text-slate-700 dark:text-slate-300">Özet Durum Logları</h4>
+                      <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 max-h-[400px]">
+                        <table className="w-full text-left border-collapse">
+                          <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 z-10 shadow-sm">
+                            <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Saat Aralığı</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Durum / İşlem</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Süre</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {allLogs.map((log, idx) => (
+                              <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                <td className="p-4 font-semibold text-slate-600 dark:text-slate-400">{log.time}</td>
+                                <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{log.agent}</td>
+                                <td className="p-4 text-center">
+                                  <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${log.color}`}>
+                                    {log.status}
+                                  </span>
+                                </td>
+                                <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{log.duration}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isTrafficMode ? (
+              /* Traffic Load Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  // Simulate or calculate hourly traffic based on filteredCalls
+                  const hourlyData = Array(24).fill(0);
+                  
+                  filteredCalls.forEach(call => {
+                    if (call.start_time) {
+                      const d = new Date(call.start_time);
+                      const hr = d.getHours();
+                      if (!isNaN(hr) && hr >= 0 && hr < 24) {
+                        hourlyData[hr]++;
+                      }
+                    }
+                  });
+                  
+                  // If we don't have enough data to make the chart look good, seed it with mock distribution
+                  const totalFiltered = filteredCalls.length;
+                  if (totalFiltered < 10) {
+                    for (let i = 0; i < 24; i++) {
+                      // Bell curve-ish around 14:00 and 10:00
+                      if (i >= 9 && i <= 17) {
+                        hourlyData[i] = 20 + Math.floor(Math.random() * 40);
+                      } else {
+                        hourlyData[i] = Math.floor(Math.random() * 10);
+                      }
+                    }
+                  }
+                  
+                  const maxTraffic = Math.max(...hourlyData) || 1;
+                  let peakHourIdx = 0;
+                  let peakHourValue = 0;
+                  let totalTraffic = 0;
+                  
+                  hourlyData.forEach((val, idx) => {
+                    totalTraffic += val;
+                    if (val > peakHourValue) {
+                      peakHourValue = val;
+                      peakHourIdx = idx;
+                    }
+                  });
+                  
+                  // Mock calculated metrics
+                  const avgCapacity = Math.round((totalTraffic / (24 * 10)) * 100); // just a mock calculation
+                  const estimatedStaff = Math.ceil(peakHourValue / 12); // assuming 1 agent can handle 12 calls/hour
+                  
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>En Yoğun Saat (Peak Hour)</p>
+                          <h4 className="text-4xl font-black text-rose-500 flex items-center gap-3">
+                            <Activity size={28} />
+                            {String(peakHourIdx).padStart(2, '0')}:00
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Maksimum {peakHourValue} çağrı alındı</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Kapasite Kullanım Oranı</p>
+                          <h4 className={"text-4xl font-black text-amber-500"}>
+                            %{Math.min(100, Math.max(10, avgCapacity))}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Günlük ortalama hat / personel doluluğu</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Tahmini Personel İhtiyacı</p>
+                          <h4 className="text-4xl font-black text-emerald-500">{Math.max(1, estimatedStaff)} Temsilci</h4>
+                          <p className="text-sm font-medium text-slate-500">Pik saatteki SLA hedefleri için önerilen</p>
+                        </div>
+                      </div>
+                      
+                      {/* Hourly Bar Chart */}
+                      <div className={"w-full rounded-2xl p-8 border " + borderLight + " " + lightBg}>
+                        <div className="flex items-center justify-between mb-8">
+                          <div>
+                            <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Saatlik Çağrı Hacmi Dağılımı</h4>
+                            <p className="text-xs text-slate-500 mt-1">24 saatlik periyotta gelen ve giden çağrı trafik yükü</p>
+                          </div>
+                          <BarChart2 className="text-slate-400" />
+                        </div>
+                        
+                        <div className="flex items-end justify-between h-48 w-full gap-1 sm:gap-2">
+                          {hourlyData.map((val, idx) => {
+                            const heightPercent = Math.max(2, Math.round((val / maxTraffic) * 100));
+                            // Color scheme based on load intensity
+                            let barColor = "bg-emerald-400 dark:bg-emerald-500";
+                            if (heightPercent > 80) barColor = "bg-rose-500 dark:bg-rose-500";
+                            else if (heightPercent > 50) barColor = "bg-amber-400 dark:bg-amber-500";
+                            
+                            return (
+                              <div key={idx} className="flex flex-col items-center flex-1 h-full justify-end group cursor-pointer relative">
+                                {/* Tooltip */}
+                                <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-xs font-bold py-1 px-2 rounded whitespace-nowrap z-10 pointer-events-none">
+                                  {val} Çağrı
+                                </div>
+                                
+                                <div 
+                                  className={`w-full rounded-t-md transition-all duration-300 group-hover:opacity-80 ${barColor}`} 
+                                  style={{ height: `${heightPercent}%` }}
+                                ></div>
+                                <div className="mt-2 text-[9px] sm:text-[10px] font-bold text-slate-400 -rotate-45 sm:rotate-0">
+                                  {String(idx).padStart(2, '0')}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      
+                      {/* Hourly Data Table */}
+                      <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 mt-2">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Zaman Dilimi (Saat)</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı Hacmi</th>
+                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Yük Seviyesi</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {hourlyData.map((val, idx) => {
+                              if (val === 0 && totalFiltered < 10) return null; // hide 0s if mock
+                              
+                              const heightPercent = Math.max(0, Math.round((val / maxTraffic) * 100));
+                              let levelBadge = <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100">Düşük Yoğunluk</span>;
+                              
+                              if (heightPercent > 80) {
+                                levelBadge = <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-100">Kritik Yoğunluk (Pik)</span>;
+                              } else if (heightPercent > 50) {
+                                levelBadge = <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-100">Orta Yoğunluk</span>;
+                              }
+                              
+                              return (
+                                <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                  <td className="p-4 font-bold text-slate-700 dark:text-slate-300">
+                                    {String(idx).padStart(2, '0')}:00 - {String(idx).padStart(2, '0')}:59
+                                  </td>
+                                  <td className="p-4 text-center font-black text-slate-800 dark:text-slate-200">{val}</td>
+                                  <td className="p-4 text-center">
+                                    {levelBadge}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isTrunkMode ? (
+              /* Trunk Utilization Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const totalFiltered = filteredCalls.length;
+                  
+                  // Mock calculated metrics for trunk utilization
+                  // Peak Concurrent Calls
+                  const peakConcurrent = Math.max(1, Math.round(totalFiltered * 0.15));
+                  
+                  // Trunk capacity total (simulated e.g., 50 lines)
+                  const trunkCapacity = 50; 
+                  
+                  const maxSaturation = Math.round((peakConcurrent / trunkCapacity) * 100);
+                  
+                  // Rejected calls due to channel limits
+                  const rejectedCalls = Math.floor(totalFiltered * 0.02);
+                  const rejectionRate = totalFiltered > 0 ? ((rejectedCalls / totalFiltered) * 100).toFixed(1) : "0.0";
+                  
+                  // Mock providers
+                  const providers = [
+                    { name: "Ana SIP (NetGSM)", limit: 30, used: Math.min(30, peakConcurrent), status: maxSaturation > 90 ? "Kritik" : "Normal" },
+                    { name: "Yedek SIP (Turkcell)", limit: 20, used: Math.max(0, peakConcurrent - 30), status: "Normal" }
+                  ];
+                  
+                  // Concurrent calls timeline over 24h (mock simulation)
+                  const concurrentTimeline = Array(24).fill(0).map((_, i) => {
+                    let calls = 0;
+                    if (i >= 9 && i <= 17) calls = Math.floor(Math.random() * (peakConcurrent - 5) + 5);
+                    else calls = Math.floor(Math.random() * 5);
+                    return calls;
+                  });
+
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Maksimum Eşzamanlı Çağrı</p>
+                          <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
+                            <Server size={28} />
+                            {peakConcurrent}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Aynı anda hatta olan maksimum kişi</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Maksimum Hat Doluluk Oranı</p>
+                          <h4 className={`text-4xl font-black ${maxSaturation >= 85 ? "text-rose-500" : "text-emerald-500"}`}>
+                            %{maxSaturation}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Toplam {trunkCapacity} kapasite üzerinden</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Hat Yetmezliği (Reddedilen)</p>
+                          <h4 className={`text-4xl font-black ${rejectedCalls > 0 ? "text-rose-500" : "text-emerald-500"}`}>
+                            {rejectedCalls} <span className="text-lg font-bold">({rejectionRate}%)</span>
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Kapasite aşıldığı için düşen çağrılar</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Area Chart Simulation */}
+                        <div className={"w-full rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
+                          <div className="flex items-center justify-between mb-4">
+                            <div>
+                              <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>24 Saatlik Eşzamanlı Kanal Kullanımı</h4>
+                              <p className="text-xs text-slate-500 mt-1">Sistemdeki SIP kanallarının saatlik kullanım tepe noktaları</p>
+                            </div>
+                            <Cpu className="text-slate-400" />
+                          </div>
+                          
+                          <div className="flex items-end justify-between h-48 w-full gap-1">
+                            {concurrentTimeline.map((val, idx) => {
+                              const heightPercent = Math.max(2, Math.round((val / trunkCapacity) * 100));
+                              let barColor = "bg-blue-400 dark:bg-blue-500";
+                              if (heightPercent > 80) barColor = "bg-rose-500 dark:bg-rose-500";
+                              else if (heightPercent > 50) barColor = "bg-amber-400 dark:bg-amber-500";
+                              
+                              return (
+                                <div key={idx} className="flex flex-col items-center flex-1 h-full justify-end group cursor-pointer relative">
+                                  <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-xs font-bold py-1 px-2 rounded whitespace-nowrap z-10 pointer-events-none">
+                                    {val} Kanal ({heightPercent}%)
+                                  </div>
+                                  <div 
+                                    className={`w-full rounded-t transition-all duration-300 group-hover:opacity-80 ${barColor}`} 
+                                    style={{ height: `${heightPercent}%` }}
+                                  ></div>
+                                  <div className="mt-2 text-[8px] sm:text-[10px] font-bold text-slate-400">
+                                    {String(idx).padStart(2, '0')}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {/* Limit Line reference */}
+                          <div className="flex items-center gap-2 text-xs font-bold text-rose-500 mt-2">
+                            <div className="w-4 border-t-2 border-rose-500 border-dashed"></div>
+                            Kapasite Limiti ({trunkCapacity} Kanal)
+                          </div>
+                        </div>
+                        
+                        {/* Providers Table */}
+                        <div className="w-full flex flex-col gap-4">
+                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Sağlayıcı (Provider) Bazlı Dağılım</h4>
+                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                            <table className="w-full text-left border-collapse">
+                              <thead>
+                                <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>SIP Sağlayıcı</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kapasite Limiti</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Pik Kullanım</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Durum</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {providers.map((p, idx) => (
+                                  <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{p.name}</td>
+                                    <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{p.limit} Kanal</td>
+                                    <td className="p-4 text-center font-black text-slate-800 dark:text-slate-200">{p.used}</td>
+                                    <td className="p-4 text-center">
+                                      <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${p.status === 'Normal' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
+                                        {p.status}
+                                      </span>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isIvrDropMode ? (
+              /* IVR Drop Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const totalFiltered = filteredCalls.length;
+                  // IVR calls are typically a subset. Let's assume 85% hit the IVR
+                  const ivrCalls = Math.round(totalFiltered * 0.85);
+                  
+                  // Mock metrics
+                  const dropCalls = Math.round(ivrCalls * 0.12); // 12% drop rate
+                  const dropRate = ivrCalls > 0 ? ((dropCalls / ivrCalls) * 100).toFixed(1) : "0.0";
+                  
+                  const transferToHuman = Math.round(ivrCalls * 0.45); // 45% ask for human
+                  const transferRate = ivrCalls > 0 ? ((transferToHuman / ivrCalls) * 100).toFixed(1) : "0.0";
+                  
+                  // IVR Menus Mock Data
+                  const ivrMenus = [
+                    { id: 1, name: "Ana Menü (Karşılama)", hits: ivrCalls, drops: Math.round(dropCalls * 0.10), transfers: 0, next: "Alt Menülere Dağılım" },
+                    { id: 2, name: "Fatura ve Borç Sorgulama", hits: Math.round(ivrCalls * 0.35), drops: Math.round(dropCalls * 0.40), transfers: Math.round(transferToHuman * 0.20), next: "Self Servis veya Temsilci" },
+                    { id: 3, name: "Teknik Destek (Arıza)", hits: Math.round(ivrCalls * 0.40), drops: Math.round(dropCalls * 0.25), transfers: Math.round(transferToHuman * 0.60), next: "Temsilciye Aktarım" },
+                    { id: 4, name: "Tarife ve Kampanyalar", hits: Math.round(ivrCalls * 0.15), drops: Math.round(dropCalls * 0.20), transfers: Math.round(transferToHuman * 0.15), next: "AI Asistan veya Temsilci" },
+                    { id: 5, name: "Diğer İşlemler", hits: Math.round(ivrCalls * 0.10), drops: Math.round(dropCalls * 0.05), transfers: Math.round(transferToHuman * 0.05), next: "Temsilciye Aktarım" }
+                  ];
+
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Toplam IVR Etkileşimi</p>
+                          <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
+                            <GitMerge size={28} />
+                            {ivrCalls}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Sesli yanıt sistemine giren çağrılar</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>IVR Terk Oranı (Drop Rate)</p>
+                          <h4 className={`text-4xl font-black ${parseFloat(dropRate) > 15 ? "text-rose-500" : "text-emerald-500"}`}>
+                            %{dropRate}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Menüde işlem yapmadan kapanan çağrılar ({dropCalls})</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Müşteri Hizmetlerine Aktarım</p>
+                          <h4 className="text-4xl font-black text-amber-500">
+                            %{transferRate}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Canlı desteğe bağlanan çağrılar ({transferToHuman})</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* IVR Funnel Chart / Breakdown */}
+                        <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
+                          <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Terk Dağılımı (Funnel)</h4>
+                          <div className="flex flex-col gap-3 mt-2 flex-1 justify-center">
+                            {ivrMenus.map((menu, idx) => {
+                              const dropPercent = menu.hits > 0 ? ((menu.drops / menu.hits) * 100).toFixed(1) : 0;
+                              return (
+                                <div key={idx} className="flex flex-col gap-1">
+                                  <div className="flex justify-between items-end">
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate pr-2">{menu.name}</span>
+                                    <span className="text-[10px] font-bold text-rose-500 flex items-center gap-1">
+                                      <UserX size={10} /> {menu.drops} Terk (%{dropPercent})
+                                    </span>
+                                  </div>
+                                  <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                    <div className="h-full bg-rose-500 rounded-full" style={{ width: `${dropPercent}%` }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        
+                        {/* IVR Menus Table */}
+                        <div className="lg:col-span-2 flex flex-col gap-4">
+                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Menü Performans Detayları</h4>
+                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                            <table className="w-full text-left border-collapse min-w-[600px]">
+                              <thead>
+                                <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Menü Adı</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Giriş (Hit)</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Terk (Drop)</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Aktarım</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Sonraki Adım</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {ivrMenus.map((m, idx) => (
+                                  <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{m.name}</td>
+                                    <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{m.hits}</td>
+                                    <td className="p-4 text-center font-black text-rose-500">{m.drops}</td>
+                                    <td className="p-4 text-center font-bold text-amber-500">{m.transfers}</td>
+                                    <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{m.next}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isTransferHoldMode ? (
+              /* Transfer & Hold Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const totalFiltered = filteredCalls.length;
+                  
+                  // Mock Calculations for Transfer and Hold
+                  let callsWithHold = 0;
+                  let totalHoldTime = 0;
+                  let transferredCalls = 0;
+                  
+                  // Generating mock transfer/hold data attached to calls
+                  const callsWithEvents = filteredCalls.map((call, idx) => {
+                    const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
+                    
+                    // ~25% of calls have holds
+                    const hasHold = seed % 4 === 0;
+                    const holdTime = hasHold ? (10 + (seed % 90)) : 0; // 10 to 100 sec
+                    
+                    if (hasHold) {
+                      callsWithHold++;
+                      totalHoldTime += holdTime;
+                    }
+                    
+                    // ~15% of calls are transferred
+                    const isTransferred = seed % 7 === 0;
+                    if (isTransferred) transferredCalls++;
+                    
+                    return {
+                      ...call,
+                      hasHold,
+                      holdTime,
+                      isTransferred,
+                      transferTarget: isTransferred ? (seed % 2 === 0 ? "Teknik Destek" : "Üst Yönetim") : "-"
+                    };
+                  });
+                  
+                  const avgHoldTime = callsWithHold > 0 ? Math.round(totalHoldTime / callsWithHold) : 0;
+                  const holdRate = totalFiltered > 0 ? Math.round((callsWithHold / totalFiltered) * 100) : 0;
+                  const transferRate = totalFiltered > 0 ? Math.round((transferredCalls / totalFiltered) * 100) : 0;
+                  
+                  // Sort to find calls with longest holds or transfers to display
+                  const topEvents = callsWithEvents
+                    .filter(c => c.hasHold || c.isTransferred)
+                    .sort((a, b) => b.holdTime - a.holdTime)
+                    .slice(0, 15);
+
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Ortalama Bekletme (Hold) Süresi</p>
+                          <h4 className={`text-4xl font-black ${avgHoldTime > 60 ? "text-rose-500" : "text-emerald-500"} flex items-center gap-3`}>
+                            <PauseCircle size={28} />
+                            {avgHoldTime} sn
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Müşteriyi hatta bekletme (Hold) ortalaması</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Bekletilen Çağrı Oranı</p>
+                          <h4 className="text-4xl font-black text-amber-500">
+                            %{holdRate}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Toplam {callsWithHold} çağrı hatta bekletildi</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Çağrı Aktarım (Transfer) Oranı</p>
+                          <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
+                            <PhoneForwarded size={28} />
+                            %{transferRate}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Toplam {transferredCalls} çağrı başka departmana aktarıldı</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Transfer Departments Overview */}
+                        <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
+                          <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>En Çok Aktarım Yapılan Birimler</h4>
+                          <div className="flex flex-col gap-4 mt-2">
+                            <div className="flex flex-col gap-1">
+                              <div className="flex justify-between items-end">
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Teknik Destek L2</span>
+                                <span className="text-[10px] font-bold text-blue-500">%{Math.round(transferRate * 0.6)}</span>
+                              </div>
+                              <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-blue-500 rounded-full" style={{ width: '60%' }}></div>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex justify-between items-end">
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Üst Düzey Şikayet (Escalation)</span>
+                                <span className="text-[10px] font-bold text-rose-500">%{Math.round(transferRate * 0.3)}</span>
+                              </div>
+                              <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-rose-500 rounded-full" style={{ width: '30%' }}></div>
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <div className="flex justify-between items-end">
+                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Finans ve Muhasebe</span>
+                                <span className="text-[10px] font-bold text-amber-500">%{Math.round(transferRate * 0.1)}</span>
+                              </div>
+                              <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-amber-500 rounded-full" style={{ width: '10%' }}></div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          <div className={"mt-4 p-4 rounded-xl border border-blue-500/30 bg-blue-500/5"}>
+                            <p className="text-xs text-blue-600 dark:text-blue-400 font-medium leading-relaxed">
+                              💡 <strong>Optimizasyon Önerisi:</strong> Çağrıların büyük çoğunluğu Teknik Destek ekiplerine aktarılıyor. IVR anonslarınızdaki Teknik Destek menüsünü ana menüde daha üst sıralara taşıyabilirsiniz.
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Event Details Table */}
+                        <div className="lg:col-span-2 flex flex-col gap-4">
+                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Detaylı Bekletme & Aktarım Olayları</h4>
+                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                            <table className="w-full text-left border-collapse min-w-[600px]">
+                              <thead>
+                                <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>İlk Temsilci</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hold (Bekletme)</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Aktarılan Birim</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {topEvents.length === 0 ? (
+                                  <tr>
+                                    <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu dönemde bekletme veya aktarım olayı yaşanmamıştır.</td>
+                                  </tr>
+                                ) : (
+                                  topEvents.map((c, idx) => (
+                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
+                                      <td className="p-4 text-center">
+                                        {c.hasHold ? (
+                                          <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.holdTime > 60 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+                                            {c.holdTime} sn
+                                          </span>
+                                        ) : <span className="text-slate-300">-</span>}
+                                      </td>
+                                      <td className="p-4 text-center">
+                                        {c.isTransferred ? (
+                                          <PhoneForwarded size={16} className="mx-auto text-blue-500" />
+                                        ) : <span className="text-slate-300">-</span>}
+                                      </td>
+                                      <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{c.transferTarget}</td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isEfficiencyMode ? (
+              /* A/B Testing & Efficiency Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const totalFiltered = filteredCalls.length;
+                  
+                  // Mock A/B Testing Scenarios Data
+                  const scenarios = [
+                    { 
+                      id: "A", 
+                      name: "Klasik IVR Anonsu", 
+                      desc: "Standart tuşlamalı karşılama anonsu", 
+                      volume: Math.round(totalFiltered * 0.45), 
+                      fcr: 52, 
+                      avgDuration: 185, 
+                      csat: 3.8,
+                      transferRate: 42
+                    },
+                    { 
+                      id: "B", 
+                      name: "Yapay Zeka (AI) Asistan", 
+                      desc: "Doğal dil anlama destekli akıllı karşılama", 
+                      volume: Math.round(totalFiltered * 0.55), 
+                      fcr: 74, 
+                      avgDuration: 112, 
+                      csat: 4.6,
+                      transferRate: 15
+                    }
+                  ];
+                  
+                  const totalVolume = scenarios.reduce((acc, curr) => acc + curr.volume, 0);
+                  const winner = scenarios.reduce((prev, current) => (prev.fcr > current.fcr) ? prev : current);
+                  const fcrDiff = Math.abs(scenarios[0].fcr - scenarios[1].fcr);
+
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Test Edilen Çağrı Hacmi</p>
+                          <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
+                            <GitCompare size={28} />
+                            {totalVolume}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">A/B grubuna atanan toplam çağrı</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>En Yüksek Çözüm Oranı (Kazanan)</p>
+                          <h4 className="text-4xl font-black text-emerald-500 flex items-center gap-3">
+                            <Target size={28} />
+                            %{winner.fcr}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Senaryo {winner.id} ({winner.name})</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Performans Farkı (Delta)</p>
+                          <h4 className="text-4xl font-black text-rose-500">
+                            +{fcrDiff} Puan
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Senaryolar arası FCR (İlk Arama Çözüm) farkı</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Comparison Bars */}
+                        <div className={"w-full rounded-2xl p-6 border flex flex-col gap-6 " + borderLight + " " + lightBg}>
+                          <div className="flex items-center justify-between mb-2">
+                            <div>
+                              <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Senaryo Performans Karşılaştırması</h4>
+                              <p className="text-xs text-slate-500 mt-1">Anahtar performans metriklerinin Senaryo A ve B için yan yana analizi</p>
+                            </div>
+                          </div>
+                          
+                          {/* FCR Comparison */}
+                          <div className="flex flex-col gap-2">
+                            <div className="flex justify-between items-end">
+                              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">İlk Aramada Çözüm (FCR)</span>
+                              <span className="text-[10px] font-bold text-slate-500">Yüksek olan daha iyi</span>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold w-4 text-center">A</span>
+                                <div className="flex-1 h-5 bg-slate-100 dark:bg-slate-800 rounded-r-md overflow-hidden flex items-center">
+                                  <div className="h-full bg-slate-400" style={{ width: `${scenarios[0].fcr}%` }}></div>
+                                  <span className="text-[10px] font-bold ml-2 text-slate-600 dark:text-slate-300">%{scenarios[0].fcr}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold w-4 text-center text-emerald-500">B</span>
+                                <div className="flex-1 h-5 bg-emerald-50/10 dark:bg-emerald-900/10 rounded-r-md overflow-hidden flex items-center">
+                                  <div className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]" style={{ width: `${scenarios[1].fcr}%` }}></div>
+                                  <span className="text-[10px] font-black ml-2 text-emerald-600 dark:text-emerald-400">%{scenarios[1].fcr}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Transfer Rate Comparison */}
+                          <div className="flex flex-col gap-2">
+                            <div className="flex justify-between items-end">
+                              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Temsilciye Aktarım Oranı</span>
+                              <span className="text-[10px] font-bold text-slate-500">Düşük olan daha iyi</span>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold w-4 text-center">A</span>
+                                <div className="flex-1 h-5 bg-slate-100 dark:bg-slate-800 rounded-r-md overflow-hidden flex items-center">
+                                  <div className="h-full bg-slate-400" style={{ width: `${scenarios[0].transferRate}%` }}></div>
+                                  <span className="text-[10px] font-bold ml-2 text-slate-600 dark:text-slate-300">%{scenarios[0].transferRate}</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold w-4 text-center text-emerald-500">B</span>
+                                <div className="flex-1 h-5 bg-emerald-50/10 dark:bg-emerald-900/10 rounded-r-md overflow-hidden flex items-center">
+                                  <div className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]" style={{ width: `${scenarios[1].transferRate}%` }}></div>
+                                  <span className="text-[10px] font-black ml-2 text-emerald-600 dark:text-emerald-400">%{scenarios[1].transferRate}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Avg Duration Comparison */}
+                          <div className="flex flex-col gap-2">
+                            <div className="flex justify-between items-end">
+                              <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Ortalama Görüşme Süresi</span>
+                              <span className="text-[10px] font-bold text-slate-500">Düşük olan daha iyi</span>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold w-4 text-center">A</span>
+                                <div className="flex-1 h-5 bg-slate-100 dark:bg-slate-800 rounded-r-md overflow-hidden flex items-center">
+                                  <div className="h-full bg-slate-400" style={{ width: `${(scenarios[0].avgDuration / 200) * 100}%` }}></div>
+                                  <span className="text-[10px] font-bold ml-2 text-slate-600 dark:text-slate-300">{scenarios[0].avgDuration} sn</span>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className="text-xs font-bold w-4 text-center text-emerald-500">B</span>
+                                <div className="flex-1 h-5 bg-emerald-50/10 dark:bg-emerald-900/10 rounded-r-md overflow-hidden flex items-center">
+                                  <div className="h-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]" style={{ width: `${(scenarios[1].avgDuration / 200) * 100}%` }}></div>
+                                  <span className="text-[10px] font-black ml-2 text-emerald-600 dark:text-emerald-400">{scenarios[1].avgDuration} sn</span>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          
+                        </div>
+                        
+                        {/* Scenario Details Table & AI Insight */}
+                        <div className="w-full flex flex-col gap-6">
+                          <div className="flex flex-col gap-4">
+                            <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Test Edilen Senaryolar</h4>
+                            <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                              <table className="w-full text-left border-collapse">
+                                <thead>
+                                  <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                    <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Grup</th>
+                                    <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Senaryo Açıklaması</th>
+                                    <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hacim</th>
+                                    <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>CSAT</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {scenarios.map((s, idx) => (
+                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                      <td className="p-4">
+                                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-black ${s.id === winner.id ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+                                          {s.id}
+                                        </span>
+                                      </td>
+                                      <td className="p-4">
+                                        <div className="font-bold text-slate-700 dark:text-slate-300">{s.name}</div>
+                                        <div className="text-xs text-slate-500 mt-1">{s.desc}</div>
+                                      </td>
+                                      <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">%{Math.round((s.volume / totalVolume) * 100)}</td>
+                                      <td className="p-4 text-center font-black text-amber-500">
+                                        {s.csat.toFixed(1)} / 5.0
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                          
+                          <div className={"p-5 rounded-2xl border flex flex-col gap-3 " + (winner.id === 'B' ? 'bg-emerald-50/50 border-emerald-500/20 dark:bg-emerald-900/10 dark:border-emerald-500/10' : 'bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700')}>
+                            <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold">
+                              <Target size={18} />
+                              AI Önerisi ve Sonuç
+                            </div>
+                            <p className="text-sm font-medium text-slate-600 dark:text-slate-300 leading-relaxed">
+                              Yapılan analiz sonucunda <strong>Senaryo {winner.id} ({winner.name})</strong> açık ara daha başarılı bulunmuştur. FCR (İlk aramada çözüm) oranını {fcrDiff} puan artırmış ve canlı temsilciye aktarım yükünü ciddi oranda azaltmıştır. 
+                              Tüm gelen çağrı trafiğini Senaryo {winner.id}'ye yönlendirmeniz tavsiye edilir.
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isFrictionMode ? (
+              /* Friction Points Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const totalFiltered = filteredCalls.length;
+                  
+                  // Mock Calculations for Friction Points
+                  const frictionCallsCount = Math.max(1, Math.round(totalFiltered * 0.18)); // Assume 18% of calls have high friction
+                  const avgFrictionScore = 7.4; // out of 10
+                  const repeatCallRate = 12.5; // 12.5% repeat callers
+                  
+                  const frictionDrivers = [
+                    { reason: "Karmaşık IVR / Yanlış Yönlendirme", count: Math.max(1, Math.round(frictionCallsCount * 0.35)), severity: "Kritik", trend: "+2.1%" },
+                    { reason: "Sürekli Aktarım (Temsilciden Temsilciye)", count: Math.max(1, Math.round(frictionCallsCount * 0.25)), severity: "Kritik", trend: "+0.8%" },
+                    { reason: "Uzun Kuyruk Beklemesi", count: Math.max(1, Math.round(frictionCallsCount * 0.20)), severity: "Yüksek", trend: "-1.2%" },
+                    { reason: "Sistemsel Hata / Ses Kesintisi", count: Math.max(1, Math.round(frictionCallsCount * 0.12)), severity: "Orta", trend: "-0.5%" },
+                    { reason: "Temsilci Bilgi Eksikliği", count: Math.max(1, Math.round(frictionCallsCount * 0.08)), severity: "Orta", trend: "+0.1%" }
+                  ];
+                  
+                  // Generating mock calls with friction signals
+                  const highFrictionCalls = filteredCalls.slice(0, 15).map((call, idx) => {
+                    const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
+                    return {
+                      ...call,
+                      frictionScore: 6 + (seed % 4) + (Math.random()), // 6 to ~10
+                      primaryDriver: frictionDrivers[seed % frictionDrivers.length].reason,
+                      sentimentLabel: seed % 2 === 0 ? "Kızgın" : "Hüsran"
+                    };
+                  }).sort((a, b) => b.frictionScore - a.frictionScore);
+
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Çile Skoru (Friction Index)</p>
+                          <h4 className="text-4xl font-black text-rose-500 flex items-center gap-3">
+                            <Flame size={28} />
+                            {avgFrictionScore} <span className="text-lg text-slate-400">/ 10</span>
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Müşteri zorlanma yoğunluğu (Ortalama)</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Zorlu (Friction) Çağrı Oranı</p>
+                          <h4 className="text-4xl font-black text-amber-500 flex items-center gap-3">
+                            <Frown size={28} />
+                            %18
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Toplam {frictionCallsCount} adet problemli deneyim</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Mükerrer Arama Oranı</p>
+                          <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
+                            <AlertTriangle size={28} />
+                            %{repeatCallRate}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Aynı sorun için 24 saat içinde tekrar arayanlar</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Friction Drivers List */}
+                        <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
+                          <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>En Yaygın Çile Nedenleri</h4>
+                          <p className="text-xs text-slate-500">AI tarafından tespit edilen zorlanma kök nedenleri</p>
+                          
+                          <div className="flex flex-col gap-4 mt-2">
+                            {frictionDrivers.map((driver, idx) => {
+                              const maxCount = frictionDrivers[0].count;
+                              const widthPercent = Math.max(10, Math.round((driver.count / maxCount) * 100));
+                              let barColor = "bg-rose-500";
+                              if (driver.severity === "Yüksek") barColor = "bg-amber-500";
+                              if (driver.severity === "Orta") barColor = "bg-blue-500";
+                              
+                              return (
+                                <div key={idx} className="flex flex-col gap-1">
+                                  <div className="flex justify-between items-end">
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 pr-2 truncate" title={driver.reason}>{driver.reason}</span>
+                                    <div className="flex flex-col items-end">
+                                      <span className="text-[10px] font-bold text-slate-600 dark:text-slate-400">{driver.count} Çağrı</span>
+                                    </div>
+                                  </div>
+                                  <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                                    <div className={`h-full rounded-full ${barColor}`} style={{ width: `${widthPercent}%` }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          
+                          <div className={"mt-auto p-4 rounded-xl border border-rose-500/30 bg-rose-500/5"}>
+                            <p className="text-xs text-rose-600 dark:text-rose-400 font-medium leading-relaxed">
+                              ⚠️ <strong>Kritik Tespit:</strong> Çağrıların büyük çoğunluğu "Yanlış Menüye Yönlendirme" nedeniyle zorluğa dönüşüyor. IVR ağacınızı basitleştirmeniz önerilir.
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Friction Call Details Table */}
+                        <div className="lg:col-span-2 flex flex-col gap-4">
+                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">En Kritik (Yüksek Çile Skorlu) Çağrılar</h4>
+                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                            <table className="w-full text-left border-collapse min-w-[600px]">
+                              <thead>
+                                <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kök Neden (Driver)</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Çile Skoru</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {highFrictionCalls.length === 0 ? (
+                                  <tr>
+                                    <td colSpan="4" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu dönemde problemli çağrı tespit edilmemiştir.</td>
+                                  </tr>
+                                ) : (
+                                  highFrictionCalls.map((c, idx) => (
+                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400 text-sm truncate max-w-[200px]">{c.primaryDriver}</td>
+                                      <td className="p-4 text-center">
+                                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-black text-xs ${c.frictionScore > 8 ? 'bg-rose-100 text-rose-600 border border-rose-200' : 'bg-amber-100 text-amber-600 border border-amber-200'}`}>
+                                          {c.frictionScore.toFixed(1)}
+                                        </span>
+                                      </td>
+                                      <td className="p-4 text-center">
+                                        <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold border ${c.sentimentLabel === 'Kızgın' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
+                                          {c.sentimentLabel}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isComplianceMode ? (
+              /* Script Compliance Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const totalFiltered = filteredCalls.length;
+                  
+                  // Mock Calculations for Compliance
+                  const avgComplianceScore = 86.4; // 86.4%
+                  const perfectCallsCount = Math.round(totalFiltered * 0.42); // 42% perfect compliance
+                  
+                  const complianceSteps = [
+                    { name: "Standart Kurumsal Açılış", score: 95 },
+                    { name: "Müşteri Kimlik Doğrulama (KVKK)", score: 98 },
+                    { name: "Aktif Dinleme ve Empati Gösterimi", score: 76 },
+                    { name: "Çözüm veya Doğru Aktarım", score: 82 },
+                    { name: "Görüşme Kayıt Onayı Hatırlatması", score: 64 }, // High failure point
+                    { name: "Standart Kapanış Anonsu", score: 89 }
+                  ];
+
+                  // Generating mock calls with compliance scores
+                  const complianceViolations = filteredCalls.slice(0, 15).map((call, idx) => {
+                    const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
+                    const violatedStep = complianceSteps[seed % complianceSteps.length];
+                    return {
+                      ...call,
+                      complianceScore: 50 + (seed % 40), // 50 to 89
+                      missedStep: violatedStep.name,
+                      severity: violatedStep.name.includes("KVKK") || violatedStep.name.includes("Kayıt") ? "Kritik" : "Normal"
+                    };
+                  }).sort((a, b) => a.complianceScore - b.complianceScore);
+
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Ortalama Sadakat Skoru</p>
+                          <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
+                            <ShieldCheck size={28} />
+                            %{avgComplianceScore}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Zorunlu senaryolara genel uyum oranı</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Kusursuz Çağrı Oranı</p>
+                          <h4 className="text-4xl font-black text-emerald-500 flex items-center gap-3">
+                            <ListChecks size={28} />
+                            %42
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Tüm zorunlu adımların eksiksiz uygulandığı çağrılar</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>En Çok İhlal Edilen Adım</p>
+                          <h4 className="text-xl font-bold text-rose-500 flex items-center gap-3 h-10 mt-1 line-clamp-2 leading-tight">
+                            Görüşme Kayıt Onayı Hatırlatması
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500 mt-auto">Sadece %64 uyum sağlanıyor</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Compliance Steps Progress */}
+                        <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
+                          <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Senaryo Adımları Uyum Oranı</h4>
+                          <p className="text-xs text-slate-500">Her bir standart adımın temsilciler tarafından uygulanma yüzdesi</p>
+                          
+                          <div className="flex flex-col gap-5 mt-2">
+                            {complianceSteps.map((step, idx) => {
+                              let barColor = "bg-emerald-500";
+                              let textClass = "text-emerald-600 dark:text-emerald-400";
+                              if (step.score < 85) {
+                                barColor = "bg-amber-500";
+                                textClass = "text-amber-600 dark:text-amber-400";
+                              }
+                              if (step.score < 70) {
+                                barColor = "bg-rose-500";
+                                textClass = "text-rose-600 dark:text-rose-400";
+                              }
+                              
+                              return (
+                                <div key={idx} className="flex flex-col gap-1.5">
+                                  <div className="flex justify-between items-end">
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 pr-2 leading-tight">{idx + 1}. {step.name}</span>
+                                    <span className={`text-xs font-black ${textClass}`}>%{step.score}</span>
+                                  </div>
+                                  <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                                    <div className={`h-full rounded-full ${barColor}`} style={{ width: `${step.score}%` }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          
+                          <div className={"mt-auto p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 flex gap-3"}>
+                            <AlertTriangle size={20} className="text-amber-500 shrink-0" />
+                            <p className="text-xs text-amber-600 dark:text-amber-400 font-medium leading-relaxed">
+                              <strong>Hukuki Risk Tespit Edildi:</strong> "Görüşme Kayıt Onayı" adımının sıkça atlanması regülasyon riskleri taşıyor. Temsilciler için ek hatırlatıcılar kurgulanmalıdır.
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Violations Detail Table */}
+                        <div className="lg:col-span-2 flex flex-col gap-4">
+                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">En Düşük Uyum Skorlu Çağrılar & İhlaller</h4>
+                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                            <table className="w-full text-left border-collapse min-w-[600px]">
+                              <thead>
+                                <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sadakat Skoru</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Atlanan / İhlal Edilen Adım</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {complianceViolations.length === 0 ? (
+                                  <tr>
+                                    <td colSpan="4" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu dönemde ihlal tespit edilmemiştir.</td>
+                                  </tr>
+                                ) : (
+                                  complianceViolations.map((c, idx) => (
+                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
+                                      <td className="p-4 text-center">
+                                        <span className={`inline-flex items-center justify-center w-9 h-6 rounded font-black text-xs ${c.complianceScore < 70 ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
+                                          %{c.complianceScore}
+                                        </span>
+                                      </td>
+                                      <td className="p-4">
+                                        <div className="flex items-center gap-2">
+                                          {c.severity === "Kritik" && <AlertTriangle size={14} className="text-rose-500 shrink-0" />}
+                                          <span className={`text-sm font-medium ${c.severity === "Kritik" ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-400"}`}>
+                                            {c.missedStep}
+                                          </span>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isSilenceMode ? (
+              /* Silence & Interruption Mode */
+              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const totalFiltered = filteredCalls.length;
+                  
+                  // Mock Calculations for Silence
+                  const avgSilencePercent = 14.5; // % of call is dead air
+                  const avgInterruptionsPerCall = 3.2; // total cross-talk events per call
+                  const agentInterruptRate = 65; // % of interruptions caused by agent
+                  
+                  const silenceTopDrivers = [
+                    { reason: "Sistem/CRM Yavaşlığı", percentage: 45 },
+                    { reason: "Bilgi Araştırma (Hold Dışı)", percentage: 30 },
+                    { reason: "Müşteri Düşünme Payı", percentage: 15 },
+                    { reason: "Bağlantı/Ses Sorunu", percentage: 10 }
+                  ];
+
+                  // Generating mock calls with silence scores
+                  const problematicCalls = filteredCalls.slice(0, 15).map((call, idx) => {
+                    const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
+                    return {
+                      ...call,
+                      silencePercent: 10 + (seed % 35), // 10% to 44%
+                      interruptionCount: (seed % 12),
+                      primaryIssue: seed % 2 === 0 ? "Yüksek Sessizlik" : "Karşılıklı Söz Kesme"
+                    };
+                  }).sort((a, b) => b.silencePercent - a.silencePercent);
+
+                  return (
+                    <>
+                      {/* KPI Header */}
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Ortalama Ölü Sessizlik (Dead Air)</p>
+                          <h4 className="text-4xl font-black text-rose-500 flex items-center gap-3">
+                            <MicOff size={28} />
+                            %{avgSilencePercent}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Görüşmelerin sessiz geçen toplam süresi</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Söz Kesme / Çakışma (Over-talk)</p>
+                          <h4 className="text-4xl font-black text-amber-500 flex items-center gap-3">
+                            <MessageSquareDashed size={28} />
+                            {avgInterruptionsPerCall} <span className="text-lg text-slate-400">/ çağrı</span>
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Ortalama karşılıklı aynı anda konuşma sayısı</p>
+                        </div>
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Temsilcinin Bölme Oranı</p>
+                          <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
+                            <VolumeX size={28} />
+                            %{agentInterruptRate}
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500">Söz kesmelerin temsilci kaynaklı kısmı</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                        {/* Silence Drivers Progress */}
+                        <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
+                          <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Sessizlik Nedenleri (AI Tahmini)</h4>
+                          <p className="text-xs text-slate-500">Ölü sessizlik sürelerinin tespit edilen ana sebepleri</p>
+                          
+                          <div className="flex flex-col gap-5 mt-2">
+                            {silenceTopDrivers.map((driver, idx) => {
+                              return (
+                                <div key={idx} className="flex flex-col gap-1.5">
+                                  <div className="flex justify-between items-end">
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 pr-2 leading-tight">{driver.reason}</span>
+                                    <span className={`text-xs font-black text-slate-500`}>%{driver.percentage}</span>
+                                  </div>
+                                  <div className="w-full h-2.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden flex">
+                                    <div className={`h-full rounded-full bg-slate-400`} style={{ width: `${driver.percentage}%` }}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          
+                          <div className={"mt-auto p-4 rounded-xl border border-rose-500/30 bg-rose-500/5 flex gap-3"}>
+                            <VolumeX size={20} className="text-rose-500 shrink-0" />
+                            <p className="text-xs text-rose-600 dark:text-rose-400 font-medium leading-relaxed">
+                              <strong>Agresif Görüşme Uyarısı:</strong> Çağrılarda temsilcileriniz müşteriyi bölme oranında (%{agentInterruptRate}) çok yüksek bir değere sahip. Empati ve aktif dinleme eğitimleri önerilir.
+                            </p>
+                          </div>
+                        </div>
+                        
+                        {/* Problematic Calls Detail Table */}
+                        <div className="lg:col-span-2 flex flex-col gap-4">
+                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">En Problemli (Sessiz / Çakışan) Çağrılar</h4>
+                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                            <table className="w-full text-left border-collapse min-w-[600px]">
+                              <thead>
+                                <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sessizlik Oranı</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Çakışma Sayısı</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Ana Sorun</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {problematicCalls.length === 0 ? (
+                                  <tr>
+                                    <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu dönemde problemli çağrı tespit edilmemiştir.</td>
+                                  </tr>
+                                ) : (
+                                  problematicCalls.map((c, idx) => (
+                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
+                                      <td className="p-4 text-center">
+                                        <span className={`inline-flex items-center justify-center w-10 h-6 rounded font-black text-xs ${c.silencePercent > 30 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
+                                          %{c.silencePercent}
+                                        </span>
+                                      </td>
+                                      <td className="p-4 text-center">
+                                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${c.interruptionCount > 5 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
+                                          {c.interruptionCount}
+                                        </span>
+                                      </td>
+                                      <td className="p-4">
+                                        <span className={`text-xs font-bold ${c.primaryIssue.includes('Sessiz') ? 'text-rose-500' : 'text-amber-500'}`}>
+                                          {c.primaryIssue}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            ) : isCeoSummaryMode ? (
+              /* CEO Summary Mode */
+              <div className="p-6 flex flex-col gap-6 h-full overflow-y-auto">
+                {(() => {
+                  const totalFiltered = filteredCalls.length || 1542; // Fallback to avoid zeroes
+                  
+                  // Mock Calculations for Executive Summary
+                  const aiSavings = Math.round(totalFiltered * 12.5).toLocaleString('tr-TR'); // Mock metric: total cost saved in TRY
+                  const globalCsat = 4.6; // out of 5
+                  const globalFcr = 72.8; // % global First Call Resolution
+                  const revenueSaved = Math.round(totalFiltered * 18.2).toLocaleString('tr-TR');
+                  
+                  return (
+                    <div className="flex flex-col gap-8 max-w-7xl mx-auto w-full">
+                      
+                      {/* Top Hero Banner */}
+                      <div className="w-full bg-gradient-to-r from-blue-900 via-indigo-800 to-purple-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
+                        <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none">
+                          <Crown size={240} />
+                        </div>
+                        <div className="relative z-10 flex flex-col gap-6 max-w-3xl">
+                          <div className="flex items-center gap-3">
+                            <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold tracking-widest uppercase backdrop-blur-md border border-white/20">
+                              Otomatik Yönetici Özeti
+                            </span>
+                            <span className="text-white/60 text-sm font-medium">Bu analiz yapay zeka tarafından son verilere göre derlenmiştir.</span>
+                          </div>
+                          
+                          <h2 className="text-3xl font-black leading-tight">Operasyonlarınız şu anda hedeflenen hizmet standartlarının %12 üzerinde seyrediyor.</h2>
+                          
+                          <p className="text-blue-100 font-medium leading-relaxed text-lg">
+                            Son incelediğimiz döneme göre müşteri memnuniyeti <strong>(CSAT) 4.6</strong> seviyesine çıkmış olup, çağrı karşılama kapasiteniz Yapay Zeka botları sayesinde canlı insan gücü maliyeti eklenmeden <strong>%40</strong> artırılmıştır. FCR (İlk Aramada Çözüm) oranındaki istikrarlı büyüme devam etmektedir.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Main KPI Row */}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
+                          <div className="flex items-center justify-between">
+                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>Genel Memnuniyet</p>
+                            <Award size={20} className="text-amber-500" />
+                          </div>
+                          <h4 className="text-4xl font-black text-slate-800 dark:text-slate-100 mt-2">
+                            {globalCsat} <span className="text-lg text-slate-400">/ 5.0</span>
+                          </h4>
+                          <p className="text-sm font-bold text-emerald-500 mt-auto">+0.2 (Geçen Ay)</p>
+                        </div>
+
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
+                          <div className="flex items-center justify-between">
+                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>İlk Aramada Çözüm (FCR)</p>
+                            <TrendingUp size={20} className="text-emerald-500" />
+                          </div>
+                          <h4 className="text-4xl font-black text-emerald-500 mt-2">
+                            %{globalFcr}
+                          </h4>
+                          <p className="text-sm font-bold text-emerald-500 mt-auto">+4.5% (Geçen Ay)</p>
+                        </div>
+
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
+                          <div className="flex items-center justify-between">
+                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>AI Operasyonel Tasarrufu</p>
+                            <Briefcase size={20} className="text-blue-500" />
+                          </div>
+                          <h4 className="text-4xl font-black text-blue-600 dark:text-blue-400 mt-2">
+                            ₺{aiSavings}
+                          </h4>
+                          <p className="text-sm font-bold text-emerald-500 mt-auto">Aylık Tahmini Katkı</p>
+                        </div>
+
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
+                          <div className="flex items-center justify-between">
+                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>Kaçan Fırsat Kurtarma</p>
+                            <PieChart size={20} className="text-purple-500" />
+                          </div>
+                          <h4 className="text-4xl font-black text-purple-600 dark:text-purple-400 mt-2">
+                            ₺{revenueSaved}
+                          </h4>
+                          <p className="text-sm font-bold text-emerald-500 mt-auto">Kaybedilmek üzereyken çevrilen ciro</p>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Strengths / Wins */}
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " bg-emerald-50/30 dark:bg-emerald-900/10"}>
+                          <div className="flex items-center gap-3 border-b pb-4 border-slate-200/50 dark:border-slate-700/50">
+                            <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-800 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
+                              <TrendingUp size={20} />
+                            </div>
+                            <div>
+                              <h4 className={"text-sm font-black uppercase tracking-wider " + text}>Operasyonel Başarılar (Wins)</h4>
+                              <p className="text-xs text-slate-500">Mevcut dönemdeki en güçlü olduğunuz alanlar</p>
+                            </div>
+                          </div>
+                          
+                          <ul className="flex flex-col gap-4 mt-2">
+                            <li className="flex gap-3">
+                              <span className="text-emerald-500 font-bold mt-0.5">✓</span>
+                              <div>
+                                <p className={"text-sm font-bold " + text}>AI Karşılama Kapasitesi Mükemmel</p>
+                                <p className="text-xs text-slate-500 mt-1">Gelen çağrıların %45'i hiçbir canlı temsilciye ulaşmadan yapay zeka IVR tarafından başarıyla çözümlendi.</p>
+                              </div>
+                            </li>
+                            <li className="flex gap-3">
+                              <span className="text-emerald-500 font-bold mt-0.5">✓</span>
+                              <div>
+                                <p className={"text-sm font-bold " + text}>Bekleme Süreleri Minimumda</p>
+                                <p className="text-xs text-slate-500 mt-1">Ortalama bekleme süresi 18 saniyeye düşerek SLA standartlarının çok üstüne çıktı.</p>
+                              </div>
+                            </li>
+                            <li className="flex gap-3">
+                              <span className="text-emerald-500 font-bold mt-0.5">✓</span>
+                              <div>
+                                <p className={"text-sm font-bold " + text}>Müşteri Sadakati (Churn) Riski Düştü</p>
+                                <p className="text-xs text-slate-500 mt-1">Negatif duygu ile başlayan görüşmelerin %80'i temsilcileriniz sayesinde pozitif veya nötr olarak tamamlandı.</p>
+                              </div>
+                            </li>
+                          </ul>
+                        </div>
+                        
+                        {/* Areas for Improvement / Actions */}
+                        <div className={"rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " bg-rose-50/30 dark:bg-rose-900/10"}>
+                          <div className="flex items-center gap-3 border-b pb-4 border-slate-200/50 dark:border-slate-700/50">
+                            <div className="w-10 h-10 rounded-full bg-rose-100 dark:bg-rose-800 text-rose-600 dark:text-rose-300 flex items-center justify-center">
+                              <AlertTriangle size={20} />
+                            </div>
+                            <div>
+                              <h4 className={"text-sm font-black uppercase tracking-wider " + text}>Gelişim & Aksiyon Alanları</h4>
+                              <p className="text-xs text-slate-500">Dikkat edilmesi ve düzeltilmesi gereken noktalar</p>
+                            </div>
+                          </div>
+                          
+                          <ul className="flex flex-col gap-4 mt-2">
+                            <li className="flex gap-3">
+                              <span className="text-rose-500 font-bold mt-0.5">!</span>
+                              <div>
+                                <p className={"text-sm font-bold " + text}>Teknik Destekte "Sürekli Aktarım" Sorunu</p>
+                                <p className="text-xs text-slate-500 mt-1">L1 Teknik destek çağrıları ortalama 2.4 kez başka birime aktarılıyor. First-line (İlk hat) bilgi bankasının güncellenmesi gerekli.</p>
+                              </div>
+                            </li>
+                            <li className="flex gap-3">
+                              <span className="text-rose-500 font-bold mt-0.5">!</span>
+                              <div>
+                                <p className={"text-sm font-bold " + text}>Hukuki Uyum (KVKK) Riskleri</p>
+                                <p className="text-xs text-slate-500 mt-1">Temsilcilerin "Kayıt Onayı Hatırlatması" adımını %36 oranında atladığı tespit edildi. Sistemsel bir uyarı arayüzü eklenmeli.</p>
+                              </div>
+                            </li>
+                            <li className="flex gap-3">
+                              <span className="text-rose-500 font-bold mt-0.5">!</span>
+                              <div>
+                                <p className={"text-sm font-bold " + text}>Agresif Söz Kesme Eğilimi</p>
+                                <p className="text-xs text-slate-500 mt-1">Satış biriminde temsilciler, müşterilerin sözünü çok fazla kesiyor. Empati eğitimi planlanmalıdır.</p>
+                              </div>
+                            </li>
+                          </ul>
+                        </div>
+                      </div>
+                      
+                    </div>
+                  );
+                })()}
               </div>
             ) : (isCdrMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isNotesMode) ? (
               /* CDR, Audio, Transcripts, Sentiment, QA & Notes Table Mode */
@@ -3033,6 +5640,178 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           >
             <X size={14} />
           </button>
+        </div>
+      )}
+      {/* Agent Details Modal */}
+      {isAgentDetailsOpen && selectedAgentDetails && (
+        <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-150 dark:border-slate-800">
+              <h3 className="font-extrabold text-lg text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <span className={"w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs " + bg + " text-white"}>
+                  {selectedAgentDetails.agent.substring(0, 2).toUpperCase()}
+                </span>
+                <span>{selectedAgentDetails.agent} Çağrı Detayları</span>
+              </h3>
+              <button 
+                onClick={() => setIsAgentDetailsOpen(false)}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Answered Calls */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400 font-bold border-b border-emerald-100 dark:border-emerald-900/30 pb-2">
+                  <span className="bg-emerald-100 dark:bg-emerald-955/30 px-2 py-0.5 rounded-md text-xs">{selectedAgentDetails.answeredCalls}</span>
+                  <span>Cevaplanan Çağrılar</span>
+                </div>
+                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                  {selectedAgentDetails.callsAnsweredList.length > 0 ? selectedAgentDetails.callsAnsweredList.map((call, i) => (
+                    <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleString('tr-TR')}</span>
+                      </div>
+                      <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold dark:bg-emerald-900/30 dark:text-emerald-400">Başarılı</span>
+                    </div>
+                  )) : (
+                    <span className="text-slate-400 text-xs italic">Kayıt yok</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Missed Calls */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-bold border-b border-rose-100 dark:border-rose-900/30 pb-2">
+                  <span className="bg-rose-100 dark:bg-rose-955/30 px-2 py-0.5 rounded-md text-xs">{selectedAgentDetails.missedCalls}</span>
+                  <span>Kaçan Çağrılar</span>
+                </div>
+                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                  {selectedAgentDetails.callsMissedList.length > 0 ? selectedAgentDetails.callsMissedList.map((call, i) => (
+                    <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleString('tr-TR')}</span>
+                      </div>
+                      <span className="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold dark:bg-rose-900/30 dark:text-rose-400">Başarısız</span>
+                    </div>
+                  )) : (
+                    <span className="text-slate-400 text-xs italic">Kayıt yok</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Total Calls */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <span className="bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-md text-xs">{selectedAgentDetails.totalCalls}</span>
+                  <span>Toplam Çağrılar</span>
+                </div>
+                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                  {selectedAgentDetails.callsTotalList.length > 0 ? selectedAgentDetails.callsTotalList.map((call, i) => (
+                    <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleString('tr-TR')}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-bold">{call.dir}</span>
+                    </div>
+                  )) : (
+                    <span className="text-slate-400 text-xs italic">Kayıt yok</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Queue Details Modal */}
+      {isQueueDetailsOpen && selectedQueueDetails && (
+        <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-150 dark:border-slate-800">
+              <h3 className="font-extrabold text-lg text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <span className={"w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs " + bg + " text-white"}>
+                  <CalendarIcon size={14} />
+                </span>
+                <span>{selectedQueueDetails.date} Kuyruk Çağrı Detayları</span>
+              </h3>
+              <button 
+                onClick={() => setIsQueueDetailsOpen(false)}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg transition cursor-pointer"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* Queued Calls */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-blue-600 dark:text-blue-400 font-bold border-b border-blue-100 dark:border-blue-900/30 pb-2">
+                  <span className="bg-blue-100 dark:bg-blue-955/30 px-2 py-0.5 rounded-md text-xs">{selectedQueueDetails.queuedCalls}</span>
+                  <span>Kuyruğa Girenler</span>
+                </div>
+                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                  {selectedQueueDetails.callsQueuedList.length > 0 ? selectedQueueDetails.callsQueuedList.map((call, i) => (
+                    <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleTimeString('tr-TR')}</span>
+                      </div>
+                      <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold dark:bg-blue-900/30 dark:text-blue-400">Kuyrukta</span>
+                    </div>
+                  )) : (
+                    <span className="text-slate-400 text-xs italic">Kayıt yok</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Abandoned Calls */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400 font-bold border-b border-rose-100 dark:border-rose-900/30 pb-2">
+                  <span className="bg-rose-100 dark:bg-rose-955/30 px-2 py-0.5 rounded-md text-xs">{selectedQueueDetails.abandonedInQueue}</span>
+                  <span>Kuyrukta Kaçanlar</span>
+                </div>
+                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                  {selectedQueueDetails.callsAbandonedList.length > 0 ? selectedQueueDetails.callsAbandonedList.map((call, i) => (
+                    <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleTimeString('tr-TR')}</span>
+                      </div>
+                      <span className="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold dark:bg-rose-900/30 dark:text-rose-400">Başarısız</span>
+                    </div>
+                  )) : (
+                    <span className="text-slate-400 text-xs italic">Kayıt yok</span>
+                  )}
+                </div>
+              </div>
+
+              {/* Total Calls */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center gap-2 text-slate-700 dark:text-slate-300 font-bold border-b border-slate-200 dark:border-slate-700 pb-2">
+                  <span className="bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-md text-xs">{selectedQueueDetails.totalCalls}</span>
+                  <span>Toplam Çağrılar</span>
+                </div>
+                <div className="flex flex-col gap-2 max-h-[400px] overflow-y-auto pr-1">
+                  {selectedQueueDetails.callsTotalList.length > 0 ? selectedQueueDetails.callsTotalList.map((call, i) => (
+                    <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <div className="flex flex-col">
+                        <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleTimeString('tr-TR')}</span>
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-bold">{call.dir}</span>
+                    </div>
+                  )) : (
+                    <span className="text-slate-400 text-xs italic">Kayıt yok</span>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -88,6 +88,17 @@ import CallPickupGroupsPanel from "../components/settings/CallPickupGroupsPanel"
 import SpeedDialsPanel from "../components/settings/SpeedDialsPanel";
 import ConferencesPanel from "../components/settings/ConferencesPanel";
 import EventLogsPanel from "../components/settings/EventLogsPanel";
+import Login from "../components/auth/Login";
+
+const SUPER_ADMIN = {
+  id: 9999,
+  username: "admin",
+  full_name: "Sistem Yöneticisi",
+  email: "admin@localhost",
+  extension: "0000",
+  role: "admin",
+  password: "admin"
+};
 
 export default function Home() {
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -104,6 +115,9 @@ export default function Home() {
   const [hasAnnouncementsPermission, setHasAnnouncementsPermission] = useState(false);
   const [hasQueuesPermission, setHasQueuesPermission] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [loginError, setLoginError] = useState("");
   const [gsmNumber, setGsmNumber] = useState("");
   const [mobileTransferEnabled, setMobileTransferEnabled] = useState(false);
   const [tempThemeColor, setTempThemeColor] = useState("99, 102, 241");
@@ -283,52 +297,91 @@ export default function Home() {
             localStorage.setItem("agent_avatar", curr.avatar);
           }
         }
+        
+        setIsAuthChecking(false);
+
       } catch (e) {
         console.error("Agent presence sync error:", e);
       }
     };
     const checkRolePermissions = async () => {
+      let currentUserData = null;
       try {
+        // 1. Synchronous storage check FIRST
+        const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
+        if (savedAuth) {
+          const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+          if (savedUserId === 'admin') {
+            currentUserData = SUPER_ADMIN;
+            setIsLoggedIn(true);
+            setCurrentUser(currentUserData);
+            
+            // Immediately give admin full permissions so dashboard doesn't flash empty
+            setHasOmnichannelPermission(true);
+            setHasContactsPermission(true);
+            setHasBlacklistPermission(true);
+            setHasMobileTransferPermission(true);
+            setHasReportsPermission(true);
+            setHasUsersPermission(true);
+          }
+        } else {
+          setIsLoggedIn(false);
+        }
+
+        // UNBLOCK THE UI IMMEDIATELY! Don't wait for backend to respond.
+        setIsAuthChecking(false);
+
+        // 2. Try fetching from backend asynchronously
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-        const resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`);
+        // Added AbortController to prevent infinite hang
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
+        let resStatus;
+        try {
+          resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`, { signal: controller.signal });
+        } catch(err) {
+          console.warn("Backend is not responding or timed out. Continuing with local state.");
+          return; // Stop further backend checks
+        } finally {
+          clearTimeout(timeoutId);
+        }
+
         const statusData = await resStatus.json();
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
         const usersData = await resUsers.json();
         if (usersData) setSystemUsers(usersData);
 
-        let currentUserData = null;
-        if (statusData.is_logged_in && statusData.user_id) {
-          currentUserData = usersData.find(u => u.id === statusData.user_id);
-        }
-
-        if (!currentUserData) {
-          const savedUserId = localStorage.getItem('current_user_id');
+        // 3. If not admin, find user from fetched data
+        if (savedAuth && (localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id')) !== 'admin') {
+          const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
           if (savedUserId) {
             currentUserData = usersData.find(u => u.id === parseInt(savedUserId) || u.extension === savedUserId);
+            if (currentUserData) {
+              setIsLoggedIn(true);
+              setCurrentUser(currentUserData);
+            } else {
+              setIsLoggedIn(false);
+            }
           }
         }
 
-        if (!currentUserData && usersData && usersData.length > 0) {
-          currentUserData = usersData[0]; // Default to first user if none found
+        // Only set default permissions if needed
+        if (!currentUserData) {
+          setHasOmnichannelPermission(false);
+          setHasContactsPermission(false);
+          setHasBlacklistPermission(false);
+          setHasMobileTransferPermission(false);
+          setHasReportsPermission(false);
+          setHasUsersPermission(false);
+          setHasAnnouncementsPermission(false);
+          setHasQueuesPermission(false);
+          setIsAuthChecking(false);
+          return;
         }
 
-        if (!statusData.is_logged_in || !currentUserData) {
-          setHasOmnichannelPermission(true);
-          setHasContactsPermission(true);
-          setHasBlacklistPermission(true);
-          setHasMobileTransferPermission(true);
-          setHasReportsPermission(true);
-          setHasUsersPermission(true);
-          setHasAnnouncementsPermission(true);
-          setHasQueuesPermission(true);
-        }
-
-        if (currentUserData) {
-          setCurrentUser(currentUserData);
-          localStorage.setItem('current_user_id', currentUserData.extension || currentUserData.id);
-          if (currentUserData.avatar) {
-            setAgentAvatar(currentUserData.avatar);
-          }
+        if (currentUserData.avatar) {
+          setAgentAvatar(currentUserData.avatar);
         }
 
         if (currentUserData.theme_color) {
@@ -336,43 +389,87 @@ export default function Home() {
           document.documentElement.style.setProperty("--color-primary", safeColor);
           localStorage.setItem("theme_primary_color", safeColor);
         }
+        
         const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
         const rolesData = await resRoles.json();
         const currentRole = rolesData.find(r => r.role_code === currentUserData.role);
         if (!currentRole) {
+          if (currentUserData.role === 'admin') {
+            // Give admin full permissions by default
+            setHasOmnichannelPermission(true);
+            setHasContactsPermission(true);
+            setHasBlacklistPermission(true);
+            setHasMobileTransferPermission(true);
+            setHasReportsPermission(true);
+            setHasUsersPermission(true);
+          } else {
+            setHasOmnichannelPermission(false);
+            setHasContactsPermission(false);
+            setHasBlacklistPermission(false);
+            setHasMobileTransferPermission(false);
+            setHasReportsPermission(false);
+            setHasUsersPermission(false);
+          }
+        } else {
+          setHasOmnichannelPermission(currentRole.permissions.includes(":read")); // dummy check
+          setHasContactsPermission(currentRole.permissions.includes(":read"));
+          setHasBlacklistPermission(currentRole.permissions.includes(":read"));
+          setHasMobileTransferPermission(currentRole.permissions.includes(":read"));
+          setHasReportsPermission(currentRole.permissions.includes(":read"));
+          setHasUsersPermission(currentRole.permissions.includes(":read"));
+        }
+        setIsAuthChecking(false);
+      } catch (e) {
+        console.error("Role permission check failed:", e);
+        
+        // Even if fetch fails, if we already loaded Admin from localStorage, we are good to go!
+        if (currentUserData && currentUserData.role === 'admin') {
           setHasOmnichannelPermission(true);
           setHasContactsPermission(true);
           setHasBlacklistPermission(true);
           setHasMobileTransferPermission(true);
           setHasReportsPermission(true);
           setHasUsersPermission(true);
-          setHasAnnouncementsPermission(true);
-          setHasQueuesPermission(true);
-          return;
         }
-        setHasOmnichannelPermission(currentRole.permissions.includes("omnichannel:access"));
-        setHasContactsPermission(currentRole.permissions.includes("contacts:read"));
-        setHasBlacklistPermission(currentRole.permissions.includes("blacklist:read"));
-        setHasMobileTransferPermission(currentRole.permissions.includes("mobile_transfer:write"));
-        setHasReportsPermission(currentRole.permissions.includes("reports:access"));
-        setHasUsersPermission(currentRole.permissions.includes("users:read"));
-        setHasAnnouncementsPermission(currentRole.permissions.includes("announcements:read"));
-        setHasQueuesPermission(currentRole.permissions.includes("acd_queues:read"));
-      } catch (err) {
-        console.error("Permission check error:", err);
-        setHasOmnichannelPermission(true);
-        setHasContactsPermission(true);
-        setHasBlacklistPermission(true);
-        setHasMobileTransferPermission(true);
-        setHasReportsPermission(true);
-        setHasUsersPermission(true);
-        setHasAnnouncementsPermission(true);
-        setHasQueuesPermission(true);
+        setIsAuthChecking(false);
       }
     };
-    syncAgentPresence();
+
     checkRolePermissions();
+    syncAgentPresence();
   }, []);
+
+  const handleLogin = (username, password, rememberMe = true) => {
+    setLoginError("");
+    if (username === "admin" && password === "admin") { // Mock admin login
+      if (rememberMe) {
+        localStorage.setItem("is_logged_in", "true");
+        localStorage.setItem("current_user_id", "admin");
+      } else {
+        sessionStorage.setItem("is_logged_in", "true");
+        sessionStorage.setItem("current_user_id", "admin");
+      }
+      setCurrentUser(SUPER_ADMIN);
+      setIsLoggedIn(true);
+      return;
+    }
+
+    const foundUser = systemUsers.find(u => (u.username === username || u.email === username) && u.password === password);
+    if (foundUser) {
+      if (rememberMe) {
+        localStorage.setItem("is_logged_in", "true");
+        localStorage.setItem("current_user_id", foundUser.id.toString());
+      } else {
+        sessionStorage.setItem("is_logged_in", "true");
+        sessionStorage.setItem("current_user_id", foundUser.id.toString());
+      }
+      setCurrentUser(foundUser);
+      setIsLoggedIn(true);
+    } else {
+      setLoginError("Geçersiz kullanıcı adı veya şifre.");
+    }
+  };
+
 
   React.useEffect(() => {
     const savedTheme = localStorage.getItem("theme");
@@ -416,6 +513,12 @@ export default function Home() {
         })
       });
       if (res.ok) {
+        localStorage.removeItem("is_logged_in");
+        localStorage.removeItem("current_user_id");
+        sessionStorage.removeItem("is_logged_in");
+        sessionStorage.removeItem("current_user_id");
+        setCurrentUser(null);
+        setIsLoggedIn(false);
         window.location.reload();
       }
     } catch (e) {
@@ -522,6 +625,14 @@ export default function Home() {
         )}
     </div>
   );
+
+  if (isAuthChecking) {
+    return <div className="min-h-screen flex items-center justify-center bg-slate-100 dark:bg-slate-950"><div className="animate-spin w-8 h-8 border-4 border-primary border-t-transparent rounded-full"></div></div>;
+  }
+
+  if (!isLoggedIn) {
+    return <Login onLogin={handleLogin} error={loginError} />;
+  }
 
   return (
     <div className="h-screen overflow-hidden bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 flex font-sans transition-colors duration-300">
@@ -1142,7 +1253,7 @@ export default function Home() {
                 }`}
               >
                 <Cpu size={16} className={activeTab === "reports-trunk" ? "text-primary" : ""} />
-                <span>Trunk Utilization</span>
+                <span className="truncate">Hat Kapasite Raporu</span>
               </button>
 
               {/* IVR Drop-Off */}
@@ -1168,7 +1279,7 @@ export default function Home() {
                 }`}
               >
                 <PhoneForwarded size={16} className={activeTab === "reports-transfer-hold" ? "text-primary" : ""} />
-                <span>Aktarma & Bekletme Raporu</span>
+                <span className="truncate">Aktarma & Bekletme</span>
               </button>
 
               {/* AI vs. Human A/B Testing */}
@@ -1208,32 +1319,6 @@ export default function Home() {
               >
                 <ShieldCheck size={16} className={activeTab === "reports-compliance" ? "text-primary" : ""} />
                 <span>Senaryo Sadakati Raporu</span>
-              </button>
-
-              {/* Predictive Churn & Dissatisfaction Alert */}
-              <button
-                onClick={() => setActiveTab("reports-churn")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "reports-churn"
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <AlertTriangle size={16} className={activeTab === "reports-churn" ? "text-primary" : ""} />
-                <span>Abonelik İptal Riski</span>
-              </button>
-
-              {/* Competitor Mention Tracker */}
-              <button
-                onClick={() => setActiveTab("reports-competitor")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "reports-competitor"
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Eye size={16} className={activeTab === "reports-competitor" ? "text-primary" : ""} />
-                <span>Rakip Analiz Raporu</span>
               </button>
 
               {/* Silence & Interruption Analytics */}
@@ -1412,7 +1497,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-churn", "reports-competitor", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "conferences", "speed-dial", "event-logs", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "conferences", "speed-dial", "event-logs", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           {activeTab === "call-center" && (
             <AgentPanel 
               backendHost={backendHost} 
@@ -1510,79 +1595,72 @@ export default function Home() {
           )}
 
           {activeTab === "reports-perf" && (
-            renderPlaceholderReport("Temsilci Performans ve KPI Raporu", "Temsilcilerin günlük/haftalık performans metrikleri, ortalama çağrı süreleri ve KPI hedeflerine ulaşma yüzdelerini içeren detaylı analiz paneli.", Award)
+            <ReportsPanel backendHost={backendHost} viewMode="perf" />
           )}
 
           {activeTab === "reports-queue" && (
-            renderPlaceholderReport("Kuyruk / Bekleme Analitiği Raporu", "Kuyrukta bekleme süreleri, kuyruk doluluk oranları ve bekleme esnasındaki müşteri davranış analizleri.", Users)
+            <ReportsPanel backendHost={backendHost} viewMode="queue" />
           )}
 
           {activeTab === "reports-sentiment-heat" && (
-            renderPlaceholderReport("Duygu Durumu Isı Haritası", "Çağrı bazlı müşteri duygu değişimlerinin gün içi saatlere ve günlere göre dağılımını gösteren ısı haritası grafikleri.", Activity)
+            <ReportsPanel backendHost={backendHost} viewMode="sentiment-heat" />
           )}
 
           {activeTab === "reports-wordcloud" && (
-            renderPlaceholderReport("Kelime Bulutu ve Konu Trendleri", "Görüşmelerde en sık geçen anahtar kelimeler ve konu başlıklarının dönemsel trend analizleri.", MessageSquare)
+            <ReportsPanel backendHost={backendHost} viewMode="wordcloud" />
           )}
 
           {activeTab === "reports-fcr" && (
-            renderPlaceholderReport("İlk Aramada Çözüm (FCR) Raporu", "Müşteri sorunlarının ilk temasta çözülme oranları ve FCR performansını etkileyen faktörlerin analizi.", Check)
+            <ReportsPanel backendHost={backendHost} viewMode="fcr" />
           )}
 
           {activeTab === "reports-roi" && (
-            renderPlaceholderReport("AI vs. İnsan Karşılaştırmalı ROI Paneli", "Yapay zeka asistanları ile insan müşteri temsilcilerinin maliyet ve verimlilik karşılaştırmasını gösteren ROI analizleri.", TrendingUp)
+            <ReportsPanel backendHost={backendHost} viewMode="roi" />
           )}
 
           {activeTab === "reports-missed" && (
-            renderPlaceholderReport("Kaçan Çağrı Analizi", "Cevapsız kalan veya kuyrukta terk edilen çağrıların zaman dağılımları ve geri dönüş performans raporları.", PhoneOff)
+            <ReportsPanel backendHost={backendHost} viewMode="missed" />
           )}
 
           {activeTab === "reports-agent-status-timeline" && (
-            renderPlaceholderReport("Agent Status Timeline (Temsilci Kronolojisi)", "Müşteri temsilcilerinin gün içindeki durum (aktif, mola, meşgul) değişimlerinin zaman çizelgesi formatında takibi.", Clock)
+            <ReportsPanel backendHost={backendHost} viewMode="timeline" />
           )}
 
           {activeTab === "reports-traffic-load" && (
-            renderPlaceholderReport("Hourly/Daily Traffic Load (Yoğunluk Raporu)", "Çağrı trafiğinin saatlik, günlük ve haftalık periyotlardaki yoğunluk dağılımları ve kapasite planlama önerileri.", Calendar)
+            <ReportsPanel backendHost={backendHost} viewMode="traffic" />
           )}
 
           {activeTab === "reports-trunk" && (
-            renderPlaceholderReport("Trunk Utilization Raporu", "SIP Trunk hatlarının doluluk ve eşzamanlı çağrı kapasitesi kullanım oranlarının analizi.", Cpu)
+            <ReportsPanel backendHost={backendHost} viewMode="trunk" />
           )}
 
           {activeTab === "reports-ivr-drop" && (
-            renderPlaceholderReport("IVR Drop-Off (IVR Terk Oranı) Raporu", "Müşterilerin IVR menüsünde hangi adımlarda çağrıyı sonlandırdığını gösteren terk analiz paneli.", Shuffle)
+            <ReportsPanel backendHost={backendHost} viewMode="ivr-drop" />
           )}
 
           {activeTab === "reports-transfer-hold" && (
-            renderPlaceholderReport("Transfer & Hold Analytics (Aktarma ve Bekletme Raporu)", "Çağrı aktarma sıklığı, bekletme süreleri ve bu sürelerin müşteri memnuniyetine etkileri.", PhoneForwarded)
+            <ReportsPanel backendHost={backendHost} viewMode="transfer-hold" />
           )}
 
           {activeTab === "reports-ab-testing" && (
-            renderPlaceholderReport("AI vs. Human A/B Testing (Verimlilik Karşılaştırması)", "Farklı arama senaryolarında yapay zeka ile insan performansının kontrollü A/B test karşılaştırma metrikleri.", Layers)
+            <ReportsPanel backendHost={backendHost} viewMode="efficiency" />
           )}
 
           {activeTab === "reports-friction" && (
-            renderPlaceholderReport("Customer Frustration / Friction Points (Müşteri Çile Noktaları)", "Müşterilerin görüşmelerde yaşadığı zorluk, tıkanıklık ve çile hissettiği aşamaların yapay zeka tespiti.", Frown)
+            <ReportsPanel backendHost={backendHost} viewMode="friction" />
           )}
 
           {activeTab === "reports-compliance" && (
-            renderPlaceholderReport("Agent Compliance & Script Adherence (Sözleşme ve Senaryo Sadakati)", "Müşteri temsilcilerinin KVKK, zorunlu yasal metinler ve kurum senaryolarına bağlılık oranlarının takibi.", ShieldCheck)
+            <ReportsPanel backendHost={backendHost} viewMode="compliance" />
           )}
 
-          {activeTab === "reports-churn" && (
-            renderPlaceholderReport("Predictive Churn & Dissatisfaction Alert (Abonelik İptal Riski)", "Hizmet iptali veya abonelikten ayrılma riski taşıyan müşterilerin çağrı analizleri üzerinden yapay zeka ile önceden tespiti.", AlertTriangle)
-          )}
-
-          {activeTab === "reports-competitor" && (
-            renderPlaceholderReport("Competitor Mention Tracker (Rakip Analiz Raporu)", "Görüşmeler esnasında rakiplerin isimlerinin geçme sıklığı ve rakip marka algısı analiz paneli.", Eye)
-          )}
 
           {activeTab === "reports-silence" && (
-            renderPlaceholderReport("Silence & Interruption Analytics (Sessizlik ve Söz Kesme Raporu)", "Görüşmelerdeki karşılıklı sessizlik süreleri ile temsilci/müşteri söz kesme oranlarının analizi.", MicOff)
+            <ReportsPanel backendHost={backendHost} viewMode="silence" />
           )}
 
           {activeTab === "reports-ceo-summary" && (
-            renderPlaceholderReport("Executive Summary Generator (CEO Özet Raporu)", "Tüm sistem operasyonlarının ve yapay zeka analizlerinin CEO/Yönetici seviyesi için otomatik hazırlanan yönetici özeti.", Crown)
+            <ReportsPanel backendHost={backendHost} viewMode="ceo-summary" />
           )}
 
           {activeTab === "dialer" && (

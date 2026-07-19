@@ -1,6 +1,7 @@
 import '../styles/globals.css'
 import { useEffect } from 'react'
 import { getSafeThemeColor } from '../utils/theme'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 
 function MyApp({ Component, pageProps }) {
   useEffect(() => {
@@ -30,7 +31,11 @@ function MyApp({ Component, pageProps }) {
     };
   }, []);
 
-  return <Component {...pageProps} />
+  return (
+    <ErrorBoundary>
+      <Component {...pageProps} />
+    </ErrorBoundary>
+  );
 }
 
 export default MyApp

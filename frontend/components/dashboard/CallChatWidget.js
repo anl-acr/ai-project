@@ -68,7 +68,29 @@ export default function CallChatWidget({
   ]);
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatInput, setChatInput] = useState("");
-
+  
+  // Internal Chat States
+  const [chatTab, setChatTab] = useState("customer"); // "customer" | "internal"
+  const [internalChatSessions, setInternalChatSessions] = useState([
+    {
+      id: "internal-1",
+      customerName: "Sistem Yöneticisi",
+      platform: "İç Yazışma",
+      unread: 0,
+      online: true,
+      messages: [
+        { sender: "customer", text: "Merhaba, bugünkü yoğunluk hakkında bir rapor hazırlayabilir misiniz?", time: "09:30", status: "seen" },
+        { sender: "agent", text: "Tabii ki, öğleden sonra iletiyorum.", time: "09:35", status: "seen" }
+      ]
+    }
+  ]);
+  const [systemUsers, setSystemUsers] = useState([
+    { id: "u1", name: "Sistem Yöneticisi", role: "Yönetici", online: true },
+    { id: "u2", name: "Ayşe Yılmaz", role: "Takım Lideri", online: true },
+    { id: "u3", name: "Mehmet Demir", role: "Temsilci", online: false },
+    { id: "u4", name: "Canan Şahin", role: "Teknik Destek", online: true }
+  ]);
+  const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : `http://${backendHost}`;
 
   // ----------------------------------------------------
@@ -386,29 +408,90 @@ export default function CallChatWidget({
     if (!chatInput.trim() || !activeChatId) return;
 
     const timeString = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
-    const newMsg = { sender: "agent", text: chatInput.trim(), time: timeString };
+    const newMsg = { sender: "agent", text: chatInput.trim(), time: timeString, status: "sent" };
 
-    setChatSessions(prev =>
-      prev.map(chat => {
-        if (chat.id === activeChatId) {
-          return { ...chat, messages: [...chat.messages, newMsg] };
-        }
-        return chat;
-      })
-    );
-    setChatInput("");
-
-    setTimeout(() => {
-      const autoReply = { sender: "customer", text: "Teşekkürler, dönüşünüzü bekliyorum.", time: timeString };
+    if (chatTab === "customer") {
       setChatSessions(prev =>
         prev.map(chat => {
           if (chat.id === activeChatId) {
-            return { ...chat, messages: [...chat.messages, autoReply] };
+            return { ...chat, messages: [...chat.messages, newMsg] };
           }
           return chat;
         })
       );
-    }, 1500);
+      setChatInput("");
+
+      setTimeout(() => {
+        const autoReply = { sender: "customer", text: "Teşekkürler, dönüşünüzü bekliyorum.", time: timeString };
+        setChatSessions(prev =>
+          prev.map(chat => {
+            if (chat.id === activeChatId) {
+              return { ...chat, messages: [...chat.messages, autoReply] };
+            }
+            return chat;
+          })
+        );
+      }, 3000);
+    } else {
+      setInternalChatSessions(prev =>
+        prev.map(chat => {
+          if (chat.id === activeChatId) {
+            return { ...chat, messages: [...chat.messages, newMsg] };
+          }
+          return chat;
+        })
+      );
+      setChatInput("");
+
+      // Simulate seen status
+      setTimeout(() => {
+        setInternalChatSessions(prev =>
+          prev.map(chat => {
+            if (chat.id === activeChatId) {
+              const updatedMessages = chat.messages.map(m => m.sender === "agent" ? { ...m, status: "seen" } : m);
+              return { ...chat, messages: updatedMessages };
+            }
+            return chat;
+          })
+        );
+      }, 1500);
+
+      // Simulate reply
+      setTimeout(() => {
+        const replyTime = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+        const autoReply = { sender: "customer", text: "Anlaşıldı, ilgileniyorum.", time: replyTime, status: "seen" };
+        setInternalChatSessions(prev =>
+          prev.map(chat => {
+            if (chat.id === activeChatId) {
+              return { ...chat, messages: [...chat.messages, autoReply] };
+            }
+            return chat;
+          })
+        );
+      }, 4000);
+    }
+  };
+
+  const handleStartInternalChat = (user) => {
+    const existingChat = internalChatSessions.find(c => c.customerName === user.name);
+    if (existingChat) {
+      setActiveChatId(existingChat.id);
+    } else {
+      const newChatId = `internal-${Date.now()}`;
+      setInternalChatSessions(prev => [
+        {
+          id: newChatId,
+          customerName: user.name,
+          platform: "İç Yazışma",
+          unread: 0,
+          online: user.online,
+          messages: []
+        },
+        ...prev
+      ]);
+      setActiveChatId(newChatId);
+    }
+    setIsNewChatModalOpen(false);
   };
 
   const getUnreadChatCount = () => {
@@ -422,7 +505,9 @@ export default function CallChatWidget({
   };
 
   const totalTrafficCount = activeCalls.length + getUnreadChatCount();
-  const selectedChat = chatSessions.find(c => c.id === activeChatId);
+  const selectedChat = chatTab === "customer" 
+    ? chatSessions.find(c => c.id === activeChatId)
+    : internalChatSessions.find(c => c.id === activeChatId);
 
   return (
     <div className="fixed bottom-6 right-6 z-[100] font-sans antialiased">
@@ -787,35 +872,70 @@ export default function CallChatWidget({
                 TAB 3: CANLI CHAT SİMÜLATÖRÜ
                 ---------------------------------------------------- */}
             {activeTab === "chat" && (
-              <div className="h-full">
+              <div className="h-full flex flex-col">
                 
-                {/* 1. Chat List View */}
+                {/* Chat Tabs */}
                 {!activeChatId && (
-                  <div className="space-y-2">
-                    {chatSessions.map((session) => (
+                  <div className="flex bg-slate-100 dark:bg-slate-800/50 p-1 rounded-xl mb-3 shrink-0">
+                    <button
+                      onClick={() => setChatTab("customer")}
+                      className={`flex-1 py-1.5 text-[9px] font-extrabold uppercase tracking-wider rounded-lg transition-colors ${
+                        chatTab === "customer" 
+                          ? "bg-white dark:bg-slate-700 text-primary shadow-sm" 
+                          : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                      }`}
+                    >
+                      Müşteri
+                    </button>
+                    <button
+                      onClick={() => setChatTab("internal")}
+                      className={`flex-1 py-1.5 text-[9px] font-extrabold uppercase tracking-wider rounded-lg transition-colors ${
+                        chatTab === "internal" 
+                          ? "bg-white dark:bg-slate-700 text-primary shadow-sm" 
+                          : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                      }`}
+                    >
+                      İç Yazışma
+                    </button>
+                  </div>
+                )}
+
+                {/* 1. Chat List View */}
+                {!activeChatId && !isNewChatModalOpen && (
+                  <div className="flex-1 overflow-y-auto space-y-2 pr-1 pb-2">
+                    {(chatTab === "customer" ? chatSessions : internalChatSessions).map((session) => (
                       <button
                         key={session.id}
                         onClick={() => {
                           setActiveChatId(session.id);
-                          setChatSessions(prev =>
-                            prev.map(c => c.id === session.id ? { ...c, unread: 0 } : c)
-                          );
+                          if (chatTab === "customer") {
+                            setChatSessions(prev => prev.map(c => c.id === session.id ? { ...c, unread: 0 } : c));
+                          } else {
+                            setInternalChatSessions(prev => prev.map(c => c.id === session.id ? { ...c, unread: 0 } : c));
+                          }
                         }}
                         className="w-full p-3 bg-slate-50/50 dark:bg-slate-950/10 hover:bg-slate-50 dark:hover:bg-slate-950/30 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl flex items-center justify-between gap-3 transition-colors text-left"
                       >
                         <div className="flex items-center gap-3 truncate">
-                          <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary font-extrabold text-[10px] shrink-0">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 dark:bg-primary/20 flex items-center justify-center text-primary font-extrabold text-[10px] shrink-0 relative">
                             {session.customerName.charAt(0)}
+                            {chatTab === "internal" && (
+                              <div className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white dark:border-slate-900 ${session.online ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
+                            )}
                           </div>
                           <div className="truncate">
                             <p className="text-[11px] font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
                               {session.customerName}
-                              <span className="px-1 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border border-emerald-200/30 text-[7px] font-extrabold uppercase">
+                              <span className={`px-1 py-0.5 rounded text-[7px] font-extrabold uppercase border ${
+                                chatTab === "customer" 
+                                  ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border-emerald-200/30"
+                                  : "bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-200/30"
+                              }`}>
                                 {session.platform}
                               </span>
                             </p>
                             <p className="text-[9px] text-slate-450 dark:text-slate-500 truncate mt-0.5 font-medium">
-                              {session.messages[session.messages.length - 1].text}
+                              {session.messages.length > 0 ? session.messages[session.messages.length - 1].text : "Mesaj yok..."}
                             </p>
                           </div>
                         </div>
@@ -827,23 +947,73 @@ export default function CallChatWidget({
                         )}
                       </button>
                     ))}
+
+                    {/* New Chat Button (Internal Only) */}
+                    {chatTab === "internal" && (
+                      <button 
+                        onClick={() => setIsNewChatModalOpen(true)}
+                        className="w-full mt-2 p-2 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-500 hover:text-primary hover:border-primary/50 hover:bg-primary/5 transition-all flex items-center justify-center gap-2"
+                      >
+                        <span className="text-lg leading-none">+</span> Yeni İç Yazışma
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* New Chat Selection View */}
+                {isNewChatModalOpen && !activeChatId && (
+                  <div className="flex-1 flex flex-col h-full">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800/60 mb-2 shrink-0">
+                      <button
+                        onClick={() => setIsNewChatModalOpen(false)}
+                        className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 hover:text-slate-750 dark:hover:text-white uppercase tracking-wider flex items-center gap-1"
+                      >
+                        ← Geri
+                      </button>
+                      <span className="text-[9px] font-bold text-slate-500 truncate max-w-[120px]">Kişi Seç</span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto space-y-2 pr-1 pb-2">
+                      {systemUsers.map(user => (
+                        <button
+                          key={user.id}
+                          onClick={() => handleStartInternalChat(user)}
+                          className="w-full p-2.5 bg-slate-50/50 dark:bg-slate-950/10 hover:bg-slate-50 dark:hover:bg-slate-950/30 border border-slate-200/60 dark:border-slate-800/80 rounded-xl flex items-center gap-3 transition-colors text-left"
+                        >
+                          <div className="w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-[9px] shrink-0 relative">
+                            {user.name.charAt(0)}
+                            <div className={`absolute bottom-0 right-0 w-2 h-2 rounded-full border border-white dark:border-slate-900 ${user.online ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-800 dark:text-white">{user.name}</p>
+                            <p className="text-[8px] text-slate-450 dark:text-slate-500 uppercase tracking-wider">{user.role}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
                 {/* 2. Chat Box Details */}
                 {activeChatId && selectedChat && (
                   <div className="h-full flex flex-col justify-between">
-                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800/60 mb-2">
+                    <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800/60 mb-2 shrink-0">
                       <button
                         onClick={() => setActiveChatId(null)}
                         className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 hover:text-slate-750 dark:hover:text-white uppercase tracking-wider flex items-center gap-1"
                       >
-                        ← Sohbet Listesi
+                        ← Listeye Dön
                       </button>
-                      <span className="text-[9px] font-bold text-slate-500 truncate max-w-[120px]">{selectedChat.customerName}</span>
+                      <div className="flex flex-col items-end">
+                        <span className="text-[9px] font-bold text-slate-800 dark:text-slate-200 truncate max-w-[120px]">{selectedChat.customerName}</span>
+                        {chatTab === "internal" && (
+                          <span className={`text-[7px] font-bold uppercase tracking-wider ${selectedChat.online ? 'text-emerald-500' : 'text-slate-400'}`}>
+                            {selectedChat.online ? 'Çevrimiçi' : 'Çevrimdışı'}
+                          </span>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 py-1 max-h-[170px]">
+                    <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 py-1">
                       {selectedChat.messages.map((m, idx) => (
                         <div
                           key={idx}
@@ -860,24 +1030,40 @@ export default function CallChatWidget({
                           >
                             {m.text}
                           </div>
-                          <span className="text-[7px] text-slate-450 mt-1 font-bold tracking-wide uppercase">
-                            {m.time}
-                          </span>
+                          <div className="flex items-center gap-1 mt-1">
+                            <span className="text-[7px] text-slate-450 font-bold tracking-wide uppercase">
+                              {m.time}
+                            </span>
+                            {m.sender === "agent" && chatTab === "internal" && (
+                              <span className={`text-[7px] font-bold ${m.status === 'seen' ? 'text-blue-500' : 'text-slate-400'}`}>
+                                {m.status === 'seen' ? '✓✓' : '✓'}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
 
-                    <form onSubmit={handleSendChatMessage} className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800/60 mt-2 shrink-0">
-                      <input
-                        type="text"
-                        placeholder="Mesajınızı yazın..."
-                        value={chatInput}
-                        onChange={(e) => setChatInput(e.target.value)}
-                        className="flex-1 text-[10px] px-3 py-2 rounded-xl border border-slate-205 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-850 dark:text-slate-100 focus:outline-none"
-                      />
+                    <form onSubmit={handleSendChatMessage} className="flex items-center gap-1 pt-2 border-t border-slate-100 dark:border-slate-800/60 mt-2 shrink-0">
+                      <button type="button" className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors" title="Dosya Ekle">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+                      </button>
+                      <div className="flex-1 relative">
+                        <input
+                          type="text"
+                          placeholder="Mesajınızı yazın..."
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          className="w-full text-[10px] px-3 py-2 pr-8 rounded-xl border border-slate-205 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-850 dark:text-slate-100 focus:outline-none"
+                        />
+                        <button type="button" className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200" title="Emoji">
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg>
+                        </button>
+                      </div>
                       <button
                         type="submit"
-                        className="p-2 bg-primary hover:bg-primary text-white rounded-xl flex items-center justify-center shrink-0"
+                        disabled={!chatInput.trim()}
+                        className="p-2 bg-primary hover:bg-primary/90 text-white rounded-xl flex items-center justify-center shrink-0 disabled:opacity-50 transition-opacity"
                       >
                         <Send size={12} />
                       </button>
