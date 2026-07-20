@@ -178,7 +178,8 @@ export default function Home() {
     setApplyStatus("idle");
     setApplyError("");
     try {
-      const res = await fetch("http://localhost:8000/api/settings/apply", {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/settings/apply`, {
         method: "POST"
       });
       if (res.ok) {
@@ -342,7 +343,7 @@ export default function Home() {
     }
   }, [settingsModalOpen]);
 
-  const backendHost = "localhost:8000";
+  const backendHost = typeof window !== 'undefined' ? window.location.hostname + ":8000" : "localhost:8000";
 
   const checkRolePermissions = async () => {
     let currentUserData = null;
@@ -1057,20 +1058,6 @@ export default function Home() {
                 </button>
               )}
 
-              {hasSubscriberGroupsPermission && (
-                <button
-                  onClick={() => setActiveTab("subscriber-groups")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                    activeTab === "subscriber-groups"
-                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                  }`}
-                >
-                  <Users size={16} className={activeTab === "subscriber-groups" ? "text-primary" : ""} />
-                  <span>Abone Grubu</span>
-                </button>
-              )}
-
               {hasContactsPermission && (
                 <button
                   onClick={() => setActiveTab("contacts")}
@@ -1717,7 +1704,7 @@ export default function Home() {
           )}
 
           {activeTab === "users" && (
-            <UserSettings backendHost={backendHost} />
+            <UserSettings backendHost={backendHost} currentUser={currentUser} />
           )}
 
           {activeTab === "trunks" && (

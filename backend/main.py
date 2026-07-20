@@ -57,7 +57,7 @@ os.makedirs("uploads/announcements", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Temp storage for PDF uploads
-UPLOAD_DIR = "/tmp/ai_pbx_uploads" if os.name != 'nt' else "C:\\temp\\ai_pbx_uploads"
+UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads", "tmp")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # ----------------------------------------------------
@@ -552,13 +552,24 @@ DEFAULT_SETTINGS = {
 
 def load_settings():
     db = DEFAULT_SETTINGS.copy()
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
-                db.update(loaded)
-        except Exception as e:
-            print(f"[Settings] Error loading settings: {e}")
+    try:
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.database.config import DATABASE_URL
+        from backend.database.models import SystemSetting
+        
+        sync_db_url = DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
+        engine = create_engine(sync_db_url)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        
+        settings = session.query(SystemSetting).all()
+        for s in settings:
+            db[s.key] = s.value
+            
+        session.close()
+    except Exception as e:
+        print(f"[Settings DB] Error loading settings from DB: {e}")
     # Ensure default roles exist if not present
     if "roles" not in db or not db["roles"]:
         db["roles"] = DEFAULT_SETTINGS["roles"]
@@ -824,10 +835,27 @@ def load_settings():
 
 def save_settings(settings):
     try:
-        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-            json.dump(settings, f, indent=4, ensure_ascii=False)
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import sessionmaker
+        from backend.database.config import DATABASE_URL
+        from backend.database.models import SystemSetting
+        
+        sync_db_url = DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
+        engine = create_engine(sync_db_url)
+        Session = sessionmaker(bind=engine)
+        session = Session()
+        
+        for key, val in settings.items():
+            setting = session.query(SystemSetting).filter_by(key=key).first()
+            if setting:
+                setting.value = val
+            else:
+                session.add(SystemSetting(key=key, value=val))
+        
+        session.commit()
+        session.close()
     except Exception as e:
-        print(f"[Settings] Error saving settings: {e}")
+        print(f"[Settings DB] Error saving settings to DB: {e}")
 
 settings_db = load_settings()
 
@@ -1031,11 +1059,11 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
     else:
         run_queue_reload()
 
-@app.get("/api/settings/trunks")
+@app.get("/api/v1_old/settings/trunks")
 async def list_trunks():
     return settings_db["trunks"]
 
-@app.post("/api/settings/trunks")
+@app.post("/api/v1_old/settings/trunks")
 async def add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks: BackgroundTasks):
     data = payload.model_dump()
     if not data.get("id"):
@@ -1576,11 +1604,11 @@ async def save_numbering_plan(payload: NumberingPlanSchema):
     save_settings(settings_db)
     return {"status": "success", "message": "Numara planı başarıyla kaydedildi."}
 
-@app.get("/api/settings/users")
+@app.get("/api/v1_old/settings/users")
 async def get_users_endpoint():
     return settings_db.get("users", [])
 
-@app.post("/api/settings/users")
+@app.post("/api/v1_old/settings/users")
 async def save_users_endpoint(payload: List[UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info)):
     existing_users = {u.get("id"): u for u in settings_db.get("users", []) if u.get("id")}
     
@@ -1676,11 +1704,11 @@ async def update_agent_profile_endpoint(user_id: int, payload: ProfileUpdateSche
     save_settings(settings_db)
     return {"status": "success", "user": user}
 
-@app.get("/api/settings/roles")
+@app.get("/api/v1_old/settings/roles")
 async def get_roles_endpoint():
     return settings_db.get("roles", [])
 
-@app.post("/api/settings/roles")
+@app.post("/api/v1_old/settings/roles")
 async def save_roles_endpoint(payload: List[RoleSchema], user_info: dict = Depends(get_user_info)):
     settings_db["roles"] = []
     for idx, item in enumerate(payload):
@@ -1703,11 +1731,11 @@ async def save_roles_endpoint(payload: List[RoleSchema], user_info: dict = Depen
 # ----------------------------------------------------
 # API Routes: Queues
 # ----------------------------------------------------
-@app.get("/api/settings/queues")
+@app.get("/api/v1_old/settings/queues")
 async def get_queues_endpoint():
     return settings_db.get("queues", [])
 
-@app.post("/api/settings/queues")
+@app.post("/api/v1_old/settings/queues")
 async def save_queues_endpoint(payload: List[Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info)):
     settings_db["queues"] = payload
     save_settings(settings_db)
@@ -2905,7 +2933,7 @@ async def get_wallboard_stats():
 @app.get("/api/reports/agents")
 async def get_reports_agents():
     from backend.database.models import SystemUser
-    from backend.services.ami_manager import active_channels
+    from backend.services.ami_manager import active_channels, registered_endpoints
     async with AsyncSessionLocal() as session:
         stmt = select(SystemUser)
         result = await session.execute(stmt)
@@ -2921,7 +2949,10 @@ async def get_reports_agents():
                     is_in_call = True
                     break
             
-            status = "Görüşmede" if is_in_call else "Müsait"
+            status = "Çevrimdışı"
+            if str(u.extension) in registered_endpoints:
+                status = "Görüşmede" if is_in_call else "Müsait"
+                
             agents_state[u.id] = {
                 "id": str(u.id),
                 "name": u.full_name,
@@ -3705,7 +3736,7 @@ async def startup_event():
 
 # --- REFACTORED ENDPOINTS ---
 
-@app.get("/api/v2/settings/users")
+@app.get("/api/settings/users")
 async def new_get_users_endpoint(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SystemUser).order_by(SystemUser.id))
     users = result.scalars().all()
@@ -3715,7 +3746,7 @@ async def new_get_users_endpoint(db: AsyncSession = Depends(get_db)):
         out.append(d)
     return out
 
-@app.post("/api/v2/settings/users")
+@app.post("/api/settings/users")
 async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SystemUser))
     existing_users_db = result.scalars().all()
@@ -3765,7 +3796,7 @@ async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: B
     
     return {"status": "success", "users": new_users}
 
-@app.get("/api/v2/settings/roles")
+@app.get("/api/settings/roles")
 async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SystemRole).order_by(SystemRole.id))
     roles = result.scalars().all()
@@ -3775,7 +3806,7 @@ async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
         out.append(d)
     return out
 
-@app.post("/api/v2/settings/roles")
+@app.post("/api/settings/roles")
 async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SystemRole))
     existing_roles_db = result.scalars().all()
@@ -3819,7 +3850,7 @@ async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = D
     
     return {"status": "success", "roles": new_roles}
 
-@app.get("/api/v2/settings/queues")
+@app.get("/api/settings/queues")
 async def new_get_queues_endpoint(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
     queues = result.scalars().all()
@@ -3829,7 +3860,7 @@ async def new_get_queues_endpoint(db: AsyncSession = Depends(get_db)):
         out.append(d)
     return out
 
-@app.post("/api/v2/settings/queues")
+@app.post("/api/settings/queues")
 async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     await db.execute(delete(PBXQueue))
     new_queues = []
@@ -3858,7 +3889,7 @@ async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tas
     
     return {"status": "success", "queues": new_queues}
 
-@app.get("/api/v2/settings/trunks")
+@app.get("/api/settings/trunks")
 async def new_list_trunks(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Trunk).order_by(Trunk.id))
     trunks = result.scalars().all()
@@ -3868,7 +3899,7 @@ async def new_list_trunks(db: AsyncSession = Depends(get_db)):
         out.append(d)
     return out
 
-@app.post("/api/v2/settings/trunks")
+@app.post("/api/settings/trunks")
 async def new_add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     data = payload.model_dump()
     

@@ -11,6 +11,8 @@ AMI_SECRET = os.getenv("AMI_SECRET", "backend_secure_key_99")
 active_channels = {}
 # Registry to map Call UUID (call_id) -> Asterisk's internal Uniqueid (asterisk_id)
 call_id_to_asterisk_id = {}
+# Registry to track SIP registered endpoints
+registered_endpoints = set()
 manager_instance = None
 
 def register_event_handlers(manager: Manager):
@@ -29,6 +31,18 @@ def register_event_handlers(manager: Manager):
             channel = active_channels.pop(uniqueid)
             print(f"[AMI] Kanal Silindi (Hangup): {uniqueid} ({channel})")
 
+    @manager.register_event('ContactStatus')
+    def handle_contact_status(m, event):
+        aor = event.get('AOR')
+        status = event.get('ContactStatus')
+        if aor:
+            if status in ["Reachable", "Created", "Registered"]:
+                registered_endpoints.add(aor)
+                print(f"[AMI] Endpoint Kaydedildi: {aor}")
+            elif status in ["Removed", "Unreachable", "Unknown"]:
+                registered_endpoints.discard(aor)
+                print(f"[AMI] Endpoint Koptu: {aor}")
+
 async def get_ami_manager() -> Manager:
     """Returns or initializes the active AMI manager connection."""
     global manager_instance
@@ -45,6 +59,19 @@ async def get_ami_manager() -> Manager:
             register_event_handlers(manager_instance)
             await manager_instance.connect()
             print("[AMI] Connected successfully!")
+            
+            # Fetch initial SIP registration states
+            try:
+                res = await manager_instance.send_action({"Action": "PJSIPShowEndpoints"})
+                if res and hasattr(res, 'responses'):
+                    for r in res.responses:
+                        if r.get('Event') == 'EndpointList':
+                            obj = r.get('ObjectName')
+                            status = r.get('DeviceState')
+                            if obj and status and status != 'Unavailable':
+                                registered_endpoints.add(obj)
+            except Exception as ex:
+                print(f"[AMI] Error fetching initial endpoints: {ex}")
         except Exception as e:
             print(f"[AMI] Connection error: {e}")
             manager_instance = None
