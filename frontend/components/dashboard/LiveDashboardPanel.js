@@ -73,17 +73,29 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
     return () => clearInterval(interval);
   }, [backendHost, selectedCall]);
 
-  // Simulate server resource fluctuations
+  // Fetch real system resource metrics
   useEffect(() => {
-    const timer = setInterval(() => {
-      setMetrics(prev => ({
-        cpu: Math.min(100, Math.max(5, prev.cpu + Math.floor(Math.random() * 11) - 5)),
-        ram: Math.min(100, Math.max(10, prev.ram + Math.floor(Math.random() * 3) - 1)),
-        activeWs: activeCalls.length * 2 + 1
-      }));
-    }, 3000);
+    const fetchStats = async () => {
+      try {
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        const res = await fetch(`${protocol}//${backendHost}/api/system/stats`);
+        if (res.ok) {
+          const data = await res.json();
+          setMetrics({
+            cpu: Math.round(data.cpu_usage || 0),
+            ram: Math.round(data.ram_usage || 0),
+            activeWs: activeCalls.length * 2 + 1
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch system stats:", err);
+      }
+    };
+    
+    fetchStats();
+    const timer = setInterval(fetchStats, 5000);
     return () => clearInterval(timer);
-  }, [activeCalls]);
+  }, [activeCalls, backendHost]);
 
   // Check AI Whisperer permission on load
   useEffect(() => {

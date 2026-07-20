@@ -4,51 +4,15 @@ import { Phone, PhoneOff, ShieldAlert, Wifi, WifiOff, MessageSquare, Send, X, Cl
 import { playRingtoneSound, stopRingtoneSound } from "../../utils/audioHelper";
 
 export default function CallChatWidget({
+  agentExtension = "200",
+  password = "temsilci_sifre_321",
+  asteriskWssUrl = "wss://localhost:8089/ws",
   onActiveCall = () => {},
-  backendHost = "localhost:8000",
-  currentUser
+  backendHost = "localhost:8000"
 }) {
   // Expanded/Collapsed State
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("phone"); // phone, traffic, chat
-
-  // Dynamic WebRTC Config
-  const [webrtcConfig, setWebrtcConfig] = useState(null);
-  const agentExtension = webrtcConfig?.agentExtension || "";
-  const password = webrtcConfig?.password || "";
-  const asteriskWssUrl = webrtcConfig?.asteriskWssUrl || "";
-  const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : `http://${backendHost}`;
-
-  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
-
-  useEffect(() => {
-    let isMounted = true;
-    const fetchConfig = async () => {
-      setIsLoadingConfig(true);
-      try {
-        let headers = { "Content-Type": "application/json" };
-        if (currentUser && currentUser.id) {
-          headers["X-User-ID"] = currentUser.id.toString();
-        } else if (currentUser && currentUser.role === 'admin') {
-          headers["X-User-ID"] = "admin";
-        }
-
-        const res = await fetch(`${API_BASE}/api/webrtc/config`, { headers });
-        if (res.ok) {
-          const config = await res.json();
-          if (isMounted) setWebrtcConfig(config);
-        } else {
-          console.error("Failed to fetch WebRTC config");
-        }
-      } catch (err) {
-        console.error("Error fetching WebRTC config:", err);
-      } finally {
-        if (isMounted) setIsLoadingConfig(false);
-      }
-    };
-    fetchConfig();
-    return () => { isMounted = false; };
-  }, [API_BASE, currentUser]);
 
   // ----------------------------------------------------
   // 1. WebRTC Softphone States & References
@@ -127,6 +91,7 @@ export default function CallChatWidget({
     { id: "u4", name: "Canan Şahin", role: "Teknik Destek", online: true }
   ]);
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
+  const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : `http://${backendHost}`;
 
   // ----------------------------------------------------
   // WebRTC Softphone Call Duration Hook
@@ -232,8 +197,6 @@ export default function CallChatWidget({
   // SIP.js WebRTC Registration Hook
   // ----------------------------------------------------
   useEffect(() => {
-    if (!webrtcConfig) return;
-    const { asteriskWssUrl, agentExtension, password } = webrtcConfig;
     if (!asteriskWssUrl || !agentExtension) return;
 
     setError("");
@@ -309,7 +272,7 @@ export default function CallChatWidget({
         userAgentRef.current.stop();
       }
     };
-  }, [webrtcConfig]);
+  }, [agentExtension, password, asteriskWssUrl]);
 
   // softphone action callbacks
   const answerCall = async () => {
@@ -555,14 +518,12 @@ export default function CallChatWidget({
       {/* Unified Collapsed Pill Button */}
       {!isOpen && (
         <div
-          onClick={() => !isLoadingConfig && setIsOpen(true)}
-          className={`flex items-center gap-3 px-4.5 py-3 bg-white/90 dark:bg-slate-900/90 border border-slate-200/80 dark:border-slate-800/85 rounded-full text-slate-800 dark:text-white shadow-xl ${isLoadingConfig ? 'cursor-wait opacity-70' : 'hover:bg-slate-50 dark:hover:bg-slate-800 hover:shadow-2xl cursor-pointer'} transition-all duration-300 select-none backdrop-blur-md font-bold text-xs`}
+          onClick={() => setIsOpen(true)}
+          className="flex items-center gap-3 px-4.5 py-3 bg-white/90 dark:bg-slate-900/90 hover:bg-slate-50 dark:hover:bg-slate-800 border border-slate-200/80 dark:border-slate-800/85 rounded-full text-slate-800 dark:text-white shadow-xl hover:shadow-2xl cursor-pointer transition-all duration-300 select-none backdrop-blur-md font-bold text-xs"
         >
           {/* Extension Status Dot */}
           <span className="relative flex h-2.5 w-2.5">
-            {isLoadingConfig ? (
-              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-300 dark:bg-slate-600 animate-pulse"></span>
-            ) : registered ? (
+            {registered ? (
               <>
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
@@ -574,8 +535,23 @@ export default function CallChatWidget({
           
           {/* Label */}
           <span className="tracking-wide">
-            {isLoadingConfig ? "Bağlanıyor..." : registered ? `Dahili ${agentExtension}` : `Dahili ${agentExtension || 'X'} (Bağlı Değil)`}
+            {registered ? `Dahili ${agentExtension}` : `Dahili ${agentExtension} (Bağlı Değil)`}
           </span>
+
+          {/* Traffic Badges */}
+          {totalTrafficCount > 0 && (
+            <>
+              <div className="w-[1px] h-3.5 bg-slate-200 dark:bg-slate-800" />
+              <div className="flex items-center gap-1.5 text-[10px] text-primary font-extrabold animate-pulse">
+                {activeCalls.length > 0 ? (
+                  <PhoneCall size={11} className="animate-bounce" />
+                ) : (
+                  <MessageSquare size={11} />
+                )}
+                <span>{totalTrafficCount} Trafik</span>
+              </div>
+            </>
+          )}
         </div>
       )}
 
@@ -698,25 +674,25 @@ export default function CallChatWidget({
 
                   {callStatus === "Ringing" && (
                     <div className="py-2 space-y-3">
-                      <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-sm animate-bounce">
+                      <div className="h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-950/20 border border-amber-250 text-primary flex items-center justify-center mx-auto animate-bounce">
                         <PhoneCall size={20} className="animate-pulse" />
                       </div>
                       <div>
-                        <p className="text-amber-600 dark:text-amber-400 font-extrabold text-xs uppercase tracking-widest">GELEN ÇAĞRI</p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">Çağrı kuyruğunuz çalıyor...</p>
+                        <p className="text-primary dark:text-amber-400 font-extrabold text-xs uppercase tracking-widest">YAPAY ZEKADAN AKTARIM</p>
+                        <p className="text-[10px] text-slate-450 dark:text-slate-400 mt-1">Çağrı kuyruğunuz çalıyor...</p>
                       </div>
 
                       {/* Ringing Accept / Reject Controls */}
                       <div className="flex justify-center gap-3 pt-2">
                         <button
                           onClick={answerCall}
-                          className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition-colors"
+                          className="flex-1 py-2.5 bg-primary hover:bg-primary text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-emerald-600/10 flex items-center justify-center gap-1.5"
                         >
                           <Phone size={13} /> Cevapla
                         </button>
                         <button
                           onClick={hangupCall}
-                          className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors"
+                          className="flex-1 py-2.5 bg-primary hover:bg-primary text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-rose-600/10 flex items-center justify-center gap-1.5"
                         >
                           <PhoneOff size={13} /> Reddet
                         </button>
@@ -727,13 +703,13 @@ export default function CallChatWidget({
                   {callStatus === "InCall" && (
                     <div className="py-2 space-y-4">
                       <div className="flex justify-between items-center gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="h-11 w-11 rounded-full bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center animate-pulse shrink-0 shadow-sm">
+                        <div className="flex items-center gap-2">
+                          <div className="h-10 w-10 rounded-full bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-250 text-primary flex items-center justify-center animate-pulse shrink-0">
                             <Phone size={18} />
                           </div>
                           <div className="text-left">
-                            <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] uppercase tracking-wider mb-0.5">Görüşme Aktif</p>
-                            <p className="text-xl font-black font-mono text-slate-800 dark:text-white leading-none">
+                            <p className="text-emerald-650 dark:text-emerald-450 font-extrabold text-[10px] uppercase tracking-wider">Görüşme Aktif</p>
+                            <p className="text-lg font-black font-mono text-slate-800 dark:text-white">
                               {formatSeconds(callDuration)}
                             </p>
                           </div>
@@ -742,9 +718,9 @@ export default function CallChatWidget({
                         {/* InCall Hangup Button */}
                         <button
                           onClick={hangupCall}
-                          className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-[11px] tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors"
+                          className="px-3.5 py-2 bg-primary hover:bg-primary text-white rounded-xl font-bold text-[10px] tracking-wide shadow-md shadow-rose-600/10 flex items-center justify-center gap-1.5"
                         >
-                          <PhoneOff size={12} /> Kapat
+                          <PhoneOff size={11} /> Kapat
                         </button>
                       </div>
 

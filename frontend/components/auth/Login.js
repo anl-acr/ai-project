@@ -1,9 +1,9 @@
 import React, { useState } from "react";
-import { Lock, Mail, ArrowRight, ShieldCheck, User } from "lucide-react";
+import { Lock, Mail, ArrowRight, BrainCircuit, User } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
 export default function Login({ onLogin, error }) {
-  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const { bg, text } = useTheme();
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -15,7 +15,6 @@ export default function Login({ onLogin, error }) {
     if (!username || !password) return;
     
     setIsLoading(true);
-    // Simulate network delay
     setTimeout(() => {
       onLogin(username, password, rememberMe);
       setIsLoading(false);
@@ -23,72 +22,80 @@ export default function Login({ onLogin, error }) {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-slate-100 dark:bg-slate-950 p-4 font-sans relative overflow-hidden">
+    <div className="min-h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4 font-sans relative overflow-hidden selection:bg-indigo-500/30">
       
-      {/* Background Ornaments */}
-      <div className={`absolute top-[-20%] left-[-10%] w-[50%] h-[50%] rounded-full ${bg} opacity-20 dark:opacity-10 blur-[120px]`} />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[50%] h-[50%] rounded-full bg-rose-500 opacity-20 dark:opacity-10 blur-[120px]" />
+      {/* Animated Background Orbs */}
+      <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] rounded-full bg-indigo-500/10 dark:bg-indigo-600/20 blur-[120px] dark:blur-[140px] mix-blend-multiply dark:mix-blend-screen animate-pulse" style={{ animationDuration: '8s' }} />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] rounded-full bg-rose-400/10 dark:bg-violet-600/20 blur-[100px] dark:blur-[130px] mix-blend-multiply dark:mix-blend-screen animate-pulse" style={{ animationDuration: '10s' }} />
+      <div className="absolute top-[20%] right-[10%] w-[30%] h-[40%] rounded-full bg-blue-400/10 dark:bg-blue-600/20 blur-[100px] dark:blur-[120px] mix-blend-multiply dark:mix-blend-screen animate-pulse" style={{ animationDuration: '12s' }} />
       
-      <div className="w-full max-w-md relative z-10 animate-in fade-in slide-in-from-bottom-8 duration-700">
-        <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border border-slate-200/50 dark:border-slate-800/50 p-8 rounded-3xl shadow-2xl shadow-slate-200/50 dark:shadow-slate-900/50">
+      {/* Subtle grid pattern overlay */}
+      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] dark:opacity-[0.03] pointer-events-none mix-blend-overlay"></div>
+      
+      <div className="w-full max-w-md relative z-10 animate-in fade-in zoom-in-[0.98] duration-1000 ease-out">
+        {/* The Glassmorphism Panel */}
+        <div className="bg-white/60 dark:bg-slate-900/40 backdrop-blur-2xl border border-white/40 dark:border-white/5 p-8 rounded-[2rem] shadow-[0_0_50px_-15px_rgba(0,0,0,0.1)] dark:shadow-[0_0_80px_-20px_rgba(79,70,229,0.3)] relative overflow-hidden group">
           
+          {/* Top border shine effect */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3/4 h-[1px] bg-gradient-to-r from-transparent via-indigo-300 dark:via-indigo-500/50 to-transparent"></div>
+
           {/* Logo & Title */}
-          <div className="flex flex-col items-center justify-center text-center mb-8">
-            <div className={`w-16 h-16 ${bg} text-white rounded-2xl flex items-center justify-center shadow-lg shadow-primary/30 mb-5`}>
-              <ShieldCheck size={32} />
+          <div className="flex flex-col items-center justify-center text-center mb-10 mt-2">
+            <div className="relative mb-6">
+              <div className="absolute inset-0 bg-indigo-400 dark:bg-indigo-500 blur-xl opacity-30 dark:opacity-40 rounded-full animate-pulse"></div>
+              <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-violet-600 text-white rounded-2xl flex items-center justify-center relative shadow-xl shadow-indigo-500/20 border border-white/20 dark:border-white/10">
+                <BrainCircuit size={32} className="drop-shadow-lg" />
+              </div>
             </div>
-            <h1 className="text-2xl font-black text-slate-800 dark:text-white tracking-tight">Nexus Omnichannel AI</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 font-medium">Lütfen yetkili bilgilerinizi giriniz</p>
+            
+            {/* AİDA highlighted text */}
+            <h1 className="text-3xl font-black tracking-tight text-slate-800 dark:text-transparent dark:bg-clip-text dark:bg-gradient-to-br dark:from-white dark:via-slate-100 dark:to-slate-400">
+              <span className="text-rose-600 dark:text-rose-500 drop-shadow-sm">Aİ</span>DA
+            </h1>
+            <p className="text-[11px] text-slate-500 dark:text-indigo-200/60 uppercase tracking-[0.3em] font-bold mt-2">
+              AI Dijital Asistan
+            </p>
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             {error && (
-              <div className="p-3 bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800/50 text-rose-600 dark:text-rose-400 text-sm font-bold rounded-xl text-center">
+              <div className="p-3 bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-xs font-medium rounded-xl text-center animate-in slide-in-from-top-2">
                 {error}
               </div>
             )}
             
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-600 dark:text-slate-300 ml-1 uppercase tracking-wider">Kullanıcı Adı veya E-posta</label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
-                  <User size={18} />
-                </div>
-                <input
-                  type="text"
-                  required
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  className={`w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all shadow-inner`}
-                  placeholder="admin"
-                />
+            <div className="space-y-1.5 relative">
+              <div className="absolute inset-y-0 left-0 pl-4 pt-1 flex items-center pointer-events-none text-slate-400 dark:text-slate-400/70 z-10">
+                <User size={18} />
               </div>
+              <input
+                type="text"
+                required
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full pl-11 pr-4 py-4 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none"
+                placeholder="Kullanıcı Adı veya E-posta"
+              />
             </div>
 
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between ml-1">
-                <label className="text-xs font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider">Parola</label>
-                <a href="#" className={`text-xs font-bold ${text} hover:underline`}>Şifremi Unuttum?</a>
+            <div className="space-y-1.5 relative">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400 dark:text-slate-400/70 z-10">
+                <Lock size={18} />
               </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-slate-400">
-                  <Lock size={18} />
-                </div>
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className={`w-full pl-11 pr-4 py-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-sm text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary/50 transition-all shadow-inner`}
-                  placeholder="••••••••"
-                />
-              </div>
+              <input
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full pl-11 pr-4 py-4 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-sm text-slate-800 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none"
+                placeholder="Parola"
+              />
             </div>
 
-            <div className="flex items-center justify-between ml-1 pt-1">
-              <label className="flex items-center gap-2 cursor-pointer group">
-                <div className={`w-5 h-5 rounded border border-slate-300 dark:border-slate-600 flex items-center justify-center transition-colors ${rememberMe ? bg + ' border-transparent' : 'bg-white dark:bg-slate-900 group-hover:border-primary/50'}`}>
-                  {rememberMe && <svg className="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+            <div className="flex items-center justify-between px-1 pt-2 pb-1">
+              <label className="flex items-center gap-2.5 cursor-pointer group/cb">
+                <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${rememberMe ? 'bg-indigo-500 border-indigo-500 shadow-[0_0_10px_rgba(99,102,241,0.4)]' : 'bg-slate-100 dark:bg-black/20 border-slate-300 dark:border-white/10 group-hover/cb:border-slate-400 dark:group-hover/cb:border-white/20'}`}>
+                  {rememberMe && <svg className="w-2.5 h-2.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                 </div>
                 <input 
                   type="checkbox" 
@@ -96,31 +103,34 @@ export default function Login({ onLogin, error }) {
                   checked={rememberMe}
                   onChange={() => setRememberMe(!rememberMe)}
                 />
-                <span className="text-sm font-semibold text-slate-600 dark:text-slate-300 select-none">Beni Hatırla</span>
+                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 select-none transition-colors group-hover/cb:text-slate-700 dark:group-hover/cb:text-slate-300">Beni Hatırla</span>
               </label>
+              
+              <a href="#" className="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-500 dark:hover:text-indigo-300 transition-colors">
+                Şifremi Unuttum?
+              </a>
             </div>
 
             <button
               type="submit"
               disabled={isLoading}
-              className={`w-full py-3.5 mt-2 ${bg} hover:opacity-90 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-primary/30 transition-all disabled:opacity-70 disabled:cursor-not-allowed`}
+              className="w-full py-4 mt-2 bg-gradient-to-r from-indigo-500 to-violet-600 hover:from-indigo-400 hover:to-violet-500 text-white rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-[0_4px_15px_rgba(99,102,241,0.3)] dark:shadow-[0_0_20px_rgba(99,102,241,0.3)] hover:shadow-[0_6px_20px_rgba(99,102,241,0.4)] dark:hover:shadow-[0_0_25px_rgba(99,102,241,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed group/btn"
             >
               {isLoading ? (
                 <span className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
               ) : (
                 <>
-                  Giriş Yap <ArrowRight size={18} />
+                  Giriş Yap <ArrowRight size={18} className="transition-transform group-hover/btn:translate-x-1" />
                 </>
               )}
             </button>
           </form>
-
         </div>
         
         {/* Footer info */}
-        <div className="text-center mt-8">
-          <p className="text-xs text-slate-500 font-medium">
-            &copy; {new Date().getFullYear()} Antigravity Systems. Tüm hakları saklıdır.
+        <div className="text-center mt-8 opacity-60">
+          <p className="text-[10px] text-slate-500 font-medium tracking-wide">
+            &copy; {new Date().getFullYear()} ANTIGRAVITY SYSTEMS.
           </p>
         </div>
       </div>

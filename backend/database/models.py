@@ -1,5 +1,5 @@
 import datetime
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, JSON, Float
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from backend.database.config import Base
@@ -20,6 +20,7 @@ class Call(Base):
     sentiment = Column(String, nullable=True)
     qa_score = Column(Integer, nullable=True)
     qa_report = Column(Text, nullable=True)
+    hangup_source = Column(String, nullable=True)
 
     transcripts = relationship("Transcript", back_populates="call", cascade="all, delete-orphan")
     appointments = relationship("Appointment", back_populates="call")
@@ -164,3 +165,112 @@ class EventLog(Base):
     module = Column(String, nullable=False)  # e.g., Users, Queues, System
     details = Column(Text, nullable=True)    # JSON string of the changes
     ip_address = Column(String, nullable=True)
+
+class SystemSetting(Base):
+    __tablename__ = "system_settings"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    key = Column(String, unique=True, index=True, nullable=False)
+    value = Column(JSON, nullable=False)
+
+class SystemUser(Base):
+    __tablename__ = "system_users"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    full_name = Column(String, nullable=False)
+    email = Column(String, nullable=False)
+    extension = Column(String, nullable=False, unique=True)
+    avatar = Column(String, nullable=True)
+    role = Column(String, nullable=False, default="agent")
+    is_active = Column(Boolean, default=True)
+    gsm_number = Column(String, nullable=True)
+    mobile_transfer_enabled = Column(Boolean, default=False)
+    theme_color = Column(String, default="rose")
+    password = Column(String, nullable=True)
+    sip_password = Column(String, nullable=True)
+    outbound_caller_id = Column(String, nullable=True)
+    forwarding_always = Column(JSON, nullable=True)
+    forwarding_busy = Column(JSON, nullable=True)
+    forwarding_no_answer = Column(JSON, nullable=True)
+    voicemail_active = Column(Boolean, default=False)
+    voicemail_announcement = Column(String, nullable=True)
+    voicemail_pin = Column(String, nullable=True)
+    voicemail_to_email = Column(Boolean, default=False)
+    recording_active = Column(Boolean, default=False)
+    transport = Column(String, default="UDP")
+    active_sessions = Column(JSON, default=list)
+    location_id = Column(String, nullable=True)
+    department_id = Column(String, nullable=True)
+
+class SystemRole(Base):
+    __tablename__ = "system_roles"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    role_code = Column(String, nullable=False, unique=True)
+    name = Column(String, nullable=False)
+    permissions = Column(JSON, default=list)
+    allowed_breaks = Column(JSON, default=list)
+
+class Trunk(Base):
+    __tablename__ = "trunks"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    trunk_type = Column(String, nullable=False) # register, peer
+    trunk_name = Column(String, nullable=False)
+    host = Column(String, nullable=False)
+    username = Column(String, nullable=True)
+    password = Column(String, nullable=True)
+    port = Column(Integer, default=5060)
+    did_number = Column(String, nullable=False)
+    protocol = Column(String, default="udp")
+    greeting_prompt = Column(String, nullable=True)
+    transfer_target_type = Column(String, default="extension")
+    transfer_target = Column(String, nullable=False)
+    codec = Column(String, default="G711")
+    is_active = Column(Boolean, default=True)
+
+class PBXQueue(Base):
+    __tablename__ = "pbx_queues"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    extension = Column(String)
+    name = Column(String, nullable=False)
+    strategy = Column(String, default="ringall")
+    timeout = Column(Integer, default=15)
+    wrapuptime = Column(Integer, default=0)
+    maxlen = Column(Integer, default=0)
+    joinempty = Column(String, default="yes")
+    leavewhenempty = Column(String, default="no")
+    ringinuse = Column(String, default="no")
+    queueMembers = Column(JSON, default=list)
+    supervisors = Column(JSON, default=list)
+    
+    # Missing frontend fields
+    max_calls = Column(Integer, default=0)
+    ring_time = Column(Integer, default=15)
+    acw_time = Column(Integer, default=5)
+    join_announcement_enabled = Column(Boolean, default=False)
+    join_announcement = Column(String, nullable=True)
+    periodic_announcement_enabled = Column(Boolean, default=False)
+    periodic_announcement = Column(String, nullable=True)
+    hold_music_class = Column(String, default="default")
+    position_announcement_enabled = Column(Boolean, default=False)
+    position_announcement_interval = Column(Integer, default=60)
+    estimated_hold_time_enabled = Column(Boolean, default=False)
+    estimated_hold_time_interval = Column(Integer, default=60)
+    ivr_routes = Column(JSON, default=dict)
+    notify_missed_calls = Column(Boolean, default=False)
+
+class AIAgent(Base):
+    __tablename__ = "ai_agents"
+    id = Column(String, primary_key=True, index=True) # UUID or string ID
+    name = Column(String, nullable=False)
+    voice = Column(String, nullable=False)
+    tone = Column(String, nullable=False)
+    model = Column(String, nullable=False)
+    temperature = Column(Float, default=0.7)
+    max_tokens = Column(Integer, default=300)
+    system_instruction = Column(Text, nullable=False)
+    status = Column(String, default="active")
+    transfer_target = Column(String, nullable=False)
+
+class BreakType(Base):
+    __tablename__ = "break_types"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    name = Column(String, nullable=False)
+    color = Column(String, nullable=False)

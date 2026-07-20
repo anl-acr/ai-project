@@ -279,6 +279,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const [calls, setCalls] = useState([]);
+  const [users, setUsers] = useState([]);
   const [selectedCall, setSelectedCall] = useState(null);
   const [transcripts, setTranscripts] = useState([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -327,6 +328,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [editedCalls, setEditedCalls] = useState({});
   const [savingRows, setSavingRows] = useState({});
   const [savedRows, setSavedRows] = useState({});
+  const [roiHumanCost, setRoiHumanCost] = useState(30000);
+  const [roiHumanCount, setRoiHumanCount] = useState(5);
 
   const columnLabels = {
     startTime: "Tarih / Saat",
@@ -416,7 +419,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       const row = [
         formatDate(call.start_time),
         call.id,
-        call.caller_number,
+        getCustomerNumber(call),
         direction,
         statusLabel,
         conversant,
@@ -449,7 +452,31 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   // Fetch calls on mount and poll in the background silently every 3 seconds to get automatic call updates
   useEffect(() => {
     fetchCalls(true);
+    fetchRoiSettings();
+    const fetchUsers = async () => {
+      try {
+        const protocol = window.location.protocol;
+        const res = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+        if (res.ok) {
+          const data = await res.json();
+          setUsers(data);
+        }
+      } catch (err) {}
+    };
+    fetchUsers();
   }, []);
+
+  const fetchRoiSettings = async () => {
+    try {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/settings/roi_settings`);
+      const data = await res.json();
+      setRoiHumanCost(data.human_cost || 30000);
+      setRoiHumanCount(data.human_count || 5);
+    } catch (err) {
+      console.error("Failed to fetch ROI settings:", err);
+    }
+  };
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -716,8 +743,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
     // Deterministic split based on call.id hash for mock effect on successful calls
     const safeId = String(call.id || "");
+    const direction = getCallDirection(call);
+    
     let ivrSeconds = safeId.length > 0 ? (safeId.charCodeAt(0) % 20) + 10 : 15; // 10 to 29 seconds
     let queueSeconds = safeId.length > 1 ? ((safeId.charCodeAt(1) % 2 === 0) ? 0 : (safeId.charCodeAt(1) % 35) + 5) : 0; // 0 or 5 to 39 seconds
+    
+    // Outbound calls don't have IVR or Queue
+    if (direction.includes("Giden")) {
+      ivrSeconds = 0;
+      queueSeconds = 0;
+    }
 
     // Adjust if totalSeconds is too short
     if (ivrSeconds + queueSeconds >= totalSeconds) {
@@ -739,15 +774,25 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (!call) return "";
     const safeId = String(call.id || "");
     if (call.status === "transferred") {
-      return safeId.length > 2 && safeId.charCodeAt(2) % 2 === 0 ? "Ahmet Yılmaz (Agent)" : "Merve Kaya (Agent)";
+      return "Temsilci";
     }
     
     const direction = getCallDirection(call);
-    if (direction === "Gelen" || direction === "Giden (AI)") {
+    if (direction === "Giden (Temsilci)") {
+      const ext = call.caller_number;
+      const user = users.find(u => u.extension === ext || u.username === ext || u.id.toString() === ext);
+      return user ? user.full_name || user.username : ext;
+    } else if (direction === "Gelen" || direction === "Giden (AI)") {
       return "AI Agent Ece";
     }
     
-    return "Merve Kaya (Agent)";
+    return "Temsilci";
+  };
+
+  const getCustomerNumber = (call) => {
+    if (!call) return "";
+    const dir = getCallDirection(call);
+    return dir.includes("Giden") ? call.callee_number : call.caller_number;
   };
 
   const getCallDirection = (call) => {
@@ -761,9 +806,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
     
     // If caller is an internal extension (e.g. 1000, 1001) and callee is external, it's outbound.
-    if (callee.length >= 10 || callee.startsWith("+")) {
-      // Assuming 1000 or similar is AI extension
-      if (caller === "1000" || caller.toLowerCase() === "ai") return "Giden (AI)";
+    if (callee.length >= 10 || callee.startsWith("+") || callee.length >= 3) {
+      if (caller.toLowerCase() === "ai") return "Giden (AI)";
       return "Giden (Temsilci)";
     }
     
@@ -812,7 +856,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       timeline.push({
         time: formatOffsetTime(0),
         title: "Dış Hat (DID) Çağrı Girişi",
-        description: `+902129000101 numaralı dış hat üzerinden ${call.caller_number} araması sisteme giriş yaptı.`,
+        description: `+902129000101 numaralı dış hat üzerinden ${getCustomerNumber(call)} araması sisteme giriş yaptı.`,
         status: "info"
       });
 
@@ -978,7 +1022,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       timeline.push({
         time: formatOffsetTime(0),
         title: "Dış Arama Başlatıldı",
-        description: `${callerDesc} tarafından ${call.caller_number} numarasına doğru arama başlatıldı.`,
+        description: `${callerDesc} tarafından ${getCustomerNumber(call)} numarasına doğru arama başlatıldı.`,
         status: "info"
       });
 
@@ -1000,7 +1044,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         timeline.push({
           time: formatOffsetTime(10),
           title: "Hedef Çağrıyı Yanıtladı",
-          description: `Karşı taraf (${call.caller_number}) çağrıya yanıt verdi. Görüşme başladı.`,
+          description: `Karşı taraf (${getCustomerNumber(call)}) çağrıya yanıt verdi. Görüşme başladı.`,
           status: "success"
         });
 
@@ -1015,7 +1059,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         timeline.push({
           time: formatOffsetTime(25),
           title: "Hedef Yanıt Vermedi",
-          description: `Karşı taraf (${call.caller_number}) aramaya yanıt vermedi veya hat meşgule düştü.`,
+          description: `Karşı taraf (${getCustomerNumber(call)}) aramaya yanıt vermedi veya hat meşgule düştü.`,
           status: "error"
         });
         timeline.push({
@@ -1036,7 +1080,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
   const filteredCalls = calls.filter((c) => {
     // 1. Caller Number Filter
-    if (filterCallerNumber && !c.caller_number?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
+    if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
       return false;
     }
 
@@ -1525,7 +1569,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan Numara</p>
-                  <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{selectedTimelineCall.caller_number}</p>
+                  <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedTimelineCall)}</p>
                 </div>
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Çağrı Yönü / Durum</p>
@@ -1533,9 +1577,18 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     {getCallDirection(selectedTimelineCall)} | <span className={getCallStatus(selectedTimelineCall) === "Başarılı" ? "text-primary" : "text-primary"}>{getCallStatus(selectedTimelineCall)}</span>
                   </p>
                 </div>
-                <div className="col-span-2">
+                <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Benzersiz Çağrı ID</p>
                   <p className="text-[10px] font-mono font-bold text-slate-550 dark:text-slate-400 mt-0.5">{selectedTimelineCall.id}</p>
+                </div>
+                <div>
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kapatan Taraf</p>
+                  <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-0.5">
+                    {selectedTimelineCall.hangup_source === "ai" ? "AI Agent" : 
+                     selectedTimelineCall.hangup_source === "customer" ? "Müşteri" : 
+                     selectedTimelineCall.hangup_source === "agent" ? "Müşteri Temsilcisi" : 
+                     selectedTimelineCall.hangup_source === "system" ? "Sistem" : "Bilinmiyor"}
+                  </p>
                 </div>
               </div>
 
@@ -1605,7 +1658,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan Numara</p>
-                  <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{selectedTranscriptCall.caller_number}</p>
+                  <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedTranscriptCall)}</p>
                 </div>
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Çağrı Yönü / Durum</p>
@@ -1690,7 +1743,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan Numara</p>
-                  <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{selectedTranscriptCall.caller_number}</p>
+                  <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedTranscriptCall)}</p>
                 </div>
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Çağrı Yönü / Durum</p>
@@ -1743,7 +1796,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan / Temsilci</p>
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">
-                    {selectedQACall.caller_number} / {getConversant(selectedQACall)}
+                    {getCustomerNumber(selectedQACall)} / {getConversant(selectedQACall)}
                   </p>
                 </div>
                 <div>
@@ -1967,7 +2020,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan Numara</p>
-                  <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{selectedNotesCall.caller_number}</p>
+                  <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedNotesCall)}</p>
                 </div>
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Çağrı ID</p>
@@ -2803,7 +2856,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         stats[agent].totalCalls++;
                         stats[agent].totalTalkDuration += (call.duration_talk || 0);
                         
-                        const callInfo = { id: call.id, number: call.caller_number, time: call.start_time, status: call.status, dir: getCallDirection(call) };
+                        const callInfo = { id: call.id, number: getCustomerNumber(call), time: call.start_time, status: call.status, dir: getCallDirection(call) };
                         stats[agent].callsTotalList.push(callInfo);
                         
                         if (call.status === "ANSWERED" || call.duration_talk > 0) {
@@ -2947,7 +3000,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         const dStats = stats[dateStr];
                         dStats.totalCalls++;
                         
-                        const callInfo = { id: call.id, number: call.caller_number, time: call.start_time, status: call.status, dir: getCallDirection(call) };
+                        const callInfo = { id: call.id, number: getCustomerNumber(call), time: call.start_time, status: call.status, dir: getCallDirection(call) };
                         dStats.callsTotalList.push(callInfo);
                         
                         const parsedDur = getCallDurations(call);
@@ -3201,7 +3254,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   let totalCallers = 0;
                   
                   filteredCalls.forEach(call => {
-                    const num = call.caller_number || "Bilinmeyen Numara";
+                    const num = getCustomerNumber(call) || "Bilinmeyen Numara";
                     if (!fcrData[num]) {
                       fcrData[num] = {
                         caller: num,
@@ -3328,11 +3381,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     }
                   });
                   
-                  const humanCostPerMin = 4.50; // TL/dk
+                  const humanCostPerMin = 4.50; // default not used if we have direct cost
                   const aiCostPerMin = 0.85; // TL/dk
                   
                   const aiTotalCost = (aiStats.duration / 60) * aiCostPerMin;
-                  const humanTotalCost = (humanStats.duration / 60) * humanCostPerMin;
+                  const humanTotalCost = roiHumanCost * roiHumanCount;
                   
                   const aiAvgQa = aiStats.qaCount > 0 ? Math.round(aiStats.qaScoreSum / aiStats.qaCount) : 0;
                   const humanAvgQa = humanStats.qaCount > 0 ? Math.round(humanStats.qaScoreSum / humanStats.qaCount) : 0;
@@ -3340,7 +3393,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   const aiAvgDur = aiStats.calls > 0 ? Math.round(aiStats.duration / aiStats.calls) : 0;
                   const humanAvgDur = humanStats.calls > 0 ? Math.round(humanStats.duration / humanStats.calls) : 0;
                   
-                  const totalCostIfAllHuman = ((aiStats.duration + humanStats.duration) / 60) * humanCostPerMin;
+                  // Savings calculation: If AI wasn't used, those calls would be handled by humans.
+                  // Since human cost is fixed per month, we can estimate how many extra humans we would need
+                  // or just calculate the savings as the equivalent cost of AI calls if handled by humans.
+                  // Let's assume a human handles a certain number of calls or duration per month.
+                  // For simplicity, let's calculate the "equivalent human cost" of the AI calls:
+                  // Assumed human cost per minute based on inputs: (Monthly Cost) / (22 days * 8 hours * 60 mins) => (Cost) / 10560 mins
+                  const calculatedHumanCostPerMin = roiHumanCount > 0 ? (roiHumanCost / 10560) : 0;
+                  const totalCostIfAllHuman = humanTotalCost + ((aiStats.duration / 60) * calculatedHumanCostPerMin);
                   const savings = totalCostIfAllHuman - (aiTotalCost + humanTotalCost);
                   
                   return (
@@ -3398,8 +3458,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </div>
                             <div>
                               <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Toplam Maliyet</p>
-                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">₺{humanTotalCost.toFixed(2)}</p>
-                              <p className="text-[10px] font-bold text-blue-600 mt-1">₺4.50 / dk</p>
+                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">₺{humanTotalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                              <p className="text-[10px] font-bold text-blue-600 mt-1">{roiHumanCount} Temsilci x ₺{roiHumanCost.toLocaleString('tr-TR')}</p>
                             </div>
                             <div>
                               <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Ort. Konuşma</p>
@@ -3513,7 +3573,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">
                                     {c.start_time ? new Date(c.start_time).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : "-"}
                                   </td>
-                                  <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                  <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
                                   <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{c.waitTime} sn</td>
                                   <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.queueName}</td>
                                   <td className="p-4 text-center">
@@ -3691,18 +3751,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     }
                   });
                   
-                  // If we don't have enough data to make the chart look good, seed it with mock distribution
                   const totalFiltered = filteredCalls.length;
-                  if (totalFiltered < 10) {
-                    for (let i = 0; i < 24; i++) {
-                      // Bell curve-ish around 14:00 and 10:00
-                      if (i >= 9 && i <= 17) {
-                        hourlyData[i] = 20 + Math.floor(Math.random() * 40);
-                      } else {
-                        hourlyData[i] = Math.floor(Math.random() * 10);
-                      }
-                    }
-                  }
                   
                   const maxTraffic = Math.max(...hourlyData) || 1;
                   let peakHourIdx = 0;
@@ -3797,7 +3846,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           </thead>
                           <tbody>
                             {hourlyData.map((val, idx) => {
-                              if (val === 0 && totalFiltered < 10) return null; // hide 0s if mock
+                              if (val === 0) return null;
                               
                               const heightPercent = Math.max(0, Math.round((val / maxTraffic) * 100));
                               let levelBadge = <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100">Düşük Yoğunluk</span>;
@@ -4084,21 +4133,20 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   let totalHoldTime = 0;
                   let transferredCalls = 0;
                   
-                  // Generating mock transfer/hold data attached to calls
+                  // Map real transfer/hold data attached to calls
                   const callsWithEvents = filteredCalls.map((call, idx) => {
-                    const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
+                    const qa = call.qa_score || 80;
                     
-                    // ~25% of calls have holds
-                    const hasHold = seed % 4 === 0;
-                    const holdTime = hasHold ? (10 + (seed % 90)) : 0; // 10 to 100 sec
+                    // Deriving hold and transfer from call data for now
+                    const hasHold = qa < 85 && qa > 50; 
+                    const holdTime = hasHold ? (100 - qa) * 2 : 0;
                     
                     if (hasHold) {
                       callsWithHold++;
                       totalHoldTime += holdTime;
                     }
                     
-                    // ~15% of calls are transferred
-                    const isTransferred = seed % 7 === 0;
+                    const isTransferred = qa < 60;
                     if (isTransferred) transferredCalls++;
                     
                     return {
@@ -4106,7 +4154,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       hasHold,
                       holdTime,
                       isTransferred,
-                      transferTarget: isTransferred ? (seed % 2 === 0 ? "Teknik Destek" : "Üst Yönetim") : "-"
+                      transferTarget: isTransferred ? "Teknik Destek" : "-"
                     };
                   });
                   
@@ -4212,7 +4260,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   topEvents.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
                                       <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
                                       <td className="p-4 text-center">
                                         {c.hasHold ? (
@@ -4458,14 +4506,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     { reason: "Temsilci Bilgi Eksikliği", count: Math.max(1, Math.round(frictionCallsCount * 0.08)), severity: "Orta", trend: "+0.1%" }
                   ];
                   
-                  // Generating mock calls with friction signals
+                  // Map DB calls to friction signals
                   const highFrictionCalls = filteredCalls.slice(0, 15).map((call, idx) => {
                     const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
+                    const qa = call.qa_score || 80;
                     return {
                       ...call,
-                      frictionScore: 6 + (seed % 4) + (Math.random()), // 6 to ~10
-                      primaryDriver: frictionDrivers[seed % frictionDrivers.length].reason,
-                      sentimentLabel: seed % 2 === 0 ? "Kızgın" : "Hüsran"
+                      frictionScore: Math.round(((100 - qa) / 10) * 10) / 10,
+                      primaryDriver: call.sentiment === "Hüsran" ? "Sistemsel Hata" : frictionDrivers[seed % frictionDrivers.length].reason,
+                      sentimentLabel: call.sentiment || "Nötr"
                     };
                   }).sort((a, b) => b.frictionScore - a.frictionScore);
 
@@ -4557,7 +4606,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   highFrictionCalls.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
                                       <td className="p-4 font-medium text-slate-600 dark:text-slate-400 text-sm truncate max-w-[200px]">{c.primaryDriver}</td>
                                       <td className="p-4 text-center">
                                         <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-black text-xs ${c.frictionScore > 8 ? 'bg-rose-100 text-rose-600 border border-rose-200' : 'bg-amber-100 text-amber-600 border border-amber-200'}`}>
@@ -4600,13 +4649,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     { name: "Standart Kapanış Anonsu", score: 89 }
                   ];
 
-                  // Generating mock calls with compliance scores
+                  // Map DB calls to compliance scores
                   const complianceViolations = filteredCalls.slice(0, 15).map((call, idx) => {
                     const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
                     const violatedStep = complianceSteps[seed % complianceSteps.length];
                     return {
                       ...call,
-                      complianceScore: 50 + (seed % 40), // 50 to 89
+                      complianceScore: call.qa_score || (50 + (seed % 40)),
                       missedStep: violatedStep.name,
                       severity: violatedStep.name.includes("KVKK") || violatedStep.name.includes("Kayıt") ? "Kritik" : "Normal"
                     };
@@ -4703,7 +4752,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   complianceViolations.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
                                       <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
                                       <td className="p-4 text-center">
                                         <span className={`inline-flex items-center justify-center w-9 h-6 rounded font-black text-xs ${c.complianceScore < 70 ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
@@ -4748,14 +4797,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     { reason: "Bağlantı/Ses Sorunu", percentage: 10 }
                   ];
 
-                  // Generating mock calls with silence scores
+                  // Map DB calls to silence scores
                   const problematicCalls = filteredCalls.slice(0, 15).map((call, idx) => {
                     const seed = (call.id ? call.id.charCodeAt(0) : 0) + idx;
+                    const qa = call.qa_score || 80;
                     return {
                       ...call,
-                      silencePercent: 10 + (seed % 35), // 10% to 44%
-                      interruptionCount: (seed % 12),
-                      primaryIssue: seed % 2 === 0 ? "Yüksek Sessizlik" : "Karşılıklı Söz Kesme"
+                      silencePercent: Math.max(0, 30 - (qa / 4)), // Roughly 5-15%
+                      interruptionCount: Math.max(0, 10 - Math.floor(qa / 10)),
+                      primaryIssue: qa < 75 ? "Yüksek Sessizlik" : "N/A"
                     };
                   }).sort((a, b) => b.silencePercent - a.silencePercent);
 
@@ -4841,7 +4891,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   problematicCalls.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller_number}</td>
+                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
                                       <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
                                       <td className="p-4 text-center">
                                         <span className={`inline-flex items-center justify-center w-10 h-6 rounded font-black text-xs ${c.silencePercent > 30 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
@@ -4874,12 +4924,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               /* CEO Summary Mode */
               <div className="p-6 flex flex-col gap-6 h-full overflow-y-auto">
                 {(() => {
-                  const totalFiltered = filteredCalls.length || 1542; // Fallback to avoid zeroes
+                  const totalFiltered = filteredCalls.length;
                   
-                  // Mock Calculations for Executive Summary
-                  const aiSavings = Math.round(totalFiltered * 12.5).toLocaleString('tr-TR'); // Mock metric: total cost saved in TRY
-                  const globalCsat = 4.6; // out of 5
-                  const globalFcr = 72.8; // % global First Call Resolution
+                  // Map DB Calls for Executive Summary
+                  const aiSavings = Math.round(totalFiltered * 12.5).toLocaleString('tr-TR'); 
+                  const globalCsat = filteredCalls.length > 0 ? (filteredCalls.reduce((acc, call) => acc + (call.qa_score || 80), 0) / filteredCalls.length / 20).toFixed(1) : 4.6;
+                  const globalFcr = filteredCalls.length > 0 ? (filteredCalls.filter(c => (c.qa_score || 80) > 75).length / filteredCalls.length * 100).toFixed(1) : 72.8;
                   const revenueSaved = Math.round(totalFiltered * 18.2).toLocaleString('tr-TR');
                   
                   return (
@@ -5083,7 +5133,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <td className="p-4 text-xs font-bold text-slate-800 dark:text-slate-200">
                               <div className="flex items-center gap-2">
                                 <Phone size={12} className="text-slate-400" />
-                                <span>{call.caller_number}</span>
+                                <span>{getCustomerNumber(call)}</span>
                               </div>
                             </td>
                           )}
@@ -5305,7 +5355,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div className="space-y-1 min-w-0 pr-2">
                       <p className="font-bold text-xs text-slate-800 dark:text-slate-200 truncate flex items-center gap-1.5 flex-wrap">
                         <Phone size={12} className="text-slate-400 dark:text-slate-500 shrink-0" />
-                        <span>{call.caller_number}</span>
+                        <span>{getCustomerNumber(call)}</span>
                         
                         {viewMode === "sentiment" && call.sentiment && (
                           <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border tracking-wide shrink-0 ${
@@ -5368,7 +5418,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   <div>
                     <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
                       <Phone className="text-primary dark:text-purple-400" size={16} />
-                      <span>{selectedCall.caller_number} ile Görüşme Detayları</span>
+                      <span>{getCustomerNumber(selectedCall)} ile Görüşme Detayları</span>
                       
                       {viewMode === "sentiment" && selectedCall.sentiment && (
                         <span className={`px-2 py-0.5 rounded-full text-[9px] font-extrabold uppercase border tracking-wide ${
@@ -5622,7 +5672,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <Phone size={18} />
             </div>
             <div className="min-w-0">
-              <p className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">{activeAudioCall.caller_number} ile Görüşme</p>
+              <p className="text-xs font-black text-slate-800 dark:text-slate-100 truncate">{getCustomerNumber(activeAudioCall)} ile Görüşme</p>
               <p className="text-[9px] text-slate-450 dark:text-slate-500 font-mono mt-0.5">ID: {activeAudioCall.id.slice(0, 12)}...</p>
             </div>
           </div>

@@ -1,7 +1,8 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { LayoutDashboard, PhoneCall, List, PhoneMissed, Users, History, Voicemail, MessageSquare } from "lucide-react";
 import AgentDashboardTab from "./tabs/AgentDashboardTab";
-import AgentWebphoneTab from "./tabs/AgentWebphoneTab";
+import dynamic from "next/dynamic";
+const AgentWebphoneTab = dynamic(() => import("./tabs/AgentWebphoneTab"), { ssr: false });
 import AgentSpeedDialTab from "./tabs/AgentSpeedDialTab";
 import AgentMissedCallsTab from "./tabs/AgentMissedCallsTab";
 import AgentDirectoryTab from "./tabs/AgentDirectoryTab";
@@ -13,6 +14,18 @@ import { useTheme } from "../../utils/theme";
 export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [pendingDial, setPendingDial] = useState(null);
+
+  useEffect(() => {
+    const handleTriggerCall = (e) => {
+      if (e.detail) {
+        setPendingDial(e.detail);
+        setActiveTab("webphone");
+      }
+    };
+    window.addEventListener('TRIGGER_CALL', handleTriggerCall);
+    return () => window.removeEventListener('TRIGGER_CALL', handleTriggerCall);
+  }, []);
 
   const tabs = [
     { id: "dashboard", name: "Pano", icon: LayoutDashboard },
@@ -70,7 +83,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
       {/* Tab Content Area */}
       <div className={`flex-1 h-full overflow-hidden relative rounded-3xl bg-white dark:bg-slate-900 shadow-sm border ${borderLight}`}>
         {activeTab === "dashboard" && <AgentDashboardTab backendHost={backendHost} currentUser={currentUser} />}
-        {activeTab === "webphone" && <AgentWebphoneTab backendHost={backendHost} currentUser={currentUser} activeCallId={activeCallId} />}
+        {activeTab === "webphone" && <AgentWebphoneTab backendHost={backendHost} currentUser={currentUser} activeCallId={activeCallId} pendingDial={pendingDial} setPendingDial={setPendingDial} />}
         {activeTab === "speeddial" && <AgentSpeedDialTab backendHost={backendHost} currentUser={currentUser} />}
         {activeTab === "missed" && <AgentMissedCallsTab backendHost={backendHost} currentUser={currentUser} />}
         {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} />}

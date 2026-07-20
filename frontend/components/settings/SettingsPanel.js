@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
 import ChannelSettings from "./ChannelSettings";
@@ -16,6 +16,8 @@ import QASettings from "./QASettings";
 import UniversalAPISettings from "./UniversalAPISettings";
 import VoiceBiometricsSettings from "./VoiceBiometricsSettings";
 import AutoprovisionTemplatesPanel from "./AutoprovisionTemplatesPanel";
+import LocationsDepartmentsPanel from "./LocationsDepartmentsPanel";
+import RoiSettings from "./RoiSettings";
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [activeSubTab, setActiveSubTab] = useState("pbx"); // pbx, trunks, channels
@@ -25,6 +27,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasAPIPermission, setHasAPIPermission] = useState(false);
   const [hasBioPermission, setHasBioPermission] = useState(false);
   const [hasAutoprovTemplatesPermission, setHasAutoprovTemplatesPermission] = useState(false);
+  const [hasRoiSettingsPermission, setHasRoiSettingsPermission] = useState(false);
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -39,6 +42,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasAPIPermission(true);
           setHasBioPermission(true);
           setHasAutoprovTemplatesPermission(true);
+          setHasRoiSettingsPermission(true);
           return;
         }
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
@@ -51,6 +55,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasAPIPermission(true);
           setHasBioPermission(true);
           setHasAutoprovTemplatesPermission(true);
+          setHasRoiSettingsPermission(true);
           return;
         }
         const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
@@ -63,6 +68,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasAPIPermission(true);
           setHasBioPermission(true);
           setHasAutoprovTemplatesPermission(true);
+          setHasRoiSettingsPermission(true);
           return;
         }
         setHasCannedPermission(currentRole.permissions.includes("canned_responses:read"));
@@ -71,6 +77,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasAPIPermission(currentRole.permissions.includes("universal_api:read"));
         setHasBioPermission(currentRole.permissions.includes("voice_biometrics:read"));
         setHasAutoprovTemplatesPermission(currentRole.permissions.includes("autoprovision_templates:read"));
+        setHasRoiSettingsPermission(currentRole.permissions.includes("roi_settings:read"));
       } catch (err) {
         console.error("Canned/Blacklist permission check error:", err);
         setHasCannedPermission(true);
@@ -79,6 +86,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasAPIPermission(true);
         setHasBioPermission(true);
         setHasAutoprovTemplatesPermission(true);
+        setHasRoiSettingsPermission(true);
       }
     };
     checkPermissions();
@@ -100,10 +108,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       </div>
 
       {/* Side-by-Side Settings Layout */}
-      <div className={`grid grid-cols-1 ${["universal-api", "voice-biometrics", "autoprovision-templates"].includes(activeSubTab) ? "xl:grid-cols-12" : "md:grid-cols-4"} gap-6 items-start`}>
+      <div className={`grid grid-cols-1 ${["universal-api", "voice-biometrics", "autoprovision-templates", "locations"].includes(activeSubTab) ? "xl:grid-cols-12" : "md:grid-cols-4"} gap-6 items-start`}>
         
         {/* Left Side Sub-Tab Menu (Vertical Stack) */}
-        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates"].includes(activeSubTab) ? "xl:col-span-2" : "md:col-span-1"} p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1`}>
+        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates", "locations"].includes(activeSubTab) ? "xl:col-span-2" : "md:col-span-1"} p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1`}>
           <button
             onClick={() => setActiveSubTab("pbx")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
@@ -114,6 +122,29 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           >
             <Server size={14} className={activeSubTab === "pbx" ? "text-primary" : ""} />
             <span>Santral Entegrasyonu</span>
+          </button>
+          <button
+            onClick={() => setActiveSubTab("qa")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "qa"
+                ? "bg-slate-100/50 dark:bg-slate-800/50 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <ShieldAlert size={14} className={activeSubTab === "qa" ? "text-slate-800 dark:text-white" : ""} />
+            <span>Çağrı Kalite Kontrol</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSubTab("locations")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "locations"
+                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <MapPin size={14} className={activeSubTab === "locations" ? "text-rose-600 dark:text-rose-450" : ""} />
+            <span>Lokasyon ve Departmanlar</span>
           </button>
           <button
             onClick={() => setActiveSubTab("numbering-plan")}
@@ -222,8 +253,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             <span>Roller</span>
           </button>
 
-
-
           {hasCannedPermission && (
             <button
               onClick={() => setActiveSubTab("canned-responses")}
@@ -235,22 +264,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             >
               <FileText size={14} className={activeSubTab === "canned-responses" ? "text-pink-500" : ""} />
               <span>Hızlı Cevaplar</span>
-            </button>
-          )}
-
-
-
-          {hasQAPermission && (
-            <button
-              onClick={() => setActiveSubTab("qa")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "qa"
-                  ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-primary dark:text-primary border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <FileText size={14} className={activeSubTab === "qa" ? "text-primary" : ""} />
-              <span>Otomatik QA Kuralları</span>
             </button>
           )}
 
@@ -281,57 +294,40 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               <span>Otoprovizyon Şablonları</span>
             </button>
           )}
+
+          {hasRoiSettingsPermission && (
+            <button
+              onClick={() => setActiveSubTab("roi-settings")}
+              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+                activeSubTab === "roi-settings"
+                  ? "bg-amber-50/50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/50 dark:border-amber-900/30 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <FileText size={14} className={activeSubTab === "roi-settings" ? "text-primary" : ""} />
+              <span>ROI Rapor Ayarları</span>
+            </button>
+          )}
         </div>
 
         {/* Right Side Content Panel */}
-        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates"].includes(activeSubTab) ? "xl:col-span-10" : "md:col-span-3"} transition-all duration-300`}>
-          {activeSubTab === "pbx" && (
-            <PBXSettings viewMode="pbx" backendHost={backendHost} />
-          )}
-
-          {activeSubTab === "numbering-plan" && (
-            <NumberingPlanPanel backendHost={backendHost} />
-          )}
-
-          {activeSubTab === "smart-callback" && (
-            <SmartCallbackSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "lang-detect" && (
-            <LanguageDetectionSettings backendHost={backendHost} />
-          )}
-
-          {activeSubTab === "autoprovision-templates" && (
-            <AutoprovisionTemplatesPanel backendHost={backendHost} />
-          )}
-          {activeSubTab === "emotion-management" && (
-            <EmotionManagementSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "whisper-management" && (
-            <WhisperSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "channels" && (
-            <ChannelSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "breaks" && (
-            <BreakDefinitions backendHost={backendHost} />
-          )}
-
-          {activeSubTab === "roles" && (
-            <RoleSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "canned-responses" && (
-            <CannedResponsesSettings backendHost={backendHost} />
-          )}
-
-          {activeSubTab === "qa" && (
-            <QASettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "universal-api" && (
-            <UniversalAPISettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "voice-biometrics" && (
-            <VoiceBiometricsSettings backendHost={backendHost} />
-          )}
+        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates", "locations"].includes(activeSubTab) ? "xl:col-span-10" : "md:col-span-3"} p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm min-h-[500px]`}>
+          {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
+          {activeSubTab === "numbering-plan" && <NumberingPlanPanel backendHost={backendHost} />}
+          {activeSubTab === "smart-callback" && <SmartCallbackSettings backendHost={backendHost} />}
+          {activeSubTab === "lang-detect" && <LanguageDetectionSettings backendHost={backendHost} />}
+          {activeSubTab === "emotion-management" && <EmotionManagementSettings backendHost={backendHost} />}
+          {activeSubTab === "whisper-management" && <WhisperSettings backendHost={backendHost} />}
+          {activeSubTab === "channels" && <ChannelSettings backendHost={backendHost} />}
+          {activeSubTab === "breaks" && <BreakDefinitions backendHost={backendHost} />}
+          {activeSubTab === "roles" && <RoleSettings backendHost={backendHost} />}
+          {activeSubTab === "canned-responses" && <CannedResponsesSettings backendHost={backendHost} />}
+          {activeSubTab === "qa" && <QASettings backendHost={backendHost} />}
+          {activeSubTab === "universal-api" && <UniversalAPISettings backendHost={backendHost} />}
+          {activeSubTab === "voice-biometrics" && <VoiceBiometricsSettings backendHost={backendHost} />}
+          {activeSubTab === "autoprovision-templates" && <AutoprovisionTemplatesPanel backendHost={backendHost} />}
+          {activeSubTab === "locations" && <LocationsDepartmentsPanel backendHost={backendHost} />}
+          {activeSubTab === "roi-settings" && <RoiSettings backendHost={backendHost} />}
         </div>
       </div>
     </div>

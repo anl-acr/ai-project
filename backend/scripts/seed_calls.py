@@ -1,59 +1,64 @@
+import asyncio
 import os
 import sys
-import asyncio
-import uuid
 import random
 from datetime import datetime, timedelta
 
-# Add the parent directory to Python path so backend can be imported
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../../')))
+# Add parent directory to python path so we can import backend modules
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database.config import AsyncSessionLocal, engine
+from backend.database.config import AsyncSessionLocal
 from backend.database.models import Call
 
-async def seed_calls(num_calls=150):
+async def seed_calls():
     async with AsyncSessionLocal() as session:
-        topics = ["Teknik Destek", "Fatura Sorgulama", "Satış/Bilgi", "Şikayet", "İptal Talebi", "Kampanya Bilgisi"]
-        sentiments = ["Pozitif", "Negatif", "Nötr", "Çok Sinirli", "Memnun"]
-        statuses = ["completed", "completed", "completed", "transferred", "in_progress", "missed"]
+        # Check if there are already calls
+        from sqlalchemy import select, func
+        count_stmt = select(func.count(Call.id))
+        count_res = await session.execute(count_stmt)
+        count = count_res.scalar()
+        
+        if count > 10:
+            print(f"Already {count} calls in the database. Deleting them to re-seed...")
+            from sqlalchemy import delete
+            await session.execute(delete(Call))
+            await session.commit()
+
+        print("Seeding database with 50 mock calls...")
         
         now = datetime.utcnow()
-        inserted_count = 0
+        topics = ["Teknik Destek", "Fatura / Ödeme", "Yeni Abonelik", "Şikayet", "Bilgi Alma"]
+        sentiments = ["Olumlu", "Nötr", "Kızgın", "Hüsran"]
         
-        for i in range(num_calls):
-            # Random date in last 30 days
-            days_ago = random.randint(0, 30)
-            hours_ago = random.randint(0, 23)
-            mins_ago = random.randint(0, 59)
-            duration_secs = random.randint(15, 900) # 15s to 15m
+        calls = []
+        for i in range(50):
+            # Calls spread out over the last 24 hours
+            minutes_ago = random.randint(10, 1440)
+            start_time = now - timedelta(minutes=minutes_ago)
+            duration = random.randint(30, 600)  # 30 seconds to 10 minutes
+            end_time = start_time + timedelta(seconds=duration)
             
-            start_dt = now - timedelta(days=days_ago, hours=hours_ago, minutes=mins_ago)
-            end_dt = start_dt + timedelta(seconds=duration_secs)
+            qa = random.randint(50, 100)
             
-            status = random.choice(statuses)
-            topic = random.choice(topics)
-            sentiment = random.choice(sentiments)
-            
-            c = Call(
-                id=f"seed-{uuid.uuid4().hex[:8]}",
-                caller_number=f"05{random.choice(['32', '33', '35', '42', '55', '53'])}{random.randint(1000000, 9999999)}",
-                callee_number=random.choice(["08501234567", "200", "201", "Destek Kuyruğu", "Satış Kuyruğu"]),
-                status=status,
-                start_time=start_dt,
-                end_time=end_dt if status != "in_progress" and status != "missed" else (start_dt + timedelta(seconds=random.randint(5, 20)) if status == "missed" else None),
-                recording_path=f"/mnt/nas/ai-recordings/{start_dt.strftime('%Y%m%d')}/rec_{uuid.uuid4().hex[:6]}.wav" if status == "completed" else None,
-                summary=f"Müşteri {topic} konusunda bilgi almak için aradı. Görüşme {sentiment.lower()} bir tonda ilerledi." if status == "completed" else None,
-                agent_topic=topic,
-                agent_notes=f"Sistem üzerinden kontroller yapıldı. Müşteri bilgilendirildi." if status == "completed" else None,
-                sentiment=sentiment,
-                qa_score=random.randint(40, 100) if status == "completed" else None,
-                qa_report='{"greeting": true, "empathy": false, "solution": true}' if status == "completed" else None
+            call = Call(
+                id=f"MOCK-{int(start_time.timestamp())}-{i}",
+                caller_number=f"05{random.randint(30, 55)}{random.randint(1000000, 9999999)}",
+                callee_number=f"20{random.randint(0, 5)}",
+                status="completed",
+                start_time=start_time,
+                end_time=end_time,
+                summary="Bu görüşme yapay zeka tarafından mock (sahte) veri olarak oluşturulmuştur.",
+                agent_topic=random.choice(topics),
+                agent_notes="Müşteriye bilgi verildi.",
+                sentiment=random.choice(sentiments),
+                qa_score=qa,
+                qa_report="Görüşme standartlara uygun geçmiştir." if qa > 80 else "Müşteri bekleme süresinden şikayetçi."
             )
-            session.add(c)
-            inserted_count += 1
-        
+            session.add(call)
+            calls.append(call)
+            
         await session.commit()
-        print(f"Successfully inserted {inserted_count} mock calls into the database.")
+        print("Successfully seeded 50 calls!")
 
 if __name__ == "__main__":
-    asyncio.run(seed_calls(200))
+    asyncio.run(seed_calls())

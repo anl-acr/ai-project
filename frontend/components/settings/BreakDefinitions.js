@@ -71,8 +71,9 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
     if (!name.trim()) return;
 
     const chosenColor = customColor ? customColor : color;
+    const newId = breaks.length > 0 ? Math.max(...breaks.map(b => b.id || 0)) + 1 : 1;
     const newBreak = {
-      id: Date.now(),
+      id: newId,
       name: name.trim(),
       color: chosenColor
     };

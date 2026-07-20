@@ -224,7 +224,7 @@ async def register_call_db(call_id: str):
             session.add(new_call)
             await session.commit()
 
-async def end_call_db(call_id: str, summary: str = None):
+async def end_call_db(call_id: str, summary: str = None, hangup_source: str = None):
     """Updates call record to completed."""
     async with AsyncSessionLocal() as session:
         db_call = await session.get(Call, call_id)
@@ -233,6 +233,8 @@ async def end_call_db(call_id: str, summary: str = None):
             db_call.end_time = datetime.datetime.utcnow()
             if summary:
                 db_call.summary = summary
+            if hangup_source:
+                db_call.hangup_source = hangup_source
             db_call.recording_path = f"/api/recordings/{call_id}.wav"
             await session.commit()
             
@@ -968,8 +970,13 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         if call_id:
             max_amp = call_state.get('max_avg_amplitude', 0) if call_state else 0
             print(f"Arama Sonlandi. (call_id): {call_id} - Maksimum Algilanan Ses Genligi: {max_amp:.2f}")
+            
+            h_source = "customer"
+            if call_state and call_state.get("should_hangup"):
+                h_source = "ai"
+                
             # Generate summary in background (optional, or just save end of call)
-            await end_call_db(call_id)
+            await end_call_db(call_id, hangup_source=h_source)
 
 async def start_server():
     server = await asyncio.start_server(handle_audiosocket_connection, '0.0.0.0', PORT)

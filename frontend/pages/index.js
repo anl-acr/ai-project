@@ -85,6 +85,7 @@ import AutoprovisionPanel from "../components/settings/AutoprovisionPanel";
 import OutboundRulesPanel from "../components/settings/OutboundRulesPanel";
 import InboundRulesPanel from "../components/settings/InboundRulesPanel";
 import CallPickupGroupsPanel from "../components/settings/CallPickupGroupsPanel";
+import SubscriberGroupsPanel from "../components/settings/SubscriberGroupsPanel";
 import SpeedDialsPanel from "../components/settings/SpeedDialsPanel";
 import ConferencesPanel from "../components/settings/ConferencesPanel";
 import EventLogsPanel from "../components/settings/EventLogsPanel";
@@ -104,6 +105,10 @@ export default function Home() {
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
   const [isEditingCallFlow, setIsEditingCallFlow] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyStatus, setApplyStatus] = useState("idle"); // idle, success, error
+  const [applyError, setApplyError] = useState("");
+  const [hasPendingChanges, setHasPendingChanges] = useState(false);
   const [activeCallId, setActiveCallId] = useState(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [hasOmnichannelPermission, setHasOmnichannelPermission] = useState(false);
@@ -114,6 +119,14 @@ export default function Home() {
   const [hasUsersPermission, setHasUsersPermission] = useState(false);
   const [hasAnnouncementsPermission, setHasAnnouncementsPermission] = useState(false);
   const [hasQueuesPermission, setHasQueuesPermission] = useState(false);
+  const [hasAutoprovisionPermission, setHasAutoprovisionPermission] = useState(false);
+  const [hasOutboundRulesPermission, setHasOutboundRulesPermission] = useState(false);
+  const [hasInboundRulesPermission, setHasInboundRulesPermission] = useState(false);
+  const [hasCallPickupPermission, setHasCallPickupPermission] = useState(false);
+  const [hasSubscriberGroupsPermission, setHasSubscriberGroupsPermission] = useState(false);
+  const [hasTrunksPermission, setHasTrunksPermission] = useState(false);
+  const [hasConferencesPermission, setHasConferencesPermission] = useState(false);
+  const [hasSpeedDialPermission, setHasSpeedDialPermission] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -130,6 +143,63 @@ export default function Home() {
     reportsGroup: true,
     system: true
   });
+
+  useEffect(() => {
+    const saved = localStorage.getItem('hasPendingChanges');
+    if (saved === 'true') {
+      setHasPendingChanges(true);
+    }
+
+    const originalFetch = window.fetch;
+    window.fetch = async function() {
+      const url = arguments[0];
+      const options = arguments[1] || {};
+      
+      const response = await originalFetch.apply(this, arguments);
+      
+      if (typeof url === 'string' && url.includes('/api/settings/') && !url.includes('/api/settings/apply')) {
+        if (['POST', 'PUT', 'DELETE'].includes(options.method)) {
+          if (response.ok) {
+            setHasPendingChanges(true);
+            localStorage.setItem('hasPendingChanges', 'true');
+          }
+        }
+      }
+      return response;
+    };
+    
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, []);
+
+  const handleApplyChanges = async () => {
+    setIsApplying(true);
+    setApplyStatus("idle");
+    setApplyError("");
+    try {
+      const res = await fetch("http://localhost:8000/api/settings/apply", {
+        method: "POST"
+      });
+      if (res.ok) {
+        setApplyStatus("success");
+        setTimeout(() => {
+          setHasPendingChanges(false);
+          setApplyStatus("idle");
+          localStorage.removeItem('hasPendingChanges');
+        }, 3000); // 3 saniye sonra butonu kaybet
+      } else {
+        const err = await res.json();
+        setApplyStatus("error");
+        setApplyError(err.detail || "Bilinmeyen bir hata oluştu.");
+      }
+    } catch (e) {
+      setApplyStatus("error");
+      setApplyError(e.message || "Bağlantı hatası.");
+    } finally {
+      setIsApplying(false);
+    }
+  };
 
   const renderPlaceholderReport = (title, description, IconComponent) => {
     return (
@@ -274,6 +344,200 @@ export default function Home() {
 
   const backendHost = "localhost:8000";
 
+  const checkRolePermissions = async () => {
+    let currentUserData = null;
+    try {
+      // 1. Synchronous storage check FIRST
+      const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
+      if (savedAuth) {
+        const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+        if (savedUserId === 'admin') {
+          currentUserData = SUPER_ADMIN;
+          setIsLoggedIn(true);
+          setCurrentUser(currentUserData);
+          
+          // Immediately give admin full permissions so dashboard doesn't flash empty
+          setHasOmnichannelPermission(true);
+          setHasContactsPermission(true);
+          setHasBlacklistPermission(true);
+          setHasMobileTransferPermission(true);
+          setHasReportsPermission(true);
+          setHasUsersPermission(true);
+          setHasAnnouncementsPermission(true);
+          setHasQueuesPermission(true);
+          setHasAutoprovisionPermission(true);
+          setHasOutboundRulesPermission(true);
+          setHasInboundRulesPermission(true);
+          setHasCallPickupPermission(true);
+          setHasSubscriberGroupsPermission(true);
+          setHasTrunksPermission(true);
+          setHasConferencesPermission(true);
+          setHasSpeedDialPermission(true);
+        }
+      } else {
+        setIsLoggedIn(false);
+      }
+
+      // UNBLOCK THE UI IMMEDIATELY! Don't wait for backend to respond.
+      setIsAuthChecking(false);
+
+      // 2. Try fetching from backend asynchronously
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      // Added AbortController to prevent infinite hang
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      
+      let resStatus;
+      try {
+        resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`, { signal: controller.signal });
+      } catch(err) {
+        console.warn("Backend is not responding or timed out. Continuing with local state.");
+        return; // Stop further backend checks
+      } finally {
+        clearTimeout(timeoutId);
+      }
+
+      const statusData = await resStatus.json();
+      const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+      const usersData = await resUsers.json();
+      if (usersData) setSystemUsers(usersData);
+
+      // 3. If not admin, find user from fetched data
+      if (savedAuth && (localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id')) !== 'admin') {
+        const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+        if (savedUserId) {
+          currentUserData = usersData.find(u => u.id === parseInt(savedUserId) || u.extension === savedUserId);
+          if (currentUserData) {
+            setIsLoggedIn(true);
+            setCurrentUser(currentUserData);
+          } else {
+            setIsLoggedIn(false);
+          }
+        }
+      }
+
+      // Only set default permissions if needed
+      if (!currentUserData) {
+        setHasOmnichannelPermission(false);
+        setHasContactsPermission(false);
+        setHasBlacklistPermission(false);
+        setHasMobileTransferPermission(false);
+        setHasReportsPermission(false);
+        setHasUsersPermission(false);
+        setHasAnnouncementsPermission(false);
+        setHasQueuesPermission(false);
+        setHasAutoprovisionPermission(false);
+        setHasOutboundRulesPermission(false);
+        setHasInboundRulesPermission(false);
+        setHasCallPickupPermission(false);
+        setHasSubscriberGroupsPermission(false);
+        setHasTrunksPermission(false);
+        setHasConferencesPermission(false);
+        setHasSpeedDialPermission(false);
+        setIsAuthChecking(false);
+        return;
+      }
+
+      if (currentUserData.avatar) {
+        setAgentAvatar(currentUserData.avatar);
+      }
+
+      if (currentUserData.theme_color) {
+        const safeColor = getSafeThemeColor(currentUserData.theme_color);
+        document.documentElement.style.setProperty("--color-primary", safeColor);
+        localStorage.setItem("theme_primary_color", safeColor);
+      }
+      
+      const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
+      const rolesData = await resRoles.json();
+      const currentRole = rolesData.find(r => r.role_code === currentUserData.role);
+      
+      const hasPerm = (prefix) => {
+        return currentRole && currentRole.permissions && currentRole.permissions.some(p => p.startsWith(prefix + ':'));
+      };
+
+      if (!currentRole) {
+        if (currentUserData.role === 'admin') {
+          // Give admin full permissions by default
+          setHasOmnichannelPermission(true);
+          setHasContactsPermission(true);
+          setHasBlacklistPermission(true);
+          setHasMobileTransferPermission(true);
+          setHasReportsPermission(true);
+          setHasUsersPermission(true);
+          setHasAnnouncementsPermission(true);
+          setHasQueuesPermission(true);
+          setHasAutoprovisionPermission(true);
+          setHasOutboundRulesPermission(true);
+          setHasInboundRulesPermission(true);
+          setHasCallPickupPermission(true);
+          setHasSubscriberGroupsPermission(true);
+          setHasTrunksPermission(true);
+          setHasConferencesPermission(true);
+          setHasSpeedDialPermission(true);
+        } else {
+          setHasOmnichannelPermission(false);
+          setHasContactsPermission(false);
+          setHasBlacklistPermission(false);
+          setHasMobileTransferPermission(false);
+          setHasReportsPermission(false);
+          setHasUsersPermission(false);
+          setHasAnnouncementsPermission(false);
+          setHasQueuesPermission(false);
+          setHasAutoprovisionPermission(false);
+          setHasOutboundRulesPermission(false);
+          setHasInboundRulesPermission(false);
+          setHasCallPickupPermission(false);
+          setHasSubscriberGroupsPermission(false);
+          setHasTrunksPermission(false);
+          setHasConferencesPermission(false);
+          setHasSpeedDialPermission(false);
+        }
+      } else {
+        setHasOmnichannelPermission(hasPerm('omnichannel'));
+        setHasContactsPermission(hasPerm('contacts'));
+        setHasBlacklistPermission(hasPerm('blacklist'));
+        setHasMobileTransferPermission(hasPerm('mobile_transfer'));
+        setHasReportsPermission(hasPerm('reports'));
+        setHasUsersPermission(hasPerm('users'));
+        setHasAnnouncementsPermission(hasPerm('announcements'));
+        setHasQueuesPermission(hasPerm('acd_queues'));
+        setHasAutoprovisionPermission(hasPerm('autoprovision'));
+        setHasOutboundRulesPermission(hasPerm('outbound_rules'));
+        setHasInboundRulesPermission(hasPerm('inbound_rules'));
+        setHasCallPickupPermission(hasPerm('call_pickup_groups'));
+        setHasSubscriberGroupsPermission(hasPerm('subscriber_groups'));
+        setHasTrunksPermission(hasPerm('trunks'));
+        setHasConferencesPermission(hasPerm('conferences'));
+        setHasSpeedDialPermission(hasPerm('speed_dials'));
+      }
+      setIsAuthChecking(false);
+    } catch (e) {
+      console.error("Role permission check failed:", e);
+      
+      // Even if fetch fails, if we already loaded Admin from localStorage, we are good to go!
+      if (currentUserData && currentUserData.role === 'admin') {
+        setHasOmnichannelPermission(true);
+        setHasContactsPermission(true);
+        setHasBlacklistPermission(true);
+        setHasMobileTransferPermission(true);
+        setHasReportsPermission(true);
+        setHasUsersPermission(true);
+        setHasAnnouncementsPermission(true);
+        setHasQueuesPermission(true);
+        setHasAutoprovisionPermission(true);
+        setHasOutboundRulesPermission(true);
+        setHasInboundRulesPermission(true);
+        setHasCallPickupPermission(true);
+        setHasSubscriberGroupsPermission(true);
+        setHasTrunksPermission(true);
+        setHasConferencesPermission(true);
+        setHasSpeedDialPermission(true);
+      }
+      setIsAuthChecking(false);
+    }
+  };
+
   // Load avatar and ringtone from localStorage on mount and sync with presence
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -304,136 +568,7 @@ export default function Home() {
         console.error("Agent presence sync error:", e);
       }
     };
-    const checkRolePermissions = async () => {
-      let currentUserData = null;
-      try {
-        // 1. Synchronous storage check FIRST
-        const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
-        if (savedAuth) {
-          const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
-          if (savedUserId === 'admin') {
-            currentUserData = SUPER_ADMIN;
-            setIsLoggedIn(true);
-            setCurrentUser(currentUserData);
-            
-            // Immediately give admin full permissions so dashboard doesn't flash empty
-            setHasOmnichannelPermission(true);
-            setHasContactsPermission(true);
-            setHasBlacklistPermission(true);
-            setHasMobileTransferPermission(true);
-            setHasReportsPermission(true);
-            setHasUsersPermission(true);
-          }
-        } else {
-          setIsLoggedIn(false);
-        }
 
-        // UNBLOCK THE UI IMMEDIATELY! Don't wait for backend to respond.
-        setIsAuthChecking(false);
-
-        // 2. Try fetching from backend asynchronously
-        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-        // Added AbortController to prevent infinite hang
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-        
-        let resStatus;
-        try {
-          resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`, { signal: controller.signal });
-        } catch(err) {
-          console.warn("Backend is not responding or timed out. Continuing with local state.");
-          return; // Stop further backend checks
-        } finally {
-          clearTimeout(timeoutId);
-        }
-
-        const statusData = await resStatus.json();
-        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
-        const usersData = await resUsers.json();
-        if (usersData) setSystemUsers(usersData);
-
-        // 3. If not admin, find user from fetched data
-        if (savedAuth && (localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id')) !== 'admin') {
-          const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
-          if (savedUserId) {
-            currentUserData = usersData.find(u => u.id === parseInt(savedUserId) || u.extension === savedUserId);
-            if (currentUserData) {
-              setIsLoggedIn(true);
-              setCurrentUser(currentUserData);
-            } else {
-              setIsLoggedIn(false);
-            }
-          }
-        }
-
-        // Only set default permissions if needed
-        if (!currentUserData) {
-          setHasOmnichannelPermission(false);
-          setHasContactsPermission(false);
-          setHasBlacklistPermission(false);
-          setHasMobileTransferPermission(false);
-          setHasReportsPermission(false);
-          setHasUsersPermission(false);
-          setHasAnnouncementsPermission(false);
-          setHasQueuesPermission(false);
-          setIsAuthChecking(false);
-          return;
-        }
-
-        if (currentUserData.avatar) {
-          setAgentAvatar(currentUserData.avatar);
-        }
-
-        if (currentUserData.theme_color) {
-          const safeColor = getSafeThemeColor(currentUserData.theme_color);
-          document.documentElement.style.setProperty("--color-primary", safeColor);
-          localStorage.setItem("theme_primary_color", safeColor);
-        }
-        
-        const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
-        const rolesData = await resRoles.json();
-        const currentRole = rolesData.find(r => r.role_code === currentUserData.role);
-        if (!currentRole) {
-          if (currentUserData.role === 'admin') {
-            // Give admin full permissions by default
-            setHasOmnichannelPermission(true);
-            setHasContactsPermission(true);
-            setHasBlacklistPermission(true);
-            setHasMobileTransferPermission(true);
-            setHasReportsPermission(true);
-            setHasUsersPermission(true);
-          } else {
-            setHasOmnichannelPermission(false);
-            setHasContactsPermission(false);
-            setHasBlacklistPermission(false);
-            setHasMobileTransferPermission(false);
-            setHasReportsPermission(false);
-            setHasUsersPermission(false);
-          }
-        } else {
-          setHasOmnichannelPermission(currentRole.permissions.includes(":read")); // dummy check
-          setHasContactsPermission(currentRole.permissions.includes(":read"));
-          setHasBlacklistPermission(currentRole.permissions.includes(":read"));
-          setHasMobileTransferPermission(currentRole.permissions.includes(":read"));
-          setHasReportsPermission(currentRole.permissions.includes(":read"));
-          setHasUsersPermission(currentRole.permissions.includes(":read"));
-        }
-        setIsAuthChecking(false);
-      } catch (e) {
-        console.error("Role permission check failed:", e);
-        
-        // Even if fetch fails, if we already loaded Admin from localStorage, we are good to go!
-        if (currentUserData && currentUserData.role === 'admin') {
-          setHasOmnichannelPermission(true);
-          setHasContactsPermission(true);
-          setHasBlacklistPermission(true);
-          setHasMobileTransferPermission(true);
-          setHasReportsPermission(true);
-          setHasUsersPermission(true);
-        }
-        setIsAuthChecking(false);
-      }
-    };
 
     checkRolePermissions();
     syncAgentPresence();
@@ -451,6 +586,7 @@ export default function Home() {
       }
       setCurrentUser(SUPER_ADMIN);
       setIsLoggedIn(true);
+      checkRolePermissions(); // Re-check permissions now that we are logged in
       return;
     }
 
@@ -465,6 +601,8 @@ export default function Home() {
       }
       setCurrentUser(foundUser);
       setIsLoggedIn(true);
+      checkRolePermissions(); // Re-check permissions
+      return;
     } else {
       setLoginError("Geçersiz kullanıcı adı veya şifre.");
     }
@@ -804,7 +942,7 @@ export default function Home() {
             
             <div
               className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                openCategories.pbxGroup ? "max-h-[600px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                openCategories.pbxGroup ? "max-h-[700px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
               {hasUsersPermission && (
@@ -849,53 +987,89 @@ export default function Home() {
                 </button>
               )}
 
-              <button
-                onClick={() => setActiveTab("auto-provision")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "auto-provision"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Cpu size={16} className={activeTab === "auto-provision" ? "text-primary" : ""} />
-                <span>Oto Provizyon</span>
-              </button>
+              {hasAutoprovisionPermission && (
+                <button
+                  onClick={() => setActiveTab("auto-provision")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "auto-provision"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Cpu size={16} className={activeTab === "auto-provision" ? "text-primary" : ""} />
+                  <span>Oto Provizyon</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("outbound-rules")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "outbound-rules"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <PhoneCall size={16} className={activeTab === "outbound-rules" ? "text-primary" : ""} />
-                <span>Giden Arama Kuralı</span>
-              </button>
+              {hasOutboundRulesPermission && (
+                <button
+                  onClick={() => setActiveTab("outbound-rules")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "outbound-rules"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <PhoneCall size={16} className={activeTab === "outbound-rules" ? "text-primary" : ""} />
+                  <span>Giden Arama Kuralı</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("inbound-rules")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "inbound-rules"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Phone size={16} className={activeTab === "inbound-rules" ? "text-primary" : ""} />
-                <span>Gelen Arama Kuralı</span>
-              </button>
+              {hasInboundRulesPermission && (
+                <button
+                  onClick={() => setActiveTab("inbound-rules")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "inbound-rules"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Phone size={16} className={activeTab === "inbound-rules" ? "text-primary" : ""} />
+                  <span>Gelen Arama Kuralı</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("call-pickup-groups")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "call-pickup-groups"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Users size={16} className={activeTab === "call-pickup-groups" ? "text-primary" : ""} />
-                <span>Çağrı Toplama Grubu</span>
-              </button>
+              {hasCallPickupPermission && (
+                <button
+                  onClick={() => setActiveTab("call-pickup-groups")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "call-pickup-groups"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Users size={16} className={activeTab === "call-pickup-groups" ? "text-primary" : ""} />
+                  <span>Çağrı Toplama Grubu</span>
+                </button>
+              )}
+
+              {hasSubscriberGroupsPermission && (
+                <button
+                  onClick={() => setActiveTab("subscriber-groups")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "subscriber-groups"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Users size={16} className={activeTab === "subscriber-groups" ? "text-primary" : ""} />
+                  <span>Abone Grubu</span>
+                </button>
+              )}
+
+              {hasSubscriberGroupsPermission && (
+                <button
+                  onClick={() => setActiveTab("subscriber-groups")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "subscriber-groups"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Users size={16} className={activeTab === "subscriber-groups" ? "text-primary" : ""} />
+                  <span>Abone Grubu</span>
+                </button>
+              )}
 
               {hasContactsPermission && (
                 <button
@@ -911,41 +1085,47 @@ export default function Home() {
                 </button>
               )}
 
-              <button
-                onClick={() => setActiveTab("trunks")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "trunks"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Cable size={16} className={activeTab === "trunks" ? "text-primary" : ""} />
-                <span>Dış Hat Tanımı</span>
-              </button>
+              {hasTrunksPermission && (
+                <button
+                  onClick={() => setActiveTab("trunks")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "trunks"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Cable size={16} className={activeTab === "trunks" ? "text-primary" : ""} />
+                  <span>Dış Hat Tanımı</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("conferences")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "conferences"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Users size={16} className={activeTab === "conferences" ? "text-primary" : ""} />
-                <span>Konferans</span>
-              </button>
+              {hasConferencesPermission && (
+                <button
+                  onClick={() => setActiveTab("conferences")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "conferences"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Users size={16} className={activeTab === "conferences" ? "text-primary" : ""} />
+                  <span>Konferans</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("speed-dial")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "speed-dial"
-                    ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <PhoneCall size={16} className={activeTab === "speed-dial" ? "text-primary" : ""} />
-                <span>Hızlı Arama</span>
-              </button>
+              {hasSpeedDialPermission && (
+                <button
+                  onClick={() => setActiveTab("speed-dial")}
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "speed-dial"
+                      ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <PhoneCall size={16} className={activeTab === "speed-dial" ? "text-primary" : ""} />
+                  <span>Hızlı Arama</span>
+                </button>
+              )}
 
               {hasBlacklistPermission && (
                 <button
@@ -1448,6 +1628,32 @@ export default function Home() {
           </div>
 
           <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400">
+            {currentUser?.role === 'admin' && hasPendingChanges && (
+              <div className="flex items-center gap-2 relative">
+                <button
+                  onClick={handleApplyChanges}
+                  disabled={isApplying || applyStatus === 'success'}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-white font-bold transition-all shadow-sm ${
+                    applyStatus === 'success' ? 'bg-emerald-500 cursor-default' :
+                    applyStatus === 'error' ? 'bg-rose-600 hover:bg-rose-500' :
+                    isApplying ? 'bg-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-500 shadow-rose-500/20 animate-pulse'
+                  }`}
+                >
+                  {applyStatus === 'success' ? <CheckCircle size={16} /> :
+                   applyStatus === 'error' ? <AlertTriangle size={16} /> :
+                   isApplying ? <Activity size={16} className="animate-spin" /> : <Layers size={16} />}
+                  
+                  {applyStatus === 'success' ? 'Uygulandı' :
+                   applyStatus === 'error' ? 'Uygulanamadı' : 'Uygula'}
+                </button>
+                {applyStatus === 'error' && (
+                  <div className="group flex items-center justify-center cursor-help" title={applyError}>
+                    <AlertTriangle size={20} className="text-rose-500 animate-pulse" />
+                  </div>
+                )}
+              </div>
+            )}
+
             <button
               onClick={toggleTheme}
               className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
@@ -1497,7 +1703,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "conferences", "speed-dial", "event-logs", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           {activeTab === "call-center" && (
             <AgentPanel 
               backendHost={backendHost} 
@@ -1544,6 +1750,10 @@ export default function Home() {
 
           {activeTab === "call-pickup-groups" && (
             <CallPickupGroupsPanel backendHost={backendHost} />
+          )}
+
+          {activeTab === "subscriber-groups" && (
+            <SubscriberGroupsPanel backendHost={backendHost} />
           )}
 
           {activeTab === "conferences" && (
@@ -2063,11 +2273,9 @@ export default function Home() {
 
         {/* Floating Unified Representative Call & Chat Console Widget */}
         <CallChatWidget 
-          agentExtension="200" 
-          password="temsilci_sifre_321" 
-          asteriskWssUrl="wss://localhost:8089/ws"
           onActiveCall={(callId) => setActiveCallId(callId)}
           backendHost={backendHost}
+          currentUser={currentUser}
         />
       </main>
     </div>

@@ -37,7 +37,9 @@
         }
     },
     "channels": {
-        "whatsapp_token": "",
+        "whatsapp_token": "Aida12345",
+        "whatsapp_access_token": "EAAUpnoDZALbwBSEHyxXKYPmjDtXTKWSe4XqzPa7qaWsaeinNWTiaRa07XO0SUCSgx9ZCZCs3fflzeO59LLH8lPQI1Pk3s6QhCwqgg8EVJJ8bT5VTmsw06VjLoTEHN3CxKSsS1rV2yEgolvHtER3F2WP7EV6u7X1WAhW6vGTZAFUijl4iFhMn0h6iFX3qA2EHB0TobOQoJQv9aksntTQn0GD2pAfqZAqhJLl0Bwht5R5jrgmwwiZAhVBYg5xW6UITOYBQqCcMm7l9T4vMtsL0gZD",
+        "whatsapp_phone_number_id": "1181722995028289",
         "telegram_token": "",
         "instagram_token": "",
         "facebook_token": ""
@@ -68,6 +70,10 @@
         ],
         "allowed_hours_start": "09:00",
         "allowed_hours_end": "18:00"
+    },
+    "roi_settings": {
+        "human_cost": 30000,
+        "human_count": 5
     },
     "rag": {
         "chunk_size": 800,
@@ -453,13 +459,6 @@
     ],
     "announcements": [
         {
-            "id": "1f7a5b1f-9742-40a8-b447-ba0d437cc607",
-            "name": "TR_HATALI_TUSLAMA",
-            "filename": "1f7a5b1f-9742-40a8-b447-ba0d437cc607.wav",
-            "original_filename": "TR_HATALI_TUSLAMA.wav",
-            "created_at": 1784272618.271172
-        },
-        {
             "id": "38d0ee37-8525-4ac9-8231-b67dbca8a3fb",
             "name": "test ",
             "filename": "38d0ee37-8525-4ac9-8231-b67dbca8a3fb.wav",
@@ -479,11 +478,18 @@
             "filename": "c2f9d76c-dba7-45d0-a52d-c127521f1f86.mp3",
             "original_filename": "tts_c2f9d76c.mp3",
             "created_at": 1784275072.805395
+        },
+        {
+            "id": "0263800b-7d39-4e85-adf3-258e8992e8af",
+            "name": "tr_mollakara_operator",
+            "filename": "0263800b-7d39-4e85-adf3-258e8992e8af.wav",
+            "original_filename": "TR_MOLLAKARA_OPERATOR.wav",
+            "created_at": 1784530174.5333729
         }
     ],
     "users": [
         {
-            "id": 1784287229522,
+            "id": 1,
             "full_name": "ANIL ACAR",
             "email": "anl.acr@gmail.com",
             "extension": "1000",
@@ -493,21 +499,28 @@
             "gsm_number": null,
             "mobile_transfer_enabled": false,
             "theme_color": "rose",
-            "sip_password": "jG5dyuO5*E#!RnV$",
+            "password": "Test4567!*",
+            "sip_password": "6L20TFRjTm*Fo4w9",
             "outbound_caller_id": "",
-            "forwarding_always": null,
+            "forwarding_always": {
+                "active": false,
+                "type": "internal",
+                "target": "1001"
+            },
             "forwarding_busy": null,
             "forwarding_no_answer": null,
             "voicemail_active": false,
             "voicemail_announcement": "Varsayılan Anons",
             "voicemail_pin": "",
             "voicemail_to_email": false,
-            "recording_active": false,
+            "recording_active": true,
             "transport": "UDP",
-            "active_sessions": []
+            "active_sessions": [],
+            "location_id": "ba981f0a-8e25-4859-bed2-33b818621411",
+            "department_id": "e70d14c4-b8aa-4522-a393-050e242be99e"
         },
         {
-            "id": 1784287711314,
+            "id": 2,
             "full_name": "Murat BATTAL",
             "email": "m@test.com",
             "extension": "1001",
@@ -517,6 +530,7 @@
             "gsm_number": null,
             "mobile_transfer_enabled": false,
             "theme_color": "rose",
+            "password": null,
             "sip_password": "!3#DF)WXOD!FOdWa",
             "outbound_caller_id": "",
             "forwarding_always": null,
@@ -528,97 +542,130 @@
             "voicemail_to_email": false,
             "recording_active": false,
             "transport": "UDP",
-            "active_sessions": []
+            "active_sessions": [],
+            "location_id": null,
+            "department_id": null
+        },
+        {
+            "id": 3,
+            "full_name": "Cihan Köprülü",
+            "email": "cihank@testteknoloji.com.tr",
+            "extension": "1002",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
+            "role": "admin",
+            "is_active": true,
+            "gsm_number": null,
+            "mobile_transfer_enabled": false,
+            "theme_color": "rose",
+            "password": "",
+            "sip_password": "Ge0zpBIP5*Ri4a!m",
+            "outbound_caller_id": "",
+            "forwarding_always": null,
+            "forwarding_busy": null,
+            "forwarding_no_answer": null,
+            "voicemail_active": false,
+            "voicemail_announcement": "Varsayılan Anons",
+            "voicemail_pin": "",
+            "voicemail_to_email": false,
+            "recording_active": false,
+            "transport": "UDP",
+            "active_sessions": [],
+            "location_id": null,
+            "department_id": null
         }
     ],
     "roles": [
         {
-            "id": 1784287209031,
+            "id": 1,
             "role_code": "admin",
             "name": "Admin",
             "permissions": [
-                "conferences:read",
-                "breaks:read",
-                "reports:access",
-                "acd_queues:delete",
-                "speed_dials:delete",
-                "trunks:delete",
-                "acd_queues:write",
-                "ai_agents:read",
-                "speed_dials:read",
-                "inbound_rules:read",
-                "call_pickup_groups:write",
-                "call_panel:access",
-                "announcements:delete",
-                "trunks:read",
-                "recording_retention:write",
-                "contacts:read",
-                "recording_retention:delete",
-                "universal_api:read",
-                "recording_retention:read",
-                "ai_agents:delete",
-                "conferences:delete",
-                "breaks:delete",
-                "voice_biometrics:read",
-                "conferences:write",
-                "universal_api:write",
-                "inbound_rules:write",
-                "canned_responses:delete",
-                "pbx:read",
-                "autoprovision_templates:write",
-                "storage:access",
-                "users:write",
-                "omnichannel:access",
-                "acd_queues:read",
-                "transcripts:access",
-                "qa:read",
-                "voice_biometrics:write",
-                "wallboard:access",
+                "universal_api:delete",
+                "subscriber_groups:delete",
+                "outbound_rules:delete",
+                "call_flow:access",
+                "pbx:delete",
                 "speed_dials:write",
-                "call_pickup_groups:read",
-                "ai_agents:write",
+                "channels:write",
+                "pbx:write",
+                "breaks:read",
+                "universal_api:write",
+                "call_panel:access",
+                "qa:read",
+                "ai_agents:access",
+                "acd_queues:delete",
+                "reports:access",
+                "recording_retention:write",
+                "autoprovision:read",
+                "users:write",
+                "trunks:delete",
+                "ai_agents:delete",
+                "roles:read",
+                "users:delete",
+                "ai_whisper:access",
+                "conferences:read",
+                "voice_biometrics:delete",
+                "ai_agents:read",
+                "announcements:read",
                 "autoprovision:delete",
-                "outbound_rules:write",
-                "outbound_rules:read",
+                "blacklist:write",
+                "autoprovision_templates:write",
+                "announcements:write",
+                "subscriber_groups:write",
+                "autoprovision:write",
+                "announcements:delete",
+                "autoprovision_templates:delete",
+                "trunks:write",
+                "canned_responses:write",
+                "conferences:delete",
+                "universal_api:read",
+                "blacklist:delete",
+                "roles:delete",
+                "breaks:delete",
                 "contacts:write",
+                "outbound_rules:read",
+                "mobile_transfer:read",
+                "acd_queues:write",
                 "breaks:write",
                 "call_panel:listen_records",
-                "pbx:delete",
-                "canned_responses:read",
-                "users:read",
-                "roles:delete",
-                "ai_whisper:access",
-                "autoprovision_templates:read",
-                "universal_api:delete",
-                "dialer:access",
-                "qa:write",
+                "acd_queues:read",
                 "qa:delete",
-                "ai_agents:access",
-                "canned_responses:write",
-                "roles:write",
-                "outbound_rules:delete",
-                "autoprovision:write",
-                "users:delete",
-                "inbound_rules:delete",
-                "blacklist:delete",
-                "announcements:write",
-                "autoprovision_templates:delete",
-                "roles:read",
-                "blacklist:read",
-                "announcements:read",
-                "channels:write",
-                "channels:read",
-                "call_pickup_groups:delete",
-                "pbx:write",
-                "autoprovision:read",
-                "logs:access",
-                "call_flow:access",
-                "mobile_transfer:read",
+                "dialer:access",
+                "call_pickup_groups:write",
+                "wallboard:access",
                 "contacts:delete",
-                "trunks:write",
+                "transcripts:access",
+                "pbx:read",
+                "inbound_rules:read",
+                "canned_responses:read",
+                "contacts:read",
+                "autoprovision_templates:read",
+                "call_pickup_groups:delete",
                 "mobile_transfer:write",
-                "voice_biometrics:delete",
-                "blacklist:write"
+                "voice_biometrics:read",
+                "roles:write",
+                "users:read",
+                "call_pickup_groups:read",
+                "storage:access",
+                "trunks:read",
+                "speed_dials:read",
+                "inbound_rules:delete",
+                "voice_biometrics:write",
+                "canned_responses:delete",
+                "omnichannel:access",
+                "blacklist:read",
+                "speed_dials:delete",
+                "outbound_rules:write",
+                "qa:write",
+                "logs:access",
+                "ai_agents:write",
+                "inbound_rules:write",
+                "recording_retention:delete",
+                "recording_retention:read",
+                "channels:read",
+                "call_panel:listen_records:access",
+                "subscriber_groups:read",
+                "conferences:write"
             ],
             "allowed_breaks": [
                 1783110216802,
@@ -664,6 +711,67 @@
         "keep_days": 90,
         "delete_by_days": false
     },
+    "inbound_rules": [
+        {
+            "id": "7eb86cb5-9774-4b62-a36f-29f61a8733f4",
+            "name": "908503607390",
+            "trunk_ids": [
+                1
+            ],
+            "destination_type": "call_flow",
+            "destination_id": "wf-1",
+            "did_match_mode": "specific",
+            "did_patterns": [
+                "908503607390"
+            ]
+        }
+    ],
+    "call_pickup_groups": [
+        {
+            "id": "090bc85a-f98e-4752-9398-0c29be950f8e",
+            "name": "pickup_test",
+            "extensions": [
+                1784287711314,
+                1784528459895,
+                1
+            ]
+        },
+        {
+            "id": "fec5c8de-90aa-4f01-92aa-02777a02b55e",
+            "name": "picup 2",
+            "extensions": [
+                1784287229522
+            ]
+        }
+    ],
+    "subscriber_groups": [
+        {
+            "id": 1,
+            "name": "grup 1 ",
+            "extensions": [
+                1
+            ],
+            "allowed_outbound_groups": [
+                2
+            ],
+            "allowed_inbound_groups": [
+                2
+            ]
+        },
+        {
+            "id": 2,
+            "name": "grup 2",
+            "extensions": [
+                2
+            ],
+            "allowed_outbound_groups": [
+                1
+            ],
+            "allowed_inbound_groups": [
+                1
+            ]
+        }
+    ],
     "speed_dials": [
         {
             "id": "8cbf1b9f-3845-42fc-a6a4-c20610f1f6a6",
@@ -689,15 +797,15 @@
     "queues": [
         {
             "extension": "2000",
-            "name": "TEST",
-            "strategy": "rrmemory",
+            "name": "test",
+            "strategy": "ringall",
             "max_calls": 0,
             "ring_time": 15,
             "acw_time": 5,
-            "join_announcement_enabled": false,
-            "join_announcement": "",
-            "periodic_announcement_enabled": false,
-            "periodic_announcement": "",
+            "join_announcement_enabled": true,
+            "join_announcement": "4eacd42d-b48e-49b1-b4b4-6d1bd759cf83",
+            "periodic_announcement_enabled": true,
+            "periodic_announcement": "1f7a5b1f-9742-40a8-b447-ba0d437cc607",
             "hold_music_class": "default",
             "position_announcement_enabled": false,
             "position_announcement_interval": 60,
@@ -709,7 +817,7 @@
                     "target": ""
                 },
                 "1": {
-                    "type": "",
+                    "type": "return_queue",
                     "target": ""
                 },
                 "2": {
@@ -754,23 +862,15 @@
                 }
             },
             "notify_missed_calls": false,
+            "id": 1,
             "queueMembers": [
                 {
-                    "user_id": 1784287229522,
+                    "user_id": 1,
                     "type": "dynamic"
                 }
             ],
             "supervisors": [
-                1784287711314
-            ],
-            "id": 1784288131667,
-            "members_count": 1,
-            "members_list": [
-                "ANIL ACAR"
-            ],
-            "supervisors_count": 1,
-            "supervisors_list": [
-                "Murat BATTAL"
+                2
             ]
         }
     ],
@@ -798,7 +898,10 @@
             "trunk_ids": [
                 1
             ],
-            "allowed_users": []
+            "allowed_users": [
+                1784528459895,
+                1
+            ]
         },
         {
             "id": "985e6800-3ba6-4de2-9461-16ed52cee55d",
@@ -819,44 +922,31 @@
             ]
         }
     ],
-    "call_pickup_groups": [
-        {
-            "id": "090bc85a-f98e-4752-9398-0c29be950f8e",
-            "name": "pickup_test",
-            "extensions": [
-                1784287711314
-            ]
-        },
-        {
-            "id": "fec5c8de-90aa-4f01-92aa-02777a02b55e",
-            "name": "picup 2",
-            "extensions": [
-                1784287229522
-            ]
-        }
-    ],
-    "inbound_rules": [
-        {
-            "id": "7eb86cb5-9774-4b62-a36f-29f61a8733f4",
-            "name": "908503607390",
-            "trunk_ids": [
-                1
-            ],
-            "destination_type": "call_flow",
-            "destination_id": "wf-1",
-            "did_match_mode": "specific",
-            "did_patterns": [
-                "908503607390"
-            ]
-        }
-    ],
     "agent_speed_dials": {
         "1000": [
             {
                 "name": "test",
-                "number": "05388881122",
+                "number": "05071796372",
                 "id": 1784406946215
             }
         ]
-    }
+    },
+    "needs_apply": false,
+    "locations": [
+        {
+            "id": "ba981f0a-8e25-4859-bed2-33b818621411",
+            "name": "Merkez"
+        },
+        {
+            "id": "10663123-5216-4c6c-949e-d3505519be1d",
+            "name": "Beşiktaş"
+        }
+    ],
+    "departments": [
+        {
+            "id": "e70d14c4-b8aa-4522-a393-050e242be99e",
+            "location_id": "ba981f0a-8e25-4859-bed2-33b818621411",
+            "name": "Teknik Destek"
+        }
+    ]
 }

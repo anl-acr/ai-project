@@ -90,7 +90,7 @@ export default function AgentSpeedDialTab({ backendHost, currentUser }) {
   };
 
   const triggerCall = (number) => {
-    alert(`Aranıyor: ${number}\n\nNot: Gerçek çağrı entegrasyonu MVP aşamasında henüz aktif değildir.`);
+    window.dispatchEvent(new CustomEvent('TRIGGER_CALL', { detail: number }));
   };
 
   return (

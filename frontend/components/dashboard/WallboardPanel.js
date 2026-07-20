@@ -41,75 +41,55 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     return () => clearInterval(interval);
   }, []);
 
-  // Simulation loop for dynamic wallboard effect
+  // Fetch real wallboard data from endpoints
   useEffect(() => {
-    if (!isSimulating) return;
-
-    const interval = setInterval(() => {
-      const timeString = new Date().toLocaleTimeString("tr-TR");
-      
-      // 1. Randomly shift queue count between 0 and 5
-      let qChange = 0;
-      setQueueCount(prev => {
-        const change = Math.floor(Math.random() * 3) - 1; // -1, 0, 1
-        const newCount = Math.max(0, Math.min(5, prev + change));
-        qChange = newCount - prev;
-        return newCount;
-      });
-
-      // Add log when queue increases/decreases
-      if (qChange > 0) {
-        addLog(timeString, "warning", "Çağrı kuyruğuna yeni bir müşteri giriş yaptı.");
+    const fetchWallboardData = async () => {
+      try {
+        const [wbRes, agentsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/reports/wallboard`, { cache: 'no-store' }),
+          fetch(`${API_BASE}/api/reports/agents`, { cache: 'no-store' })
+        ]);
+        
+        if (wbRes.ok) {
+          const wbData = await wbRes.json();
+          setQueueCount(wbData.queueCount);
+          setAiResolvedCount(wbData.aiResolvedCount);
+          setActiveCallsCount(wbData.activeCallsCount);
+          setAvgHoldTime(wbData.avgHoldTime);
+          setServiceLevel(wbData.serviceLevel);
+        }
+        
+        if (agentsRes.ok) {
+          const agentsData = await agentsRes.json();
+          // Merge with any existing states to preserve breaks/durations if needed
+          setAgentsState(prev => {
+             const merged = { ...prev };
+             Object.keys(agentsData).forEach(id => {
+                const newAgent = agentsData[id];
+                const oldAgent = merged[id];
+                // Keep break status if offline/break in old, otherwise update
+                if (oldAgent && oldAgent.status === "Molada" && newAgent.status === "Müsait") {
+                   newAgent.status = "Molada";
+                   newAgent.breakType = oldAgent.breakType;
+                   newAgent.breakColor = oldAgent.breakColor;
+                }
+                if (newAgent.status === "Görüşmede" && oldAgent && oldAgent.status === "Görüşmede") {
+                   newAgent.duration = oldAgent.duration + 2; // Keep ticking
+                }
+                merged[id] = { ...oldAgent, ...newAgent };
+             });
+             return merged;
+          });
+        }
+      } catch (err) {
+        console.error("Failed to fetch wallboard data:", err);
       }
+    };
 
-      // 2. Increment AI resolved calls slowly
-      if (Math.random() > 0.75) {
-        setAiResolvedCount(prev => {
-          addLog(timeString, "system", "Yapay zeka asistanı bir çağrıyı başarıyla çözdü.");
-          return prev + 1;
-        });
-      }
-
-      // 3. Randomly jitter service level slightly
-      setServiceLevel(prev => {
-        const jitter = (Math.random() * 0.4 - 0.2);
-        return parseFloat(Math.max(85.0, Math.min(100.0, prev + jitter)).toFixed(1));
-      });
-
-      // 4. Randomly jitter average hold time
-      setAvgHoldTime(prev => {
-        const jitter = Math.floor(Math.random() * 3) - 1;
-        return Math.max(8, Math.min(25, prev + jitter));
-      });
-
-      // 5. Update agent simulation (call durations increment or status changes)
-      setAgentsState(prev => {
-        const updated = { ...prev };
-        Object.keys(updated).forEach(id => {
-          if (updated[id].status === "Görüşmede") {
-            updated[id].duration += 2; // Simulate call duration
-            // Randomly end call
-            if (Math.random() > 0.92) {
-              updated[id] = { status: "Müsait", duration: 0 };
-              addLog(timeString, "info", `Temsilci ${id === "1" ? "Anıl Acar" : "Müşteri Temsilcisi"} çağrıyı sonlandırdı.`);
-            }
-          } else if (updated[id].status === "Müsait") {
-            // Randomly start call
-            if (Math.random() > 0.95) {
-              const dummyPhones = ["0532 *** 12", "0544 *** 89", "0505 *** 34"];
-              const randomPhone = dummyPhones[Math.floor(Math.random() * dummyPhones.length)];
-              updated[id] = { status: "Görüşmede", caller: randomPhone, duration: 0 };
-              addLog(timeString, "call", `Temsilciye çağrı aktarıldı, görüşme başladı.`);
-            }
-          }
-        });
-        return updated;
-      });
-
-    }, 2000);
-
+    fetchWallboardData();
+    const interval = setInterval(fetchWallboardData, 2000);
     return () => clearInterval(interval);
-  }, [isSimulating]);
+  }, []);
 
   const addLog = (time, type, text) => {
     setEventLogs(prev => [
@@ -164,21 +144,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
       const resBreaks = await fetch(`${API_BASE}/api/settings/breaks`);
       const breaksData = await resBreaks.json();
       setBreaks(breaksData);
-
-      // Initialize simulated states for users
-      const initialStates = {};
-      usersData.forEach((u, idx) => {
-        if (idx === 0) {
-          initialStates[u.id] = { status: "Müsait", duration: 0 };
-        } else if (idx === 1) {
-          initialStates[u.id] = { status: "Görüşmede", caller: "0532 *** 43", duration: 74 };
-        } else if (idx === 2) {
-          initialStates[u.id] = { status: "Molada", breakType: "Yemek Molası", breakColor: "#f97316", duration: 0 };
-        } else {
-          initialStates[u.id] = { status: "Çevrimdışı", duration: 0 };
-        }
-      });
-      setAgentsState(initialStates);
 
     } catch (err) {
       console.error("Wallboard initial load failed:", err);

@@ -1,10 +1,8 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload } from "lucide-react";
-import * as XLSX from "xlsx";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
-import SearchableSelect from "../ui/SearchableSelect";
 
 const PRESET_AVATARS = [
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
@@ -30,61 +28,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState("");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-
-  // Columns filter
-  const columnLabels = {
-    status: "Durum",
-    profile: "Profil",
-    username: "Kullanıcı Adı",
-    role: "Rol",
-    email: "E-Posta Adresi",
-    extension: "Dahili Numarası",
-    recording: "Ses Kayıt",
-    recording: "Ses Kayıt",
-    outboundRule: "Giden Kuralı",
-    pickupGroup: "Çağrı Toplama Grubu",
-    location: "Lokasyon",
-    department: "Departman"
-  };
-
-  const [visibleColumns, setVisibleColumns] = useState(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("users_visible_columns");
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("visibleColumns parse error:", e);
-        }
-      }
-    }
-    return {
-      status: true,
-      profile: true,
-      username: true,
-      role: true,
-      email: true,
-      extension: true,
-      recording: true,
-      recording: true,
-      outboundRule: true,
-      pickupGroup: true,
-      location: true,
-      department: true
-    };
-  });
-  const [isColumnSelectOpen, setIsColumnSelectOpen] = useState(false);
-
-  const handleToggleColumn = (key) => {
-    setVisibleColumns(prev => {
-      const updated = { ...prev, [key]: !prev[key] };
-      if (typeof window !== "undefined") {
-        localStorage.setItem("users_visible_columns", JSON.stringify(updated));
-      }
-      return updated;
-    });
-  };
   
   // Delete confirmation
   const [deleteTargetId, setDeleteTargetId] = useState(null);
@@ -139,12 +82,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [selectedOutboundRules, setSelectedOutboundRules] = useState([]);
   const [selectedCallPickupGroups, setSelectedCallPickupGroups] = useState([]);
 
-  // Locations & Departments Fields
-  const [locations, setLocations] = useState([]);
-  const [departments, setDepartments] = useState([]);
-  const [selectedLocation, setSelectedLocation] = useState("");
-  const [selectedDepartment, setSelectedDepartment] = useState("");
-
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
   useEffect(() => {
@@ -169,137 +106,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       const resGroups = await fetch(`${API_BASE}/api/settings/call_pickup_groups`);
       const dataGroups = await resGroups.json();
       if (dataGroups) setCallPickupGroups(dataGroups);
-
-      const resLocs = await fetch(`${API_BASE}/api/settings/locations`);
-      const dataLocs = await resLocs.json();
-      if (dataLocs) setLocations(dataLocs);
-
-      const resDepts = await fetch(`${API_BASE}/api/settings/departments`);
-      const dataDepts = await resDepts.json();
-      if (dataDepts) setDepartments(dataDepts);
     } catch (err) {
       console.error(`Veriler yüklenemedi:`, err);
     } finally {
       setLoading(false);
     }
-  };
-
-  const fileInputRef = useRef(null);
-
-  const handleExportExcel = () => {
-    const data = users.map(u => ({
-      "Ad Soyad": u.full_name || "",
-      "Kullanıcı Adı / E-Posta": u.email || "",
-      "Dahili Numara": u.extension || "",
-      "Şifre": "", // Leave blank for security
-      "Rol": systemRoles.find(r => r.role_code === u.role)?.name || u.role || "",
-      "Aktif": u.is_active ? "Evet" : "Hayır",
-      "Ses Kayıt": u.recording_active ? "Evet" : "Hayır",
-      "Giden Kuralı": outboundRules.find(r => r.allowed_users?.includes(u.id))?.name || "",
-      "Çağrı Toplama Grupları": callPickupGroups.filter(g => g.extensions?.includes(u.id)).map(g => g.name).join(", "),
-      "Lokasyon": locations.find(l => String(l.id) === String(u.location_id))?.name || "",
-      "Departman": departments.find(d => String(d.id) === String(u.department_id))?.name || ""
-    }));
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Kullanıcılar");
-    XLSX.writeFile(workbook, "Kullanicilar.xlsx");
-  };
-
-  const handleImportExcel = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
-      setLoading(true);
-      try {
-        const bstr = evt.target.result;
-        const workbook = XLSX.read(bstr, { type: 'binary' });
-        const wsname = workbook.SheetNames[0];
-        const ws = workbook.Sheets[wsname];
-        const data = XLSX.utils.sheet_to_json(ws);
-
-        let successCount = 0;
-        let errorCount = 0;
-
-        for (const row of data) {
-          const email = row["Kullanıcı Adı / E-Posta"];
-          if (!email) continue; // Skip empty rows
-
-          // Map names back to IDs/codes
-          let role_code = "user";
-          if (row["Rol"]) {
-             const r = systemRoles.find(r => r.name.toLowerCase() === row["Rol"].toLowerCase());
-             if (r) role_code = r.role_code;
-          }
-          
-          let location_id = null;
-          if (row["Lokasyon"]) {
-             const l = locations.find(l => l.name.toLowerCase() === row["Lokasyon"].toLowerCase());
-             if (l) location_id = l.id;
-          }
-
-          let department_id = null;
-          if (row["Departman"]) {
-             const d = departments.find(d => d.name.toLowerCase() === row["Departman"].toLowerCase());
-             if (d) department_id = d.id;
-          }
-
-          const is_active = row["Aktif"] === "Evet";
-          const recording_active = row["Ses Kayıt"] === "Evet";
-
-          const payload = {
-            full_name: row["Ad Soyad"] || "",
-            email: email,
-            role: role_code,
-            extension: row["Dahili Numara"] ? String(row["Dahili Numara"]) : "",
-            is_active: is_active,
-            recording_active: recording_active,
-            location_id: location_id,
-            department_id: department_id
-          };
-          if (row["Şifre"]) {
-             payload.password = String(row["Şifre"]);
-          }
-
-          const existingUser = users.find(u => u.email === email || (u.extension && u.extension === String(row["Dahili Numara"])));
-          
-          if (existingUser) {
-             const res = await fetch(`${API_BASE}/api/settings/users/${existingUser.id}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-             });
-             if (res.ok) successCount++;
-             else errorCount++;
-          } else {
-             if (!payload.password) payload.password = "123456"; // Default password
-             const res = await fetch(`${API_BASE}/api/settings/users`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-             });
-             if (res.ok) successCount++;
-             else errorCount++;
-          }
-        }
-
-        setError(null);
-        setSuccess(`İçe aktarma tamamlandı. ${successCount} başarılı, ${errorCount} hatalı kayıt.`);
-        setTimeout(() => setSuccess(false), 5000);
-        await fetchAllData();
-      } catch (err) {
-        console.error("Excel import error:", err);
-        setError("Excel dosyası okunurken bir hata oluştu.");
-        setTimeout(() => setError(null), 3000);
-        setLoading(false);
-      }
-      
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    };
-    reader.readAsBinaryString(file);
   };
 
   useEffect(() => {
@@ -370,8 +181,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     setSelectedOutboundRules([]);
     setSelectedCallPickupGroups([]);
-    setSelectedLocation("");
-    setSelectedDepartment("");
   };
 
   const openAddModal = () => {
@@ -413,9 +222,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     
     const activePickup = callPickupGroups.filter(g => g.extensions && g.extensions.includes(u.id)).map(g => g.id);
     setSelectedCallPickupGroups(activePickup);
-
-    setSelectedLocation(u.location_id || "");
-    setSelectedDepartment(u.department_id || "");
 
     setShowModal(true);
   };
@@ -480,9 +286,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       voicemail_pin: voicemailPin,
       voicemail_to_email: voicemailToEmail,
       recording_active: recordingActive,
-      transport: transport,
-      location_id: selectedLocation || null,
-      department_id: selectedDepartment || null
+      transport: transport
     };
 
     if (editingUser) {
@@ -496,16 +300,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       setUsers(updated);
       handleSaveAll(updated);
       await syncUserAssociations(editingUser.id);
-      fetchAllData();
     } else {
       // Add mode
-      const nextId = users.length > 0 ? Math.max(...users.map(u => u.id || 0)) + 1 : 1;
-      const newUser = { id: nextId, ...userData };
+      const newUser = { id: Date.now(), ...userData };
       const updated = [...users, newUser];
       setUsers(updated);
       handleSaveAll(updated);
       await syncUserAssociations(newUser.id);
-      fetchAllData();
     }
     setShowModal(false);
   };
@@ -568,12 +369,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         <div className="col-span-12 sm:col-span-6">
             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1.5">Hedef</label>
             {type === "internal" ? (
-                <SearchableSelect
+                <select
                     disabled={!active}
                     value={target}
-                    onChange={setTarget}
-                    options={users.map(u => ({ value: u.extension, label: `${u.full_name} (${u.extension})` }))}
-                />
+                    onChange={e => setTarget(e.target.value)}
+                    className="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                >
+                    <option value="">Seçiniz...</option>
+                    {users.map(u => <option key={u.id} value={u.extension}>{u.full_name} ({u.extension})</option>)}
+                </select>
             ) : (
                 <input
                     disabled={!active}
@@ -619,85 +423,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
         {/* Search Bar + "+" Icon Wrapper */}
         <div className="flex items-center gap-2.5">
-          {isSearchOpen || searchQuery ? (
-            <div className="relative animate-in fade-in zoom-in-95 duration-200">
-              <input
-                autoFocus
-                type="text"
-                placeholder="Kullanıcı ara..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onBlur={() => {
-                  if (!searchQuery) setIsSearchOpen(false);
-                }}
-                className={`w-48 text-xs pl-8 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
-              />
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
-              <button 
-                onClick={() => { setSearchQuery(""); setIsSearchOpen(false); }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
-              >
-                <X size={12} />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setIsSearchOpen(true)}
-              className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-slate-200 dark:hover:border-slate-700"
-              title="Ara"
-            >
-              <Search size={16} />
-            </button>
-          )}
-
-          <input 
-            type="file" 
-            accept=".xlsx, .xls" 
-            ref={fileInputRef}
-            className="hidden" 
-            onChange={handleImportExcel}
-          />
-
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-emerald-200 dark:hover:border-emerald-800/50"
-            title="Excel'den İçe Aktar (Import)"
-          >
-            <Upload size={16} />
-          </button>
-
-          <button
-            onClick={handleExportExcel}
-            className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/50"
-            title="Excel'e Dışa Aktar (Export)"
-          >
-            <Download size={16} />
-          </button>
-
           <div className="relative">
-            <button
-              onClick={() => setIsColumnSelectOpen(!isColumnSelectOpen)}
-              className={`p-2 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border ${isColumnSelectOpen ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border-transparent hover:border-slate-200 dark:hover:border-slate-700'}`}
-              title="Sütunlar"
-            >
-              <Settings size={16} />
-            </button>
-            {isColumnSelectOpen && (
-              <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 shadow-xl z-30 flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-150">
-                <h4 className="font-bold text-[9px] text-slate-400 dark:text-slate-555 uppercase tracking-wider mb-1 px-1">Görünür Sütunlar</h4>
-                {Object.keys(columnLabels).map((key) => (
-                  <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-350 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-slate-800/50 p-1.5 rounded-lg transition-colors">
-                    <input 
-                      type="checkbox"
-                      checked={visibleColumns[key]}
-                      onChange={() => handleToggleColumn(key)}
-                      className="rounded border-slate-300 text-primary focus:ring-primary/50"
-                    />
-                    <span>{columnLabels[key]}</span>
-                  </label>
-                ))}
-              </div>
-            )}
+            <input
+              type="text"
+              placeholder="Kullanıcı ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}  transition-all`}
+            />
+            <Search size={14} className={`absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555`} />
           </div>
 
           <button
@@ -777,18 +511,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         <div className="space-y-3.5 w-full">
           {/* Column Header Row */}
           <div className="hidden sm:flex items-center justify-between px-4 py-2 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider select-none border-b border-slate-100 dark:border-slate-800/40 pb-2.5">
-            <div className="flex items-center gap-4 flex-1 min-w-0">
-              {visibleColumns.status && <div className="w-10 text-center shrink-0 min-w-0">Durum</div>}
-              {visibleColumns.profile && <div className="w-12 text-center shrink-0 min-w-0">Profil</div>}
-              {visibleColumns.username && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Kullanıcı Adı</div>}
-              {visibleColumns.role && <div className="flex-1 min-w-0 truncate">Rol</div>}
-              {visibleColumns.email && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>E-Posta Adresi</div>}
-              {visibleColumns.extension && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Dahili Numarası</div>}
-              {visibleColumns.recording && <div className="flex-1 text-center min-w-0 truncate">Ses Kayıt</div>}
-              {visibleColumns.outboundRule && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Giden Kuralı</div>}
-              {visibleColumns.pickupGroup && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Çağrı Toplama Grubu</div>}
-              {visibleColumns.location && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Lokasyon</div>}
-              {visibleColumns.department && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Departman</div>}
+            <div className="flex items-center gap-4 flex-1">
+              <div className="w-10 text-center shrink-0">Durum</div>
+              <div className="w-12 text-center shrink-0">Profil</div>
+              <div className="grid grid-cols-12 gap-4 flex-1 items-center">
+                <div className="col-span-3">Kullanıcı Adı</div>
+                <div className="col-span-2">Rol</div>
+                <div className="col-span-4">E-Posta Adresi</div>
+                <div className="col-span-3">Dahili Numarası</div>
+              </div>
             </div>
             <div className="w-24 text-right shrink-0">İşlem</div>
           </div>
@@ -796,144 +527,88 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           {filteredUsers.map((u) => (
             <div
               key={u.id}
-              className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center gap-3 transition-all duration-200 hover:scale-[1.005] w-full ${
+              className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4 transition-all duration-200 hover:scale-[1.005] w-full ${
                 !u.is_active ? "opacity-60" : ""
               }`}
             >
-              <div className="flex items-center gap-4 flex-1 min-w-0">
-                  {visibleColumns.status && (
-                    <div className="w-10 flex items-center justify-center shrink-0 min-w-0">
-                      <div className="relative group flex items-center justify-center cursor-pointer">
-                        <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm transition-all duration-300 ${u.is_active ? "bg-emerald-400 group-hover:bg-emerald-500" : "bg-rose-400 group-hover:bg-rose-500"}`} title={u.is_active ? "Aktif Kullanıcı" : "Pasif Kullanıcı"} />
-                        {!u.is_active && (
-                          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-bold text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded whitespace-nowrap">
-                            Pasif
-                          </span>
-                        )}
-                        {u.is_active && u.sessions?.length > 0 && (
-                          <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {visibleColumns.profile && (
-                    <div className="w-12 flex items-center justify-center shrink-0 min-w-0">
-                      <img
-                        src={u.avatar}
-                        alt={u.full_name}
-                        className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1 shrink-0"
-                      />
-                    </div>
-                  )}
-                  {visibleColumns.username && (
-                    <div className="min-w-0" style={{ flex: '2 2 0%' }}>
-                      <h4 className="font-bold text-xs text-slate-800 dark:text-white truncate" title={u.full_name}>
-                        {u.full_name}
-                      </h4>
-                    </div>
-                  )}
-                  
-                  {visibleColumns.role && (
-                    <div className="flex-1 flex items-center min-w-0">
-                      {(() => {
-                        const userRoleObj = systemRoles.find(r => r.role_code === u.role);
-                        const roleLabel = userRoleObj ? userRoleObj.name : u.role;
-                        const roleColor = 
-                          u.role === 'admin' ? 'text-rose-500 bg-rose-50 border-rose-200' :
-                          u.role === 'manager' ? 'text-blue-500 bg-blue-50 border-blue-200' :
-                          u.role === 'supervisor' ? 'text-amber-500 bg-amber-50 border-amber-200' :
-                          'text-slate-500 bg-slate-50 border-slate-200';
-                          
-                        return (
-                          <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border ${roleColor} truncate min-w-0`} title={roleLabel}>
-                            {roleLabel}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  )}
-                  
-                  {visibleColumns.email && (
-                    <div className="min-w-0 text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 truncate" style={{ flex: '2 2 0%' }} title={u.email}>
-                      <Mail size={12} className="text-slate-400 shrink-0" />
-                      <span className="truncate">{u.email}</span>
-                    </div>
-                  )}
-
-                  {visibleColumns.extension && (
-                    <div className="min-w-0 text-[10px] text-slate-500 dark:text-slate-450 flex flex-col items-start justify-center gap-1.5" style={{ flex: '2 2 0%' }}>
-                      <div className="flex items-center gap-2">
-                        <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-bold shrink-0">
-                          <Phone size={10} /> Dahili:
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-extrabold text-slate-700 dark:text-slate-300 text-[9px] shrink-0">
-                          {u.extension}
-                        </span>
-                      </div>
-                      {(() => {
-                        let fwdType = "";
-                        let fwdTarget = "";
-                        if (u.forwarding_always?.active) { fwdType = "Her Zaman"; fwdTarget = u.forwarding_always.target; }
-                        else if (u.forwarding_busy?.active) { fwdType = "Meşgulde"; fwdTarget = u.forwarding_busy.target; }
-                        else if (u.forwarding_no_answer?.active) { fwdType = "Cevapsız"; fwdTarget = u.forwarding_no_answer.target; }
-                        if (fwdType) {
-                            return (
-                             <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-[8px] font-bold shrink-0 border border-amber-200/50 dark:border-amber-800/50" title={`Yönlendirme: ${fwdType} -> ${fwdTarget || 'Belirtilmedi'}`}>
-                                <Forward size={10} />
-                                <span>{fwdType} {fwdTarget && <span className="opacity-75 font-medium">({fwdTarget})</span>}</span>
-                             </div>
-                             );
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  )}
-
-                  {visibleColumns.recording && (
-                    <div className="flex-1 flex justify-center min-w-0">
-                      {u.recording_active ? (
-                        <div className="flex items-center justify-center text-rose-500 bg-rose-50 dark:bg-rose-900/20 w-6 h-6 rounded-lg border border-rose-200 dark:border-rose-800/50" title="Ses Kaydı Açık">
-                          <Mic size={12} />
+              {/* Left Side: Avatar & Details */}
+              <div className="flex items-center gap-4 flex-1">
+                <div className="w-10 flex items-center justify-center shrink-0">
+                  <div className="relative group flex items-center justify-center cursor-pointer">
+                    <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm ${u.active_sessions?.length > 0 ? 'bg-emerald-500 shadow-emerald-500/50' : 'bg-rose-500 shadow-rose-500/50 opacity-60'}`} />
+                    {u.active_sessions?.length > 0 && (
+                      <div className="absolute left-full ml-3 top-1/2 -translate-y-1/2 w-48 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md rounded-xl p-3 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 shadow-xl border border-slate-200 dark:border-slate-700/50">
+                        <div className="absolute -left-1.5 top-1/2 -translate-y-1/2 w-3 h-3 bg-white/95 dark:bg-slate-900/95 border-l border-b border-slate-200 dark:border-slate-700/50 rotate-45"></div>
+                        <h5 className="text-[10px] font-extrabold text-slate-500 dark:text-slate-300 uppercase tracking-wider mb-2 border-b border-slate-200 dark:border-slate-700/50 pb-1.5">Aktif Oturumlar</h5>
+                        <div className="space-y-2 relative z-10">
+                          {u.active_sessions.map((sess, idx) => (
+                            <div key={idx} className="flex flex-col gap-0.5">
+                              <div className="flex items-center gap-1.5 text-slate-800 dark:text-white text-xs font-bold">
+                                {sess.device_type === "web" ? <Monitor size={12} className="text-blue-500 dark:text-blue-400" /> : sess.device_type === "sip" ? <Phone size={12} className="text-emerald-500 dark:text-emerald-400" /> : <Smartphone size={12} className="text-purple-500 dark:text-purple-400" />}
+                                <span className="capitalize">{sess.device_type}</span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px]">
+                                <span className="text-slate-500 dark:text-slate-400 font-mono">{sess.ip_address}</span>
+                                {sess.last_seen && <span className="text-slate-400 dark:text-slate-500">{sess.last_seen}</span>}
+                              </div>
+                            </div>
+                          ))}
                         </div>
-                      ) : (
-                        <div className="flex items-center justify-center text-slate-400 bg-slate-50 dark:bg-slate-800/50 w-6 h-6 rounded-lg border border-slate-100 dark:border-slate-800/50" title="Ses Kaydı Kapalı">
-                          <MicOff size={12} />
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {visibleColumns.outboundRule && (
-                    <div className="min-w-0 text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 truncate" style={{ flex: '2 2 0%' }} title={outboundRules.find(r => r.allowed_users?.includes(u.id))?.name || "-"}>
-                      <PhoneOutgoing size={12} className="text-blue-500 shrink-0" />
-                      <span className="truncate">{outboundRules.find(r => r.allowed_users?.includes(u.id))?.name || "-"}</span>
-                    </div>
-                  )}
-
-                  {visibleColumns.pickupGroup && (
-                    <div className="min-w-0 text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 truncate" style={{ flex: '2 2 0%' }} title={callPickupGroups.filter(g => g.extensions?.includes(u.id)).map(g => g.name).join(", ") || "-"}>
-                      <Users size={12} className="text-emerald-500 shrink-0" />
-                      <span className="truncate">{callPickupGroups.filter(g => g.extensions?.includes(u.id)).map(g => g.name).join(", ") || "-"}</span>
-                    </div>
-                  )}
-                  {visibleColumns.location && (
-                    <div className="min-w-0 text-[10px] text-slate-500 dark:text-slate-400 truncate" style={{ flex: '2 2 0%' }} title={locations.find(l => String(l.id) === String(u.location_id))?.name || "-"}>
-                      <span className="truncate">{locations.find(l => String(l.id) === String(u.location_id))?.name || "-"}</span>
-                    </div>
-                  )}
-
-                  {visibleColumns.department && (
-                    <div className="min-w-0 text-[10px] text-slate-500 dark:text-slate-400 truncate" style={{ flex: '2 2 0%' }} title={departments.find(d => String(d.id) === String(u.department_id))?.name || "-"}>
-                      <span className="truncate">{departments.find(d => String(d.id) === String(u.department_id))?.name || "-"}</span>
-                    </div>
-                  )}
+                      </div>
+                    )}
+                  </div>
                 </div>
+                <div className="w-12 flex items-center justify-center shrink-0">
+                  <img
+                    src={u.avatar}
+                    alt={u.full_name}
+                    className="w-12 h-12 rounded-2xl border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 p-1 shrink-0"
+                  />
+                </div>
+                <div className="grid grid-cols-12 gap-4 flex-1 items-center">
+                  <div className="col-span-3">
+                    <h4 className="font-bold text-xs text-slate-800 dark:text-white truncate">
+                      {u.full_name}
+                    </h4>
+                  </div>
+                  
+                  <div className="col-span-2 flex items-center">
+                    {(() => {
+                      const userRoleObj = systemRoles.find(r => r.role_code === u.role);
+                      const roleLabel = userRoleObj ? userRoleObj.name : u.role;
+                      const roleColor = 
+                        u.role === "admin"
+                          ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-200/50 dark:border-purple-900/30"
+                          : u.role === "supervisor"
+                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30"
+                          : "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200/50 dark:border-blue-900/30";
+                      return (
+                        <span className={`px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase border ${roleColor} truncate`}>
+                          {roleLabel}
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  
+                  <div className="col-span-4 text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5 truncate">
+                    <Mail size={12} className="text-slate-400 shrink-0" />
+                    <span className="truncate">{u.email}</span>
+                  </div>
 
-                {/* Right Side: Actions */}
-                <div className="flex items-center gap-2 justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 dark:border-slate-800/60 w-24 shrink-0">
+                  <div className="col-span-3 text-[10px] text-slate-500 dark:text-slate-450 flex items-center gap-2">
+                    <span className="flex items-center gap-1 text-slate-600 dark:text-slate-400 font-bold shrink-0">
+                      <Phone size={10} /> Dahili:
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-extrabold text-slate-700 dark:text-slate-300 text-[9px] shrink-0">
+                      {u.extension}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Side: Actions */}
+              <div className="flex items-center gap-2 justify-between sm:justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 dark:border-slate-800/60 w-24 shrink-0">
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => openEditModal(u)}
                     className="p-1.5 text-slate-450 hover:text-slate-700 dark:hover:text-white rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-200"
@@ -950,6 +625,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   </button>
                 </div>
               </div>
+            </div>
           ))}
         </div>
       )}
@@ -1053,38 +729,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Arayüz Şifresi (Login)</label>
                                         <input type="password" placeholder="Şifre belirleyin" value={password} onChange={(e) => setPassword(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
-                                    </div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Lokasyon</label>
-                                        <select 
-                                            value={selectedLocation} 
-                                            onChange={(e) => {
-                                                setSelectedLocation(e.target.value);
-                                                setSelectedDepartment(""); // reset department when location changes
-                                            }} 
-                                            className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                        >
-                                            <option value="">Seçiniz</option>
-                                            {locations.map(loc => (
-                                                <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                            ))}
-                                        </select>
-                                    </div>
-                                    <div>
-                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Departman</label>
-                                        <select 
-                                            value={selectedDepartment} 
-                                            onChange={(e) => setSelectedDepartment(e.target.value)} 
-                                            className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                                            disabled={!selectedLocation}
-                                        >
-                                            <option value="">Seçiniz</option>
-                                            {departments.filter(d => String(d.location_id) === String(selectedLocation)).map(dept => (
-                                                <option key={dept.id} value={dept.id}>{dept.name}</option>
-                                            ))}
-                                        </select>
                                     </div>
                                 </div>
 
