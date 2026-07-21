@@ -38,7 +38,12 @@ const SYSTEM_FEATURES = [
   { id: "inbound_rules", name: "Gelen Arama Kuralları", icon: PhoneCall, type: "crud", color: "pink" },
   { id: "call_pickup_groups", name: "Çağrı Toplama Grupları", icon: Users, type: "crud", color: "blue" },
   { id: "subscriber_groups", name: "Abone Grupları", icon: Users, type: "crud", color: "blue" },
-  { id: "roi_settings", name: "ROI Rapor Ayarları", icon: FileText, type: "crud", color: "amber" }
+  { id: "roi_settings", name: "ROI Rapor Ayarları", icon: FileText, type: "crud", color: "amber" },
+  { id: "ssl", name: "SSL Sertifika Yönetimi", icon: Shield, type: "crud_partial", color: "emerald" },
+  { id: "backup_restore", name: "Yedekleme ve Geri Yükleme", icon: HardDrive, type: "crud_partial", color: "blue" },
+  { id: "recording_retention", name: "Ses Kayıt ve Saklama Süresi Yönetimi", icon: Server, type: "crud_partial", color: "rose" },
+  { id: "security", name: "Güvenlik Kalkanı", icon: Shield, type: "crud_partial", color: "cyan" },
+  { id: "api_budgets", name: "API Bütçe ve Tüketim Takibi", icon: HardDrive, type: "crud_partial", color: "emerald" }
 ];
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {
@@ -485,8 +490,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                     },
                     {
                       id: "system",
-                      name: "Sistem Yönetimi",
-                      items: ["users", "roles", "breaks", "universal_api"]
+                      name: "Sistem Ayarları",
+                      items: ["users", "roles", "breaks", "universal_api", "locations", "roi_settings", "ssl", "backup_restore", "recording_retention", "security", "api_budgets"]
                     }
                   ].map(category => (
                     <div key={category.id} className="space-y-3">

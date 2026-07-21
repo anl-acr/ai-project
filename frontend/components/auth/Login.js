@@ -2,21 +2,52 @@ import React, { useState } from "react";
 import { Lock, Mail, ArrowRight, BrainCircuit, User } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
-export default function Login({ onLogin, error }) {
+export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const { bg, text } = useTheme();
   
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [is2FA, setIs2FA] = useState(false);
+  const [twoFactorCode, setTwoFactorCode] = useState("");
+  const [twoFactorUserId, setTwoFactorUserId] = useState(null);
+  const [twoFactorError, setTwoFactorError] = useState("");
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    if (is2FA) {
+        if (!twoFactorCode || twoFactorCode.length < 6) return;
+        setIsLoading(true);
+        setTwoFactorError("");
+        try {
+            const res = await fetch(`http://${backendHost || '127.0.0.1'}:8000/api/auth/verify_2fa`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ user_id: twoFactorUserId, code: twoFactorCode })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                onComplete2FA(twoFactorUserId, rememberMe);
+            } else {
+                setTwoFactorError(data.detail || "Geçersiz 2FA kodu.");
+            }
+        } catch(err) {
+            setTwoFactorError("Sunucu ile iletişim kurulamadı.");
+        }
+        setIsLoading(false);
+        return;
+    }
+
     if (!username || !password) return;
     
     setIsLoading(true);
     setTimeout(() => {
-      onLogin(username, password, rememberMe);
+      const result = onLogin(username, password, rememberMe);
+      if (result && result.requires2fa) {
+          setIs2FA(true);
+          setTwoFactorUserId(result.user_id);
+      }
       setIsLoading(false);
     }, 800);
   };
@@ -58,6 +89,8 @@ export default function Login({ onLogin, error }) {
           </div>
 
           <form onSubmit={handleSubmit} className="space-y-5">
+            {!is2FA ? (
+            <>
             {error && (
               <div className="p-3 bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-xs font-medium rounded-xl text-center animate-in slide-in-from-top-2">
                 {error}
@@ -110,6 +143,38 @@ export default function Login({ onLogin, error }) {
                 Şifremi Unuttum?
               </a>
             </div>
+            </>
+            ) : (
+            <div className="animate-in fade-in zoom-in duration-500">
+                <div className="text-center mb-6">
+                    <div className="w-16 h-16 rounded-full bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center mx-auto mb-3">
+                        <Lock className="text-indigo-600 dark:text-indigo-400" size={28} />
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-800 dark:text-white">İki Aşamalı Doğrulama</h3>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Lütfen cihazınızdaki 6 haneli doğrulama kodunu girin.</p>
+                </div>
+
+                {twoFactorError && (
+                  <div className="p-3 mb-4 bg-red-100 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 text-red-600 dark:text-red-400 text-xs font-medium rounded-xl text-center">
+                    {twoFactorError}
+                  </div>
+                )}
+                
+                <input
+                    type="text"
+                    required
+                    maxLength={6}
+                    value={twoFactorCode}
+                    onChange={(e) => setTwoFactorCode(e.target.value.replace(/\D/g, ''))}
+                    className="w-full text-center tracking-[0.5em] text-2xl font-bold py-4 bg-white/50 dark:bg-black/20 border border-slate-200/80 dark:border-white/5 rounded-2xl text-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition-all hover:bg-white/80 dark:hover:bg-black/30 shadow-inner dark:shadow-none"
+                    placeholder="••••••"
+                />
+
+                <div className="mt-4 flex justify-center">
+                   <button type="button" onClick={() => setIs2FA(false)} className="text-xs font-medium text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors">Geri Dön</button>
+                </div>
+            </div>
+            )}
 
             <button
               type="submit"

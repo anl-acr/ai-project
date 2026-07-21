@@ -17,3 +17,4 @@ greenlet>=3.0.0
 edge-tts
 gTTS
 psycopg2-binary
+psutil==6.0.0

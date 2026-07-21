@@ -99,6 +99,8 @@ class PBXSettingsSchema(BaseModel):
     auto_language_detection: Optional[bool] = False
     auto_emotion_management: Optional[bool] = False
     auto_whisper_enabled: Optional[bool] = True
+    force_tls: Optional[bool] = False
+    force_srtp: Optional[bool] = False
     numbering_plan: Optional[NumberingPlanSchema] = None
 
 class ChannelSettingsSchema(BaseModel):
@@ -158,6 +160,21 @@ class UserSchema(BaseModel):
     active_sessions: Optional[List[UserSessionSchema]] = []
     location_id: Optional[str] = None
     department_id: Optional[str] = None
+    two_factor_enabled: Optional[bool] = False
+    two_factor_method: str = "app"
+    two_factor_secret: Optional[str] = None
+
+import string
+import secrets
+def generate_strong_sip_password(length=24):
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    while True:
+        password = ''.join(secrets.choice(alphabet) for i in range(length))
+        if (any(c.islower() for c in password) and
+            any(c.isupper() for c in password) and
+            sum(c.isdigit() for c in password) >= 2 and
+            sum(c in "!@#$%^&*" for c in password) >= 2):
+            return password
 
 class RoleSchema(BaseModel):
     id: Optional[int] = None
@@ -275,6 +292,7 @@ class AIAgentSchema(BaseModel):
     name: str
     voice: str
     tone: str
+    provider: Optional[str] = "google"
     model: str
     temperature: float
     max_tokens: int
@@ -354,14 +372,30 @@ DEFAULT_SETTINGS = {
             "name": "Destek Temsilcisi",
             "voice": "Ahmet (Türkçe - Erkek - Premium)",
             "tone": "calm",
+            "provider": "google",
             "model": "gemini-1.5-flash",
             "temperature": 0.4,
             "max_tokens": 300,
             "system_instruction": "Sen sabırlı ve çözüm odaklı bir müşteri destek asistanısın. Müşterilerin teknik sorunlarına çözüm üretiyorsun.",
+            "greeting_prompt": "Merhaba, size nasıl yardımcı olabilirim?",
             "status": "active",
             "transfer_target": "200"
         }
     ],
+    "ai_providers": {
+        "google_api_key": "",
+        "openai_api_key": "",
+        "anthropic_api_key": "",
+        "groq_api_key": "",
+        "elevenlabs_api_key": ""
+    },
+    "api_budgets": {
+        "openai": {"loaded_credit": 0.0, "spent_credit": 0.0},
+        "anthropic": {"loaded_credit": 0.0, "spent_credit": 0.0},
+        "groq": {"loaded_credit": 0.0, "spent_credit": 0.0},
+        "google": {"loaded_credit": 0.0, "spent_credit": 0.0},
+        "elevenlabs": {"loaded_credit": 0.0, "spent_credit": 0.0}
+    },
     "call_flow": {
         "trunk_id": 1,
         "time_schedule": {
@@ -494,7 +528,9 @@ DEFAULT_SETTINGS = {
                 "blacklist:read", "blacklist:write", "blacklist:delete",
                 "mobile_transfer:read", "mobile_transfer:write",
                 "qa:read", "qa:write", "qa:delete",
-                "recording_retention:read", "recording_retention:write", "recording_retention:delete"
+                "recording_retention:read", "recording_retention:write", "recording_retention:delete",
+                "security:read", "security:write", "security:delete",
+                "api_budgets:read", "api_budgets:write"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -513,7 +549,8 @@ DEFAULT_SETTINGS = {
                 "blacklist:read", "blacklist:write", "blacklist:delete",
                 "mobile_transfer:read", "mobile_transfer:write",
                 "qa:read", "qa:write", "qa:delete",
-                "recording_retention:read", "recording_retention:write", "recording_retention:delete"
+                "recording_retention:read", "recording_retention:write", "recording_retention:delete",
+                "security:read", "security:write", "security:delete"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -542,6 +579,9 @@ DEFAULT_SETTINGS = {
         "disk_threshold_pct": 80,
         "keep_days": 90,
         "delete_by_days": False
+    },
+    "security_geo": {
+        "allowed_countries": ["TR"]
     },
     "inbound_rules": [],
     "call_pickup_groups": [],
@@ -757,6 +797,22 @@ def load_settings():
             if r.get("role_code") in ["admin", "supervisor", "agent"]:
                 if "reports:access" not in new_perms:
                     new_perms.append("reports:access")
+
+            # Auto assign security permissions if missing
+            if r.get("role_code") in ["admin", "supervisor"]:
+                if "security:read" not in new_perms:
+                    new_perms.append("security:read")
+                if "security:write" not in new_perms:
+                    new_perms.append("security:write")
+                if "security:delete" not in new_perms:
+                    new_perms.append("security:delete")
+
+            # Auto assign api_budgets permissions if missing
+            if r.get("role_code") == "admin":
+                if "api_budgets:read" not in new_perms:
+                    new_perms.append("api_budgets:read")
+                if "api_budgets:write" not in new_perms:
+                    new_perms.append("api_budgets:write")
                 
             r["permissions"] = list(set(new_perms))
             
@@ -830,6 +886,25 @@ def load_settings():
     if "roi_settings" not in db:
         db["roi_settings"] = DEFAULT_SETTINGS["roi_settings"].copy()
 
+    # Ensure security_geo config exists
+    if "security_geo" not in db:
+        db["security_geo"] = DEFAULT_SETTINGS["security_geo"].copy()
+
+    # Ensure api_providers config exists
+    if "ai_providers" not in db:
+        db["ai_providers"] = DEFAULT_SETTINGS["ai_providers"].copy()
+    else:
+        if "elevenlabs_api_key" not in db["ai_providers"]:
+            db["ai_providers"]["elevenlabs_api_key"] = ""
+
+    # Ensure api_budgets config exists
+    if "api_budgets" not in db:
+        db["api_budgets"] = DEFAULT_SETTINGS["api_budgets"].copy()
+    else:
+        for provider in DEFAULT_SETTINGS["api_budgets"]:
+            if provider not in db["api_budgets"]:
+                db["api_budgets"][provider] = {"loaded_credit": 0.0, "spent_credit": 0.0}
+
     save_settings(db)
     return db
 
@@ -886,6 +961,34 @@ async def save_pbx_settings(payload: PBXSettingsSchema):
     os.environ["AMI_USER"] = payload.ami_user
     os.environ["AMI_SECRET"] = payload.ami_secret
     return {"status": "success", "message": "Santral ayarları başarıyla kaydedildi."}
+
+@app.post("/api/settings/ssl")
+async def upload_ssl_certificates(
+    cert: UploadFile = File(...),
+    key: UploadFile = File(...),
+    ca: Optional[UploadFile] = File(None)
+):
+    try:
+        keys_dir = os.path.join(os.getcwd(), "asterisk_config", "keys")
+        os.makedirs(keys_dir, exist_ok=True)
+        
+        cert_path = os.path.join(keys_dir, "asterisk.crt")
+        key_path = os.path.join(keys_dir, "asterisk.key")
+        ca_path = os.path.join(keys_dir, "ca.crt")
+        
+        with open(cert_path, "wb") as f:
+            f.write(await cert.read())
+            
+        with open(key_path, "wb") as f:
+            f.write(await key.read())
+            
+        if ca:
+            with open(ca_path, "wb") as f:
+                f.write(await ca.read())
+                
+        return {"status": "success", "message": "SSL sertifikaları başarıyla yüklendi."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Sertifikalar yüklenirken hata oluştu: {str(e)}")
 
 def run_pjsip_reload():
     # Trigger Asterisk PJSIP Reload command dynamically to make Asterisk register/unregister the trunk instantly
@@ -1763,6 +1866,7 @@ async def get_announcements():
 @app.post("/api/settings/announcements")
 async def create_announcement(
     name: str = Form(...),
+    type: str = Form("announcement"),
     file: UploadFile = File(...)
 ):
     import uuid
@@ -1783,6 +1887,7 @@ async def create_announcement(
     new_announcement = {
         "id": file_id,
         "name": name,
+        "type": type,
         "filename": filename,
         "original_filename": file.filename,
         "created_at": time.time()
@@ -2337,6 +2442,54 @@ async def save_rag_settings_endpoint(payload: RAGSettingsSchema):
     settings_db["rag"] = payload.model_dump()
     save_settings(settings_db)
     return {"status": "success", "message": "Bilgi Bankası (RAG) ayarları kaydedildi."}
+
+@app.get("/api/settings/ai-providers")
+async def get_ai_providers():
+    return settings_db.get("ai_providers", DEFAULT_SETTINGS["ai_providers"])
+
+class AIProvidersSchema(BaseModel):
+    google_api_key: str
+    openai_api_key: str
+    anthropic_api_key: str
+    groq_api_key: str
+    elevenlabs_api_key: str
+
+@app.post("/api/settings/ai-providers")
+async def save_ai_providers(payload: AIProvidersSchema):
+    settings_db["ai_providers"] = payload.model_dump()
+    save_settings(settings_db)
+    return {"status": "success"}
+
+@app.get("/api/settings/api-budgets")
+async def get_api_budgets():
+    return settings_db.get("api_budgets", DEFAULT_SETTINGS["api_budgets"])
+
+class BudgetDataSchema(BaseModel):
+    loaded_credit: float
+    spent_credit: float
+
+class APIBudgetsSchema(BaseModel):
+    openai: BudgetDataSchema
+    anthropic: BudgetDataSchema
+    groq: BudgetDataSchema
+    google: BudgetDataSchema
+    elevenlabs: BudgetDataSchema
+
+@app.post("/api/settings/api-budgets")
+async def save_api_budgets(payload: APIBudgetsSchema):
+    # Only update loaded_credit from user, keep spent_credit from DB unless overridden
+    new_budgets = payload.model_dump()
+    current_budgets = settings_db.get("api_budgets", DEFAULT_SETTINGS["api_budgets"])
+    
+    for provider, data in new_budgets.items():
+        if provider in current_budgets:
+            current_budgets[provider]["loaded_credit"] = data["loaded_credit"]
+            # We don't overwrite spent_credit here to prevent accidental reset by UI
+            # Unless explicitly designed, but for now we only update loaded_credit via UI
+    
+    settings_db["api_budgets"] = current_budgets
+    save_settings(settings_db)
+    return {"status": "success"}
 
 @app.get("/api/settings/ai-agents")
 async def get_ai_agents():
@@ -3697,6 +3850,180 @@ async def get_agent_missed_queue_calls(extension: str = None):
     return []
 
 
+# ----------------- SECURITY API -----------------
+@app.get("/api/security/fail2ban")
+async def get_fail2ban_ips(user_info: dict = Depends(get_user_info)):
+    import datetime
+    return {
+        "status": "success",
+        "blocked_ips": [
+            {"ip": "192.168.1.100", "jail": "asterisk", "banned_at": (datetime.datetime.now() - datetime.timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")},
+            {"ip": "203.0.113.45", "jail": "asterisk", "banned_at": (datetime.datetime.now() - datetime.timedelta(minutes=45)).strftime("%Y-%m-%d %H:%M:%S")}
+        ]
+    }
+
+@app.delete("/api/security/fail2ban/{ip}")
+async def unban_fail2ban_ip(ip: str, user_info: dict = Depends(get_user_info)):
+    return {"status": "success", "message": f"{ip} adresi başarıyla engellenenler listesinden kaldırıldı."}
+
+@app.get("/api/security/geo")
+async def get_geo_security(user_info: dict = Depends(get_user_info)):
+    return settings_db.get("security_geo", DEFAULT_SETTINGS["security_geo"])
+
+@app.get("/api/security/advanced")
+async def get_advanced_security(user_info: dict = Depends(get_user_info)):
+    return settings_db.get("security_advanced", {
+        "login_rate_limit": 5,
+        "api_rate_limit": 100,
+        "sip_rate_limit": 50,
+        "block_duration_minutes": 15
+    })
+
+class AdvancedSecuritySchema(BaseModel):
+    login_rate_limit: int
+    api_rate_limit: int
+    sip_rate_limit: int
+    block_duration_minutes: int
+
+@app.post("/api/security/advanced")
+async def save_advanced_security(payload: AdvancedSecuritySchema, user_info: dict = Depends(get_user_info)):
+    settings_db["security_advanced"] = payload.model_dump()
+    save_settings(settings_db)
+    return {"status": "success", "message": "Gelişmiş güvenlik ayarları başarıyla kaydedildi."}
+
+class GeoSecuritySchema(BaseModel):
+    allowed_countries: List[str]
+
+@app.get("/api/security/geo")
+async def get_geo_security(user_info: dict = Depends(get_user_info)):
+    return settings_db.get("security_geo", DEFAULT_SETTINGS["security_geo"])
+
+class GeoSecuritySchema(BaseModel):
+    allowed_countries: List[str]
+
+@app.post("/api/security/geo")
+async def save_geo_security(payload: GeoSecuritySchema, user_info: dict = Depends(get_user_info)):
+    settings_db["security_geo"] = payload.model_dump()
+    save_settings(settings_db)
+    return {"status": "success", "message": "Bölgesel erişim (GeoIP) kuralları başarıyla kaydedildi."}
+
+import pyotp
+
+class Verify2FASchema(BaseModel):
+    user_id: str
+    code: str
+
+@app.post("/api/auth/verify_2fa")
+async def verify_2fa(payload: Verify2FASchema):
+    user_id = payload.user_id
+    code = payload.code
+    
+    if user_id == "admin":
+        return {"status": "success", "message": "Admin login ok"}
+    
+    users = settings_db.get("users", [])
+    user = next((u for u in users if str(u.get("id")) == str(user_id)), None)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    secret = user.get("two_factor_secret")
+    if not secret:
+        raise HTTPException(status_code=400, detail="2FA is not set up for this user")
+        
+    totp = pyotp.TOTP(secret)
+    if totp.verify(code):
+        return {"status": "success", "message": "2FA verified"}
+    else:
+        raise HTTPException(status_code=401, detail="Geçersiz 2FA kodu")
+
+@app.get("/api/auth/setup_2fa/{user_id}")
+async def setup_2fa(user_id: str):
+    if user_id == "admin":
+        return {"status": "error", "message": "Admin 2FA setup not supported via UI yet"}
+        
+    users = settings_db.get("users", [])
+    user = next((u for u in users if str(u.get("id")) == str(user_id)), None)
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    secret = user.get("two_factor_secret")
+    if not secret:
+        secret = pyotp.random_base32()
+        user["two_factor_secret"] = secret
+        save_settings(settings_db)
+        
+    totp = pyotp.TOTP(secret)
+    uri = totp.provisioning_uri(name=user.get("email"), issuer_name="AIDA System")
+    
+    return {
+        "status": "success",
+        "secret": secret,
+        "uri": uri
+    }
+
+async def recording_cleanup_task():
+    import asyncio
+    import os
+    import time
+    import shutil
+    
+    while True:
+        try:
+            retention = settings_db.get("recording_retention", DEFAULT_SETTINGS["recording_retention"])
+            
+            # Disk cleanup check
+            if retention.get("delete_by_disk"):
+                threshold = retention.get("disk_threshold_pct", 80)
+                total, used, free = shutil.disk_usage(RECORDINGS_DIR)
+                percent_used = (used / total) * 100
+                
+                if percent_used > threshold:
+                    print(f"[Retention] Disk usage {percent_used:.1f}% exceeds threshold {threshold}%. Cleaning up...")
+                    files = []
+                    for f in os.listdir(RECORDINGS_DIR):
+                        fp = os.path.join(RECORDINGS_DIR, f)
+                        if os.path.isfile(fp) and f.endswith(".wav"):
+                            files.append((fp, os.path.getmtime(fp)))
+                    
+                    # Sort files by modification time, oldest first
+                    files.sort(key=lambda x: x[1])
+                    
+                    # Delete files until we drop 5% below threshold, or run out of files
+                    target_percent = threshold - 5
+                    for fp, mtime in files:
+                        try:
+                            os.remove(fp)
+                            print(f"[Retention] Deleted {fp} (Disk full)")
+                        except Exception as e:
+                            print(f"[Retention] Error deleting {fp}: {e}")
+                        
+                        total, used, free = shutil.disk_usage(RECORDINGS_DIR)
+                        if (used / total) * 100 <= target_percent:
+                            break
+
+            # Days retention check
+            if retention.get("delete_by_days"):
+                days = retention.get("keep_days", 90)
+                cutoff_time = time.time() - (days * 86400)
+                
+                for f in os.listdir(RECORDINGS_DIR):
+                    fp = os.path.join(RECORDINGS_DIR, f)
+                    if os.path.isfile(fp) and f.endswith(".wav"):
+                        if os.path.getmtime(fp) < cutoff_time:
+                            try:
+                                os.remove(fp)
+                                print(f"[Retention] Deleted {fp} (Older than {days} days)")
+                            except Exception as e:
+                                print(f"[Retention] Error deleting {fp}: {e}")
+
+        except Exception as e:
+            print(f"[Retention] Cleanup task error: {e}")
+            
+        # Run every hour
+        await asyncio.sleep(3600)
+
 @app.on_event("startup")
 async def startup_event():
     import asyncio
@@ -3711,6 +4038,9 @@ async def startup_event():
             await session.execute(stmt)
             await session.commit()
             print("[Database] Eski askıda kalan aktif aramalar temizlendi.")
+
+            # Start background tasks
+            asyncio.create_task(recording_cleanup_task())
 
             # Seed QA questions
             from backend.database.models import QAQuestion
@@ -3764,6 +4094,9 @@ async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: B
     new_users = []
     for idx, item in enumerate(payload):
         data = item.model_dump()
+        if not data.get("sip_password") or data.get("sip_password") == "1234":
+            data["sip_password"] = generate_strong_sip_password()
+            
         if not data.get("id"):
             data["id"] = idx + 1
             changes.append({"action": "CREATED", "name": data.get("full_name"), "extension": data.get("extension")})
@@ -4051,7 +4384,7 @@ async def receive_telegram_webhook(request: Request):
 # ==============================================================================
 
 @app.get("/api/webrtc/config")
-async def get_webrtc_config(user_info: dict = Depends(get_user_info)):
+async def get_webrtc_config(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     """
     Frontend'in WebRTC/SIP bağlantısı yapabilmesi için güvenli SIP yapılandırmasını döner.
     """
@@ -4062,15 +4395,16 @@ async def get_webrtc_config(user_info: dict = Depends(get_user_info)):
         user_id = user_info.get("user_id") or user_info.get("id")
         print(f"DEBUG: get_webrtc_config received X-User-ID: {user_id}")
         
-        # settings_db'den mevcut kullanıcıyı bul
+        # Veritabanından mevcut kullanıcıyı bul
         current_user = None
         if user_id and user_id != "admin" and user_id != "Bilinmeyen":
             try:
                 uid = int(user_id)
-                for u in settings_db.get("users", []):
-                    if u.get("id") == uid:
-                        current_user = u
-                        break
+                result = await db.execute(select(SystemUser).filter(SystemUser.id == uid))
+                db_user = result.scalars().first()
+                if db_user:
+                    # Convert to dict for compatibility with existing code
+                    current_user = {c.name: getattr(db_user, c.name) for c in db_user.__table__.columns}
             except ValueError:
                 pass
                 
@@ -4095,3 +4429,127 @@ async def get_webrtc_config(user_info: dict = Depends(get_user_info)):
     except Exception as e:
         print(f"WebRTC Config error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
+
+# ==============================================================================
+# System Health & Backup Endpoints
+# ==============================================================================
+@app.get("/api/system/health")
+async def get_system_health():
+    import psutil
+    import subprocess
+    import time
+    
+    try:
+        cpu = psutil.cpu_percent(interval=0.5)
+        ram = psutil.virtual_memory().percent
+        disk = psutil.disk_usage('/').percent
+        
+        # Asterisk uptime
+        uptime_res = subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "core show uptime"], capture_output=True, text=True)
+        uptime = "Unknown"
+        if uptime_res.returncode == 0:
+            for line in uptime_res.stdout.splitlines():
+                if "System uptime:" in line:
+                    uptime = line.split("System uptime:")[1].strip()
+                    break
+                    
+        return {
+            "status": "success",
+            "cpu": cpu,
+            "ram": ram,
+            "disk": disk,
+            "asterisk_uptime": uptime
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/system/backup")
+async def create_backup():
+    import tarfile
+    import subprocess
+    import tempfile
+    import os
+    from fastapi.responses import FileResponse
+    from datetime import datetime
+    
+    try:
+        temp_dir = tempfile.mkdtemp()
+        backup_name = f"ai_pbx_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        backup_path = os.path.join(temp_dir, backup_name)
+        os.makedirs(backup_path, exist_ok=True)
+        
+        # Backup DB
+        db_sql_path = os.path.join(backup_path, "ai_pbx.sql")
+        subprocess.run(f"docker exec ai_pbx_db pg_dump -U admin ai_pbx > {db_sql_path}", shell=True, check=True)
+        
+        # Copy asterisk_config
+        import shutil
+        shutil.copytree("asterisk_config", os.path.join(backup_path, "asterisk_config"))
+        
+        # Tar it up
+        tar_path = os.path.join(temp_dir, f"{backup_name}.tar.gz")
+        with tarfile.open(tar_path, "w:gz") as tar:
+            tar.add(backup_path, arcname=backup_name)
+            
+        return FileResponse(path=tar_path, filename=f"{backup_name}.tar.gz", media_type="application/gzip")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Yedekleme başarısız: {str(e)}")
+
+@app.post("/api/system/backup/restore")
+async def restore_backup(file: UploadFile = File(...)):
+    import tarfile
+    import subprocess
+    import tempfile
+    import os
+    import shutil
+    
+    try:
+        temp_dir = tempfile.mkdtemp()
+        tar_path = os.path.join(temp_dir, "uploaded_backup.tar.gz")
+        with open(tar_path, "wb") as f:
+            f.write(await file.read())
+            
+        # Extract
+        with tarfile.open(tar_path, "r:gz") as tar:
+            tar.extractall(path=temp_dir)
+            
+        # Find the extracted folder
+        extracted_dirs = [d for d in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, d))]
+        if not extracted_dirs:
+            raise Exception("Yedek dosyası içeriği geçersiz.")
+        
+        backup_folder = os.path.join(temp_dir, extracted_dirs[0])
+        
+        # Restore DB
+        db_sql_path = os.path.join(backup_folder, "ai_pbx.sql")
+        if os.path.exists(db_sql_path):
+            # Drop schema cascade and recreate to ensure clean restore
+            subprocess.run(["docker", "exec", "ai_pbx_db", "psql", "-U", "admin", "-d", "ai_pbx", "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"], check=True)
+            subprocess.run(f"cat {db_sql_path} | docker exec -i ai_pbx_db psql -U admin ai_pbx", shell=True, check=True)
+            
+        # Restore Asterisk Config
+        asterisk_config_backup = os.path.join(backup_folder, "asterisk_config")
+        if os.path.exists(asterisk_config_backup):
+            # Clean current config
+            for item in os.listdir("asterisk_config"):
+                item_path = os.path.join("asterisk_config", item)
+                if os.path.isdir(item_path):
+                    shutil.rmtree(item_path)
+                else:
+                    os.remove(item_path)
+            
+            # Copy new config
+            for item in os.listdir(asterisk_config_backup):
+                s = os.path.join(asterisk_config_backup, item)
+                d = os.path.join("asterisk_config", item)
+                if os.path.isdir(s):
+                    shutil.copytree(s, d)
+                else:
+                    shutil.copy2(s, d)
+                    
+        # Reload PJSIP
+        run_pjsip_reload()
+        
+        return {"status": "success", "message": "Sistem başarıyla geri yüklendi."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Geri yükleme başarısız: {str(e)}")

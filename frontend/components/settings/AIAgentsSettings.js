@@ -24,16 +24,27 @@ import { useTheme } from "../../utils/theme";
 
 export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
+  const [activeTab, setActiveTab] = useState("agents"); // agents, api
   const [viewMode, setViewMode] = useState("list"); // list, edit
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+
+  // API Providers States
+  const [providers, setProviders] = useState({
+    google_api_key: "",
+    openai_api_key: "",
+    anthropic_api_key: "",
+    groq_api_key: ""
+  });
+  const [apiSaveSuccess, setApiSaveSuccess] = useState(false);
 
   // Form States for current agent
   const [agentId, setAgentId] = useState("");
   const [agentName, setAgentName] = useState("");
   const [agentVoice, setAgentVoice] = useState("Dilara (Türkçe - Dişi - Premium)");
   const [agentTone, setAgentTone] = useState("normal"); // normal, calm, attractive, firm
+  const [agentProvider, setAgentProvider] = useState("google");
   const [agentModel, setAgentModel] = useState("models/gemini-2.5-flash-native-audio-latest");
   const [agentTemperature, setAgentTemperature] = useState(0.7);
   const [agentMaxTokens, setAgentMaxTokens] = useState(300);
@@ -65,13 +76,45 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     "John (English - Male)"
   ];
 
-  // Model options
-  const MODEL_OPTIONS = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-    "gemini-2.0-flash",
-    "models/gemini-2.5-flash-native-audio-latest"
+  // Provider & Model options
+  const PROVIDER_OPTIONS = [
+    { id: "google", name: "Google (Gemini)" },
+    { id: "openai", name: "OpenAI" },
+    { id: "anthropic", name: "Anthropic" },
+    { id: "groq", name: "Groq (Fast Inference)" }
   ];
+
+  const MODEL_OPTIONS = {
+    google: [
+      "gemini-1.5-flash",
+      "gemini-1.5-pro",
+      "gemini-2.0-flash",
+      "models/gemini-2.5-flash-native-audio-latest"
+    ],
+    openai: [
+      "gpt-4o",
+      "gpt-4o-mini",
+      "gpt-4-turbo"
+    ],
+    anthropic: [
+      "claude-3-5-sonnet-20240620",
+      "claude-3-haiku-20240307"
+    ],
+    groq: [
+      "llama3-8b-8192",
+      "llama3-70b-8192",
+      "mixtral-8x7b-32768"
+    ]
+  };
+
+  const fetchProviders = () => {
+    fetch(`${API_BASE}/api/settings/ai-providers`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data) setProviders(data);
+      })
+      .catch((err) => console.error("[AI-Providers] Load error:", err));
+  };
 
   const fetchAgents = () => {
     setLoading(true);
@@ -86,6 +129,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
 
   useEffect(() => {
     fetchAgents();
+    fetchProviders();
   }, []);
 
   const handleCreateNewAgent = () => {
@@ -93,6 +137,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setAgentName("Yeni Yapay Zeka Asistanı");
     setAgentVoice("Dilara (Türkçe - Dişi - Premium)");
     setAgentTone("normal");
+    setAgentProvider("google");
     setAgentModel("models/gemini-2.5-flash-native-audio-latest");
     setAgentTemperature(0.7);
     setAgentMaxTokens(300);
@@ -110,6 +155,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setAgentName(agent.name);
     setAgentVoice(agent.voice);
     setAgentTone(agent.tone || "normal");
+    setAgentProvider(agent.provider || "google");
     setAgentModel(agent.model);
     setAgentTemperature(agent.temperature);
     setAgentMaxTokens(agent.max_tokens);
@@ -134,6 +180,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       name: agentName,
       voice: agentVoice,
       tone: agentTone,
+      provider: agentProvider,
       model: agentModel,
       temperature: parseFloat(agentTemperature) || 0.7,
       max_tokens: parseInt(agentMaxTokens) || 300,
@@ -159,6 +206,25 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       }
     } catch (err) {
       console.error("[AI-Agents] Save error:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveProviders = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/ai-providers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(providers)
+      });
+      if (res.ok) {
+        setApiSaveSuccess(true);
+        setTimeout(() => setApiSaveSuccess(false), 2000);
+      }
+    } catch (err) {
+      console.error("[AI-Providers] Save error:", err);
     } finally {
       setLoading(false);
     }
@@ -252,23 +318,24 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     return (
       <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full">
         
-        {/* Header bar */}
+        {/* Header bar and Tabs */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-200/80 dark:border-slate-800/80 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-3 bg-purple-50 dark:bg-primary/20 text-primary dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 rounded-2xl">
-              <Bot size={24} />
-            </div>
-            <div>
-              <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Yapay Zeka Temsilcileri (AI Agents)</h2>
-              <p className="text-xs text-slate-505 dark:text-slate-400 font-medium">
-                Text-to-Speech ses profilleri, LLM modelleri ve sistem yönergeleriyle çalışan sanal asistanlarınızı yapılandırın.
-              </p>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 bg-purple-50 dark:bg-primary/20 text-primary dark:text-purple-400 border border-purple-100 dark:border-purple-900/40 rounded-2xl">
+                <Bot size={24} />
+              </div>
+              <div>
+                <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Yapay Zeka Temsilcileri</h2>
+                <p className="text-xs text-slate-505 dark:text-slate-400 font-medium">Sanal asistanlarınızı ve API anahtarlarınızı yönetin.</p>
+              </div>
             </div>
           </div>
-
-          {/* Search Bar + "+" Icon Wrapper */}
-          <div className="flex items-center gap-2.5">
-            <div className="relative">
+        </div>
+          <div className="flex flex-col gap-4">
+            {/* Search Bar + "+" Icon Wrapper */}
+            <div className="flex items-center justify-between">
+              <div className="relative">
               <input
                 type="text"
                 placeholder="Temsilci ara..."
@@ -287,7 +354,6 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
               <Plus size={16} />
             </button>
           </div>
-        </div>
 
         {/* Agents Grid List */}
         {loading && agents.length === 0 ? (
@@ -396,6 +462,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
             ))}
           </div>
         )}
+          </div>
 
         <ConfirmDeleteModal
           isOpen={isDeleteModalOpen}
@@ -570,13 +637,29 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
             </div>
 
             <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Yapay Zeka Sağlayıcısı (Provider)</label>
+              <select
+                value={agentProvider}
+                onChange={(e) => {
+                  setAgentProvider(e.target.value);
+                  setAgentModel(MODEL_OPTIONS[e.target.value][0]); // Auto-select first model
+                }}
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-755 dark:text-slate-350 focus:outline-none focus:border-indigo-500 font-bold"
+              >
+                {PROVIDER_OPTIONS.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5 pt-3.5 border-t border-slate-100 dark:border-slate-800/60">
               <label className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Büyük Dil Modeli (LLM)</label>
               <select
                 value={agentModel}
                 onChange={(e) => setAgentModel(e.target.value)}
                 className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-755 dark:text-slate-350 focus:outline-none focus:border-indigo-500 font-mono font-bold"
               >
-                {MODEL_OPTIONS.map((m) => (
+                {(MODEL_OPTIONS[agentProvider] || MODEL_OPTIONS["google"]).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>

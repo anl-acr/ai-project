@@ -89,6 +89,7 @@ import SubscriberGroupsPanel from "../components/settings/SubscriberGroupsPanel"
 import SpeedDialsPanel from "../components/settings/SpeedDialsPanel";
 import ConferencesPanel from "../components/settings/ConferencesPanel";
 import EventLogsPanel from "../components/settings/EventLogsPanel";
+import SecurityPanel from "../components/security/SecurityPanel";
 import Login from "../components/auth/Login";
 
 const SUPER_ADMIN = {
@@ -587,11 +588,35 @@ export default function Home() {
       }
       setCurrentUser(SUPER_ADMIN);
       setIsLoggedIn(true);
-      checkRolePermissions(); // Re-check permissions now that we are logged in
-      return;
+      checkRolePermissions();
+      return { success: true };
     }
 
     const foundUser = systemUsers.find(u => (u.username === username || u.email === username) && u.password === password);
+    if (foundUser) {
+      if (foundUser.two_factor_enabled) {
+        return { success: true, requires2fa: true, user_id: foundUser.id.toString(), method: foundUser.two_factor_method || 'app' };
+      }
+
+      if (rememberMe) {
+        localStorage.setItem("is_logged_in", "true");
+        localStorage.setItem("current_user_id", foundUser.id.toString());
+      } else {
+        sessionStorage.setItem("is_logged_in", "true");
+        sessionStorage.setItem("current_user_id", foundUser.id.toString());
+      }
+      setCurrentUser(foundUser);
+      setIsLoggedIn(true);
+      checkRolePermissions();
+      return { success: true };
+    } else {
+      setLoginError("Geçersiz kullanıcı adı veya şifre.");
+      return { success: false, error: "Geçersiz kullanıcı adı veya şifre." };
+    }
+  };
+
+  const complete2FALogin = (userId, rememberMe) => {
+    const foundUser = systemUsers.find(u => u.id.toString() === userId);
     if (foundUser) {
       if (rememberMe) {
         localStorage.setItem("is_logged_in", "true");
@@ -602,10 +627,7 @@ export default function Home() {
       }
       setCurrentUser(foundUser);
       setIsLoggedIn(true);
-      checkRolePermissions(); // Re-check permissions
-      return;
-    } else {
-      setLoginError("Geçersiz kullanıcı adı veya şifre.");
+      checkRolePermissions();
     }
   };
 
@@ -770,7 +792,7 @@ export default function Home() {
   }
 
   if (!isLoggedIn) {
-    return <Login onLogin={handleLogin} error={loginError} />;
+    return <Login onLogin={handleLogin} onComplete2FA={complete2FALogin} error={loginError} backendHost={backendHost} />;
   }
 
   return (
@@ -1572,6 +1594,18 @@ export default function Home() {
                 <FileText size={16} className={activeTab === "event-logs" ? "text-primary" : ""} />
                 <span>Olay Günlükleri</span>
               </button>
+
+              <button
+                onClick={() => setActiveTab("security")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "security"
+                    ? "bg-rose-50 dark:bg-rose-955/20 text-primary dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <ShieldAlert size={16} className={activeTab === "security" ? "text-primary" : ""} />
+                <span>Güvenlik Kalkanı</span>
+              </button>
             </div>
           </div>
         </nav>
@@ -1701,6 +1735,10 @@ export default function Home() {
 
           {activeTab === "settings" && (
             <SettingsPanel backendHost={backendHost} />
+          )}
+
+          {activeTab === "security" && (
+            <SecurityPanel backendHost={backendHost} />
           )}
 
           {activeTab === "users" && (
@@ -1936,6 +1974,12 @@ export default function Home() {
                   className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "forwarding" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
                 >
                   Yönlendirme
+                </button>
+                <button 
+                  onClick={() => setActiveModalTab("security")}
+                  className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "security" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                >
+                  Güvenlik
                 </button>
               </div>
 

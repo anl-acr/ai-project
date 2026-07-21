@@ -130,6 +130,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   // Feature Fields
   const [recordingActive, setRecordingActive] = useState(false);
   const [transport, setTransport] = useState("UDP");
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorMethod, setTwoFactorMethod] = useState("app");
 
   const [systemRoles, setSystemRoles] = useState([]);
 
@@ -367,6 +369,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setVoicemailPin(""); setVoicemailToEmail(false);
 
     setRecordingActive(false); setTransport("UDP");
+    setTwoFactorEnabled(false); setTwoFactorMethod("app");
 
     setSelectedOutboundRules([]);
     setSelectedCallPickupGroups([]);
@@ -407,6 +410,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     setRecordingActive(u.recording_active || false);
     setTransport(u.transport || "UDP");
+    setTwoFactorEnabled(u.two_factor_enabled || false);
+    setTwoFactorMethod(u.two_factor_method || "app");
 
     const activeOutbound = outboundRules.filter(r => r.allowed_users && r.allowed_users.includes(u.id)).map(r => r.id);
     setSelectedOutboundRules(activeOutbound);
@@ -480,7 +485,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       voicemail_pin: voicemailPin,
       voicemail_to_email: voicemailToEmail,
       recording_active: recordingActive,
-      transport: transport,
+      transport,
+      two_factor_enabled: twoFactorEnabled,
+      two_factor_method: twoFactorMethod,
       location_id: selectedLocation || null,
       department_id: selectedDepartment || null
     };
@@ -1173,6 +1180,40 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             </button>
                                         ))}
                                     </div>
+                                </div>
+                                
+                                <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div>
+                                            <h5 className="text-sm font-bold text-slate-800 dark:text-white">İki Aşamalı Doğrulama (2FA)</h5>
+                                            <p className="text-[10px] text-slate-500 mt-0.5">Kullanıcı sisteme girerken doğrulama kodu sorulsun mu?</p>
+                                        </div>
+                                        <button type="button" onClick={() => setTwoFactorEnabled(!twoFactorEnabled)} className="text-slate-400 hover:text-slate-700 transition-colors">
+                                            {twoFactorEnabled ? <ToggleRight size={30} className={`${text}`} /> : <ToggleLeft size={30} />}
+                                        </button>
+                                    </div>
+                                    
+                                    {twoFactorEnabled && (
+                                        <div className="mt-3">
+                                            <label className="block text-xs font-bold text-slate-800 dark:text-white mb-2">Doğrulama Yöntemi</label>
+                                            <div className="flex gap-3">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTwoFactorMethod("app")}
+                                                    className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${twoFactorMethod === "app" ? (lightBg + " " + border + " " + text) : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'}`}
+                                                >
+                                                    Authenticator Uygulaması
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTwoFactorMethod("email")}
+                                                    className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${twoFactorMethod === "email" ? (lightBg + " " + border + " " + text) : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'}`}
+                                                >
+                                                    E-Posta Gönderimi
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}

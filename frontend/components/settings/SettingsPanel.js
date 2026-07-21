@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
 import ChannelSettings from "./ChannelSettings";
@@ -18,6 +18,11 @@ import VoiceBiometricsSettings from "./VoiceBiometricsSettings";
 import AutoprovisionTemplatesPanel from "./AutoprovisionTemplatesPanel";
 import LocationsDepartmentsPanel from "./LocationsDepartmentsPanel";
 import RoiSettings from "./RoiSettings";
+import SSLSettings from "./SSLSettings";
+import BackupRestorePanel from "./BackupRestorePanel";
+import RecordingRetentionSettings from "./RecordingRetentionSettings";
+import AIProvidersSettings from "./AIProvidersSettings";
+import APIBudgetSettings from "./APIBudgetSettings";
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [activeSubTab, setActiveSubTab] = useState("pbx"); // pbx, trunks, channels
@@ -28,6 +33,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasBioPermission, setHasBioPermission] = useState(false);
   const [hasAutoprovTemplatesPermission, setHasAutoprovTemplatesPermission] = useState(false);
   const [hasRoiSettingsPermission, setHasRoiSettingsPermission] = useState(false);
+  const [hasSSLPermission, setHasSSLPermission] = useState(false);
+  const [hasBackupPermission, setHasBackupPermission] = useState(false);
+  const [hasRecordingRetentionPermission, setHasRecordingRetentionPermission] = useState(false);
+  const [hasApiBudgetsPermission, setHasApiBudgetsPermission] = useState(false);
+  const [debugPerms, setDebugPerms] = useState("");
 
   useEffect(() => {
     const checkPermissions = async () => {
@@ -43,9 +53,12 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasBioPermission(true);
           setHasAutoprovTemplatesPermission(true);
           setHasRoiSettingsPermission(true);
+          setHasSSLPermission(true);
+          setHasBackupPermission(true);
+          setHasRecordingRetentionPermission(true);
           return;
         }
-        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?t=${Date.now()}`);
         const usersData = await resUsers.json();
         const currentUser = usersData.find(u => u.id === statusData.user_id);
         if (!currentUser) {
@@ -56,9 +69,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasBioPermission(true);
           setHasAutoprovTemplatesPermission(true);
           setHasRoiSettingsPermission(true);
+          setHasSSLPermission(true);
+          setHasBackupPermission(true);
+          setHasRecordingRetentionPermission(true);
+          setHasApiBudgetsPermission(true);
           return;
         }
-        const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
+        const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles?t=${Date.now()}`);
         const rolesData = await resRoles.json();
         const currentRole = rolesData.find(r => r.role_code === currentUser.role);
         if (!currentRole) {
@@ -69,6 +86,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasBioPermission(true);
           setHasAutoprovTemplatesPermission(true);
           setHasRoiSettingsPermission(true);
+          setHasSSLPermission(true);
+          setHasBackupPermission(true);
+          setHasApiBudgetsPermission(true);
           return;
         }
         setHasCannedPermission(currentRole.permissions.includes("canned_responses:read"));
@@ -78,6 +98,11 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasBioPermission(currentRole.permissions.includes("voice_biometrics:read"));
         setHasAutoprovTemplatesPermission(currentRole.permissions.includes("autoprovision_templates:read"));
         setHasRoiSettingsPermission(currentRole.permissions.includes("roi_settings:read"));
+        setHasSSLPermission(currentRole.permissions.includes("ssl:read"));
+        setHasBackupPermission(currentRole.permissions.includes("backup_restore:read"));
+        setHasRecordingRetentionPermission(currentRole.permissions.includes("recording_retention:read"));
+        setHasApiBudgetsPermission(currentRole.permissions.includes("api_budgets:read"));
+        setDebugPerms(JSON.stringify(currentRole.permissions));
       } catch (err) {
         console.error("Canned/Blacklist permission check error:", err);
         setHasCannedPermission(true);
@@ -87,6 +112,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasBioPermission(true);
         setHasAutoprovTemplatesPermission(true);
         setHasRoiSettingsPermission(true);
+        setHasSSLPermission(true);
+        setHasBackupPermission(true);
+        setHasRecordingRetentionPermission(true);
+        setHasApiBudgetsPermission(true);
       }
     };
     checkPermissions();
@@ -108,10 +137,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       </div>
 
       {/* Side-by-Side Settings Layout */}
-      <div className={`grid grid-cols-1 ${["universal-api", "voice-biometrics", "autoprovision-templates", "locations"].includes(activeSubTab) ? "xl:grid-cols-12" : "md:grid-cols-4"} gap-6 items-start`}>
+      <div className={`grid grid-cols-1 ${["universal-api", "voice-biometrics", "autoprovision-templates", "locations", "ssl", "backup", "recording-retention", "ai-providers", "api-budgets"].includes(activeSubTab) ? "xl:grid-cols-12" : "md:grid-cols-4"} gap-6 items-start`}>
         
         {/* Left Side Sub-Tab Menu (Vertical Stack) */}
-        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates", "locations"].includes(activeSubTab) ? "xl:col-span-2" : "md:col-span-1"} p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1`}>
+        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates", "locations", "ssl", "backup", "recording-retention", "ai-providers", "api-budgets"].includes(activeSubTab) ? "xl:col-span-2" : "md:col-span-1"} p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1`}>
           <button
             onClick={() => setActiveSubTab("pbx")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
@@ -308,10 +337,77 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               <span>ROI Rapor Ayarları</span>
             </button>
           )}
+
+          {hasSSLPermission && (
+            <button
+              onClick={() => setActiveSubTab("ssl")}
+              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+                activeSubTab === "ssl"
+                  ? "bg-slate-100/50 dark:bg-slate-800/50 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <Lock size={14} className={activeSubTab === "ssl" ? "text-slate-800 dark:text-white" : ""} />
+              <span>SSL Sertifikaları</span>
+            </button>
+          )}
+
+          {hasBackupPermission && (
+            <button
+              onClick={() => setActiveSubTab("backup")}
+              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+                activeSubTab === "backup"
+                  ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <HardDrive size={14} className={activeSubTab === "backup" ? "text-rose-600 dark:text-rose-450" : ""} />
+              <span>Sistem Yedekleme</span>
+            </button>
+          )}
+
+          {hasRecordingRetentionPermission && (
+            <button
+              onClick={() => setActiveSubTab("recording-retention")}
+              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+                activeSubTab === "recording-retention"
+                  ? "bg-slate-100/50 dark:bg-slate-800/50 text-slate-800 dark:text-white border-slate-200 dark:border-slate-700 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <HardDrive size={14} className={activeSubTab === "recording-retention" ? "text-slate-800 dark:text-white" : ""} />
+              <span>Kayıt & Saklama Sistemi</span>
+            </button>
+          )}
+          <button
+            onClick={() => setActiveSubTab("ai-providers")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "ai-providers"
+                ? "bg-purple-50/50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 border-purple-100/50 dark:border-purple-900/30 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <Bot size={14} className={activeSubTab === "ai-providers" ? "text-purple-600 dark:text-purple-400" : ""} />
+            <span>Yapay Zeka API Ayarları</span>
+          </button>
+
+          {hasApiBudgetsPermission && (
+            <button
+              onClick={() => setActiveSubTab("api-budgets")}
+              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+                activeSubTab === "api-budgets"
+                  ? "bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/50 dark:border-emerald-900/30 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <Database size={14} className={activeSubTab === "api-budgets" ? "text-emerald-600 dark:text-emerald-400" : ""} />
+              <span>API Bütçe ve Tüketim</span>
+            </button>
+          )}
         </div>
 
-        {/* Right Side Content Panel */}
-        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates", "locations"].includes(activeSubTab) ? "xl:col-span-10" : "md:col-span-3"} p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm min-h-[500px]`}>
+        {/* Right Side Settings Panel Area */}
+        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates", "locations", "ssl", "backup", "recording-retention", "ai-providers", "api-budgets"].includes(activeSubTab) ? "xl:col-span-10" : "md:col-span-3"} flex flex-col gap-6 w-full animate-in fade-in slide-in-from-right-4 duration-300`}>
           {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
           {activeSubTab === "numbering-plan" && <NumberingPlanPanel backendHost={backendHost} />}
           {activeSubTab === "smart-callback" && <SmartCallbackSettings backendHost={backendHost} />}
@@ -328,6 +424,17 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           {activeSubTab === "autoprovision-templates" && <AutoprovisionTemplatesPanel backendHost={backendHost} />}
           {activeSubTab === "locations" && <LocationsDepartmentsPanel backendHost={backendHost} />}
           {activeSubTab === "roi-settings" && <RoiSettings backendHost={backendHost} />}
+          {activeSubTab === "ssl" && <SSLSettings backendHost={backendHost} />}
+          {activeSubTab === "backup" && <BackupRestorePanel backendHost={backendHost} />}
+          {activeSubTab === "recording-retention" && (
+            <RecordingRetentionSettings backendHost={backendHost} />
+          )}
+          {activeSubTab === "ai-providers" && (
+            <AIProvidersSettings backendHost={backendHost} />
+          )}
+          {activeSubTab === "api-budgets" && (
+            <APIBudgetSettings backendHost={backendHost} />
+          )}
         </div>
       </div>
     </div>

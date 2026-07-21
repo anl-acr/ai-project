@@ -14,7 +14,8 @@ import {
   ArrowRight,
   HelpCircle,
   Fingerprint,
-  Search
+  Search,
+  Shield
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -29,7 +30,9 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     ami_secret: "",
     webrtc_wss_url: "wss://127.0.0.1:8089/ws",
     nas_mount_path: "/mnt/nas/ai-recordings",
-    auto_whisper_enabled: true
+    auto_whisper_enabled: true,
+    force_tls: false,
+    force_srtp: false
   });
 
   const [trunks, setTrunks] = useState([]);
@@ -396,6 +399,47 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                   className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-rose-500 font-mono"
                 />
               </div>
+              <div className="mt-4 border-t border-slate-100 dark:border-slate-800/60 pt-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <Shield size={16} className="text-primary dark:text-rose-455" />
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">SIP Güvenliği</h3>
+                </div>
+                
+                <div className="flex flex-col gap-3">
+                  <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 cursor-pointer">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Sadece TLS Bağlantılarına İzin Ver</span>
+                      <p className="text-[10px] text-slate-500 mt-0.5">SIP sinyalleşmesini şifreler. Tüm cihazların TLS desteklemesi gerekir.</p>
+                    </div>
+                    <div className={`w-10 h-5 flex items-center rounded-full p-1 transition-colors ${settings.force_tls ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"}`}>
+                      <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform ${settings.force_tls ? "translate-x-4.5" : "translate-x-0"}`}></div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="hidden"
+                      checked={settings.force_tls}
+                      onChange={(e) => setSettings({...settings, force_tls: e.target.checked})}
+                    />
+                  </label>
+                  
+                  <label className="flex items-center justify-between p-3 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/60 dark:border-slate-800 cursor-pointer">
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">SRTP Ses Şifrelemeyi Zorunlu Kıl</span>
+                      <p className="text-[10px] text-slate-500 mt-0.5">Ses paketlerini uçtan uca şifreler. Ağ dinlemelerine karşı korur.</p>
+                    </div>
+                    <div className={`w-10 h-5 flex items-center rounded-full p-1 transition-colors ${settings.force_srtp ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-700"}`}>
+                      <div className={`bg-white w-3.5 h-3.5 rounded-full shadow-md transform transition-transform ${settings.force_srtp ? "translate-x-4.5" : "translate-x-0"}`}></div>
+                    </div>
+                    <input
+                      type="checkbox"
+                      className="hidden"
+                      checked={settings.force_srtp}
+                      onChange={(e) => setSettings({...settings, force_srtp: e.target.checked})}
+                    />
+                  </label>
+                </div>
+              </div>
+
               <button
                 type="submit"
                 disabled={loading.pbx}

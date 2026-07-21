@@ -18,6 +18,7 @@ import {
   CheckCircle
 } from "lucide-react";
 import AddContactModal from "./AddContactModal";
+import SystemHealthWidget from "./SystemHealthWidget";
 
 export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   const [activeCalls, setActiveCalls] = useState([]);
@@ -342,9 +343,10 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   };
 
   return (
-    <div className="w-full space-y-6">
-      
-      {/* Real-time System Metrics Header Card */}
+    <div className="w-full h-full flex flex-col">
+      <SystemHealthWidget backendHost={backendHost} />
+
+      {/* Top Header Metrics (Agents vs Bot Performance) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         
         {/* Active Calls Stat */}

@@ -15,6 +15,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const [showModal, setShowModal] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [newAnnName, setNewAnnName] = useState("");
+  const [annType, setAnnType] = useState("announcement"); // announcement | moh
   const [selectedFile, setSelectedFile] = useState(null);
   
   const [deleteTargetId, setDeleteTargetId] = useState(null);
@@ -60,6 +61,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     try {
       const formData = new FormData();
       formData.append("name", newAnnName);
+      formData.append("type", annType);
       formData.append("file", selectedFile);
       
       const res = await fetch(`${API_BASE}/api/settings/announcements`, {
@@ -92,6 +94,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
         },
         body: JSON.stringify({
           name: newAnnName,
+          type: annType,
           text: ttsText
         })
       });
@@ -99,6 +102,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       if (res.ok) {
         setShowModal(false);
         setNewAnnName("");
+        setAnnType("announcement");
         setTtsText("");
         setActiveTab("upload");
         fetchAnnouncements();
@@ -187,9 +191,9 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
             <Volume2 size={20} />
           </div>
           <div>
-            <h3 className="font-bold text-sm text-slate-850 dark:text-white uppercase tracking-wider">Anons Yönetimi</h3>
+            <h3 className="font-bold text-sm text-slate-850 dark:text-white uppercase tracking-wider">Medya Yönetimi</h3>
             <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
-              PBX karşılama anonsları ve mesai dışı seslendirmelerini yönetin.
+              PBX karşılama anonsları ve Bekletme Müziklerini (MoH) yönetin.
             </p>
           </div>
         </div>
@@ -255,6 +259,9 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                       {ann.original_filename || ann.name}
                     </h4>
                     <div className="flex items-center gap-2 mt-1">
+                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${ann.type === 'moh' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
+                        {ann.type === 'moh' ? 'Bekletme Müziği' : 'Anons'}
+                      </span>
                       <span className={`text-[11px] font-bold ${text} truncate max-w-[100px]`} title={ann.name}>{ann.name}</span>
                       <span className="text-slate-300 dark:text-slate-700 shrink-0">•</span>
                       <span className="text-[11px] text-slate-500 font-medium tracking-wide shrink-0">{new Date(ann.created_at * 1000).toLocaleDateString('tr-TR')}</span>
@@ -319,12 +326,13 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
               <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider flex items-center gap-2">
                 <Volume2 size={16} className={text} />
-                Yeni Anons Yükle
+                Yeni Medya Yükle
               </h3>
               <button
                 onClick={() => {
                   setShowModal(false);
                   setNewAnnName("");
+                  setAnnType("announcement");
                   setSelectedFile(null);
                   setTtsText("");
                   setActiveTab("upload");
@@ -373,7 +381,21 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Anons Adı</label>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Medya Tipi</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" value="announcement" checked={annType === "announcement"} onChange={(e) => setAnnType(e.target.value)} className={`text-${bg.split('-')[1] || 'primary'}-600 focus:ring-${bg.split('-')[1] || 'primary'}-500`} />
+                    <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">Anons</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="radio" value="moh" checked={annType === "moh"} onChange={(e) => setAnnType(e.target.value)} className={`text-${bg.split('-')[1] || 'primary'}-600 focus:ring-${bg.split('-')[1] || 'primary'}-500`} />
+                    <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">Bekletme Müziği (MoH)</span>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Medya Adı</label>
                 <input
                   type="text"
                   required
@@ -428,6 +450,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                   onClick={() => {
                     setShowModal(false);
                     setNewAnnName("");
+                    setAnnType("announcement");
                     setSelectedFile(null);
                     setTtsText("");
                     setActiveTab("upload");
