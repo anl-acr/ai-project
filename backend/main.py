@@ -300,6 +300,11 @@ class AIAgentSchema(BaseModel):
     greeting_prompt: Optional[str] = ""
     status: str
     transfer_target: Optional[str] = "200"
+    elevenlabs_agent_id: Optional[str] = ""
+    elevenlabs_voice_id: Optional[str] = ""
+    elevenlabs_stability: Optional[float] = 0.5
+    elevenlabs_similarity: Optional[float] = 0.75
+    elevenlabs_style: Optional[float] = 0.0
 
 import json
 
@@ -592,11 +597,21 @@ DEFAULT_SETTINGS = {
 
 def load_settings():
     db = DEFAULT_SETTINGS.copy()
+    
+    # Load fallback settings from settings.json if present
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                disk_settings = json.load(f)
+                db.update(disk_settings)
+        except Exception as fe:
+            print(f"[Settings Disk] Error reading {SETTINGS_FILE}: {fe}")
+
     try:
         from sqlalchemy import create_engine
         from sqlalchemy.orm import sessionmaker
         from backend.database.config import DATABASE_URL
-        from backend.database.models import SystemSetting
+        from backend.database.models import SystemSetting, SystemUser, SystemRole
         
         sync_db_url = DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
         engine = create_engine(sync_db_url)
@@ -606,6 +621,20 @@ def load_settings():
         settings = session.query(SystemSetting).all()
         for s in settings:
             db[s.key] = s.value
+
+        db_users = session.query(SystemUser).order_by(SystemUser.id).all()
+        if db_users:
+            users_list = []
+            for u in db_users:
+                users_list.append({col.name: getattr(u, col.name) for col in SystemUser.__table__.columns})
+            db["users"] = users_list
+
+        db_roles = session.query(SystemRole).order_by(SystemRole.id).all()
+        if db_roles:
+            roles_list = []
+            for r in db_roles:
+                roles_list.append({col.name: getattr(r, col.name) for col in SystemRole.__table__.columns})
+            db["roles"] = roles_list
             
         session.close()
     except Exception as e:
@@ -931,6 +960,12 @@ def save_settings(settings):
         session.close()
     except Exception as e:
         print(f"[Settings DB] Error saving settings to DB: {e}")
+
+    try:
+        with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+            json.dump(settings, f, ensure_ascii=False, indent=4)
+    except Exception as fe:
+        print(f"[Settings File Backup] Warning: Could not write settings.json: {fe}")
 
 settings_db = load_settings()
 
@@ -2520,6 +2555,52 @@ async def delete_ai_agent(agent_id: str):
     save_settings(settings_db)
     return {"status": "success", "message": "Yapay zeka temsilcisi silindi."}
 
+@app.get("/api/settings/ai-providers/elevenlabs-voices")
+async def get_elevenlabs_voices():
+    import urllib.request
+    import json
+    
+    api_key = settings_db.get("ai_providers", {}).get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", "")
+    
+    default_premades = [
+        {"voice_id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel (Female - Conversational)", "category": "premade"},
+        {"voice_id": "AZnzlk1XvdvUeBnXmlld", "name": "Domi (Female - Energetic)", "category": "premade"},
+        {"voice_id": "EXAVITQu4vr4xnSDxMaL", "name": "Bella (Female - Professional)", "category": "premade"},
+        {"voice_id": "ErXwobaYiN019PkySvjV", "name": "Antoni (Male - Professional)", "category": "premade"},
+        {"voice_id": "MF3mGyEYCl7XYWbV9V6O", "name": "Elli (Female - Emotional)", "category": "premade"},
+        {"voice_id": "TxGEqnHWrfWFTfGW9XjX", "name": "Josh (Male - Deep & Trustworthy)", "category": "premade"},
+        {"voice_id": "VR6AewLTigWG4xSOukaG", "name": "Arnold (Male - Authoritative)", "category": "premade"},
+        {"voice_id": "pNInz6obpgDQGcFmaJgB", "name": "Adam (Male - Conversational)", "category": "premade"},
+        {"voice_id": "yoZ06aGfZXsp3F3Dfd0g", "name": "Sam (Male - Dynamic)", "category": "premade"},
+        {"voice_id": "JBFqnCBsd6RMkjVDRZzb", "name": "George (Male - Warm & Friendly)", "category": "premade"}
+    ]
+    
+    if not api_key:
+        return {"status": "success", "voices": default_premades, "source": "default"}
+        
+    try:
+        req = urllib.request.Request("https://api.elevenlabs.io/v1/voices", headers={"xi-api-key": api_key})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            fetched_voices = []
+            for v in data.get("voices", []):
+                name = v.get("name", "")
+                cat = v.get("category", "")
+                labels = v.get("labels", {})
+                acc = labels.get("accent", "")
+                gen = labels.get("gender", "")
+                label_str = f" ({gen.capitalize()}{' - ' + acc if acc else ''})" if gen else ""
+                fetched_voices.append({
+                    "voice_id": v.get("voice_id"),
+                    "name": f"{name}{label_str}",
+                    "category": cat,
+                    "preview_url": v.get("preview_url")
+                })
+            return {"status": "success", "voices": fetched_voices, "source": "elevenlabs_api"}
+    except Exception as e:
+        print(f"[ElevenLabs Voices API] Error: {e}")
+        return {"status": "success", "voices": default_premades, "source": "fallback"}
+
 @app.post("/api/settings/ai-agents/tts-test")
 async def tts_test_endpoint(payload: dict):
     from fastapi.responses import StreamingResponse
@@ -4028,10 +4109,21 @@ async def recording_cleanup_task():
 async def startup_event():
     import asyncio
     import datetime
-    from sqlalchemy import update
-    from backend.database.models import Call
+    import json
+    from sqlalchemy import update, select
+    from backend.database.config import engine, AsyncSessionLocal, Base
+    from backend.database.models import Call, SystemUser, SystemRole, SystemSetting, QAQuestion
     from backend.services.ami_manager import start_ami_listener
     
+    # 1. Ensure all tables are created in PostgreSQL
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        print("[Database Init] Veritabanı tabloları kontrol edildi / oluşturuldu.")
+    except Exception as e:
+        print(f"[Database Init] Error creating tables: {e}")
+
+    # 2. Auto-seed tables if empty
     try:
         async with AsyncSessionLocal() as session:
             stmt = update(Call).where(Call.status == "in_progress").values(status="completed", end_time=datetime.datetime.utcnow())
@@ -4039,13 +4131,86 @@ async def startup_event():
             await session.commit()
             print("[Database] Eski askıda kalan aktif aramalar temizlendi.")
 
-            # Start background tasks
-            asyncio.create_task(recording_cleanup_task())
+            # Load settings.json as fallback source if exists
+            file_settings = {}
+            if os.path.exists(SETTINGS_FILE):
+                try:
+                    with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                        file_settings = json.load(f)
+                except Exception as e:
+                    print(f"[Seed] Error reading settings.json: {e}")
+
+            source_users = file_settings.get("users") or DEFAULT_SETTINGS.get("users", [])
+            source_roles = file_settings.get("roles") or DEFAULT_SETTINGS.get("roles", [])
+
+            # Check and seed SystemUser
+            res_users = await session.execute(select(SystemUser))
+            users_db = res_users.scalars().all()
+            if not users_db and source_users:
+                print("[Database Seeding] SystemUser tablosu boş. Otomatik olarak kullanıcılar yükleniyor...")
+                for u in source_users:
+                    user_obj = SystemUser(
+                        full_name=u.get("full_name", ""),
+                        email=u.get("email", ""),
+                        extension=str(u.get("extension", "")),
+                        avatar=u.get("avatar"),
+                        role=u.get("role", "agent"),
+                        is_active=u.get("is_active", True),
+                        gsm_number=u.get("gsm_number"),
+                        mobile_transfer_enabled=u.get("mobile_transfer_enabled", False),
+                        theme_color=u.get("theme_color", "rose"),
+                        password=u.get("password"),
+                        sip_password=u.get("sip_password"),
+                        outbound_caller_id=u.get("outbound_caller_id"),
+                        forwarding_always=u.get("forwarding_always"),
+                        forwarding_busy=u.get("forwarding_busy"),
+                        forwarding_no_answer=u.get("forwarding_no_answer"),
+                        voicemail_active=u.get("voicemail_active", False),
+                        voicemail_announcement=u.get("voicemail_announcement"),
+                        voicemail_pin=u.get("voicemail_pin"),
+                        voicemail_to_email=u.get("voicemail_to_email", False),
+                        recording_active=u.get("recording_active", False),
+                        transport=u.get("transport", "UDP"),
+                        active_sessions=u.get("active_sessions", []),
+                        location_id=u.get("location_id"),
+                        department_id=u.get("department_id")
+                    )
+                    session.add(user_obj)
+                await session.commit()
+                print("[Database Seeding] Kullanıcılar başarıyla veritabanına aktarıldı.")
+
+            # Check and seed SystemRole
+            res_roles = await session.execute(select(SystemRole))
+            roles_db = res_roles.scalars().all()
+            if not roles_db and source_roles:
+                print("[Database Seeding] SystemRole tablosu boş. Otomatik olarak roller yükleniyor...")
+                for r in source_roles:
+                    role_obj = SystemRole(
+                        role_code=r.get("role_code", ""),
+                        name=r.get("name", ""),
+                        permissions=r.get("permissions", []),
+                        allowed_breaks=r.get("allowed_breaks", [])
+                    )
+                    session.add(role_obj)
+                await session.commit()
+                print("[Database Seeding] Roller başarıyla veritabanına aktarıldı.")
+
+            # Check and seed SystemSetting
+            res_settings = await session.execute(select(SystemSetting))
+            settings_db_items = res_settings.scalars().all()
+            if not settings_db_items:
+                print("[Database Seeding] SystemSetting tablosu boş. Ayarlar yükleniyor...")
+                exclude_keys = ["users", "roles", "queues", "trunks", "ai_agents", "breaks"]
+                merged_settings = DEFAULT_SETTINGS.copy()
+                merged_settings.update(file_settings)
+                for k, v in merged_settings.items():
+                    if k not in exclude_keys:
+                        session.add(SystemSetting(key=k, value=v))
+                await session.commit()
+                print("[Database Seeding] Sistem ayarları başarıyla veritabanına aktarıldı.")
 
             # Seed QA questions
-            from backend.database.models import QAQuestion
-            stmt_qa = select(QAQuestion)
-            res_qa = await session.execute(stmt_qa)
+            res_qa = await session.execute(select(QAQuestion))
             existing_qa = res_qa.scalars().all()
             if not existing_qa:
                 default_questions = [
@@ -4058,7 +4223,15 @@ async def startup_event():
                 session.add_all(default_questions)
                 await session.commit()
                 print("[Database] Varsayılan QA kriterleri başarıyla eklendi.")
+
+            # Refresh global settings_db dict
+            global settings_db
+            settings_db.update(load_settings())
+
+            # Start background tasks
+            asyncio.create_task(recording_cleanup_task())
     except Exception as e:
+        print(f"[Database] Temizlik/Seeding sırasında hata oluştu: {e}")
         print(f"[Database] Temizlik/QA seeding sırasında hata oluştu: {e}")
         
     asyncio.create_task(start_ami_listener())
@@ -4446,19 +4619,37 @@ async def get_system_health():
         
         # Asterisk uptime
         uptime_res = subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "core show uptime"], capture_output=True, text=True)
-        uptime = "Unknown"
+        uptime = "Bilinmiyor"
         if uptime_res.returncode == 0:
             for line in uptime_res.stdout.splitlines():
                 if "System uptime:" in line:
                     uptime = line.split("System uptime:")[1].strip()
                     break
+
+        if uptime and uptime not in ["Unknown", "Bilinmiyor"]:
+            translations = [
+                ("years", "yıl"), ("year", "yıl"),
+                ("weeks", "hafta"), ("week", "hafta"),
+                ("days", "gün"), ("day", "gün"),
+                ("hours", "saat"), ("hour", "saat"),
+                ("minutes", "dakika"), ("minute", "dakika"),
+                ("seconds", "saniye"), ("second", "saniye")
+            ]
+            for en, tr in translations:
+                uptime = uptime.replace(en, tr)
                     
+        from backend.services.ami_manager import manager_instance, active_channels
+        ami_connected = True if (manager_instance and manager_instance._connected) else False
+        active_call_count = len(active_channels) if active_channels else 0
+
         return {
             "status": "success",
             "cpu": cpu,
             "ram": ram,
             "disk": disk,
-            "asterisk_uptime": uptime
+            "asterisk_uptime": uptime,
+            "ami_status": "Bağlı" if ami_connected else "Pasif",
+            "active_calls": active_call_count
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

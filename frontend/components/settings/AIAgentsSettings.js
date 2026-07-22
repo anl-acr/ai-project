@@ -52,6 +52,12 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const [agentGreetingPrompt, setAgentGreetingPrompt] = useState("");
   const [agentStatus, setAgentStatus] = useState("active");
   const [agentTransferTarget, setAgentTransferTarget] = useState("200");
+  const [agentElevenLabsId, setAgentElevenLabsId] = useState("");
+  const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState("");
+  const [elevenlabsStability, setElevenlabsStability] = useState(0.5);
+  const [elevenlabsSimilarity, setElevenlabsSimilarity] = useState(0.75);
+  const [elevenlabsStyle, setElevenlabsStyle] = useState(0.0);
+  const [elevenlabsVoiceList, setElevenlabsVoiceList] = useState([]);
 
   // TTS Voice Testing states
   const [testText, setTestText] = useState("Merhaba, ben yapay zeka temsilciniz Dilara. Size nasıl yardımcı olabilirim?");
@@ -70,8 +76,9 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const VOICE_OPTIONS = [
     "Dilara (Türkçe - Dişi - Premium)",
     "Ahmet (Türkçe - Erkek - Premium)",
-    "Eser (Türkçe - Erkek - Standart)",
     "Selin (Türkçe - Dişi - Standart)",
+    "Eser (Türkçe - Erkek - Standart)",
+    "ElevenLabs Cloned Voice (Custom Voice ID)",
     "Sophia (English - Female)",
     "John (English - Male)"
   ];
@@ -81,7 +88,8 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     { id: "google", name: "Google (Gemini)" },
     { id: "openai", name: "OpenAI" },
     { id: "anthropic", name: "Anthropic" },
-    { id: "groq", name: "Groq (Fast Inference)" }
+    { id: "groq", name: "Groq (Fast Inference)" },
+    { id: "elevenlabs", name: "ElevenLabs (Conversational AI)" }
   ];
 
   const MODEL_OPTIONS = {
@@ -104,8 +112,27 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       "llama3-8b-8192",
       "llama3-70b-8192",
       "mixtral-8x7b-32768"
+    ],
+    elevenlabs: [
+      "eleven_convai_agent",
+      "eleven_multilingual_v2",
+      "eleven_turbo_v2_5",
+      "eleven_flash_v2_5"
     ]
   };
+
+  const DEFAULT_ELEVENLABS_VOICES = [
+    { voice_id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel (Female - Conversational)" },
+    { voice_id: "AZnzlk1XvdvUeBnXmlld", name: "Domi (Female - Energetic)" },
+    { voice_id: "EXAVITQu4vr4xnSDxMaL", name: "Bella (Female - Professional)" },
+    { voice_id: "ErXwobaYiN019PkySvjV", name: "Antoni (Male - Professional)" },
+    { voice_id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli (Female - Emotional)" },
+    { voice_id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh (Male - Deep & Trustworthy)" },
+    { voice_id: "VR6AewLTigWG4xSOukaG", name: "Arnold (Male - Authoritative)" },
+    { voice_id: "pNInz6obpgDQGcFmaJgB", name: "Adam (Male - Conversational)" },
+    { voice_id: "yoZ06aGfZXsp3F3Dfd0g", name: "Sam (Male - Dynamic)" },
+    { voice_id: "JBFqnCBsd6RMkjVDRZzb", name: "George (Male - Warm & Friendly)" }
+  ];
 
   const fetchProviders = () => {
     fetch(`${API_BASE}/api/settings/ai-providers`)
@@ -114,6 +141,15 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
         if (data) setProviders(data);
       })
       .catch((err) => console.error("[AI-Providers] Load error:", err));
+  };
+
+  const fetchElevenLabsVoices = () => {
+    fetch(`${API_BASE}/api/settings/ai-providers/elevenlabs-voices`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.voices) setElevenlabsVoiceList(data.voices);
+      })
+      .catch((err) => console.error("[ElevenLabs-Voices] Load error:", err));
   };
 
   const fetchAgents = () => {
@@ -130,6 +166,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   useEffect(() => {
     fetchAgents();
     fetchProviders();
+    fetchElevenLabsVoices();
   }, []);
 
   const handleCreateNewAgent = () => {
@@ -145,6 +182,11 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setAgentGreetingPrompt("Merhaba, ben yeni yapay zeka temsilciniz. Size nasıl yardımcı olabilirim?");
     setAgentStatus("active");
     setAgentTransferTarget("200");
+    setAgentElevenLabsId("");
+    setElevenlabsVoiceId("");
+    setElevenlabsStability(0.5);
+    setElevenlabsSimilarity(0.75);
+    setElevenlabsStyle(0.0);
     setTestText("Merhaba, ben yeni yapay zeka temsilciniz. Size nasıl yardımcı olabilirim?");
     
     setViewMode("edit");
@@ -163,10 +205,15 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setAgentGreetingPrompt(agent.greeting_prompt || "");
     setAgentStatus(agent.status);
     setAgentTransferTarget(agent.transfer_target || "200");
+    setAgentElevenLabsId(agent.elevenlabs_agent_id || "");
+    setElevenlabsVoiceId(agent.elevenlabs_voice_id || "");
+    setElevenlabsStability(agent.elevenlabs_stability !== undefined ? agent.elevenlabs_stability : 0.5);
+    setElevenlabsSimilarity(agent.elevenlabs_similarity !== undefined ? agent.elevenlabs_similarity : 0.75);
+    setElevenlabsStyle(agent.elevenlabs_style !== undefined ? agent.elevenlabs_style : 0.0);
     
     // Set matching voice test sentence
     const nameMatch = agent.voice.split(" ")[0];
-    setTestText(`Merhaba, ben yapay zeka temsilciniz ${nameMatch}. Size nasıl yardımcı olabilirim?`);
+    setTestText(agent.greeting_prompt || `Merhaba, ben yapay zeka temsilciniz ${nameMatch}. Size nasıl yardımcı olabilirim?`);
 
     setViewMode("edit");
   };
@@ -187,7 +234,12 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       system_instruction: agentInstruction,
       greeting_prompt: agentGreetingPrompt,
       status: agentStatus,
-      transfer_target: agentTransferTarget
+      transfer_target: agentTransferTarget,
+      elevenlabs_agent_id: agentElevenLabsId,
+      elevenlabs_voice_id: elevenlabsVoiceId,
+      elevenlabs_stability: elevenlabsStability,
+      elevenlabs_similarity: elevenlabsSimilarity,
+      elevenlabs_style: elevenlabsStyle
     };
 
     try {
@@ -559,6 +611,91 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
               </select>
             </div>
 
+            {(agentProvider === "elevenlabs" || agentVoice.includes("ElevenLabs")) && (
+              <div className="flex flex-col gap-3 pt-3.5 border-t border-purple-100 dark:border-purple-900/40">
+                
+                {/* ElevenLabs Premade Voices Dropdown */}
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-purple-600 dark:text-purple-400 font-extrabold uppercase tracking-wider">
+                    ElevenLabs Kütüphane Sesleri (Premade & Account Voices)
+                  </label>
+                  <select
+                    value={elevenlabsVoiceId}
+                    onChange={(e) => setElevenlabsVoiceId(e.target.value)}
+                    className="px-3 py-2 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/50 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:border-purple-500"
+                  >
+                    <option value="">Aşağıdaki Ses Kütüphanesinden Seçin...</option>
+                    {(elevenlabsVoiceList.length > 0 ? elevenlabsVoiceList : DEFAULT_ELEVENLABS_VOICES).map((v) => (
+                      <option key={v.voice_id} value={v.voice_id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[9px] text-purple-600/80 dark:text-purple-300/80 font-semibold leading-normal pt-1">
+                    💡 ElevenLabs <span className="font-bold underline">Multilingual v2</span> yapay zeka modeli sayesinde listedeki TÜM sesler Türkçe metinleri doğal akıcılıkla seslendirir.
+                  </p>
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-purple-600 dark:text-purple-400 font-extrabold uppercase tracking-wider">
+                    Özel / Klonlanmış Ses ID (Voice ID)
+                  </label>
+                  <input
+                    type="text"
+                    value={elevenlabsVoiceId}
+                    onChange={(e) => setElevenlabsVoiceId(e.target.value)}
+                    placeholder="Örn: 21m00Tcm4TlvDq8ikWAM"
+                    className="px-3 py-2 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/50 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none focus:border-purple-500"
+                  />
+                  <p className="text-[9px] text-slate-400 dark:text-slate-500">
+                    Yukarıdaki listeden seçebilir veya ElevenLabs &gt; Voice Lab paneli özel Voice ID'sini yazabilirsiniz.
+                  </p>
+                </div>
+
+                {/* Stability */}
+                <div className="flex flex-col gap-1 pt-1">
+                  <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase">
+                    <span>Ses Kararlılığı / Sıcaklık (Stability)</span>
+                    <span className="font-mono text-purple-600 dark:text-purple-400 font-bold">{elevenlabsStability}</span>
+                  </div>
+                  <input
+                    type="range" min="0.0" max="1.0" step="0.05"
+                    value={elevenlabsStability}
+                    onChange={(e) => setElevenlabsStability(parseFloat(e.target.value))}
+                    className="accent-purple-600 h-6 cursor-pointer"
+                  />
+                </div>
+
+                {/* Similarity */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase">
+                    <span>Klon Benzerlik Oranı (Similarity Boost)</span>
+                    <span className="font-mono text-purple-600 dark:text-purple-400 font-bold">{elevenlabsSimilarity}</span>
+                  </div>
+                  <input
+                    type="range" min="0.0" max="1.0" step="0.05"
+                    value={elevenlabsSimilarity}
+                    onChange={(e) => setElevenlabsSimilarity(parseFloat(e.target.value))}
+                    className="accent-purple-600 h-6 cursor-pointer"
+                  />
+                </div>
+
+                {/* Style */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase">
+                    <span>Duygu / Vurgu Şiddeti (Style Exaggeration)</span>
+                    <span className="font-mono text-purple-600 dark:text-purple-400 font-bold">{elevenlabsStyle}</span>
+                  </div>
+                  <input
+                    type="range" min="0.0" max="1.0" step="0.05"
+                    value={elevenlabsStyle}
+                    onChange={(e) => setElevenlabsStyle(parseFloat(e.target.value))}
+                    className="accent-purple-600 h-6 cursor-pointer"
+                  />
+                </div>
+              </div>
+            )}
+
             {/* Speaking Tone Selector */}
             <div className="flex flex-col gap-1.5 pt-3.5 border-t border-slate-100 dark:border-slate-800/60">
               <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Konuşma Profili / Tonu</label>
@@ -664,6 +801,22 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
                 ))}
               </select>
             </div>
+
+            {agentProvider === "elevenlabs" && (
+              <div className="flex flex-col gap-1.5 pt-3 border-t border-purple-100 dark:border-purple-900/40">
+                <label className="text-[10px] text-purple-600 dark:text-purple-400 font-extrabold uppercase tracking-wider">ElevenLabs Agent ID (ConvAI)</label>
+                <input
+                  type="text"
+                  value={agentElevenLabsId}
+                  onChange={(e) => setAgentElevenLabsId(e.target.value)}
+                  placeholder="Örn: agent_xyz1234567890"
+                  className="px-3 py-2 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/50 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none focus:border-purple-500"
+                />
+                <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                  ElevenLabs paneli &gt; Conversational AI sekmesindeki Ajan ID'si.
+                </p>
+              </div>
+            )}
 
             <div className="flex flex-col gap-1.5">
               <div className="flex justify-between items-center text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">

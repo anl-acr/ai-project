@@ -1,4 +1,24 @@
 {
+    "tenants": [
+        {
+            "id": "tenant-default",
+            "name": "Ana Müşteri (Varsayılan)",
+            "code": "default",
+            "status": "active",
+            "created_at": "2026-01-01T00:00:00",
+            "max_agents": 10,
+            "max_trunks": 5
+        },
+        {
+            "id": "tenant-test-teknoloji",
+            "name": "Test Teknoloji",
+            "code": "test-teknoloji",
+            "status": "active",
+            "created_at": "2026-07-24T13:19:00",
+            "max_agents": 20,
+            "max_trunks": 20
+        }
+    ],
     "pbx": {
         "ami_host": "127.0.0.1",
         "ami_port": 5038,
@@ -37,9 +57,7 @@
         }
     },
     "channels": {
-        "whatsapp_token": "Aida12345",
-        "whatsapp_access_token": "EAAUpnoDZALbwBSEHyxXKYPmjDtXTKWSe4XqzPa7qaWsaeinNWTiaRa07XO0SUCSgx9ZCZCs3fflzeO59LLH8lPQI1Pk3s6QhCwqgg8EVJJ8bT5VTmsw06VjLoTEHN3CxKSsS1rV2yEgolvHtER3F2WP7EV6u7X1WAhW6vGTZAFUijl4iFhMn0h6iFX3qA2EHB0TobOQoJQv9aksntTQn0GD2pAfqZAqhJLl0Bwht5R5jrgmwwiZAhVBYg5xW6UITOYBQqCcMm7l9T4vMtsL0gZD",
-        "whatsapp_phone_number_id": "1181722995028289",
+        "whatsapp_token": "",
         "telegram_token": "",
         "instagram_token": "",
         "facebook_token": ""
@@ -84,22 +102,28 @@
     "ai_agents": [
         {
             "id": "agent-sales",
-            "name": "Ece",
-            "voice": "Dilara (Türkçe - Dişi - Premium)",
+            "name": "Satış Temsilcisi",
+            "voice": "Xb7hH8MSUJpSbSDYk0k2",
             "tone": "attractive",
-            "model": "gemini-2.0-flash",
+            "provider": "openai",
+            "model": "gpt-4o",
             "temperature": 0.7,
             "max_tokens": 300,
             "system_instruction": "Sen sıcakkanlı ve profesyonel bir satış asistanısın. Müşterilere ürünlerimiz hakkında bilgi veriyorsun.",
-            "greeting_prompt": "merhaba\nben test teknoloji yapay zeka asistanı ece.\nsize nasıl yardımcı olabilirim.",
+            "greeting_prompt": "merhaba;\nben test teknoloji yapay zeka asistanı ece.\nsize nasıl yardımcı olabilirim.",
             "status": "active",
-            "transfer_target": "200"
+            "transfer_target": "200",
+            "elevenlabs_agent_id": "",
+            "elevenlabs_voice_id": "Xb7hH8MSUJpSbSDYk0k2",
+            "elevenlabs_stability": 0.5,
+            "elevenlabs_similarity": 0.75,
+            "elevenlabs_style": 0.0
         },
         {
             "id": "agent-support",
             "name": "Destek Temsilcisi",
             "voice": "Ahmet (Türkçe - Erkek - Premium)",
-            "tone": "normal",
+            "tone": "calm",
             "model": "gemini-1.5-flash",
             "temperature": 0.4,
             "max_tokens": 300,
@@ -108,6 +132,35 @@
             "transfer_target": "200"
         }
     ],
+    "ai_providers": {
+        "google_api_key": "",
+        "openai_api_key": "",
+        "anthropic_api_key": "",
+        "groq_api_key": "",
+        "elevenlabs_api_key": ""
+    },
+    "api_budgets": {
+        "openai": {
+            "loaded_credit": 0.0,
+            "spent_credit": 0.0
+        },
+        "anthropic": {
+            "loaded_credit": 0.0,
+            "spent_credit": 0.0
+        },
+        "groq": {
+            "loaded_credit": 0.0,
+            "spent_credit": 0.0
+        },
+        "google": {
+            "loaded_credit": 0.0,
+            "spent_credit": 0.0
+        },
+        "elevenlabs": {
+            "loaded_credit": 0.0,
+            "spent_credit": 0.0
+        }
+    },
     "call_flow": {
         "trunk_id": 1,
         "time_schedule": {
@@ -437,27 +490,34 @@
     ],
     "breaks": [
         {
-            "id": 1783110216802,
-            "name": "Yemek",
+            "id": 1,
+            "name": "Yemek Molası",
             "color": "#f59e0b"
         },
         {
-            "id": 1783110220934,
-            "name": "Toplantı",
+            "id": 2,
+            "name": "Çay/Kahve Molası",
             "color": "#3b82f6"
         },
         {
-            "id": 1783110227001,
-            "name": "İhtiyaç",
-            "color": "#ef4444"
+            "id": 3,
+            "name": "Toplantı",
+            "color": "#10b981"
         },
         {
-            "id": 1783110236183,
-            "name": "İşlem",
-            "color": "#10b981"
+            "id": 4,
+            "name": "Özel İhtiyaç",
+            "color": "#ec4899"
         }
     ],
     "announcements": [
+        {
+            "id": "1f7a5b1f-9742-40a8-b447-ba0d437cc607",
+            "name": "TR_HATALI_TUSLAMA",
+            "filename": "1f7a5b1f-9742-40a8-b447-ba0d437cc607.wav",
+            "original_filename": "TR_HATALI_TUSLAMA.wav",
+            "created_at": 1784272618.271172
+        },
         {
             "id": "38d0ee37-8525-4ac9-8231-b67dbca8a3fb",
             "name": "test ",
@@ -478,13 +538,6 @@
             "filename": "c2f9d76c-dba7-45d0-a52d-c127521f1f86.mp3",
             "original_filename": "tts_c2f9d76c.mp3",
             "created_at": 1784275072.805395
-        },
-        {
-            "id": "0263800b-7d39-4e85-adf3-258e8992e8af",
-            "name": "tr_mollakara_operator",
-            "filename": "0263800b-7d39-4e85-adf3-258e8992e8af.wav",
-            "original_filename": "TR_MOLLAKARA_OPERATOR.wav",
-            "created_at": 1784530174.5333729
         }
     ],
     "users": [
@@ -580,92 +633,104 @@
             "role_code": "admin",
             "name": "Admin",
             "permissions": [
-                "blacklist:read",
-                "breaks:delete",
-                "pbx:read",
-                "outbound_rules:delete",
-                "ai_agents:write",
-                "trunks:read",
-                "call_pickup_groups:read",
-                "universal_api:delete",
-                "call_panel:listen_records:access",
-                "call_flow:access",
-                "autoprovision_templates:write",
-                "blacklist:write",
-                "canned_responses:read",
-                "channels:read",
-                "subscriber_groups:read",
-                "acd_queues:delete",
-                "speed_dials:delete",
-                "pbx:write",
-                "subscriber_groups:write",
-                "trunks:write",
-                "call_panel:listen_records",
-                "roles:delete",
-                "dialer:access",
-                "outbound_rules:read",
                 "universal_api:read",
-                "users:write",
-                "roles:write",
-                "outbound_rules:write",
-                "acd_queues:read",
-                "mobile_transfer:read",
-                "channels:write",
-                "conferences:read",
-                "call_pickup_groups:delete",
-                "subscriber_groups:delete",
-                "voice_biometrics:write",
-                "voice_biometrics:delete",
-                "breaks:write",
-                "inbound_rules:read",
-                "recording_retention:delete",
-                "qa:write",
-                "call_panel:access",
-                "contacts:write",
                 "pbx:delete",
-                "speed_dials:write",
-                "inbound_rules:delete",
-                "breaks:read",
+                "announcements:read",
+                "logs:access",
+                "call_panel:listen_records",
+                "blacklist:delete",
+                "subscriber_groups:write",
+                "omnichannel:access",
+                "call_pickup_groups:delete",
                 "storage:access",
+                "roles:write",
+                "voice_biometrics:delete",
+                "conferences:write",
+                "subscriber_groups:delete",
+                "contacts:read",
+                "security:read",
+                "pbx:write",
+                "canned_responses:write",
+                "ssl:read",
+                "outbound_rules:delete",
+                "ai_whisper:access",
+                "ai_agents:access",
+                "pbx:read",
+                "speed_dials:write",
+                "mobile_transfer:write",
+                "backup_restore:read",
+                "autoprovision:read",
+                "backup_restore:write",
+                "autoprovision_templates:write",
+                "trunks:read",
+                "voice_biometrics:read",
+                "autoprovision_templates:read",
+                "call_panel:listen_records:access",
+                "inbound_rules:delete",
+                "call_panel:access",
+                "conferences:delete",
+                "inbound_rules:read",
+                "call_pickup_groups:write",
+                "autoprovision_templates:delete",
+                "ai_agents:read",
+                "speed_dials:delete",
+                "recording_retention:write",
+                "autoprovision:write",
+                "transcripts:access",
+                "security:delete",
+                "blacklist:write",
+                "universal_api:write",
+                "api_budgets:write",
+                "security:write",
+                "voice_biometrics:write",
+                "announcements:write",
+                "channels:write",
+                "breaks:delete",
+                "universal_api:delete",
+                "subscriber_groups:read",
                 "users:read",
                 "acd_queues:write",
-                "wallboard:access",
-                "universal_api:write",
-                "inbound_rules:write",
-                "transcripts:access",
-                "logs:access",
-                "announcements:delete",
-                "conferences:delete",
-                "blacklist:delete",
-                "autoprovision:write",
-                "qa:read",
-                "qa:delete",
-                "ai_agents:access",
-                "autoprovision:delete",
-                "ai_agents:read",
-                "ai_whisper:access",
-                "call_pickup_groups:write",
-                "mobile_transfer:write",
-                "autoprovision_templates:read",
-                "contacts:delete",
-                "autoprovision_templates:delete",
-                "reports:access",
-                "trunks:delete",
-                "speed_dials:read",
-                "roles:read",
-                "recording_retention:read",
-                "recording_retention:write",
+                "roi_settings:read",
                 "users:delete",
-                "contacts:read",
-                "conferences:write",
-                "voice_biometrics:read",
-                "autoprovision:read",
-                "omnichannel:access",
+                "qa:write",
+                "roles:read",
+                "breaks:write",
+                "breaks:read",
+                "call_pickup_groups:read",
+                "outbound_rules:write",
+                "trunks:delete",
+                "inbound_rules:write",
+                "blacklist:read",
+                "roi_settings:write",
+                "acd_queues:read",
+                "recording_retention:read",
+                "contacts:write",
+                "conferences:read",
+                "call_flow:access",
+                "speed_dials:read",
+                "announcements:delete",
+                "users:write",
+                "dialer:access",
+                "qa:delete",
+                "reports:access",
+                "mobile_transfer:read",
                 "canned_responses:delete",
-                "canned_responses:write",
+                "wallboard:access",
+                "roi_settings:delete",
+                "contacts:delete",
+                "acd_queues:delete",
+                "ai_agents:write",
+                "canned_responses:read",
                 "ai_agents:delete",
-                "announcements:read",
-                "announcements:write"
+                "qa:read",
+                "trunks:write",
+                "channels:read",
+                "roles:delete",
+                "outbound_rules:read",
+                "api_budgets:read",
+                "ssl:write",
+                "autoprovision:delete",
+                "recording_retention:delete"
             ],
             "allowed_breaks": [
                 1783110216802,
@@ -711,6 +776,11 @@
         "keep_days": 90,
         "delete_by_days": false
     },
+    "security_geo": {
+        "allowed_countries": [
+            "TR"
+        ]
+    },
     "inbound_rules": [
         {
             "id": "7eb86cb5-9774-4b62-a36f-29f61a8733f4",
@@ -731,9 +801,7 @@
             "id": "090bc85a-f98e-4752-9398-0c29be950f8e",
             "name": "pickup_test",
             "extensions": [
-                1784287711314,
-                1784528459895,
-                1
+                1784287711314
             ]
         },
         {
@@ -744,34 +812,7 @@
             ]
         }
     ],
-    "subscriber_groups": [
-        {
-            "id": 1,
-            "name": "grup 1 ",
-            "extensions": [
-                1
-            ],
-            "allowed_outbound_groups": [
-                2
-            ],
-            "allowed_inbound_groups": [
-                2
-            ]
-        },
-        {
-            "id": 2,
-            "name": "grup 2",
-            "extensions": [
-                2
-            ],
-            "allowed_outbound_groups": [
-                1
-            ],
-            "allowed_inbound_groups": [
-                1
-            ]
-        }
-    ],
+    "subscriber_groups": [],
     "speed_dials": [
         {
             "id": "8cbf1b9f-3845-42fc-a6a4-c20610f1f6a6",
@@ -898,10 +939,7 @@
             "trunk_ids": [
                 1
             ],
-            "allowed_users": [
-                1784528459895,
-                1
-            ]
+            "allowed_users": []
         },
         {
             "id": "985e6800-3ba6-4de2-9461-16ed52cee55d",
@@ -926,7 +964,7 @@
         "1000": [
             {
                 "name": "test",
-                "number": "05071796372",
+                "number": "05388881122",
                 "id": 1784406946215
             }
         ]
