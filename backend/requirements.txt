@@ -18,3 +18,4 @@ edge-tts
 gTTS
 psycopg2-binary
 psutil==6.0.0
+pyotp>=2.9.0

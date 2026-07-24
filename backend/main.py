@@ -4447,7 +4447,10 @@ async def save_geo_security(payload: GeoSecuritySchema, user_info: dict = Depend
     save_settings(settings_db)
     return {"status": "success", "message": "Bölgesel erişim (GeoIP) kuralları başarıyla kaydedildi."}
 
-import pyotp
+try:
+    import pyotp
+except ImportError:
+    pyotp = None
 
 class Verify2FASchema(BaseModel):
     user_id: str
@@ -4455,6 +4458,8 @@ class Verify2FASchema(BaseModel):
 
 @app.post("/api/auth/verify_2fa")
 async def verify_2fa(payload: Verify2FASchema):
+    if pyotp is None:
+        raise HTTPException(status_code=500, detail="pyotp paketi sunucuda yüklü değil. Lütfen 'pip install pyotp' çalıştırın.")
     user_id = payload.user_id
     code = payload.code
     
@@ -4479,6 +4484,8 @@ async def verify_2fa(payload: Verify2FASchema):
 
 @app.get("/api/auth/setup_2fa/{user_id}")
 async def setup_2fa(user_id: str):
+    if pyotp is None:
+        raise HTTPException(status_code=500, detail="pyotp paketi sunucuda yüklü değil. Lütfen 'pip install pyotp' çalıştırın.")
     if user_id == "admin":
         return {"status": "error", "message": "Admin 2FA setup not supported via UI yet"}
         
