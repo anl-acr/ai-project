@@ -68,12 +68,23 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const [selectedPermissions, setSelectedPermissions] = useState([]);
   const [selectedBreaks, setSelectedBreaks] = useState([]);
 
-  const resolveHost = (bh) => {
-    if (typeof window === "undefined") return bh || "localhost:8000";
-    return window.location.host;
+  const safeFetch = async (path, options = {}) => {
+    const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
+    const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+    
+    const primaryUrl = path.startsWith("http") ? path : `${protocol}//${window.location.host}${path.startsWith('/') ? path : '/' + path}`;
+    try {
+      const res = await fetch(primaryUrl, options);
+      if (res.status !== 404) {
+        return res;
+      }
+    } catch (e) {
+      console.warn(`[safeFetch] Primary fetch to ${primaryUrl} failed, trying fallback:`, e);
+    }
+
+    const fallbackUrl = path.startsWith("http") ? path : `${protocol}//${hostname}:8000${path.startsWith('/') ? path : '/' + path}`;
+    return await fetch(fallbackUrl, options);
   };
-  const host = resolveHost(backendHost);
-  const API_BASE = `${window.location.protocol}//${host}`;
 
   useEffect(() => {
     fetchData();
@@ -82,11 +93,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
+      const resRoles = await safeFetch(`/api/settings/roles`);
       const dataRoles = await resRoles.json();
       setRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
 
-      const resBreaks = await fetch(`${API_BASE}/api/settings/breaks`);
+      const resBreaks = await safeFetch(`/api/settings/breaks`);
       const dataBreaks = await resBreaks.json();
       setBreaks(Array.isArray(dataBreaks) ? dataBreaks : (dataBreaks?.breaks || []));
     } catch (err) {
@@ -104,7 +115,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
-      const res = await fetch(`${API_BASE}/api/settings/roles`, {
+      const res = await safeFetch(`/api/settings/roles`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",

@@ -147,12 +147,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [selectedLocation, setSelectedLocation] = useState("");
   const [selectedDepartment, setSelectedDepartment] = useState("");
 
-  const resolveHost = (bh) => {
-    if (typeof window === "undefined") return bh || "localhost:8000";
-    return window.location.host;
+  const safeFetch = async (path, options = {}) => {
+    const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
+    const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
+    
+    const primaryUrl = path.startsWith("http") ? path : `${protocol}//${window.location.host}${path.startsWith('/') ? path : '/' + path}`;
+    try {
+      const res = await fetch(primaryUrl, options);
+      if (res.status !== 404) {
+        return res;
+      }
+    } catch (e) {
+      console.warn(`[safeFetch] Primary fetch to ${primaryUrl} failed, trying fallback:`, e);
+    }
+
+    const fallbackUrl = path.startsWith("http") ? path : `${protocol}//${hostname}:8000${path.startsWith('/') ? path : '/' + path}`;
+    return await fetch(fallbackUrl, options);
   };
-  const host = resolveHost(backendHost);
-  const API_BASE = `${window.location.protocol}//${host}`;
 
   useEffect(() => {
     fetchAllData();
@@ -161,27 +172,27 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const resUsers = await fetch(`${API_BASE}/api/settings/users`);
+      const resUsers = await safeFetch(`/api/settings/users`);
       const dataUsers = await resUsers.json();
       setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
 
-      const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
+      const resRoles = await safeFetch(`/api/settings/roles`);
       const dataRoles = await resRoles.json();
       setSystemRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
 
-      const resOut = await fetch(`${API_BASE}/api/settings/outbound_rules`);
+      const resOut = await safeFetch(`/api/settings/outbound_rules`);
       const dataOut = await resOut.json();
       setOutboundRules(Array.isArray(dataOut) ? dataOut : (dataOut?.outbound_rules || []));
 
-      const resGroups = await fetch(`${API_BASE}/api/settings/call_pickup_groups`);
+      const resGroups = await safeFetch(`/api/settings/call_pickup_groups`);
       const dataGroups = await resGroups.json();
       setCallPickupGroups(Array.isArray(dataGroups) ? dataGroups : (dataGroups?.call_pickup_groups || []));
 
-      const resLocs = await fetch(`${API_BASE}/api/settings/locations`);
+      const resLocs = await safeFetch(`/api/settings/locations`);
       const dataLocs = await resLocs.json();
       setLocations(Array.isArray(dataLocs) ? dataLocs : (dataLocs?.locations || []));
 
-      const resDepts = await fetch(`${API_BASE}/api/settings/departments`);
+      const resDepts = await safeFetch(`/api/settings/departments`);
       const dataDepts = await resDepts.json();
       setDepartments(Array.isArray(dataDepts) ? dataDepts : (dataDepts?.departments || []));
     } catch (err) {
@@ -274,7 +285,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           const existingUser = users.find(u => u.email === email || (u.extension && u.extension === String(row["Dahili Numara"])));
           
           if (existingUser) {
-             const res = await fetch(`${API_BASE}/api/settings/users/${existingUser.id}`, {
+             const res = await safeFetch(`/api/settings/users/${existingUser.id}`, {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
@@ -283,7 +294,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
              else errorCount++;
           } else {
              if (!payload.password) payload.password = "123456"; // Default password
-             const res = await fetch(`${API_BASE}/api/settings/users`, {
+             const res = await safeFetch(`/api/settings/users`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify(payload)
@@ -322,7 +333,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
-      const res = await fetch(`${API_BASE}/api/settings/users`, {
+      const res = await safeFetch(`/api/settings/users`, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
@@ -339,7 +350,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         setTimeout(() => setSuccess(false), 3000);
         return true;
       } else {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({ detail: res.statusText }));
         setError(errData.detail || "Kullanıcı kaydedilirken bir hata oluştu.");
         return false;
       }
@@ -457,7 +468,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             if (isInRule) newAllowed.push(userId);
             else newAllowed = newAllowed.filter(id => id !== userId);
             
-            await fetch(`${API_BASE}/api/settings/outbound_rules`, {
+            await safeFetch(`/api/settings/outbound_rules`, {
               method: "POST",
               headers: { 
                 "Content-Type": "application/json",
@@ -479,7 +490,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             if (isInGroup) newExtensions.push(userId);
             else newExtensions = newExtensions.filter(id => id !== userId);
             
-            await fetch(`${API_BASE}/api/settings/call_pickup_groups`, {
+            await safeFetch(`/api/settings/call_pickup_groups`, {
               method: "POST",
               headers: { 
                 "Content-Type": "application/json",
