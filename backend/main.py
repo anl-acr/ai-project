@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, delete, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
-from typing import List, Optional, Dict, Any
+from typing import Union, List, Optional, Dict, Any
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -4706,14 +4706,17 @@ async def new_get_users_endpoint(db: AsyncSession = Depends(get_db)):
     return out
 
 @app.post("/api/settings/users")
-async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        is_single = not isinstance(payload, list)
+        items_list = [payload] if is_single else payload
+
         result = await db.execute(select(SystemUser))
         existing_users_db = result.scalars().all()
         existing_by_ext = {str(u.extension): u for u in existing_users_db if u.extension}
         existing_by_id = {u.id: u for u in existing_users_db if u.id is not None}
         
-        for item in payload:
+        for item in items_list:
             if item.id and item.id in existing_by_id:
                 if str(existing_by_id[item.id].extension) == str(item.extension):
                     continue
@@ -4724,7 +4727,7 @@ async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: B
         changes = []
         valid_keys = {c.name for c in SystemUser.__table__.columns}
 
-        for idx, item in enumerate(payload):
+        for idx, item in enumerate(items_list):
             data = item.model_dump()
             if not data.get("sip_password") or data.get("sip_password") == "1234":
                 data["sip_password"] = generate_strong_sip_password()
@@ -4748,9 +4751,10 @@ async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: B
                 db.add(new_sys_user)
                 changes.append({"action": "CREATED", "name": data.get("full_name"), "extension": data.get("extension")})
 
-        for u in existing_users_db:
-            if u.id not in payload_user_ids and u.role != "admin" and str(u.id) != "admin":
-                await db.delete(u)
+        if not is_single:
+            for u in existing_users_db:
+                if u.id not in payload_user_ids and u.role != "admin" and str(u.id) != "admin":
+                    await db.delete(u)
 
         await db.commit()
 
@@ -4781,10 +4785,43 @@ async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: B
             print(f"[Log Event Error]: {le}")
         
         return {"status": "success", "users": new_users_out}
+    except HTTPException:
+        raise
     except Exception as e:
         await db.rollback()
         print(f"[Save Users Error]: {e}")
         raise HTTPException(status_code=500, detail=f"Kullanıcılar kaydedilirken hata oluştu: {str(e)}")
+
+@app.put("/api/settings/users/{user_id}")
+async def update_single_user_endpoint(user_id: int, payload: UserSchema, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    payload.id = user_id
+    return await new_save_users_endpoint(payload=payload, background_tasks=background_tasks, user_info=user_info, db=db)
+
+@app.delete("/api/settings/users/{user_id}")
+async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    try:
+        res = await db.execute(select(SystemUser).where(SystemUser.id == user_id))
+        u = res.scalars().first()
+        if u:
+            if u.role == "admin" or str(u.id) == "admin":
+                raise HTTPException(status_code=400, detail="Admin kullanıcısı silinemez.")
+            await db.delete(u)
+            await db.commit()
+        
+        res_updated = await db.execute(select(SystemUser).order_by(SystemUser.id))
+        all_users_db = res_updated.scalars().all()
+        new_users_out = [{c.name: getattr(usr, c.name) for c in usr.__table__.columns} for usr in all_users_db]
+        
+        settings_db["needs_apply"] = True
+        settings_db["users"] = new_users_out
+        save_settings(settings_db)
+        
+        return {"status": "success", "users": new_users_out}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Kullanıcı silinirken hata oluştu: {str(e)}")
 
 @app.get("/api/settings/roles")
 async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
@@ -4797,8 +4834,11 @@ async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
     return out
 
 @app.post("/api/settings/roles")
-async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+async def new_save_roles_endpoint(payload: Union[List[RoleSchema], RoleSchema], user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        is_single = not isinstance(payload, list)
+        items_list = [payload] if is_single else payload
+
         result = await db.execute(select(SystemRole))
         existing_roles_db = result.scalars().all()
         existing_by_code = {r.role_code: r for r in existing_roles_db if r.role_code}
@@ -4808,7 +4848,7 @@ async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = D
         new_roles_out = []
         changes = []
         
-        for idx, item in enumerate(payload):
+        for idx, item in enumerate(items_list):
             data = item.model_dump()
             code = data.get("role_code", "").strip().lower()
             if not code:
@@ -4837,10 +4877,11 @@ async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = D
                 db.add(new_sys_role)
                 changes.append({"action": "CREATED", "name": data.get("name"), "role_code": code})
                 
-        for r in existing_roles_db:
-            if r.id not in payload_role_ids and r.role_code not in ["admin", "superadmin", "agent", "supervisor", "manager"]:
-                await db.delete(r)
-                changes.append({"action": "DELETED", "name": r.name, "role_code": r.role_code})
+        if not is_single:
+            for r in existing_roles_db:
+                if r.id not in payload_role_ids and r.role_code not in ["admin", "superadmin", "agent", "supervisor", "manager"]:
+                    await db.delete(r)
+                    changes.append({"action": "DELETED", "name": r.name, "role_code": r.role_code})
 
         await db.commit()
 
@@ -4858,6 +4899,45 @@ async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = D
         settings_db["needs_apply"] = True
         settings_db["roles"] = new_roles_out
         save_settings(settings_db)
+        
+        return {"status": "success", "roles": new_roles_out}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        print(f"[Save Roles Error]: {e}")
+        raise HTTPException(status_code=500, detail=f"Roller kaydedilirken hata oluştu: {str(e)}")
+
+@app.put("/api/settings/roles/{role_id}")
+async def update_single_role_endpoint(role_id: int, payload: RoleSchema, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    payload.id = role_id
+    return await new_save_roles_endpoint(payload=payload, user_info=user_info, db=db)
+
+@app.delete("/api/settings/roles/{role_id}")
+async def delete_single_role_endpoint(role_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    try:
+        res = await db.execute(select(SystemRole).where(SystemRole.id == role_id))
+        r = res.scalars().first()
+        if r:
+            if r.role_code in ["admin", "superadmin", "agent", "supervisor", "manager"]:
+                raise HTTPException(status_code=400, detail="Sistem varsayılan rolü silinemez.")
+            await db.delete(r)
+            await db.commit()
+        
+        res_updated = await db.execute(select(SystemRole).order_by(SystemRole.id))
+        all_roles_db = res_updated.scalars().all()
+        new_roles_out = [{c.name: getattr(rol, c.name) for c in rol.__table__.columns} for rol in all_roles_db]
+        
+        settings_db["needs_apply"] = True
+        settings_db["roles"] = new_roles_out
+        save_settings(settings_db)
+        
+        return {"status": "success", "roles": new_roles_out}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Rol silinirken hata oluştu: {str(e)}")
         
         try:
             await log_event(
