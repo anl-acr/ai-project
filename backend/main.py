@@ -5008,6 +5008,7 @@ async def delete_single_role_endpoint(role_id: int, user_info: dict = Depends(ge
         raise HTTPException(status_code=500, detail=f"Roller kaydedilirken hata oluştu: {str(e)}")
 
 @app.get("/api/settings/queues")
+@app.get("/settings/queues")
 async def new_get_queues_endpoint(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
     queues = result.scalars().all()
@@ -5018,8 +5019,12 @@ async def new_get_queues_endpoint(db: AsyncSession = Depends(get_db)):
     return out
 
 @app.post("/api/settings/queues")
-async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+@app.post("/settings/queues")
+async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        is_single = not isinstance(payload, list)
+        items_list = [payload] if is_single else payload
+
         result = await db.execute(select(PBXQueue))
         existing_queues_db = result.scalars().all()
         existing_by_num = {str(q.queue_number): q for q in existing_queues_db if q.queue_number}
@@ -5029,7 +5034,7 @@ async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tas
         new_queues_out = []
         valid_keys = {c.name for c in PBXQueue.__table__.columns}
 
-        for idx, item in enumerate(payload):
+        for idx, item in enumerate(items_list):
             data = item.model_dump() if hasattr(item, "model_dump") else item.copy()
             target_q = None
             if data.get("id") and data.get("id") in existing_by_id:
@@ -5047,17 +5052,12 @@ async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tas
                 new_sys_q = PBXQueue(**filtered_data)
                 db.add(new_sys_q)
 
-        for q in existing_queues_db:
-            if q.id not in payload_queue_ids:
-                await db.delete(q)
+        if not is_single:
+            for q in existing_queues_db:
+                if q.id not in payload_queue_ids:
+                    await db.delete(q)
 
         await db.commit()
-
-        try:
-            await db.execute(text("SELECT setval(pg_get_serial_sequence('pbx_queues', 'id'), COALESCE((SELECT MAX(id) FROM pbx_queues), 1));"))
-            await db.commit()
-        except Exception:
-            pass
 
         res_updated = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
         all_queues_db = res_updated.scalars().all()
@@ -5066,18 +5066,6 @@ async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tas
 
         settings_db["needs_apply"] = True
         settings_db["queues"] = new_queues_out
-        save_settings(settings_db)
-
-        try:
-            await log_event(
-                user_id=user_info["user_id"],
-                action="UPDATE_QUEUES",
-                module="Queues",
-                details={"status": "updated"},
-                ip_address=user_info["ip_address"]
-            )
-        except Exception as le:
-            print(f"[Log Event Error]: {le}")
 
         return {"status": "success", "queues": new_queues_out}
     except Exception as e:
@@ -5085,7 +5073,36 @@ async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tas
         print(f"[Save Queues Error]: {e}")
         raise HTTPException(status_code=500, detail=f"Kuyruklar kaydedilirken hata oluştu: {str(e)}")
 
+@app.put("/api/settings/queues/{queue_id}")
+@app.put("/settings/queues/{queue_id}")
+async def update_single_queue_endpoint(queue_id: int, payload: Dict[str, Any], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    payload["id"] = queue_id
+    return await new_save_queues_endpoint(payload=payload, background_tasks=background_tasks, user_info=user_info, db=db)
+
+@app.delete("/api/settings/queues/{queue_id}")
+@app.delete("/settings/queues/{queue_id}")
+async def delete_single_queue_endpoint(queue_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    try:
+        res = await db.execute(select(PBXQueue).where(PBXQueue.id == queue_id))
+        q = res.scalars().first()
+        if q:
+            await db.delete(q)
+            await db.commit()
+
+        res_updated = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+        all_queues_db = res_updated.scalars().all()
+        new_queues_out = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in all_queues_db]
+
+        settings_db["needs_apply"] = True
+        settings_db["queues"] = new_queues_out
+
+        return {"status": "success", "queues": new_queues_out}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Kuyruk silinirken hata oluştu: {str(e)}")
+
 @app.get("/api/settings/trunks")
+@app.get("/settings/trunks")
 async def new_list_trunks(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Trunk).order_by(Trunk.id))
     trunks = result.scalars().all()
@@ -5096,35 +5113,37 @@ async def new_list_trunks(db: AsyncSession = Depends(get_db)):
     return out
 
 @app.post("/api/settings/trunks")
-async def new_add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+@app.post("/settings/trunks")
+async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
-        data = payload.model_dump()
+        is_single = not isinstance(payload, list)
+        items_list = [payload] if is_single else payload
+
+        res_existing = await db.execute(select(Trunk))
+        existing_trunks_db = res_existing.scalars().all()
+        existing_by_id = {t.id: t for t in existing_trunks_db if t.id}
+        existing_by_name = {t.trunk_name: t for t in existing_trunks_db if t.trunk_name}
+
         valid_keys = {c.name for c in Trunk.__table__.columns}
-        filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
-        target_trunk = None
-        if data.get("id"):
-            res = await db.execute(select(Trunk).where(Trunk.id == data["id"]))
-            target_trunk = res.scalars().first()
+        for item in items_list:
+            data = item.model_dump() if hasattr(item, "model_dump") else (item.copy() if isinstance(item, dict) else {})
+            filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
-        if not target_trunk and data.get("trunk_name"):
-            res = await db.execute(select(Trunk).where(Trunk.trunk_name == data.get("trunk_name")))
-            target_trunk = res.scalars().first()
+            target_trunk = None
+            if data.get("id") and data.get("id") in existing_by_id:
+                target_trunk = existing_by_id[data["id"]]
+            elif data.get("trunk_name") and data.get("trunk_name") in existing_by_name:
+                target_trunk = existing_by_name[data["trunk_name"]]
 
-        if target_trunk:
-            for k, v in filtered_data.items():
-                setattr(target_trunk, k, v)
-        else:
-            t = Trunk(**filtered_data)
-            db.add(t)
+            if target_trunk:
+                for k, v in filtered_data.items():
+                    setattr(target_trunk, k, v)
+            else:
+                t = Trunk(**filtered_data)
+                db.add(t)
 
         await db.commit()
-
-        try:
-            await db.execute(text("SELECT setval(pg_get_serial_sequence('trunks', 'id'), COALESCE((SELECT MAX(id) FROM trunks), 1));"))
-            await db.commit()
-        except Exception:
-            pass
 
         res_all = await db.execute(select(Trunk).order_by(Trunk.id))
         all_trunks = res_all.scalars().all()
@@ -5132,18 +5151,6 @@ async def new_add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks
 
         settings_db["needs_apply"] = True
         settings_db["trunks"] = out
-        save_settings(settings_db)
-
-        try:
-            await log_event(
-                user_id=user_info["user_id"],
-                action="SAVE_TRUNK",
-                module="SIP Trunks",
-                details={"trunk_name": data.get("trunk_name")},
-                ip_address=user_info["ip_address"]
-            )
-        except Exception as le:
-            print(f"[Log Event Error]: {le}")
 
         return {"status": "success", "trunks": out}
     except Exception as e:
