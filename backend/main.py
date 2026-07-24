@@ -5152,6 +5152,10 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
                 for k, v in filtered_data.items():
                     setattr(target_trunk, k, v)
             else:
+                if not filtered_data.get("did_number"):
+                    filtered_data["did_number"] = ""
+                if not filtered_data.get("transfer_target"):
+                    filtered_data["transfer_target"] = "200"
                 t = Trunk(**filtered_data)
                 db.add(t)
 
@@ -5169,6 +5173,28 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
         await db.rollback()
         print(f"[Save Trunk Error]: {e}")
         raise HTTPException(status_code=500, detail=f"SIP Trunk kaydedilirken hata oluştu: {str(e)}")
+
+@app.delete("/api/settings/trunks/{trunk_id}")
+@app.delete("/settings/trunks/{trunk_id}")
+async def new_delete_trunk(trunk_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    try:
+        res = await db.execute(select(Trunk).where(Trunk.id == trunk_id))
+        t = res.scalars().first()
+        if t:
+            await db.delete(t)
+            await db.commit()
+
+        res_all = await db.execute(select(Trunk).order_by(Trunk.id))
+        all_trunks = res_all.scalars().all()
+        out = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in all_trunks]
+
+        settings_db["needs_apply"] = True
+        settings_db["trunks"] = out
+
+        return {"status": "success", "trunks": out}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"SIP Trunk silinirken hata oluştu: {str(e)}")
 
 
 @app.get("/api/settings/needs-apply")

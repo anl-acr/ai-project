@@ -256,17 +256,17 @@ class Trunk(Base):
     __tablename__ = "trunks"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     tenant_id = Column(String, default="tenant-default", index=True)
-    trunk_type = Column(String, nullable=False) # register, peer
+    trunk_type = Column(String, nullable=False, default="register") # register, peer
     trunk_name = Column(String, nullable=False)
     host = Column(String, nullable=False)
     username = Column(String, nullable=True)
     password = Column(String, nullable=True)
     port = Column(Integer, default=5060)
-    did_number = Column(String, nullable=False)
+    did_number = Column(String, nullable=True, default="")
     protocol = Column(String, default="udp")
     greeting_prompt = Column(String, nullable=True)
     transfer_target_type = Column(String, default="extension")
-    transfer_target = Column(String, nullable=False)
+    transfer_target = Column(String, nullable=True, default="200")
     codec = Column(String, default="G711")
     is_active = Column(Boolean, default=True)
 
