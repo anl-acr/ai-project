@@ -4728,7 +4728,13 @@ async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: B
             if not data.get("sip_password") or data.get("sip_password") == "1234":
                 data["sip_password"] = generate_strong_sip_password()
                 
-            target_user = existing_by_id.get(data.get("id")) or existing_by_ext.get(str(data.get("extension")))
+            ext_str = str(data.get("extension") or "")
+            target_user = None
+            if data.get("id") and data.get("id") in existing_by_id:
+                target_user = existing_by_id[data.get("id")]
+            elif ext_str and ext_str in existing_by_ext:
+                target_user = existing_by_ext[ext_str]
+
             filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
             if target_user:
@@ -4742,10 +4748,16 @@ async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: B
                 changes.append({"action": "CREATED", "name": data.get("full_name"), "extension": data.get("extension")})
 
         for u in existing_users_db:
-            if u.id not in payload_user_ids and u.role != "admin":
+            if u.id not in payload_user_ids and u.role != "admin" and str(u.id) != "admin":
                 await db.delete(u)
 
         await db.commit()
+
+        try:
+            await db.execute(text("SELECT setval(pg_get_serial_sequence('system_users', 'id'), COALESCE((SELECT MAX(id) FROM system_users), 1));"))
+            await db.commit()
+        except Exception:
+            pass
 
         res_updated = await db.execute(select(SystemUser).order_by(SystemUser.id))
         all_users_db = res_updated.scalars().all()
@@ -4788,10 +4800,10 @@ async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = D
     try:
         result = await db.execute(select(SystemRole))
         existing_roles_db = result.scalars().all()
-        existing_by_code = {r.role_code: r for r in existing_roles_db}
+        existing_by_code = {r.role_code: r for r in existing_roles_db if r.role_code}
         existing_by_id = {r.id: r for r in existing_roles_db if r.id is not None}
         
-        payload_role_codes = set()
+        payload_role_ids = set()
         new_roles_out = []
         changes = []
         
@@ -4800,15 +4812,19 @@ async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = D
             code = data.get("role_code", "").strip().lower()
             if not code:
                 continue
-            payload_role_codes.add(code)
             
-            target_role = existing_by_id.get(data.get("id")) or existing_by_code.get(code)
+            target_role = None
+            if data.get("id") and data.get("id") in existing_by_id:
+                target_role = existing_by_id[data.get("id")]
+            elif code in existing_by_code:
+                target_role = existing_by_code[code]
             
             if target_role:
                 target_role.role_code = code
                 target_role.name = data.get("name")
                 target_role.permissions = data.get("permissions", [])
                 target_role.allowed_breaks = data.get("allowed_breaks", [])
+                payload_role_ids.add(target_role.id)
                 changes.append({"action": "UPDATED", "name": data.get("name"), "role_code": code})
             else:
                 new_sys_role = SystemRole(
@@ -4821,11 +4837,17 @@ async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = D
                 changes.append({"action": "CREATED", "name": data.get("name"), "role_code": code})
                 
         for r in existing_roles_db:
-            if r.role_code not in payload_role_codes and r.role_code != "admin":
+            if r.id not in payload_role_ids and r.role_code not in ["admin", "superadmin", "agent", "supervisor", "manager"]:
                 await db.delete(r)
                 changes.append({"action": "DELETED", "name": r.name, "role_code": r.role_code})
 
         await db.commit()
+
+        try:
+            await db.execute(text("SELECT setval(pg_get_serial_sequence('system_roles', 'id'), COALESCE((SELECT MAX(id) FROM system_roles), 1));"))
+            await db.commit()
+        except Exception:
+            pass
 
         res_updated = await db.execute(select(SystemRole).order_by(SystemRole.id))
         all_roles_db = res_updated.scalars().all()
@@ -4877,7 +4899,12 @@ async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tas
 
         for idx, item in enumerate(payload):
             data = item.model_dump() if hasattr(item, "model_dump") else item.copy()
-            target_q = existing_by_id.get(data.get("id")) or existing_by_num.get(str(data.get("queue_number")))
+            target_q = None
+            if data.get("id") and data.get("id") in existing_by_id:
+                target_q = existing_by_id[data.get("id")]
+            elif data.get("queue_number") and str(data.get("queue_number")) in existing_by_num:
+                target_q = existing_by_num[str(data.get("queue_number"))]
+
             filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
             if target_q:
@@ -4893,6 +4920,12 @@ async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tas
                 await db.delete(q)
 
         await db.commit()
+
+        try:
+            await db.execute(text("SELECT setval(pg_get_serial_sequence('pbx_queues', 'id'), COALESCE((SELECT MAX(id) FROM pbx_queues), 1));"))
+            await db.commit()
+        except Exception:
+            pass
 
         res_updated = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
         all_queues_db = res_updated.scalars().all()
@@ -4932,41 +4965,59 @@ async def new_list_trunks(db: AsyncSession = Depends(get_db)):
 
 @app.post("/api/settings/trunks")
 async def new_add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
-    data = payload.model_dump()
-    
-    if not data.get("id"):
-        result = await db.execute(select(Trunk))
-        existing_trunks = result.scalars().all()
-        data["id"] = max([t.id for t in existing_trunks]) + 1 if existing_trunks else 1
-        t = Trunk(**data)
-        db.add(t)
-    else:
-        result = await db.execute(select(Trunk).where(Trunk.id == data["id"]))
-        t = result.scalars().first()
-        if t:
-            for k, v in data.items():
-                setattr(t, k, v)
+    try:
+        data = payload.model_dump()
+        valid_keys = {c.name for c in Trunk.__table__.columns}
+        filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
+
+        target_trunk = None
+        if data.get("id"):
+            res = await db.execute(select(Trunk).where(Trunk.id == data["id"]))
+            target_trunk = res.scalars().first()
+
+        if not target_trunk and data.get("trunk_name"):
+            res = await db.execute(select(Trunk).where(Trunk.trunk_name == data.get("trunk_name")))
+            target_trunk = res.scalars().first()
+
+        if target_trunk:
+            for k, v in filtered_data.items():
+                setattr(target_trunk, k, v)
         else:
-            t = Trunk(**data)
+            t = Trunk(**filtered_data)
             db.add(t)
-            
-    await db.commit()
-    
-    settings_db["needs_apply"] = True
-    save_settings(settings_db)
-    
-    settings_db["trunks"] = [t for t in settings_db.get("trunks", []) if t.get("id") != data["id"]]
-    settings_db["trunks"].append(data)
-    
-    await log_event(
-        user_id=user_info["user_id"],
-        action="SAVE_TRUNK",
-        module="SIP Trunks",
-        details={"trunk_name": data.get("trunk_name")},
-        ip_address=user_info["ip_address"]
-    )
-    
-    return {"status": "success"}
+
+        await db.commit()
+
+        try:
+            await db.execute(text("SELECT setval(pg_get_serial_sequence('trunks', 'id'), COALESCE((SELECT MAX(id) FROM trunks), 1));"))
+            await db.commit()
+        except Exception:
+            pass
+
+        res_all = await db.execute(select(Trunk).order_by(Trunk.id))
+        all_trunks = res_all.scalars().all()
+        out = [{c.name: getattr(t, c.name) for c in t.__table__.columns} for t in all_trunks]
+
+        settings_db["needs_apply"] = True
+        settings_db["trunks"] = out
+        save_settings(settings_db)
+
+        try:
+            await log_event(
+                user_id=user_info["user_id"],
+                action="SAVE_TRUNK",
+                module="SIP Trunks",
+                details={"trunk_name": data.get("trunk_name")},
+                ip_address=user_info["ip_address"]
+            )
+        except Exception as le:
+            print(f"[Log Event Error]: {le}")
+
+        return {"status": "success", "trunks": out}
+    except Exception as e:
+        await db.rollback()
+        print(f"[Save Trunk Error]: {e}")
+        raise HTTPException(status_code=500, detail=f"SIP Trunk kaydedilirken hata oluştu: {str(e)}")
 
 
 @app.get("/api/settings/needs-apply")
