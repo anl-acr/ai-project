@@ -7,9 +7,16 @@ from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, Web
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import select, delete, func
+from sqlalchemy import select, delete, func, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+RECORDINGS_DIR = os.path.join(PROJECT_ROOT, "recordings")
+SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
+ASTERISK_CONFIG_DIR = os.path.join(PROJECT_ROOT, "asterisk_config")
 
 import datetime
 import uuid
@@ -49,7 +56,6 @@ app.add_middleware(
 )
 
 # Serve call recordings statically
-RECORDINGS_DIR = "/Users/anilacar/ai-project/recordings"
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 app.mount("/api/recordings", StaticFiles(directory=RECORDINGS_DIR), name="recordings")
 
@@ -377,8 +383,6 @@ class AIAgentSchema(BaseModel):
     elevenlabs_style: Optional[float] = 0.0
 
 import json
-
-SETTINGS_FILE = "/Users/anilacar/ai-project/backend/settings.json"
 
 DEFAULT_SETTINGS = {
     "tenants": [
@@ -1252,7 +1256,7 @@ max_contacts=5
 remove_existing=yes
 """
 
-    config_dir = "/Users/anilacar/ai-project/asterisk_config"
+    config_dir = ASTERISK_CONFIG_DIR
     os.makedirs(config_dir, exist_ok=True)
     config_path = os.path.join(config_dir, "pjsip_custom.conf")
     with open(config_path, "w", encoding="utf-8") as f:
@@ -1295,7 +1299,7 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
             if u and u.get("extension"):
                 conf_content += f"member => PJSIP/{u['extension']}\n"
                 
-    config_dir = "/Users/anilacar/ai-project/asterisk_config"
+    config_dir = ASTERISK_CONFIG_DIR
     os.makedirs(config_dir, exist_ok=True)
     config_path = os.path.join(config_dir, "queues_custom.conf")
     with open(config_path, "w", encoding="utf-8") as f:
@@ -3513,7 +3517,7 @@ async def get_system_stats():
     gemini_status = "OK" if (gemini_key and len(gemini_key) > 5) else "ERROR"
     
     # 1. NAS / Local Voice Recording Storage Statistics
-    recordings_dir = "/Users/anilacar/ai-project/recordings"
+    recordings_dir = RECORDINGS_DIR
     rec_file_count = 0
     rec_total_size_mb = 0.0
     if os.path.exists(recordings_dir):

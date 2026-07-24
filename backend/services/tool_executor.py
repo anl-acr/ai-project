@@ -100,7 +100,8 @@ async def transfer_to_mobile_with_whisper(call_id: str, gsm_number: str) -> bool
     print(f"[Mobile Transfer] Generated Summary: '{summary_text}'")
     add_system_log("MOBILE_TRANSFER", "INFO", f"Arama mobil temsilciye yönlendiriliyor: {gsm_number} (Özet: {summary_text})")
     
-    mp3_path = f"/Users/anilacar/ai-project/recordings/summary_{call_id}.mp3"
+    proj_root = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+    mp3_path = os.path.join(proj_root, "recordings", f"summary_{call_id}.mp3")
     
     try:
         communicate = edge_tts.Communicate(summary_text, "tr-TR-AhmetNeural")
@@ -214,7 +215,7 @@ async def execute_query_knowledge_base(query: str) -> dict:
 def load_settings():
     import json
     import os
-    path = "/Users/anilacar/ai-project/backend/settings.json"
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "settings.json")
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:

@@ -9,7 +9,7 @@ from backend.services.websocket_manager import ws_manager
 def load_settings():
     import json
     import os
-    path = "/Users/anilacar/ai-project/backend/settings.json"
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "settings.json")
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:

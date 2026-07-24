@@ -12,7 +12,8 @@ def get_genai_client():
     api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
         from dotenv import load_dotenv
-        load_dotenv("/Users/anilacar/ai-project/backend/.env")
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        load_dotenv(os.path.join(base_dir, "..", ".env"))
         api_key = os.getenv("GEMINI_API_KEY", "")
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable is not set.")
@@ -27,7 +28,7 @@ def get_rag_settings() -> dict:
         "similarity_threshold": 0.5
     }
     try:
-        path = "/Users/anilacar/ai-project/backend/settings.json"
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "settings.json")
         if os.path.exists(path):
             with open(path, "r", encoding="utf-8") as f:
                 data = json.load(f)

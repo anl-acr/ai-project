@@ -19,7 +19,8 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "models/gemini-2.5-flash-native-audio-latest")
 VOICE_NAME = os.getenv("VOICE_NAME", "Aoede")  # Puck, Charon, Kore, Fenrir, Aoede
 
-SETTINGS_FILE = "/Users/anilacar/ai-project/backend/settings.json"
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
 
 def detect_is_english(text: str) -> bool:
     text_lower = text.lower().strip()
