@@ -19,6 +19,13 @@ AsyncSessionLocal = async_sessionmaker(
     expire_on_commit=False
 )
 
+# Sync database engine & session factory for synchronous helper calls
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+sync_db_url = DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
+sync_engine = create_engine(sync_db_url, pool_pre_ping=True)
+SyncSessionLocal = sessionmaker(bind=sync_engine)
+
 # Base class for models
 Base = declarative_base()
 

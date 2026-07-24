@@ -710,37 +710,32 @@ def load_settings():
             print(f"[Settings Disk] Error reading {SETTINGS_FILE}: {fe}")
 
     try:
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import sessionmaker
-        from backend.database.config import DATABASE_URL
+        from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemSetting, SystemUser, SystemRole
         
-        sync_db_url = DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
-        engine = create_engine(sync_db_url)
-        Session = sessionmaker(bind=engine)
-        session = Session()
-        
-        settings = session.query(SystemSetting).all()
-        for s in settings:
-            db[s.key] = s.value
+        session = SyncSessionLocal()
+        try:
+            settings = session.query(SystemSetting).all()
+            for s in settings:
+                db[s.key] = s.value
 
-        db_users = session.query(SystemUser).order_by(SystemUser.id).all()
-        if db_users:
-            users_list = []
-            for u in db_users:
-                users_list.append({col.name: getattr(u, col.name) for col in SystemUser.__table__.columns})
-            db["users"] = users_list
+            db_users = session.query(SystemUser).order_by(SystemUser.id).all()
+            if db_users:
+                users_list = []
+                for u in db_users:
+                    users_list.append({col.name: getattr(u, col.name) for col in SystemUser.__table__.columns})
+                db["users"] = users_list
 
-        db_roles = session.query(SystemRole).order_by(SystemRole.id).all()
-        if db_roles:
-            roles_list = []
-            for r in db_roles:
-                roles_list.append({col.name: getattr(r, col.name) for col in SystemRole.__table__.columns})
-            db["roles"] = roles_list
-            
-        session.close()
+            db_roles = session.query(SystemRole).order_by(SystemRole.id).all()
+            if db_roles:
+                roles_list = []
+                for r in db_roles:
+                    roles_list.append({col.name: getattr(r, col.name) for col in SystemRole.__table__.columns})
+                db["roles"] = roles_list
+        finally:
+            session.close()
     except Exception as e:
-        print(f"[Settings DB] Error loading settings from DB: {e}")
+        print(f"[Settings DB] Info loading settings: {e}")
     # Ensure default roles exist if not present
     if "roles" not in db or not db["roles"]:
         db["roles"] = DEFAULT_SETTINGS["roles"]
@@ -1050,27 +1045,22 @@ def load_settings():
 
 def save_settings(settings):
     try:
-        from sqlalchemy import create_engine
-        from sqlalchemy.orm import sessionmaker
-        from backend.database.config import DATABASE_URL
+        from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemSetting
         
-        sync_db_url = DATABASE_URL.replace("postgresql+asyncpg", "postgresql")
-        engine = create_engine(sync_db_url)
-        Session = sessionmaker(bind=engine)
-        session = Session()
-        
-        for key, val in settings.items():
-            setting = session.query(SystemSetting).filter_by(key=key).first()
-            if setting:
-                setting.value = val
-            else:
-                session.add(SystemSetting(key=key, value=val))
-        
-        session.commit()
-        session.close()
+        session = SyncSessionLocal()
+        try:
+            for key, val in settings.items():
+                setting = session.query(SystemSetting).filter_by(key=key).first()
+                if setting:
+                    setting.value = val
+                else:
+                    session.add(SystemSetting(key=key, value=val))
+            session.commit()
+        finally:
+            session.close()
     except Exception as e:
-        print(f"[Settings DB] Error saving settings to DB: {e}")
+        print(f"[Settings DB] Info saving settings: {e}")
 
     try:
         with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
