@@ -38,15 +38,15 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     try {
       const resUsers = await fetch(`${API_BASE}/api/settings/users`);
       const dataUsers = await resUsers.json();
-      if (dataUsers) setUsers(dataUsers);
+      setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
 
       const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
       const dataRoles = await resRoles.json();
-      if (dataRoles) setRoles(dataRoles);
+      setRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
 
       const resBreaks = await fetch(`${API_BASE}/api/settings/breaks`);
       const dataBreaks = await resBreaks.json();
-      if (dataBreaks) setBreaks(dataBreaks);
+      setBreaks(Array.isArray(dataBreaks) ? dataBreaks : (dataBreaks?.breaks || []));
     } catch (err) {
       console.error("Agent verileri yüklenemedi:", err);
     }
@@ -60,16 +60,20 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newState)
       });
-      if (res.ok) {
-        const data = await res.json();
-        setAgentState(data.agent_state);
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setAgentState(data.state);
       }
     } catch (err) {
-      console.error("Temsilci durumu güncellenemedi:", err);
+      console.error("Agent durumu güncellenemedi:", err);
     } finally {
       setLoading(false);
     }
   };
+
+  const safeUsers = Array.isArray(users) ? users : [];
+  const safeRoles = Array.isArray(roles) ? roles : [];
+  const safeBreaks = Array.isArray(breaks) ? breaks : [];
 
   const handleLogin = () => {
     if (!currentUser) return;
@@ -115,12 +119,12 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   };
 
   // Find currently logged in user profile
-  const loggedInUser = users.find(u => u.id === agentState.user_id);
-  const loggedInUserRoleObj = loggedInUser ? roles.find(r => r.role_code === loggedInUser.role) : null;
+  const loggedInUser = safeUsers.find(u => u.id === agentState.user_id);
+  const loggedInUserRoleObj = loggedInUser ? safeRoles.find(r => r.role_code === loggedInUser.role) : null;
 
   // Filter breaks allowed for this user's role
   const allowedBreakIds = loggedInUserRoleObj ? loggedInUserRoleObj.allowed_breaks || [] : [];
-  const filteredBreaks = breaks.filter(b => allowedBreakIds.includes(b.id));
+  const filteredBreaks = safeBreaks.filter(b => allowedBreakIds.includes(b.id));
 
   // Status style helper
   const getStatusDisplay = () => {

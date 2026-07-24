@@ -135,15 +135,15 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     try {
       const resUsers = await fetch(`${API_BASE}/api/settings/users`);
       const usersData = await resUsers.json();
-      setUsers(usersData);
+      setUsers(Array.isArray(usersData) ? usersData : (usersData?.users || []));
 
       const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
       const rolesData = await resRoles.json();
-      setRoles(rolesData);
+      setRoles(Array.isArray(rolesData) ? rolesData : (rolesData?.roles || []));
 
       const resBreaks = await fetch(`${API_BASE}/api/settings/breaks`);
       const breaksData = await resBreaks.json();
-      setBreaks(breaksData);
+      setBreaks(Array.isArray(breaksData) ? breaksData : (breaksData?.breaks || []));
 
     } catch (err) {
       console.error("Wallboard initial load failed:", err);

@@ -42,7 +42,7 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
     fetch(`${API_BASE}/api/settings/breaks`)
       .then((res) => res.json())
       .then((data) => {
-        if (data) setBreaks(data);
+        setBreaks(Array.isArray(data) ? data : (data?.breaks || []));
       })
       .catch((err) => console.error("Molalar yüklenemedi:", err))
       .finally(() => setLoading(false));
@@ -57,7 +57,7 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
       });
       if (res.ok) {
         const data = await res.json();
-        setBreaks(data.breaks);
+        setBreaks(Array.isArray(data?.breaks) ? data.breaks : (Array.isArray(data) ? data : updatedBreaks));
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
       }

@@ -47,20 +47,25 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
     try {
       const usersRes = await fetch(`${window.location.protocol}//${apiHost}/api/settings/users`);
       let usersData = [];
-      if (usersRes.ok) usersData = await usersRes.json();
-      setAllUsers(usersData);
+      let usersList = [];
+      if (usersRes.ok) {
+        const rawUsers = await usersRes.json();
+        usersList = Array.isArray(rawUsers) ? rawUsers : (rawUsers?.users || []);
+      }
+      setAllUsers(usersList);
 
       const queuesRes = await fetch(`${window.location.protocol}//${apiHost}/api/settings/queues`);
       if (queuesRes.ok) {
-        const queuesData = await queuesRes.json();
+        const rawQueues = await queuesRes.json();
+        const queuesList = Array.isArray(rawQueues) ? rawQueues : (rawQueues?.queues || []);
         // Map real names for members and supervisors
-        const enrichedQueues = queuesData.map(q => {
+        const enrichedQueues = queuesList.map(q => {
           const mList = (q.queueMembers || []).map(qm => {
-            const u = usersData.find(x => x.id === qm.user_id);
+            const u = usersList.find(x => x.id === qm.user_id);
             return u ? u.full_name : "Bilinmeyen Kullanıcı";
           });
           const sList = (q.supervisors || []).map(sid => {
-            const u = usersData.find(x => x.id === sid);
+            const u = usersList.find(x => x.id === sid);
             return u ? u.full_name : "Bilinmeyen Yönetici";
           });
           return {
@@ -84,13 +89,14 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
 
   const handleSaveQueue = async (updatedQueue) => {
     let newQueues;
+    const safeQueues = Array.isArray(queues) ? queues : [];
     if (selectedQueue) {
       // Editing existing
-      newQueues = queues.map(q => q.id === updatedQueue.id ? updatedQueue : q);
+      newQueues = safeQueues.map(q => q.id === updatedQueue.id ? updatedQueue : q);
     } else {
       // Adding new
-      const nextId = queues.length > 0 ? Math.max(...queues.map(q => q.id || 0)) + 1 : 1;
-      newQueues = [...queues, { ...updatedQueue, id: nextId }];
+      const nextId = safeQueues.length > 0 ? Math.max(...safeQueues.map(q => q.id || 0)) + 1 : 1;
+      newQueues = [...safeQueues, { ...updatedQueue, id: nextId }];
     }
     
     try {
@@ -101,8 +107,9 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
       });
       if (res.ok) {
         const data = await res.json();
+        const resQueues = Array.isArray(data?.queues) ? data.queues : (Array.isArray(data) ? data : newQueues);
         // Re-enrich with names
-        const enrichedQueues = data.queues.map(q => {
+        const enrichedQueues = resQueues.map(q => {
           const mList = (q.queueMembers || []).map(qm => {
             const u = allUsers.find(x => x.id === qm.user_id);
             return u ? u.full_name : "Bilinmeyen Kullanıcı";

@@ -83,7 +83,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     fetch(`${API_BASE}/api/settings/trunks`)
       .then((res) => res.json())
       .then((data) => {
-        if (Array.isArray(data)) setTrunks(data);
+        setTrunks(Array.isArray(data) ? data : (data?.trunks || []));
       })
       .catch((err) => console.error("[Trunks] Listelenemedi:", err));
   };

@@ -166,27 +166,27 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     try {
       const resUsers = await fetch(`${API_BASE}/api/settings/users`);
       const dataUsers = await resUsers.json();
-      if (dataUsers) setUsers(dataUsers);
+      setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
 
       const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
       const dataRoles = await resRoles.json();
-      if (dataRoles) setSystemRoles(dataRoles);
+      setSystemRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
 
       const resOut = await fetch(`${API_BASE}/api/settings/outbound_rules`);
       const dataOut = await resOut.json();
-      if (dataOut) setOutboundRules(dataOut);
+      setOutboundRules(Array.isArray(dataOut) ? dataOut : (dataOut?.outbound_rules || []));
 
       const resGroups = await fetch(`${API_BASE}/api/settings/call_pickup_groups`);
       const dataGroups = await resGroups.json();
-      if (dataGroups) setCallPickupGroups(dataGroups);
+      setCallPickupGroups(Array.isArray(dataGroups) ? dataGroups : (dataGroups?.call_pickup_groups || []));
 
       const resLocs = await fetch(`${API_BASE}/api/settings/locations`);
       const dataLocs = await resLocs.json();
-      if (dataLocs) setLocations(dataLocs);
+      setLocations(Array.isArray(dataLocs) ? dataLocs : (dataLocs?.locations || []));
 
       const resDepts = await fetch(`${API_BASE}/api/settings/departments`);
       const dataDepts = await resDepts.json();
-      if (dataDepts) setDepartments(dataDepts);
+      setDepartments(Array.isArray(dataDepts) ? dataDepts : (dataDepts?.departments || []));
     } catch (err) {
       console.error(`Veriler yüklenemedi:`, err);
     } finally {

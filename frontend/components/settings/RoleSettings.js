@@ -85,11 +85,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     try {
       const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
       const dataRoles = await resRoles.json();
-      if (dataRoles) setRoles(dataRoles);
+      setRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
 
       const resBreaks = await fetch(`${API_BASE}/api/settings/breaks`);
       const dataBreaks = await resBreaks.json();
-      if (dataBreaks) setBreaks(dataBreaks);
+      setBreaks(Array.isArray(dataBreaks) ? dataBreaks : (dataBreaks?.breaks || []));
     } catch (err) {
       console.error("Roller/Molalar yüklenemedi:", err);
       setError("Rol ve mola tanımları sunucudan alınamadı.");
