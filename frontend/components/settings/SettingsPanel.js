@@ -43,10 +43,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   useEffect(() => {
     const checkPermissions = async () => {
       try {
-        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-        const resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`);
-        const statusData = await resStatus.json();
-        if (!statusData.is_logged_in) {
+        const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
+        const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+
+        if (!savedAuth || savedUserId === 'admin') {
           setHasCannedPermission(true);
           setHasBlacklistPermission(true);
           setHasQAPermission(true);
@@ -60,10 +60,13 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasApiBudgetsPermission(true);
           return;
         }
+
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?t=${Date.now()}`);
         const usersData = await resUsers.json();
-        const currentUser = usersData.find(u => u.id === statusData.user_id);
-        if (!currentUser) {
+        const currentUser = usersData.find(u => str(u.id) === str(savedUserId) || u.extension === savedUserId);
+        
+        if (!currentUser || currentUser.role === "admin" || currentUser.id === "admin") {
           setHasCannedPermission(true);
           setHasBlacklistPermission(true);
           setHasQAPermission(true);
@@ -77,24 +80,12 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasApiBudgetsPermission(true);
           return;
         }
+
         const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles?t=${Date.now()}`);
         const rolesData = await resRoles.json();
         const currentRole = rolesData.find(r => r.role_code === currentUser.role);
-        if (!currentRole) {
-          setHasCannedPermission(true);
-          setHasBlacklistPermission(true);
-          setHasQAPermission(true);
-          setHasAPIPermission(true);
-          setHasBioPermission(true);
-          setHasAutoprovTemplatesPermission(true);
-          setHasRoiSettingsPermission(true);
-          setHasSSLPermission(true);
-          setHasBackupPermission(true);
-          setHasApiBudgetsPermission(true);
-          return;
-        }
-        const isAdmin = currentUser?.role === "admin" || currentRole?.role_code === "admin" || currentRole?.role_code === "superadmin" || currentUser?.id === "admin";
-        if (isAdmin) {
+
+        if (!currentRole || currentRole.role_code === "admin" || currentRole.role_code === "superadmin") {
           setHasCannedPermission(true);
           setHasBlacklistPermission(true);
           setHasQAPermission(true);
@@ -106,19 +97,20 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasBackupPermission(true);
           setHasRecordingRetentionPermission(true);
           setHasApiBudgetsPermission(true);
-        } else {
-          setHasCannedPermission(currentRole.permissions.includes("canned_responses:read"));
-          setHasBlacklistPermission(currentRole.permissions.includes("blacklist:read"));
-          setHasQAPermission(currentRole.permissions.includes("qa:read"));
-          setHasAPIPermission(currentRole.permissions.includes("universal_api:read"));
-          setHasBioPermission(currentRole.permissions.includes("voice_biometrics:read"));
-          setHasAutoprovTemplatesPermission(currentRole.permissions.includes("autoprovision_templates:read"));
-          setHasRoiSettingsPermission(currentRole.permissions.includes("roi_settings:read"));
-          setHasSSLPermission(currentRole.permissions.includes("ssl:read"));
-          setHasBackupPermission(currentRole.permissions.includes("backup_restore:read"));
-          setHasRecordingRetentionPermission(currentRole.permissions.includes("recording_retention:read"));
-          setHasApiBudgetsPermission(currentRole.permissions.includes("api_budgets:read") || currentRole.permissions.includes("api_budgets:write"));
+          return;
         }
+
+        setHasCannedPermission(currentRole.permissions.includes("canned_responses:read"));
+        setHasBlacklistPermission(currentRole.permissions.includes("blacklist:read"));
+        setHasQAPermission(currentRole.permissions.includes("qa:read"));
+        setHasAPIPermission(currentRole.permissions.includes("universal_api:read"));
+        setHasBioPermission(currentRole.permissions.includes("voice_biometrics:read"));
+        setHasAutoprovTemplatesPermission(currentRole.permissions.includes("autoprovision_templates:read"));
+        setHasRoiSettingsPermission(currentRole.permissions.includes("roi_settings:read"));
+        setHasSSLPermission(currentRole.permissions.includes("ssl:read"));
+        setHasBackupPermission(currentRole.permissions.includes("backup_restore:read"));
+        setHasRecordingRetentionPermission(currentRole.permissions.includes("recording_retention:read"));
+        setHasApiBudgetsPermission(currentRole.permissions.includes("api_budgets:read") || currentRole.permissions.includes("api_budgets:write"));
         setDebugPerms(JSON.stringify(currentRole.permissions));
       } catch (err) {
         console.error("Canned/Blacklist permission check error:", err);

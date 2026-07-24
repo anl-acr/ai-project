@@ -135,7 +135,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     setShowModal(true);
   };
 
-  const handleFormSubmit = (e) => {
+  const handleFormSubmit = async (e) => {
     e.preventDefault();
     setError("");
     const trimmedCode = roleCode.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
@@ -163,7 +163,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         return r;
       });
       setRoles(updated);
-      handleSaveAll(updated);
+      await handleSaveAll(updated);
     } else {
       // Add
       const nextId = roles.length > 0 ? Math.max(...roles.map(r => r.id || 0)) + 1 : 1;
@@ -176,7 +176,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       };
       const updated = [...roles, newRole];
       setRoles(updated);
-      handleSaveAll(updated);
+      await handleSaveAll(updated);
     }
     setShowModal(false);
   };
@@ -185,11 +185,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     setDeleteTargetId(id);
   };
 
-  const confirmDeleteRole = () => {
+  const confirmDeleteRole = async () => {
     if (deleteTargetId) {
       const filtered = roles.filter((r) => r.id !== deleteTargetId);
       setRoles(filtered);
-      handleSaveAll(filtered);
+      await handleSaveAll(filtered);
       setDeleteTargetId(null);
     }
   };

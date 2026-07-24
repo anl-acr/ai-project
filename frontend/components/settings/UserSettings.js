@@ -501,18 +501,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         return u;
       });
       setUsers(updated);
-      handleSaveAll(updated);
+      await handleSaveAll(updated);
       await syncUserAssociations(editingUser.id);
-      fetchAllData();
     } else {
       // Add mode
       const nextId = users.length > 0 ? Math.max(...users.map(u => u.id || 0)) + 1 : 1;
       const newUser = { id: nextId, ...userData };
       const updated = [...users, newUser];
       setUsers(updated);
-      handleSaveAll(updated);
+      await handleSaveAll(updated);
       await syncUserAssociations(newUser.id);
-      fetchAllData();
     }
     setShowModal(false);
   };
@@ -525,7 +523,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     if (deleteTargetId) {
       const filtered = users.filter((u) => u.id !== deleteTargetId);
       setUsers(filtered);
-      handleSaveAll(filtered);
+      await handleSaveAll(filtered);
       await syncUserAssociations(deleteTargetId, true);
       setDeleteTargetId(null);
     }
