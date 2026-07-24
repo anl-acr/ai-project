@@ -70,10 +70,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
 
   const resolveHost = (bh) => {
     if (typeof window === "undefined") return bh || "localhost:8000";
-    if (window.location.port === "3000" || window.location.port === "3001") {
-      return bh || `${window.location.hostname}:8000`;
-    }
-    return window.location.host;
+    if (bh) return bh;
+    return `${window.location.hostname}:8000`;
   };
   const host = resolveHost(backendHost);
   const API_BASE = `${window.location.protocol}//${host}`;

@@ -449,40 +449,52 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   };
 
   const syncUserAssociations = async (userId, isDelete = false) => {
-    // For Outbound Rules
-    for (let rule of outboundRules) {
-      const wasInRule = rule.allowed_users && rule.allowed_users.includes(userId);
-      const isInRule = !isDelete && selectedOutboundRules.includes(rule.id);
-      
-      if (wasInRule !== isInRule) {
-        let newAllowed = [...(rule.allowed_users || [])];
-        if (isInRule) newAllowed.push(userId);
-        else newAllowed = newAllowed.filter(id => id !== userId);
-        
-        await fetch(`${API_BASE}/api/settings/outbound_rules`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...rule, allowed_users: newAllowed })
-        });
+    try {
+      if (Array.isArray(outboundRules)) {
+        for (let rule of outboundRules) {
+          const wasInRule = rule.allowed_users && rule.allowed_users.includes(userId);
+          const isInRule = !isDelete && selectedOutboundRules.includes(rule.id);
+          
+          if (wasInRule !== isInRule) {
+            let newAllowed = [...(rule.allowed_users || [])];
+            if (isInRule) newAllowed.push(userId);
+            else newAllowed = newAllowed.filter(id => id !== userId);
+            
+            await fetch(`${API_BASE}/api/settings/outbound_rules`, {
+              method: "POST",
+              headers: { 
+                "Content-Type": "application/json",
+                "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+              },
+              body: JSON.stringify({ ...rule, allowed_users: newAllowed })
+            });
+          }
+        }
       }
-    }
 
-    // For Call Pickup Groups
-    for (let group of callPickupGroups) {
-      const wasInGroup = group.extensions && group.extensions.includes(userId);
-      const isInGroup = !isDelete && selectedCallPickupGroups.includes(group.id);
-      
-      if (wasInGroup !== isInGroup) {
-        let newExtensions = [...(group.extensions || [])];
-        if (isInGroup) newExtensions.push(userId);
-        else newExtensions = newExtensions.filter(id => id !== userId);
-        
-        await fetch(`${API_BASE}/api/settings/call_pickup_groups`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ...group, extensions: newExtensions })
-        });
+      if (Array.isArray(callPickupGroups)) {
+        for (let group of callPickupGroups) {
+          const wasInGroup = group.extensions && group.extensions.includes(userId);
+          const isInGroup = !isDelete && selectedCallPickupGroups.includes(group.id);
+          
+          if (wasInGroup !== isInGroup) {
+            let newExtensions = [...(group.extensions || [])];
+            if (isInGroup) newExtensions.push(userId);
+            else newExtensions = newExtensions.filter(id => id !== userId);
+            
+            await fetch(`${API_BASE}/api/settings/call_pickup_groups`, {
+              method: "POST",
+              headers: { 
+                "Content-Type": "application/json",
+                "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+              },
+              body: JSON.stringify({ ...group, extensions: newExtensions })
+            });
+          }
+        }
       }
+    } catch (e) {
+      console.warn("syncUserAssociations warning:", e);
     }
   };
 
