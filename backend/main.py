@@ -4758,12 +4758,6 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
 
         await db.commit()
 
-        try:
-            await db.execute(text("SELECT setval(pg_get_serial_sequence('system_users', 'id'), COALESCE((SELECT MAX(id) FROM system_users), 1));"))
-            await db.commit()
-        except Exception:
-            pass
-
         res_updated = await db.execute(select(SystemUser).order_by(SystemUser.id))
         all_users_db = res_updated.scalars().all()
         for u in all_users_db:
@@ -4771,18 +4765,11 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
 
         settings_db["needs_apply"] = True
         settings_db["users"] = new_users_out
-        save_settings(settings_db)
-        
         try:
-            await log_event(
-                user_id=user_info["user_id"],
-                action="UPDATE_USERS",
-                module="Users",
-                details={"changes": changes} if changes else {"status": "No changes detected"},
-                ip_address=user_info["ip_address"]
-            )
-        except Exception as le:
-            print(f"[Log Event Error]: {le}")
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(settings_db, f, ensure_ascii=False, indent=4)
+        except Exception:
+            pass
         
         return {"status": "success", "users": new_users_out}
     except HTTPException:
@@ -4814,7 +4801,11 @@ async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(ge
         
         settings_db["needs_apply"] = True
         settings_db["users"] = new_users_out
-        save_settings(settings_db)
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(settings_db, f, ensure_ascii=False, indent=4)
+        except Exception:
+            pass
         
         return {"status": "success", "users": new_users_out}
     except HTTPException:
@@ -4885,12 +4876,6 @@ async def new_save_roles_endpoint(payload: Union[List[RoleSchema], RoleSchema], 
 
         await db.commit()
 
-        try:
-            await db.execute(text("SELECT setval(pg_get_serial_sequence('system_roles', 'id'), COALESCE((SELECT MAX(id) FROM system_roles), 1));"))
-            await db.commit()
-        except Exception:
-            pass
-
         res_updated = await db.execute(select(SystemRole).order_by(SystemRole.id))
         all_roles_db = res_updated.scalars().all()
         for r in all_roles_db:
@@ -4898,7 +4883,11 @@ async def new_save_roles_endpoint(payload: Union[List[RoleSchema], RoleSchema], 
 
         settings_db["needs_apply"] = True
         settings_db["roles"] = new_roles_out
-        save_settings(settings_db)
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(settings_db, f, ensure_ascii=False, indent=4)
+        except Exception:
+            pass
         
         return {"status": "success", "roles": new_roles_out}
     except HTTPException:
@@ -4930,7 +4919,11 @@ async def delete_single_role_endpoint(role_id: int, user_info: dict = Depends(ge
         
         settings_db["needs_apply"] = True
         settings_db["roles"] = new_roles_out
-        save_settings(settings_db)
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                json.dump(settings_db, f, ensure_ascii=False, indent=4)
+        except Exception:
+            pass
         
         return {"status": "success", "roles": new_roles_out}
     except HTTPException:
