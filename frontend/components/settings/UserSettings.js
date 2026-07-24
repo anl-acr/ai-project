@@ -148,9 +148,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [selectedDepartment, setSelectedDepartment] = useState("");
 
   const safeFetch = async (path, options = {}) => {
-    const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-    const url = path.startsWith("http") ? path : `${protocol}//${window.location.host}${path.startsWith('/') ? path : '/' + path}`;
-    return await fetch(url, options);
+    return await fetch(path, options);
   };
 
   useEffect(() => {
