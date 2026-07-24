@@ -4639,6 +4639,16 @@ async def startup_event():
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+            try:
+                await conn.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS tenant_id VARCHAR DEFAULT 'tenant-default';"))
+                await conn.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS did_number VARCHAR DEFAULT '';"))
+                await conn.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS protocol VARCHAR DEFAULT 'udp';"))
+                await conn.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS greeting_prompt VARCHAR;"))
+                await conn.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS transfer_target_type VARCHAR DEFAULT 'extension';"))
+                await conn.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS transfer_target VARCHAR DEFAULT '200';"))
+                await conn.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codec VARCHAR DEFAULT 'G711';"))
+            except Exception as e_mig:
+                print(f"[DB Startup Migration Info]: {e_mig}")
         print("[Database Init] Veritabanı tabloları kontrol edildi / oluşturuldu.")
     except Exception as e:
         print(f"[Database Init] Error creating tables: {e}")
@@ -5128,18 +5138,6 @@ async def new_list_trunks(db: AsyncSession = Depends(get_db)):
 @app.post("/settings/trunks")
 async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
-        try:
-            await db.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS tenant_id VARCHAR DEFAULT 'tenant-default';"))
-            await db.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS did_number VARCHAR DEFAULT '';"))
-            await db.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS protocol VARCHAR DEFAULT 'udp';"))
-            await db.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS greeting_prompt VARCHAR;"))
-            await db.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS transfer_target_type VARCHAR DEFAULT 'extension';"))
-            await db.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS transfer_target VARCHAR DEFAULT '200';"))
-            await db.execute(text("ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codec VARCHAR DEFAULT 'G711';"))
-            await db.commit()
-        except Exception as ex_mig:
-            print(f"[Trunk Migration Warning]: {ex_mig}")
-
         is_single = not isinstance(payload, list)
         items_list = [payload] if is_single else payload
 
