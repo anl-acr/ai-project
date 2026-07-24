@@ -5126,21 +5126,28 @@ async def delete_single_queue_endpoint(queue_id: int, user_info: dict = Depends(
 @app.get("/api/settings/trunks")
 @app.get("/settings/trunks")
 async def new_list_trunks(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Trunk).order_by(Trunk.id))
-    trunks = result.scalars().all()
-    out = []
-    for t in trunks:
-        d = {c.name: getattr(t, c.name) for c in t.__table__.columns}
-        out.append(d)
-    return out
+    try:
+        result = await db.execute(select(Trunk).order_by(Trunk.id))
+        trunks = result.scalars().all()
+        if trunks:
+            out = []
+            for t in trunks:
+                d = {c.name: getattr(t, c.name) for c in t.__table__.columns}
+                out.append(d)
+            return out
+    except Exception as e:
+        print(f"[List Trunks DB Warning]: {e}")
+
+    return settings_db.get("trunks", [])
 
 @app.post("/api/settings/trunks")
 @app.post("/settings/trunks")
 async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
-    try:
-        is_single = not isinstance(payload, list)
-        items_list = [payload] if is_single else payload
+    is_single = not isinstance(payload, list)
+    items_list = [payload] if is_single else payload
+    out = []
 
+    try:
         res_existing = await db.execute(select(Trunk))
         existing_trunks_db = res_existing.scalars().all()
         existing_by_id = {t.id: t for t in existing_trunks_db if t.id}
@@ -5152,17 +5159,17 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
             data = item.model_dump() if hasattr(item, "model_dump") else (item.copy() if isinstance(item, dict) else {})
             filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
-            target_trunk = None
-            if data.get("id") and data.get("id") in existing_by_id:
-                target_trunk = existing_by_id[data["id"]]
-            elif data.get("trunk_name") and data.get("trunk_name") in existing_by_name:
-                target_trunk = existing_by_name[data["trunk_name"]]
-
             if "port" in filtered_data:
                 try:
                     filtered_data["port"] = int(filtered_data["port"])
                 except (ValueError, TypeError):
                     filtered_data["port"] = 5060
+
+            target_trunk = None
+            if data.get("id") and data.get("id") in existing_by_id:
+                target_trunk = existing_by_id[data["id"]]
+            elif data.get("trunk_name") and data.get("trunk_name") in existing_by_name:
+                target_trunk = existing_by_name[data["trunk_name"]]
 
             if target_trunk:
                 for k, v in filtered_data.items():
@@ -5184,15 +5191,25 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
         res_all = await db.execute(select(Trunk).order_by(Trunk.id))
         all_trunks = res_all.scalars().all()
         out = [{c.name: getattr(t, c.name) for c in t.__table__.columns} for t in all_trunks]
-
-        settings_db["needs_apply"] = True
-        settings_db["trunks"] = out
-
-        return {"status": "success", "trunks": out}
     except Exception as e:
         await db.rollback()
-        print(f"[Save Trunk Error]: {e}")
-        raise HTTPException(status_code=500, detail=f"SIP Trunk kaydedilirken hata oluştu: {str(e)}")
+        print(f"[Save Trunk DB Warning]: {e}")
+        current_trunks = list(settings_db.get("trunks", []))
+        for item in items_list:
+            data = item.model_dump() if hasattr(item, "model_dump") else (item.copy() if isinstance(item, dict) else {})
+            if not data.get("id"):
+                data["id"] = (max([t.get("id", 0) for t in current_trunks] or [0])) + 1
+            existing_idx = next((i for i, t in enumerate(current_trunks) if t.get("id") == data.get("id") or t.get("trunk_name") == data.get("trunk_name")), None)
+            if existing_idx is not None:
+                current_trunks[existing_idx] = data
+            else:
+                current_trunks.append(data)
+        out = current_trunks
+
+    settings_db["needs_apply"] = True
+    settings_db["trunks"] = out
+
+    return {"status": "success", "trunks": out}
 
 @app.delete("/api/settings/trunks/{trunk_id}")
 @app.delete("/settings/trunks/{trunk_id}")
