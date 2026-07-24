@@ -4750,19 +4750,13 @@ async def startup_event():
 @app.get("/api/settings/users")
 @app.get("/settings/users")
 async def new_get_users_endpoint(db: AsyncSession = Depends(get_db)):
-    try:
-        result = await db.execute(select(SystemUser).order_by(SystemUser.id))
-        users = result.scalars().all()
-        if users:
-            out = []
-            for u in users:
-                d = {c.name: getattr(u, c.name) for c in u.__table__.columns}
-                out.append(d)
-            return out
-    except Exception as e:
-        print(f"[Get Users DB Warning]: {e}")
-
-    return settings_db.get("users", [])
+    result = await db.execute(select(SystemUser).order_by(SystemUser.id))
+    users = result.scalars().all()
+    out = []
+    for u in users:
+        d = {c.name: getattr(u, c.name) for c in u.__table__.columns}
+        out.append(d)
+    return out
 
 @app.post("/api/settings/users")
 @app.post("/settings/users")
@@ -4879,19 +4873,13 @@ async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(ge
 @app.get("/api/settings/roles")
 @app.get("/settings/roles")
 async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
-    try:
-        result = await db.execute(select(SystemRole).order_by(SystemRole.id))
-        roles = result.scalars().all()
-        if roles:
-            out = []
-            for r in roles:
-                d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
-                out.append(d)
-            return out
-    except Exception as e:
-        print(f"[Get Roles DB Warning]: {e}")
-
-    return settings_db.get("roles", [])
+    result = await db.execute(select(SystemRole).order_by(SystemRole.id))
+    roles = result.scalars().all()
+    out = []
+    for r in roles:
+        d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+        out.append(d)
+    return out
 
 @app.post("/api/settings/roles")
 @app.post("/settings/roles")
