@@ -68,7 +68,15 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const [selectedPermissions, setSelectedPermissions] = useState([]);
   const [selectedBreaks, setSelectedBreaks] = useState([]);
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const resolveHost = (bh) => {
+    if (typeof window === "undefined") return bh || "localhost:8000";
+    if (window.location.port === "3000" || window.location.port === "3001") {
+      return bh || `${window.location.hostname}:8000`;
+    }
+    return window.location.host;
+  };
+  const host = resolveHost(backendHost);
+  const API_BASE = `${window.location.protocol}//${host}`;
 
   useEffect(() => {
     fetchData();
@@ -96,6 +104,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
 
   const handleSaveAll = async (updatedRoles) => {
     setError("");
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
       const res = await fetch(`${API_BASE}/api/settings/roles`, {
         method: "POST",
@@ -103,8 +113,10 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
           "Content-Type": "application/json",
           "X-User-ID": localStorage.getItem("current_user_id") || "admin"
         },
-        body: JSON.stringify(updatedRoles)
+        body: JSON.stringify(updatedRoles),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       const data = await res.json();
       if (res.ok && data.status === "success") {
         if (data.roles) setRoles(data.roles);
@@ -117,8 +129,13 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         return false;
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Roller kaydedilemedi:", err);
-      setError("Sunucuya bağlanırken bir hata oluştu.");
+      if (err.name === 'AbortError') {
+        setError("Sunucu yanıt vermedi (Zaman aşımı). Lütfen sunucu bağlantınızı kontrol ediniz.");
+      } else {
+        setError("Sunucuya bağlanırken bir hata oluştu.");
+      }
       return false;
     }
   };

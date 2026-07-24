@@ -345,7 +345,9 @@ export default function Home() {
     }
   }, [settingsModalOpen]);
 
-  const backendHost = typeof window !== 'undefined' ? window.location.hostname + ":8000" : "localhost:8000";
+  const backendHost = typeof window !== 'undefined'
+    ? ((window.location.port === "3000" || window.location.port === "3001") ? `${window.location.hostname}:8000` : window.location.host)
+    : "localhost:8000";
 
   const checkRolePermissions = async () => {
     let currentUserData = null;

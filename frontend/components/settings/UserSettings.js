@@ -147,7 +147,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [selectedLocation, setSelectedLocation] = useState("");
   const [selectedDepartment, setSelectedDepartment] = useState("");
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const resolveHost = (bh) => {
+    if (typeof window === "undefined") return bh || "localhost:8000";
+    if (window.location.port === "3000" || window.location.port === "3001") {
+      return bh || `${window.location.hostname}:8000`;
+    }
+    return window.location.host;
+  };
+  const host = resolveHost(backendHost);
+  const API_BASE = `${window.location.protocol}//${host}`;
 
   useEffect(() => {
     fetchAllData();
@@ -314,6 +322,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const handleSaveAll = async (updatedUsers) => {
     setError(null);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
     try {
       const res = await fetch(`${API_BASE}/api/settings/users`, {
         method: "POST",
@@ -321,8 +331,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           "Content-Type": "application/json",
           "X-User-ID": localStorage.getItem("current_user_id") || "admin"
         },
-        body: JSON.stringify(updatedUsers)
+        body: JSON.stringify(updatedUsers),
+        signal: controller.signal
       });
+      clearTimeout(timeoutId);
       if (res.ok) {
         const data = await res.json();
         if (data.users) setUsers(data.users);
@@ -335,8 +347,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         return false;
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       console.error("Kullanıcı ayarları kaydedilemedi:", err);
-      setError("Bağlantı hatası oluştu.");
+      if (err.name === 'AbortError') {
+        setError("Sunucu yanıt vermedi (Zaman aşımı). Lütfen sunucu bağlantınızı kontrol ediniz.");
+      } else {
+        setError("Bağlantı hatası oluştu.");
+      }
       return false;
     }
   };
