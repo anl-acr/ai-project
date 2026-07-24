@@ -23,15 +23,13 @@ SETTINGS_FILE = "/Users/anilacar/ai-project/backend/settings.json"
 
 def detect_is_english(text: str) -> bool:
     text_lower = text.lower().strip()
-    english_indicators = ["hello", "hi ", "good morning", "good afternoon", "english", "speak english", "talk in english", "help me", "agent", "support", "representative", "i want to", "how are you"]
-    for indicator in english_indicators:
-        if indicator in text_lower:
-            return True
-    common_english_words = {"the", "is", "you", "are", "to", "for", "with", "can", "not", "hello", "hi"}
-    words = set(text_lower.split())
-    if words.intersection(common_english_words):
-        turkish_chars = {"ı", "ğ", "ü", "ş", "ö", "ç"}
-        if not any(c in text_lower for c in turkish_chars):
+    english_phrases = [
+        "speak english", "talk in english", "can you speak english", 
+        "do you speak english", "i speak english", "in english please",
+        "please speak english", "english agent", "english support"
+    ]
+    for phrase in english_phrases:
+        if phrase in text_lower:
             return True
     return False
 
@@ -43,6 +41,164 @@ def load_settings():
         except Exception as e:
             print(f"[Settings] Error loading settings: {e}")
     return {}
+
+async def stream_elevenlabs_tts_to_asterisk(text: str, voice_id: str, stability: float, similarity: float, style: float, api_key: str, write_queue: asyncio.Queue):
+    """Streams ElevenLabs TTS audio in real-time directly into Asterisk write_queue with sub-second latency."""
+    import httpx
+    if not api_key or not text.strip():
+        print("[ElevenLabs Stream WARNING] ElevenLabs API Key veya metin bulunamadı!")
+        return
+    if not voice_id:
+        voice_id = "EXAVITQu4vr4xnSDxMaL" # Bella default premade
+        
+    url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream?output_format=pcm_16000&optimize_streaming_latency=3"
+    headers = {
+        "xi-api-key": api_key,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "text": text,
+        "model_id": "eleven_multilingual_v2",
+        "voice_settings": {
+            "stability": stability,
+            "similarity_boost": similarity,
+            "style": style
+        }
+    }
+    
+    print(f"[ElevenLabs Stream Start] '{text[:30]}...' canlı ses yayını başlatılıyor (Latency Optimized)...")
+    raw_16k_buffer = bytearray()
+    pcm_8k_buffer = bytearray()
+    
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            async with client.stream("POST", url, json=payload, headers=headers) as response:
+                if response.status_code != 200:
+                    error_body = await response.aread()
+                    print(f"[ElevenLabs Stream Error] Status {response.status_code}: {error_body.decode(errors='ignore')}")
+                    return
+                    
+                async for chunk in response.aiter_bytes():
+                    if not chunk:
+                        continue
+                    raw_16k_buffer.extend(chunk)
+                    
+                    # Process only complete 4-byte sample blocks (2 samples at 16kHz -> 1 sample at 8kHz)
+                    # Apply 2-tap moving average anti-aliasing filter to eliminate high-frequency audio tearing/distortion
+                    while len(raw_16k_buffer) >= 4:
+                        s0 = int.from_bytes(raw_16k_buffer[0:2], byteorder='little', signed=True)
+                        s1 = int.from_bytes(raw_16k_buffer[2:4], byteorder='little', signed=True)
+                        avg_sample = (s0 + s1) // 2
+                        pcm_8k_buffer.extend(avg_sample.to_bytes(2, byteorder='little', signed=True))
+                        del raw_16k_buffer[:4]
+                        
+                    while len(pcm_8k_buffer) >= 320:
+                        frame = bytes(pcm_8k_buffer[:320])
+                        await write_queue.put(frame)
+                        del pcm_8k_buffer[:320]
+                        
+            if len(pcm_8k_buffer) > 0:
+                frame = bytes(pcm_8k_buffer) + b'\x00' * (320 - len(pcm_8k_buffer))
+                await write_queue.put(frame)
+                
+            print(f"[ElevenLabs Stream Finish] '{text[:30]}...' canlı yayını tamamlandı.")
+    except Exception as e:
+        print(f"[ElevenLabs Stream Exception] {e}")
+
+async def query_non_gemini_llm(llm_provider: str, model_name: str, system_prompt: str, user_text: str, settings_data: dict) -> str:
+    """Queries OpenAI, Groq, or Anthropic REST APIs directly for non-Gemini LLM providers."""
+    import httpx
+    ai_providers = settings_data.get("ai_providers", {})
+    
+    if llm_provider == "groq":
+        api_key = ai_providers.get("groq_api_key") or os.getenv("GROQ_API_KEY", "")
+        if not api_key:
+            return "Groq API anahtarı sistemde tanımlı değil."
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        model = model_name if ("llama" in model_name or "mixtral" in model_name) else "llama-3.3-70b-versatile"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 300
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+                else:
+                    print(f"[Groq LLM Error] {resp.status_code}: {resp.text}")
+                    return "Groq servisine ulaşılamadı."
+        except Exception as e:
+            print(f"[Groq LLM Exception] {e}")
+            return "Groq bağlantı hatası."
+
+    elif llm_provider == "openai":
+        api_key = ai_providers.get("openai_api_key") or os.getenv("OPENAI_API_KEY", "")
+        if not api_key:
+            return "OpenAI API anahtarı sistemde tanımlı değil."
+        url = "https://api.openai.com/v1/chat/completions"
+        model = model_name if "gpt" in model_name else "gpt-4o-mini"
+        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        payload = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_text}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 300
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data["choices"][0]["message"]["content"]
+                else:
+                    print(f"[OpenAI LLM Error] {resp.status_code}: {resp.text}")
+                    return "OpenAI servisine ulaşılamadı."
+        except Exception as e:
+            print(f"[OpenAI LLM Exception] {e}")
+            return "OpenAI bağlantı hatası."
+
+    elif llm_provider == "anthropic":
+        api_key = ai_providers.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return "Anthropic API anahtarı sistemde tanımlı değil."
+        url = "https://api.anthropic.com/v1/messages"
+        model = model_name if "claude" in model_name else "claude-3-5-sonnet-20241022"
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": model,
+            "system": system_prompt,
+            "messages": [{"role": "user", "content": user_text}],
+            "max_tokens": 300
+        }
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.post(url, json=payload, headers=headers)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    return data["content"][0]["text"]
+                else:
+                    print(f"[Anthropic LLM Error] {resp.status_code}: {resp.text}")
+                    return "Anthropic servisine ulaşılamadı."
+        except Exception as e:
+            print(f"[Anthropic LLM Exception] {e}")
+            return "Anthropic bağlantı hatası."
+
+    return ""
 
 async def get_call_did(call_id: str) -> str:
     """Queries the database to get the dialed DID number for this call."""
@@ -385,6 +541,41 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         else:
             print(f"Arama DID: {did} -> Uygun AI Agent bulunamadi. Varsayilan ayarlar kullanilacak.")
 
+        llm_provider = "google"
+        tts_provider = "google"
+        is_elevenlabs_tts = False
+        elevenlabs_api_key = ""
+        elevenlabs_voice_id = ""
+        elevenlabs_stability = 0.5
+        elevenlabs_similarity = 0.75
+        elevenlabs_style = 0.0
+
+        elevenlabs_agent_id = ""
+        if ai_agent:
+            llm_provider = str(ai_agent.get("llm_provider") or ai_agent.get("provider", "google")).lower()
+            tts_provider = str(ai_agent.get("tts_provider") or ("elevenlabs" if ai_agent.get("elevenlabs_voice_id") else "google")).lower()
+            elevenlabs_agent_id = ai_agent.get("elevenlabs_agent_id", "")
+
+            if llm_provider == "elevenlabs":
+                if elevenlabs_agent_id:
+                    print(f"[ElevenLabs ConvAI] Zeka Motoru ElevenLabs ConvAI olarak ayarlandı. Agent ID: {elevenlabs_agent_id}")
+                else:
+                    print(f"[ElevenLabs ConvAI WARNING] UYARI: Zeka motoru 'ElevenLabs' seçildi ancak 'ElevenLabs Agent ID (ConvAI)' girilmemiş! Zeka işlemleri için Gemini motoruna yönlendirildi.")
+
+            if tts_provider == "elevenlabs" or ai_agent.get("elevenlabs_voice_id"):
+                settings_data = load_settings()
+                elevenlabs_api_key = settings_data.get("ai_providers", {}).get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", "")
+                elevenlabs_voice_id = ai_agent.get("elevenlabs_voice_id") or "EXAVITQu4vr4xnSDxMaL"
+                elevenlabs_stability = float(ai_agent.get("elevenlabs_stability", 0.5))
+                elevenlabs_similarity = float(ai_agent.get("elevenlabs_similarity", 0.75))
+                elevenlabs_style = float(ai_agent.get("elevenlabs_style", 0.0))
+
+                if elevenlabs_api_key:
+                    is_elevenlabs_tts = True
+                    print(f"[ElevenLabs TTS] Temsilci '{ai_agent.get('name')}' ElevenLabs TTS modunda aktif. Voice ID: {elevenlabs_voice_id}")
+                else:
+                    print(f"[ElevenLabs WARNING] UYARI: Temsilci '{ai_agent.get('name')}' ElevenLabs TTS olarak seçildi ancak ElevenLabs API Key henüz girilmemiş! Gemini Dahili Ses Motoruna geçiliyor.")
+
         # 2. Connect to Google Gemini Multimodal Live API via WebSocket
         if not GEMINI_API_KEY:
             print("Hata: GEMINI_API_KEY tanimlanmamis!")
@@ -513,34 +704,38 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         model_name = ai_agent.get("model", GEMINI_MODEL) if ai_agent else GEMINI_MODEL
         
         # Ensure we use a Live API compatible model
-        if "1.5" in model_name or "1.0" in model_name or model_name == "gemini-2.0-flash":
-            print(f"[Uyari] {model_name} Live API'yi tam desteklemiyor. Varsayilan Live API modeline geciliyor: models/gemini-2.5-flash-native-audio-latest")
+        if "1.5" in model_name or "1.0" in model_name or model_name == "gemini-2.0-flash" or "eleven" in model_name.lower() or not model_name.lower().startswith("gemini"):
+            print(f"[Uyari] '{model_name}' Live WebSocket API'si ile doğrudan kullanılamaz. Zeka motoru 'models/gemini-2.5-flash-native-audio-latest' olarak ayarlandı.")
             model_name = "models/gemini-2.5-flash-native-audio-latest"
             
         formatted_model = model_name if model_name.startswith("models/") else f"models/{model_name}"
             
-        agent_temperature = float(ai_agent.get("temperature", 0.1)) if ai_agent else 0.1
+        agent_temperature = float(ai_agent.get("temperature", 0.7)) if ai_agent else 0.7
+        agent_max_tokens = int(ai_agent.get("max_tokens", 300)) if ai_agent else 300
         agent_voice_raw = ai_agent.get("voice", VOICE_NAME) if ai_agent else VOICE_NAME
         agent_voice = voice_map.get(agent_voice_raw, VOICE_NAME)
         
         # Ensure model name includes "models/" prefix
         formatted_model = f"models/{model_name}" if not model_name.startswith("models/") else model_name
 
+        generation_config = {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {
+                        "voiceName": agent_voice
+                    }
+                }
+            },
+            "temperature": agent_temperature,
+            "maxOutputTokens": agent_max_tokens
+        }
+
         # Send Setup Config
         setup_msg = {
             "setup": {
                 "model": formatted_model,
-                "generationConfig": {
-                    "responseModalities": ["AUDIO"],
-                    "speechConfig": {
-                        "voiceConfig": {
-                            "prebuiltVoiceConfig": {
-                                "voiceName": VOICE_NAME
-                            }
-                        }
-                    },
-                    "temperature": agent_temperature
-                },
+                "generationConfig": generation_config,
                 "systemInstruction": {
                     "parts": [
                         {
@@ -790,6 +985,16 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                         if ai_text:
                             current_ai_text += ai_text
                             print(f"[STT AI CHUNK]: {ai_text}")
+                            
+                            # Sentence-level real-time ElevenLabs streaming for sub-second latency
+                            if is_elevenlabs_tts and elevenlabs_api_key:
+                                import re
+                                match = re.search(r'([^.!?;\n]+[.!?;\n])', current_ai_text)
+                                if match:
+                                    sentence = match.group(1).strip()
+                                    current_ai_text = current_ai_text[match.end():]
+                                    if sentence:
+                                        asyncio.create_task(stream_elevenlabs_tts_to_asterisk(sentence, elevenlabs_voice_id, elevenlabs_stability, elevenlabs_similarity, elevenlabs_style, elevenlabs_api_key, asterisk_write_queue))
 
                     # 3. Write User Transcript to DB when AI starts speaking or tool is called
                     if ("serverContent" in resp and "modelTurn" in resp["serverContent"]) or ("toolCall" in resp):
@@ -858,7 +1063,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                         continue
 
                     # Check for model audio turn (modelTurn) to stream audio bytes to Asterisk
-                    if "serverContent" in resp and "modelTurn" in resp["serverContent"]:
+                    if not is_elevenlabs_tts and "serverContent" in resp and "modelTurn" in resp["serverContent"]:
                         parts = resp["serverContent"]["modelTurn"].get("parts", [])
                         for part in parts:
                             # Handle AI Audio
@@ -878,10 +1083,13 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                         await asterisk_write_queue.put(chunk)
                                         del audio_buffer[:320]
 
-                    # Save full AI response when turn is completed
+                    # Save full AI response when turn is completed & trigger remaining ElevenLabs TTS if active
                     if "serverContent" in resp and resp["serverContent"].get("turnComplete"):
                         if current_ai_text.strip():
                             await write_db_transcript(call_id, "ai", current_ai_text.strip())
+                            if is_elevenlabs_tts and elevenlabs_api_key:
+                                remaining_text = current_ai_text.strip()
+                                asyncio.create_task(stream_elevenlabs_tts_to_asterisk(remaining_text, elevenlabs_voice_id, elevenlabs_stability, elevenlabs_similarity, elevenlabs_style, elevenlabs_api_key, asterisk_write_queue))
                             current_ai_text = ""
                             
                         # Flush any remaining audio in the buffer at the end of the turn
@@ -941,6 +1149,11 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
             [rec_asterisk_task, send_asterisk_task, write_asterisk_task],
             return_when=asyncio.FIRST_COMPLETED
         )
+        for t in done:
+            if t.exception():
+                print(f"[Task Exception] {t}: {t.exception()}")
+            else:
+                print(f"[Task Completed] {t}")
         
     except Exception as e:
         print(f"Audiosocket baglanti hatasi: {e}")
@@ -979,7 +1192,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
             await end_call_db(call_id, hangup_source=h_source)
 
 async def start_server():
-    server = await asyncio.start_server(handle_audiosocket_connection, '0.0.0.0', PORT)
+    server = await asyncio.start_server(handle_audiosocket_connection, '', PORT)
     addr = server.sockets[0].getsockname()
     print(f"Audiosocket TCP Sunucusu dinlemede: {addr}")
     async with server:

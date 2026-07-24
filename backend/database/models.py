@@ -4,10 +4,49 @@ from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 from backend.database.config import Base
 
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id = Column(String, primary_key=True, index=True)  # e.g. "tenant-default", "tenant-acme"
+    name = Column(String, nullable=False)
+    code = Column(String, nullable=False, unique=True, index=True)
+    status = Column(String, default="active")  # active, passive
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    license_expires_at = Column(DateTime, nullable=True)  # Expiration date for automatic passive locking
+    license_key = Column(String, nullable=True)  # Cryptographic or unique license key code e.g. AIDA-9812-7634
+    plan_tier = Column(String, default="professional")  # trial, starter, professional, enterprise
+    
+    # 1. Yapay Zeka Kotaları
+    max_agents = Column(Integer, default=20)
+    max_rag_docs = Column(Integer, default=100)
+    max_scenarios = Column(Integer, default=20)
+    
+    # 2. Santral Kotaları
+    max_users = Column(Integer, default=50)
+    max_announcements = Column(Integer, default=20)
+    max_queues = Column(Integer, default=10)
+    max_inbound_rules = Column(Integer, default=25)
+    max_outbound_rules = Column(Integer, default=25)
+    max_pickup_groups = Column(Integer, default=10)
+    max_subscriber_groups = Column(Integer, default=10)
+    max_phonebook_contacts = Column(Integer, default=500)
+    max_trunks = Column(Integer, default=5)
+    max_conference_rooms = Column(Integer, default=5)
+    max_speed_dials = Column(Integer, default=50)
+    max_blacklist_entries = Column(Integer, default=100)
+    max_locations = Column(Integer, default=5)
+    max_departments = Column(Integer, default=10)
+    
+    # 3. Çağrı Yönlendirme & Akış Kotaları
+    max_call_flows = Column(Integer, default=10)
+    max_dialers = Column(Integer, default=5)
+
+
 class Call(Base):
     __tablename__ = "calls"
 
     id = Column(String, primary_key=True, index=True)  # Asterisk Unique ID
+    tenant_id = Column(String, default="tenant-default", index=True)
     caller_number = Column(String, nullable=False)
     callee_number = Column(String, nullable=False)
     status = Column(String, default="in_progress")  # in_progress, completed, transferred
@@ -42,6 +81,7 @@ class Rule(Base):
     __tablename__ = "rules"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     rule_type = Column(String, nullable=False)  # faq, routing, prompt
     trigger_keyword = Column(String, nullable=True)  # triggers if keyword matched
     response_text = Column(Text, nullable=True)
@@ -53,6 +93,7 @@ class Appointment(Base):
     __tablename__ = "appointments"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     call_id = Column(String, ForeignKey("calls.id"), nullable=True)
     customer_name = Column(String, nullable=False)
     customer_phone = Column(String, nullable=False)
@@ -68,6 +109,7 @@ class DocumentChunk(Base):
     __tablename__ = "document_chunks"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     filename = Column(String, nullable=False)
     content = Column(Text, nullable=False)
     embedding = Column(Vector(768), nullable=False)  # Gemini Text Embedding Dimension is 768
@@ -77,6 +119,7 @@ class ChatSession(Base):
     __tablename__ = "chat_sessions"
 
     id = Column(String, primary_key=True, index=True)  # UUID string
+    tenant_id = Column(String, default="tenant-default", index=True)
     channel = Column(String, nullable=False)  # whatsapp, instagram, telegram, facebook, mail
     sender_info = Column(String, nullable=False)  # Phone number, username, or email
     status = Column(String, default="active")  # active, closed
@@ -175,6 +218,7 @@ class SystemSetting(Base):
 class SystemUser(Base):
     __tablename__ = "system_users"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     full_name = Column(String, nullable=False)
     email = Column(String, nullable=False)
     extension = Column(String, nullable=False, unique=True)
@@ -211,6 +255,7 @@ class SystemRole(Base):
 class Trunk(Base):
     __tablename__ = "trunks"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     trunk_type = Column(String, nullable=False) # register, peer
     trunk_name = Column(String, nullable=False)
     host = Column(String, nullable=False)
@@ -228,6 +273,7 @@ class Trunk(Base):
 class PBXQueue(Base):
     __tablename__ = "pbx_queues"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
     extension = Column(String)
     name = Column(String, nullable=False)
     strategy = Column(String, default="ringall")
@@ -259,6 +305,7 @@ class PBXQueue(Base):
 class AIAgent(Base):
     __tablename__ = "ai_agents"
     id = Column(String, primary_key=True, index=True) # UUID or string ID
+    tenant_id = Column(String, default="tenant-default", index=True)
     name = Column(String, nullable=False)
     voice = Column(String, nullable=False)
     tone = Column(String, nullable=False)

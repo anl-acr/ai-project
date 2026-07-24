@@ -29,10 +29,31 @@ async def compile_system_prompt(agent: dict = None) -> str:
         greeting_text = agent.get("greeting_prompt", "")
         if greeting_text:
             base_prompt += f"\n\nÖNEMLİ: Müşteri telefonu açıp ilk sinyali/sesi ('Merhaba' vb.) gönderdiğinde, İLK CÜMLE OLARAK tam olarak şu şekilde yanıt ver: '{greeting_text}'"
+            
+        tone = agent.get("tone", "normal")
+        tone_map = {
+            "normal": "Kibar, profesyonel, net ve yardımsever bir konuşma üslubu kullan.",
+            "calm": "Çok sakin, sabırlı, yavaş tempoda, yapıcı ve rahatlatıcı bir konuşma üslubu kullan.",
+            "attractive": "Enerjik, neşeli, çekici, canlı ve samimi bir konuşma üslubu kullan.",
+            "firm": "Ciddi, net, kararlı, kısa ve sonuç odaklı bir üslup kullan."
+        }
+        tone_instruction = tone_map.get(tone, tone_map["normal"])
+        base_prompt += f"\n\n[KONUŞMA ÜSLUBU VE TONU]: {tone_instruction}"
     else:
         base_prompt = DEFAULT_SYSTEM_PROMPT.replace("{time_farewell}", time_farewell)
         
     prompt = base_prompt
+    
+    # Human Conversational Realism & Verbal Fillers
+    human_realism_prompt = """
+
+[DOĞAL İNSAN KONUŞMA VE GERÇEKÇİLİK KURALLARI]:
+- Yapay zeka gibi kusursuz, soğuk veya kalıplaşmış yanıtlar verme. Tıpkı canlı bir insan müşteri temsilcisi gibi doğal konuş.
+- Cümle aralarında ve düşünürken insanlara özgü doğal aradoldurma ifadeleri ve duraksamalar kullan (Örnekler: 'Hımm...', 'Anladım...', 'Şöyle ki...', 'Bir saniye kontrol ediyorum...', 'Hemen bakıyorum, çok kısa bekleteceğim...').
+- Bir bilgiye bakacağın veya sorgulama yapacağın zaman doğrudan cevaba atlama, önce 'Hemen sistemden kontrol ediyorum...', 'Bir saniye bakayım...' diyerek müşteriyle canlı iletişimde kal.
+- Duraksamak istediğin veya nefes alacağın yerlere '...' (üç nokta) koy. Bu sayede ses motoru gerçekçi insan nefes arası verecektir.
+"""
+    prompt += human_realism_prompt
     
     try:
         async with AsyncSessionLocal() as session:

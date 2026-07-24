@@ -91,6 +91,7 @@ import ConferencesPanel from "../components/settings/ConferencesPanel";
 import EventLogsPanel from "../components/settings/EventLogsPanel";
 import SecurityPanel from "../components/security/SecurityPanel";
 import Login from "../components/auth/Login";
+import TenantSwitcher from "../components/TenantSwitcher";
 
 const SUPER_ADMIN = {
   id: 9999,
@@ -495,6 +496,23 @@ export default function Home() {
           setHasConferencesPermission(false);
           setHasSpeedDialPermission(false);
         }
+      } else if (currentUserData.role === 'admin' || currentRole.role_code === 'admin') {
+        setHasOmnichannelPermission(true);
+        setHasContactsPermission(true);
+        setHasBlacklistPermission(true);
+        setHasMobileTransferPermission(true);
+        setHasReportsPermission(true);
+        setHasUsersPermission(true);
+        setHasAnnouncementsPermission(true);
+        setHasQueuesPermission(true);
+        setHasAutoprovisionPermission(true);
+        setHasOutboundRulesPermission(true);
+        setHasInboundRulesPermission(true);
+        setHasCallPickupPermission(true);
+        setHasSubscriberGroupsPermission(true);
+        setHasTrunksPermission(true);
+        setHasConferencesPermission(true);
+        setHasSpeedDialPermission(true);
       } else {
         setHasOmnichannelPermission(hasPerm('omnichannel'));
         setHasContactsPermission(hasPerm('contacts'));
@@ -806,15 +824,15 @@ export default function Home() {
       {/* Sidebar Navigation */}
       {!isEditingCallFlow && (
         <aside className="w-64 h-screen bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col p-4 shrink-0 overflow-y-auto transition-colors duration-300">
-        <div className="flex items-center gap-2 px-2 py-4 mb-6 border-b border-slate-100 dark:border-slate-800/60">
+        <div className="flex items-center gap-2.5 px-2 py-4 mb-6 border-b border-slate-100 dark:border-slate-800/60">
           <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
             <Bot size={20} className="animate-pulse" />
           </div>
           <div>
-            <h1 className="font-bold text-sm tracking-wide bg-gradient-to-r from-slate-900 to-slate-700 dark:from-white dark:to-slate-300 bg-clip-text text-transparent">
-              Voice AI
+            <h1 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
+              <span className="text-rose-600 dark:text-rose-500">AI</span>DA
             </h1>
-            <p className="text-[10px] text-slate-400 dark:text-slate-400 font-semibold uppercase tracking-wider">ÇOK KANALLI SANTRAL</p>
+            <p className="text-[9px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-wider">ÇOK KANALLI SANTRAL</p>
           </div>
         </div>
         <nav className="flex-1 space-y-4 select-none">
@@ -1633,6 +1651,8 @@ export default function Home() {
         {!isEditingCallFlow && (
         <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-8 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
           <div className="flex items-center gap-4">
+            <TenantSwitcher backendHost={backendHost} />
+            <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
             <span className="text-slate-400 dark:text-slate-500 font-bold text-xs tracking-wider">AKTİF İŞLEMLER</span>
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
             {activeCallId ? (

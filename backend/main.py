@@ -277,6 +277,74 @@ class WorkflowSchema(BaseModel):
     nodes: List[GraphNodeSchema]
     connections: List[GraphConnectionSchema]
 
+class TenantSchema(BaseModel):
+    id: str
+    name: str
+    code: str
+    status: Optional[str] = "active"
+    created_at: Optional[str] = ""
+    license_expires_at: Optional[str] = ""
+    license_key: Optional[str] = ""
+    plan_tier: Optional[str] = "professional"
+    
+    # 1. Yapay Zeka Kotaları
+    max_agents: Optional[int] = 20
+    max_rag_docs: Optional[int] = 100
+    max_scenarios: Optional[int] = 20
+    
+    # 2. Santral Kotaları
+    max_users: Optional[int] = 50
+    max_announcements: Optional[int] = 20
+    max_queues: Optional[int] = 10
+    max_inbound_rules: Optional[int] = 25
+    max_outbound_rules: Optional[int] = 25
+    max_pickup_groups: Optional[int] = 10
+    max_subscriber_groups: Optional[int] = 10
+    max_phonebook_contacts: Optional[int] = 500
+    max_trunks: Optional[int] = 5
+    max_conference_rooms: Optional[int] = 5
+    max_speed_dials: Optional[int] = 50
+    max_blacklist_entries: Optional[int] = 100
+    max_locations: Optional[int] = 5
+    max_departments: Optional[int] = 10
+    
+    # 3. Çağrı Yönlendirme & Akış Kotaları
+    max_call_flows: Optional[int] = 10
+    max_dialers: Optional[int] = 5
+
+class TenantCreateSchema(BaseModel):
+    name: str
+    code: str
+    status: Optional[str] = "active"
+    license_expires_at: Optional[str] = ""
+    license_key: Optional[str] = ""
+    plan_tier: Optional[str] = "professional"
+    
+    # 1. Yapay Zeka Kotaları
+    max_agents: Optional[int] = 20
+    max_rag_docs: Optional[int] = 100
+    max_scenarios: Optional[int] = 20
+    
+    # 2. Santral Kotaları
+    max_users: Optional[int] = 50
+    max_announcements: Optional[int] = 20
+    max_queues: Optional[int] = 10
+    max_inbound_rules: Optional[int] = 25
+    max_outbound_rules: Optional[int] = 25
+    max_pickup_groups: Optional[int] = 10
+    max_subscriber_groups: Optional[int] = 10
+    max_phonebook_contacts: Optional[int] = 500
+    max_trunks: Optional[int] = 5
+    max_conference_rooms: Optional[int] = 5
+    max_speed_dials: Optional[int] = 50
+    max_blacklist_entries: Optional[int] = 100
+    max_locations: Optional[int] = 5
+    max_departments: Optional[int] = 10
+    
+    # 3. Çağrı Yönlendirme & Akış Kotaları
+    max_call_flows: Optional[int] = 10
+    max_dialers: Optional[int] = 5
+
 class RAGSettingsSchema(BaseModel):
     chunk_size: int
     chunk_overlap: int
@@ -293,6 +361,8 @@ class AIAgentSchema(BaseModel):
     voice: str
     tone: str
     provider: Optional[str] = "google"
+    llm_provider: Optional[str] = "google"
+    tts_provider: Optional[str] = "google"
     model: str
     temperature: float
     max_tokens: int
@@ -311,6 +381,17 @@ import json
 SETTINGS_FILE = "/Users/anilacar/ai-project/backend/settings.json"
 
 DEFAULT_SETTINGS = {
+    "tenants": [
+        {
+            "id": "tenant-default",
+            "name": "Ana Müşteri (Varsayılan)",
+            "code": "default",
+            "status": "active",
+            "created_at": "2026-01-01T00:00:00",
+            "max_agents": 10,
+            "max_trunks": 5
+        }
+    ],
     "pbx": {
         "ami_host": "127.0.0.1",
         "ami_port": 5038,
@@ -527,12 +608,29 @@ DEFAULT_SETTINGS = {
                 "breaks:read", "breaks:write", "breaks:delete",
                 "users:read", "users:write", "users:delete",
                 "roles:read", "roles:write", "roles:delete",
-                "call_panel:access", "logs:access", "storage:access", "wallboard:access", "ai_whisper:access", "omnichannel:access",
+                "call_panel:access", "call_panel:listen_records", "logs:access", "storage:access", "transcripts:access", "wallboard:access", "dialer:access", "call_flow:access", "ai_whisper:access", "omnichannel:access", "reports:access",
+                "ai_agents:read", "ai_agents:write", "ai_agents:delete", "ai_agents:access",
                 "contacts:read", "contacts:write", "contacts:delete",
                 "canned_responses:read", "canned_responses:write", "canned_responses:delete",
                 "blacklist:read", "blacklist:write", "blacklist:delete",
                 "mobile_transfer:read", "mobile_transfer:write",
                 "qa:read", "qa:write", "qa:delete",
+                "autoprovision_templates:read", "autoprovision_templates:write", "autoprovision_templates:delete",
+                "outbound_rules:read", "outbound_rules:write", "outbound_rules:delete",
+                "speed_dials:read", "speed_dials:write", "speed_dials:delete",
+                "conferences:read", "conferences:write", "conferences:delete",
+                "universal_api:read", "universal_api:write", "universal_api:delete",
+                "voice_biometrics:read", "voice_biometrics:write", "voice_biometrics:delete",
+                "announcements:read", "announcements:write", "announcements:delete",
+                "autoprovision:read", "autoprovision:write", "autoprovision:delete",
+                "acd_queues:read", "acd_queues:write", "acd_queues:delete",
+                "trunks:read", "trunks:write", "trunks:delete",
+                "inbound_rules:read", "inbound_rules:write", "inbound_rules:delete",
+                "call_pickup_groups:read", "call_pickup_groups:write", "call_pickup_groups:delete",
+                "subscriber_groups:read", "subscriber_groups:write", "subscriber_groups:delete",
+                "roi_settings:read", "roi_settings:write", "roi_settings:delete",
+                "ssl:read", "ssl:write",
+                "backup_restore:read", "backup_restore:write",
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
                 "security:read", "security:write", "security:delete",
                 "api_budgets:read", "api_budgets:write"
@@ -836,12 +934,12 @@ def load_settings():
                 if "security:delete" not in new_perms:
                     new_perms.append("security:delete")
 
-            # Auto assign api_budgets permissions if missing
-            if r.get("role_code") == "admin":
-                if "api_budgets:read" not in new_perms:
-                    new_perms.append("api_budgets:read")
-                if "api_budgets:write" not in new_perms:
-                    new_perms.append("api_budgets:write")
+            # Auto assign all system permissions to admin and superadmin roles
+            if r.get("role_code") in ["admin", "superadmin"]:
+                admin_defaults = DEFAULT_SETTINGS["roles"][0]["permissions"]
+                for p in admin_defaults:
+                    if p not in new_perms:
+                        new_perms.append(p)
                 
             r["permissions"] = list(set(new_perms))
             
@@ -883,6 +981,15 @@ def load_settings():
     # Ensure ai_agents config exists (migration)
     if "ai_agents" not in db:
         db["ai_agents"] = [agent.copy() for agent in DEFAULT_SETTINGS["ai_agents"]]
+        
+    for agent in db.get("ai_agents", []):
+        if "llm_provider" not in agent:
+            agent["llm_provider"] = agent.get("provider", "google")
+        if "tts_provider" not in agent:
+            if agent.get("provider") == "elevenlabs" or agent.get("elevenlabs_voice_id"):
+                agent["tts_provider"] = "elevenlabs"
+            else:
+                agent["tts_provider"] = "google"
         
     # Ensure custom_apis exists (migration)
     if "custom_apis" not in db:
@@ -1084,6 +1191,7 @@ type=auth
 auth_type=userpass
 username={t['username']}
 password={t['password']}
+
 """
 
         conf_content += f"""[{name}-aor]
@@ -1102,12 +1210,14 @@ aors={name}-aor
             conf_content += f"""outbound_auth={name}-auth
 from_user={t['username']}
 from_domain={host}
+
 """
             
         conf_content += f"""[{name}-identify]
 type=identify
 endpoint={name}
 match={host}
+
 """
 
     conf_content += "\n; ==========================================\n"
@@ -2554,6 +2664,351 @@ async def delete_ai_agent(agent_id: str):
     settings_db["ai_agents"] = filtered
     save_settings(settings_db)
     return {"status": "success", "message": "Yapay zeka temsilcisi silindi."}
+
+# ==========================================
+# TENANT MANAGEMENT & CLONING ENDPOINTS
+# ==========================================
+
+def clone_tenant_config(source_tenant_id: str, target_tenant_id: str, db: Session):
+    """Clones all agents, rules, trunks, queues, document_chunks, and settings from source to target tenant."""
+    try:
+        # 1. Clone AIAgents
+        agents = db.query(models.AIAgent).filter(models.AIAgent.tenant_id == source_tenant_id).all()
+        for a in agents:
+            new_agent = models.AIAgent(
+                id=f"{a.id}-{target_tenant_id}",
+                tenant_id=target_tenant_id,
+                name=f"{a.name}",
+                voice=a.voice,
+                tone=a.tone,
+                model=a.model,
+                temperature=a.temperature,
+                max_tokens=a.max_tokens,
+                system_instruction=a.system_instruction,
+                status=a.status,
+                transfer_target=a.transfer_target
+            )
+            db.merge(new_agent)
+
+        # 2. Clone Rules
+        rules = db.query(models.Rule).filter(models.Rule.tenant_id == source_tenant_id).all()
+        for r in rules:
+            new_rule = models.Rule(
+                tenant_id=target_tenant_id,
+                rule_type=r.rule_type,
+                trigger_keyword=r.trigger_keyword,
+                response_text=r.response_text,
+                action_to_trigger=r.action_to_trigger,
+                is_active=r.is_active
+            )
+            db.add(new_rule)
+
+        # 3. Clone Trunks
+        trunks = db.query(models.Trunk).filter(models.Trunk.tenant_id == source_tenant_id).all()
+        for t in trunks:
+            new_trunk = models.Trunk(
+                tenant_id=target_tenant_id,
+                trunk_type=t.trunk_type,
+                trunk_name=f"{t.trunk_name}",
+                host=t.host,
+                username=t.username,
+                password=t.password,
+                port=t.port,
+                did_number=t.did_number,
+                protocol=t.protocol,
+                greeting_prompt=t.greeting_prompt,
+                transfer_target_type=t.transfer_target_type,
+                transfer_target=t.transfer_target,
+                codec=t.codec,
+                is_active=t.is_active
+            )
+            db.add(new_trunk)
+
+        # 4. Clone PBX Queues
+        queues = db.query(models.PBXQueue).filter(models.PBXQueue.tenant_id == source_tenant_id).all()
+        for q in queues:
+            new_q = models.PBXQueue(
+                tenant_id=target_tenant_id,
+                extension=q.extension,
+                name=f"{q.name}",
+                strategy=q.strategy,
+                timeout=q.timeout,
+                wrapuptime=q.wrapuptime,
+                maxlen=q.maxlen,
+                joinempty=q.joinempty,
+                leavewhenempty=q.leavewhenempty,
+                ringinuse=q.ringinuse,
+                queueMembers=q.queueMembers,
+                supervisors=q.supervisors,
+                max_calls=q.max_calls,
+                ring_time=q.ring_time,
+                acw_time=q.acw_time,
+                join_announcement_enabled=q.join_announcement_enabled,
+                join_announcement=q.join_announcement,
+                periodic_announcement_enabled=q.periodic_announcement_enabled,
+                periodic_announcement=q.periodic_announcement,
+                hold_music_class=q.hold_music_class,
+                position_announcement_enabled=q.position_announcement_enabled,
+                position_announcement_interval=q.position_announcement_interval,
+                estimated_hold_time_enabled=q.estimated_hold_time_enabled,
+                estimated_hold_time_interval=q.estimated_hold_time_interval,
+                ivr_routes=q.ivr_routes,
+                notify_missed_calls=q.notify_missed_calls
+            )
+            db.add(new_q)
+
+        # 5. Clone DocumentChunks (RAG Knowledge Base)
+        chunks = db.query(models.DocumentChunk).filter(models.DocumentChunk.tenant_id == source_tenant_id).all()
+        for c in chunks:
+            new_chunk = models.DocumentChunk(
+                tenant_id=target_tenant_id,
+                filename=c.filename,
+                content=c.content,
+                embedding=c.embedding
+            )
+            db.add(new_chunk)
+
+        db.commit()
+    except Exception as e:
+        print(f"[Error] Tenant config cloning failed: {e}")
+        db.rollback()
+
+
+@app.get("/api/tenants")
+@app.get("/api/tenants/")
+@app.get("/api/settings/tenants")
+@app.get("/api/settings/tenants/")
+def check_and_update_tenant_expiration(tenants):
+    """Checks license expiration dates for all tenants and automatically updates status to passive when expired (ignores unlimited)."""
+    now = datetime.datetime.utcnow()
+    changed = False
+    for t in tenants:
+        exp_str = t.get("license_expires_at")
+        if exp_str and str(exp_str).strip() and str(exp_str).lower() not in ["unlimited", "limitsiz", "suresiz", "null", "none", ""]:
+            try:
+                if len(exp_str) == 10:
+                    exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+                else:
+                    exp_date = datetime.datetime.fromisoformat(exp_str.replace("Z", "+00:00")).replace(tzinfo=None)
+                
+                if exp_date < now and t.get("status") != "passive":
+                    t["status"] = "passive"
+                    changed = True
+                    add_system_log("TENANT_MANAGEMENT", "LICENSE_EXPIRED", f"Kiracı Lisans Süresi Doldu (Otomatik Pasif Yapıldı): {t.get('name')} ({t.get('id')})")
+            except Exception as e:
+                print(f"[License Check Error] {e}")
+    return changed
+
+
+@app.get("/api/tenants")
+@app.get("/api/tenants/")
+@app.get("/api/settings/tenants")
+@app.get("/api/settings/tenants/")
+def check_tenant_quota_limit(tenant_id: str, resource_type: str, current_count: int):
+    """Enforces license quota limits for all 19 system resources."""
+    if not tenant_id or tenant_id == "tenant-default":
+        return
+    current = load_settings()
+    tenants = current.get("tenants", [])
+    matched = next((t for t in tenants if t.get("id") == tenant_id), None)
+    if not matched:
+        return
+        
+    limit_key = f"max_{resource_type}"
+    max_allowed = matched.get(limit_key, 9999)
+    if current_count >= max_allowed:
+        resource_labels = {
+            "agents": "AI Temsilcileri",
+            "rag_docs": "Bilgi Bankası (RAG) Doküman",
+            "scenarios": "Kural & Senaryo Editörü",
+            "users": "Dahili Kullanıcılar",
+            "announcements": "Anonslar",
+            "queues": "PBX Kuyruklar",
+            "inbound_rules": "Gelen Arama Kuralı",
+            "outbound_rules": "Giden Arama Kuralı",
+            "pickup_groups": "Çağrı Toplama Grubu",
+            "subscriber_groups": "Abone Grubu",
+            "phonebook_contacts": "Rehber Kişileri",
+            "trunks": "SIP Trunk Dış Hat",
+            "conference_rooms": "Konferans Odaları",
+            "speed_dials": "Hızlı Arama Kayıtları",
+            "blacklist_entries": "Karaliste Numara Engelleme",
+            "locations": "Lokasyonlar",
+            "departments": "Departmanlar",
+            "call_flows": "Arama Akış Yönetimi",
+            "dialers": "Dış Arama Dialer"
+        }
+        label = resource_labels.get(resource_type, resource_type)
+        raise HTTPException(
+            status_code=400,
+            detail=f"Lisans adetiniz yetersiz. '{matched.get('name')}' müşterisi için {label} lisans kotası ({max_allowed}) dolmuştur. Lütfen lisans paketinizi veya kotanızı yükseltiniz."
+        )
+
+
+@app.get("/api/tenants")
+@app.get("/api/tenants/")
+@app.get("/api/settings/tenants")
+@app.get("/api/settings/tenants/")
+async def get_tenants():
+    """Returns list of registered tenants with license expiration checks."""
+    current = load_settings()
+    tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
+    if check_and_update_tenant_expiration(tenants):
+        current["tenants"] = tenants
+        save_settings(current)
+        settings_db["tenants"] = tenants
+    return tenants
+
+
+@app.post("/api/tenants")
+@app.post("/api/tenants/")
+@app.post("/api/settings/tenants")
+@app.post("/api/settings/tenants/")
+async def create_tenant(payload: TenantCreateSchema, db: Session = Depends(get_db)):
+    """Creates a new Tenant with cryptographic license key and 19 quota limits across 3 categories."""
+    current = load_settings()
+    tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
+    
+    tenant_code = payload.code.strip().lower().replace(" ", "-")
+    tenant_id = f"tenant-{tenant_code}"
+    
+    existing = next((t for t in tenants if t.get("code") == tenant_code or t.get("id") == tenant_id), None)
+    if existing:
+        return existing
+        
+    import uuid
+    generated_key = payload.license_key or f"AIDA-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}-2026"
+    
+    new_tenant = {
+        "id": tenant_id,
+        "name": payload.name.strip(),
+        "code": tenant_code,
+        "status": payload.status or "active",
+        "created_at": datetime.datetime.utcnow().isoformat(),
+        "license_expires_at": payload.license_expires_at or "",
+        "license_key": generated_key,
+        "plan_tier": payload.plan_tier or "professional",
+        
+        # 1. Yapay Zeka Kotaları
+        "max_agents": payload.max_agents or 20,
+        "max_rag_docs": payload.max_rag_docs or 100,
+        "max_scenarios": payload.max_scenarios or 20,
+        
+        # 2. Santral Kotaları
+        "max_users": payload.max_users or 50,
+        "max_announcements": payload.max_announcements or 20,
+        "max_queues": payload.max_queues or 10,
+        "max_inbound_rules": payload.max_inbound_rules or 25,
+        "max_outbound_rules": payload.max_outbound_rules or 25,
+        "max_pickup_groups": payload.max_pickup_groups or 10,
+        "max_subscriber_groups": payload.max_subscriber_groups or 10,
+        "max_phonebook_contacts": payload.max_phonebook_contacts or 500,
+        "max_trunks": payload.max_trunks or 5,
+        "max_conference_rooms": payload.max_conference_rooms or 5,
+        "max_speed_dials": payload.max_speed_dials or 50,
+        "max_blacklist_entries": payload.max_blacklist_entries or 100,
+        "max_locations": payload.max_locations or 5,
+        "max_departments": payload.max_departments or 10,
+        
+        # 3. Çağrı Yönlendirme & Akış Kotaları
+        "max_call_flows": payload.max_call_flows or 10,
+        "max_dialers": payload.max_dialers or 5
+    }
+    
+    tenants.append(new_tenant)
+    current["tenants"] = tenants
+    
+    if "tenant_settings" not in current:
+        current["tenant_settings"] = {}
+        
+    current["tenant_settings"][tenant_id] = {
+        "ai_providers": dict(current.get("ai_providers", {})),
+        "api_budgets": dict(current.get("api_budgets", {})),
+        "pbx": dict(current.get("pbx", {})),
+        "smart_callback": dict(current.get("smart_callback", {})),
+        "call_flow": dict(current.get("call_flow", {}))
+    }
+    
+    save_settings(current)
+    settings_db["tenants"] = tenants
+    settings_db["tenant_settings"] = current["tenant_settings"]
+    
+    # Clone configurations from default tenant
+    clone_tenant_config("tenant-default", tenant_id, db)
+    
+    add_system_log("TENANT_MANAGEMENT", "CREATE", f"Yeni Kiracı Lisansı Oluşturuldu: {payload.name} ({tenant_id}) [Lisans Key: {generated_key}]")
+    return new_tenant
+
+
+@app.put("/api/tenants/{tenant_id}")
+@app.put("/api/tenants/{tenant_id}/")
+@app.put("/api/settings/tenants/{tenant_id}")
+@app.put("/api/settings/tenants/{tenant_id}/")
+async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
+    """Updates tenant metadata, license key, package tier, and all 19 quota limits."""
+    current = load_settings()
+    tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
+    
+    target_tenant = next((t for t in tenants if t.get("id") == tenant_id), None)
+    if not target_tenant:
+        raise HTTPException(status_code=404, detail="Müşteri bulunamadı.")
+        
+    target_tenant["name"] = payload.name.strip()
+    target_tenant["status"] = payload.status or target_tenant.get("status", "active")
+    target_tenant["license_expires_at"] = payload.license_expires_at if payload.license_expires_at is not None else target_tenant.get("license_expires_at", "")
+    if payload.license_key:
+        target_tenant["license_key"] = payload.license_key
+    target_tenant["plan_tier"] = payload.plan_tier or target_tenant.get("plan_tier", "professional")
+    
+    # 1. Yapay Zeka Kotaları
+    target_tenant["max_agents"] = payload.max_agents or target_tenant.get("max_agents", 20)
+    target_tenant["max_rag_docs"] = payload.max_rag_docs or target_tenant.get("max_rag_docs", 100)
+    target_tenant["max_scenarios"] = payload.max_scenarios or target_tenant.get("max_scenarios", 20)
+    
+    # 2. Santral Kotaları
+    target_tenant["max_users"] = payload.max_users or target_tenant.get("max_users", 50)
+    target_tenant["max_announcements"] = payload.max_announcements or target_tenant.get("max_announcements", 20)
+    target_tenant["max_queues"] = payload.max_queues or target_tenant.get("max_queues", 10)
+    target_tenant["max_inbound_rules"] = payload.max_inbound_rules or target_tenant.get("max_inbound_rules", 25)
+    target_tenant["max_outbound_rules"] = payload.max_outbound_rules or target_tenant.get("max_outbound_rules", 25)
+    target_tenant["max_pickup_groups"] = payload.max_pickup_groups or target_tenant.get("max_pickup_groups", 10)
+    target_tenant["max_subscriber_groups"] = payload.max_subscriber_groups or target_tenant.get("max_subscriber_groups", 10)
+    target_tenant["max_phonebook_contacts"] = payload.max_phonebook_contacts or target_tenant.get("max_phonebook_contacts", 500)
+    target_tenant["max_trunks"] = payload.max_trunks or target_tenant.get("max_trunks", 5)
+    target_tenant["max_conference_rooms"] = payload.max_conference_rooms or target_tenant.get("max_conference_rooms", 5)
+    target_tenant["max_speed_dials"] = payload.max_speed_dials or target_tenant.get("max_speed_dials", 50)
+    target_tenant["max_blacklist_entries"] = payload.max_blacklist_entries or target_tenant.get("max_blacklist_entries", 100)
+    target_tenant["max_locations"] = payload.max_locations or target_tenant.get("max_locations", 5)
+    target_tenant["max_departments"] = payload.max_departments or target_tenant.get("max_departments", 10)
+    
+    # 3. Çağrı Yönlendirme & Akış Kotaları
+    target_tenant["max_call_flows"] = payload.max_call_flows or target_tenant.get("max_call_flows", 10)
+    target_tenant["max_dialers"] = payload.max_dialers or target_tenant.get("max_dialers", 5)
+    
+    current["tenants"] = tenants
+    save_settings(current)
+    settings_db["tenants"] = tenants
+    add_system_log("TENANT_MANAGEMENT", "UPDATE", f"Kiracı Lisansı Güncellendi: {target_tenant['name']} ({tenant_id}) [Paket: {target_tenant['plan_tier']}]")
+    return target_tenant
+
+
+@app.delete("/api/tenants/{tenant_id}")
+@app.delete("/api/tenants/{tenant_id}/")
+@app.delete("/api/settings/tenants/{tenant_id}")
+@app.delete("/api/settings/tenants/{tenant_id}/")
+async def delete_tenant(tenant_id: str):
+    """Deletes a tenant."""
+    if tenant_id == "tenant-default":
+        raise HTTPException(status_code=400, detail="Varsayılan ana müşteri silinemez.")
+        
+    current = load_settings()
+    tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
+    filtered = [t for t in tenants if t.get("id") != tenant_id]
+    current["tenants"] = filtered
+    save_settings(current)
+    settings_db["tenants"] = filtered
+    add_system_log("TENANT_MANAGEMENT", "DELETE", f"Kiracı Silindi: {tenant_id}")
+    return {"status": "success", "message": f"Tenant {tenant_id} silindi."}
 
 @app.get("/api/settings/ai-providers/elevenlabs-voices")
 async def get_elevenlabs_voices():

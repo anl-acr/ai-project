@@ -42,9 +42,11 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   // Form States for current agent
   const [agentId, setAgentId] = useState("");
   const [agentName, setAgentName] = useState("");
-  const [agentVoice, setAgentVoice] = useState("Dilara (Türkçe - Dişi - Premium)");
+  const [agentVoice, setAgentVoice] = useState("Aoede (Dişi - Türkçe / İngilizce)");
   const [agentTone, setAgentTone] = useState("normal"); // normal, calm, attractive, firm
   const [agentProvider, setAgentProvider] = useState("google");
+  const [llmProvider, setLlmProvider] = useState("google");
+  const [ttsProvider, setTtsProvider] = useState("google");
   const [agentModel, setAgentModel] = useState("models/gemini-2.5-flash-native-audio-latest");
   const [agentTemperature, setAgentTemperature] = useState(0.7);
   const [agentMaxTokens, setAgentMaxTokens] = useState(300);
@@ -60,7 +62,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const [elevenlabsVoiceList, setElevenlabsVoiceList] = useState([]);
 
   // TTS Voice Testing states
-  const [testText, setTestText] = useState("Merhaba, ben yapay zeka temsilciniz Dilara. Size nasıl yardımcı olabilirim?");
+  const [testText, setTestText] = useState("Merhaba, ben yapay zeka temsilciniz. Size nasıl yardımcı olabilirim?");
   const [ttsLoading, setTtsLoading] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [audioInstance, setAudioInstance] = useState(null);
@@ -72,32 +74,36 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
-  // Voice options
-  const VOICE_OPTIONS = [
-    "Dilara (Türkçe - Dişi - Premium)",
-    "Ahmet (Türkçe - Erkek - Premium)",
-    "Selin (Türkçe - Dişi - Standart)",
-    "Eser (Türkçe - Erkek - Standart)",
-    "ElevenLabs Cloned Voice (Custom Voice ID)",
-    "Sophia (English - Female)",
-    "John (English - Male)"
+  // LLM Provider options
+  const LLM_PROVIDER_OPTIONS = [
+    { id: "google", name: "Google Gemini (Multimodal Live)" },
+    { id: "elevenlabs", name: "ElevenLabs (Conversational AI)" },
+    { id: "openai", name: "OpenAI (GPT-4o / Realtime)" },
+    { id: "anthropic", name: "Anthropic (Claude 3.5 Sonnet)" },
+    { id: "groq", name: "Groq (Fast LLM)" }
   ];
 
-  // Provider & Model options
-  const PROVIDER_OPTIONS = [
-    { id: "google", name: "Google (Gemini)" },
-    { id: "openai", name: "OpenAI" },
-    { id: "anthropic", name: "Anthropic" },
-    { id: "groq", name: "Groq (Fast Inference)" },
-    { id: "elevenlabs", name: "ElevenLabs (Conversational AI)" }
+  // TTS Provider options
+  const TTS_PROVIDER_OPTIONS = [
+    { id: "google", name: "Google Gemini Dahili Ses Motoru" },
+    { id: "elevenlabs", name: "ElevenLabs TTS (Ses Kütüphanesi & Klonlanmış Ses)" }
+  ];
+
+  // Gemini Prebuilt Voice options
+  const GEMINI_VOICE_OPTIONS = [
+    "Aoede (Dişi - Türkçe / İngilizce)",
+    "Puck (Erkek - Dinamik)",
+    "Charon (Erkek - Tok & Resmi)",
+    "Kore (Dişi - Yumuşak)",
+    "Fenrir (Erkek - Derin)"
   ];
 
   const MODEL_OPTIONS = {
     google: [
+      "models/gemini-2.5-flash-native-audio-latest",
+      "gemini-2.0-flash-exp",
       "gemini-1.5-flash",
-      "gemini-1.5-pro",
-      "gemini-2.0-flash",
-      "models/gemini-2.5-flash-native-audio-latest"
+      "gemini-1.5-pro"
     ],
     openai: [
       "gpt-4o",
@@ -172,8 +178,10 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const handleCreateNewAgent = () => {
     setAgentId(`agent-${Date.now()}`);
     setAgentName("Yeni Yapay Zeka Asistanı");
-    setAgentVoice("Dilara (Türkçe - Dişi - Premium)");
+    setAgentVoice("Aoede (Dişi - Türkçe / İngilizce)");
     setAgentTone("normal");
+    setLlmProvider("google");
+    setTtsProvider("google");
     setAgentProvider("google");
     setAgentModel("models/gemini-2.5-flash-native-audio-latest");
     setAgentTemperature(0.7);
@@ -195,9 +203,15 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const handleEditAgent = (agent) => {
     setAgentId(agent.id);
     setAgentName(agent.name);
-    setAgentVoice(agent.voice);
+    
+    const resolvedLlm = agent.llm_provider || agent.provider || "google";
+    const resolvedTts = agent.tts_provider || (agent.provider === "elevenlabs" || agent.elevenlabs_voice_id ? "elevenlabs" : "google");
+
+    setLlmProvider(resolvedLlm);
+    setTtsProvider(resolvedTts);
+    setAgentProvider(resolvedLlm);
+    setAgentVoice(agent.voice || "Aoede (Dişi - Türkçe / İngilizce)");
     setAgentTone(agent.tone || "normal");
-    setAgentProvider(agent.provider || "google");
     setAgentModel(agent.model);
     setAgentTemperature(agent.temperature);
     setAgentMaxTokens(agent.max_tokens);
@@ -212,8 +226,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setElevenlabsStyle(agent.elevenlabs_style !== undefined ? agent.elevenlabs_style : 0.0);
     
     // Set matching voice test sentence
-    const nameMatch = agent.voice.split(" ")[0];
-    setTestText(agent.greeting_prompt || `Merhaba, ben yapay zeka temsilciniz ${nameMatch}. Size nasıl yardımcı olabilirim?`);
+    setTestText(agent.greeting_prompt || `Merhaba, ben yapay zeka temsilciniz ${agent.name}. Size nasıl yardımcı olabilirim?`);
 
     setViewMode("edit");
   };
@@ -225,9 +238,11 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     const payload = {
       id: agentId,
       name: agentName,
-      voice: agentVoice,
+      voice: ttsProvider === "elevenlabs" ? (elevenlabsVoiceId || "ElevenLabs Custom Voice") : agentVoice,
       tone: agentTone,
-      provider: agentProvider,
+      provider: llmProvider,
+      llm_provider: llmProvider,
+      tts_provider: ttsProvider,
       model: agentModel,
       temperature: parseFloat(agentTemperature) || 0.7,
       max_tokens: parseInt(agentMaxTokens) || 300,
@@ -588,7 +603,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       {/* Editor Grid */}
       <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6">
         
-        {/* Column 1 - Voice Profiles (TTS) & Core AI Settings */}
+        {/* Column 1 - Voice Profiles (TTS) */}
         <div className="md:col-span-1 flex flex-col gap-6">
           
           {/* Voice select card */}
@@ -599,19 +614,37 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] text-slate-400 dark:text-slate-505 font-bold uppercase tracking-wider">Ses Karakteri</label>
+              <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Seslendirme Motoru (TTS Provider)</label>
               <select
-                value={agentVoice}
-                onChange={(e) => setAgentVoice(e.target.value)}
-                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-750 dark:text-slate-350 focus:outline-none focus:border-indigo-500 font-bold"
+                value={ttsProvider}
+                onChange={(e) => setTtsProvider(e.target.value)}
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-bold"
               >
-                {VOICE_OPTIONS.map((v) => (
-                  <option key={v} value={v}>{v}</option>
+                {TTS_PROVIDER_OPTIONS.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
                 ))}
               </select>
             </div>
 
-            {(agentProvider === "elevenlabs" || agentVoice.includes("ElevenLabs")) && (
+            {ttsProvider === "google" && (
+              <div className="flex flex-col gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800/60">
+                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Gemini Dahili Ses Karakteri</label>
+                <select
+                  value={agentVoice}
+                  onChange={(e) => setAgentVoice(e.target.value)}
+                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-bold"
+                >
+                  {GEMINI_VOICE_OPTIONS.map((v) => (
+                    <option key={v} value={v}>{v}</option>
+                  ))}
+                </select>
+                <p className="text-[9px] text-slate-400 dark:text-slate-500 font-semibold leading-normal pt-1">
+                  💡 Gemini Multimodal Live API dahili Türkçe/İngilizce ses karakteridir.
+                </p>
+              </div>
+            )}
+
+            {ttsProvider === "elevenlabs" && (
               <div className="flex flex-col gap-3 pt-3.5 border-t border-purple-100 dark:border-purple-900/40">
                 
                 {/* ElevenLabs Premade Voices Dropdown */}
@@ -632,7 +665,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
                     ))}
                   </select>
                   <p className="text-[9px] text-purple-600/80 dark:text-purple-300/80 font-semibold leading-normal pt-1">
-                    💡 ElevenLabs <span className="font-bold underline">Multilingual v2</span> yapay zeka modeli sayesinde listedeki TÜM sesler Türkçe metinleri doğal akıcılıkla seslendirir.
+                    💡 ElevenLabs <span className="font-bold underline">Multilingual v2</span> yapay zeka modeli sayesinde tüm sesler Türkçe metinleri doğal akıcılıkla seslendirir.
                   </p>
                 </div>
 
@@ -644,7 +677,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
                     type="text"
                     value={elevenlabsVoiceId}
                     onChange={(e) => setElevenlabsVoiceId(e.target.value)}
-                    placeholder="Örn: 21m00Tcm4TlvDq8ikWAM"
+                    placeholder="Örn: EXAVITQu4vr4xnSDxMaL"
                     className="px-3 py-2 bg-purple-50/60 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-900/50 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none focus:border-purple-500"
                   />
                   <p className="text-[9px] text-slate-400 dark:text-slate-500">
@@ -774,35 +807,37 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Yapay Zeka Sağlayıcısı (Provider)</label>
+              <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Zeka / LLM Sağlayıcısı (LLM Provider)</label>
               <select
-                value={agentProvider}
+                value={llmProvider}
                 onChange={(e) => {
-                  setAgentProvider(e.target.value);
-                  setAgentModel(MODEL_OPTIONS[e.target.value][0]); // Auto-select first model
+                  const newLlm = e.target.value;
+                  setLlmProvider(newLlm);
+                  setAgentProvider(newLlm);
+                  setAgentModel(MODEL_OPTIONS[newLlm] ? MODEL_OPTIONS[newLlm][0] : MODEL_OPTIONS["google"][0]);
                 }}
-                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-755 dark:text-slate-350 focus:outline-none focus:border-indigo-500 font-bold"
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-bold"
               >
-                {PROVIDER_OPTIONS.map((p) => (
+                {LLM_PROVIDER_OPTIONS.map((p) => (
                   <option key={p.id} value={p.id}>{p.name}</option>
                 ))}
               </select>
             </div>
 
             <div className="flex flex-col gap-1.5 pt-3.5 border-t border-slate-100 dark:border-slate-800/60">
-              <label className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Büyük Dil Modeli (LLM)</label>
+              <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Büyük Dil Modeli (LLM)</label>
               <select
                 value={agentModel}
                 onChange={(e) => setAgentModel(e.target.value)}
-                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-755 dark:text-slate-350 focus:outline-none focus:border-indigo-500 font-mono font-bold"
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-mono font-bold"
               >
-                {(MODEL_OPTIONS[agentProvider] || MODEL_OPTIONS["google"]).map((m) => (
+                {(MODEL_OPTIONS[llmProvider] || MODEL_OPTIONS["google"]).map((m) => (
                   <option key={m} value={m}>{m}</option>
                 ))}
               </select>
             </div>
 
-            {agentProvider === "elevenlabs" && (
+            {llmProvider === "elevenlabs" && (
               <div className="flex flex-col gap-1.5 pt-3 border-t border-purple-100 dark:border-purple-900/40">
                 <label className="text-[10px] text-purple-600 dark:text-purple-400 font-extrabold uppercase tracking-wider">ElevenLabs Agent ID (ConvAI)</label>
                 <input
@@ -835,14 +870,14 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Maksimum Token Limiti</label>
+              <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Maksimum Token Limiti</label>
               <input
                 type="number"
                 min="50"
                 max="1500"
                 value={agentMaxTokens}
                 onChange={(e) => setAgentMaxTokens(parseInt(e.target.value) || 300)}
-                className="px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200/80 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-205 focus:outline-none focus:border-purple-500 font-mono font-bold"
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-purple-500 font-mono font-bold"
               />
             </div>
 

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2 } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
 import ChannelSettings from "./ChannelSettings";
@@ -23,6 +23,7 @@ import BackupRestorePanel from "./BackupRestorePanel";
 import RecordingRetentionSettings from "./RecordingRetentionSettings";
 import AIProvidersSettings from "./AIProvidersSettings";
 import APIBudgetSettings from "./APIBudgetSettings";
+import TenantManagementPanel from "./TenantManagementPanel";
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [activeSubTab, setActiveSubTab] = useState("pbx"); // pbx, trunks, channels
@@ -36,7 +37,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasSSLPermission, setHasSSLPermission] = useState(false);
   const [hasBackupPermission, setHasBackupPermission] = useState(false);
   const [hasRecordingRetentionPermission, setHasRecordingRetentionPermission] = useState(false);
-  const [hasApiBudgetsPermission, setHasApiBudgetsPermission] = useState(false);
+  const [hasApiBudgetsPermission, setHasApiBudgetsPermission] = useState(true);
   const [debugPerms, setDebugPerms] = useState("");
 
   useEffect(() => {
@@ -56,6 +57,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasSSLPermission(true);
           setHasBackupPermission(true);
           setHasRecordingRetentionPermission(true);
+          setHasApiBudgetsPermission(true);
           return;
         }
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?t=${Date.now()}`);
@@ -91,17 +93,32 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasApiBudgetsPermission(true);
           return;
         }
-        setHasCannedPermission(currentRole.permissions.includes("canned_responses:read"));
-        setHasBlacklistPermission(currentRole.permissions.includes("blacklist:read"));
-        setHasQAPermission(currentRole.permissions.includes("qa:read"));
-        setHasAPIPermission(currentRole.permissions.includes("universal_api:read"));
-        setHasBioPermission(currentRole.permissions.includes("voice_biometrics:read"));
-        setHasAutoprovTemplatesPermission(currentRole.permissions.includes("autoprovision_templates:read"));
-        setHasRoiSettingsPermission(currentRole.permissions.includes("roi_settings:read"));
-        setHasSSLPermission(currentRole.permissions.includes("ssl:read"));
-        setHasBackupPermission(currentRole.permissions.includes("backup_restore:read"));
-        setHasRecordingRetentionPermission(currentRole.permissions.includes("recording_retention:read"));
-        setHasApiBudgetsPermission(currentRole.permissions.includes("api_budgets:read"));
+        const isAdmin = currentUser?.role === "admin" || currentRole?.role_code === "admin" || currentRole?.role_code === "superadmin" || currentUser?.id === "admin";
+        if (isAdmin) {
+          setHasCannedPermission(true);
+          setHasBlacklistPermission(true);
+          setHasQAPermission(true);
+          setHasAPIPermission(true);
+          setHasBioPermission(true);
+          setHasAutoprovTemplatesPermission(true);
+          setHasRoiSettingsPermission(true);
+          setHasSSLPermission(true);
+          setHasBackupPermission(true);
+          setHasRecordingRetentionPermission(true);
+          setHasApiBudgetsPermission(true);
+        } else {
+          setHasCannedPermission(currentRole.permissions.includes("canned_responses:read"));
+          setHasBlacklistPermission(currentRole.permissions.includes("blacklist:read"));
+          setHasQAPermission(currentRole.permissions.includes("qa:read"));
+          setHasAPIPermission(currentRole.permissions.includes("universal_api:read"));
+          setHasBioPermission(currentRole.permissions.includes("voice_biometrics:read"));
+          setHasAutoprovTemplatesPermission(currentRole.permissions.includes("autoprovision_templates:read"));
+          setHasRoiSettingsPermission(currentRole.permissions.includes("roi_settings:read"));
+          setHasSSLPermission(currentRole.permissions.includes("ssl:read"));
+          setHasBackupPermission(currentRole.permissions.includes("backup_restore:read"));
+          setHasRecordingRetentionPermission(currentRole.permissions.includes("recording_retention:read"));
+          setHasApiBudgetsPermission(currentRole.permissions.includes("api_budgets:read") || currentRole.permissions.includes("api_budgets:write"));
+        }
         setDebugPerms(JSON.stringify(currentRole.permissions));
       } catch (err) {
         console.error("Canned/Blacklist permission check error:", err);
@@ -137,10 +154,10 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
       </div>
 
       {/* Side-by-Side Settings Layout */}
-      <div className={`grid grid-cols-1 ${["universal-api", "voice-biometrics", "autoprovision-templates", "locations", "ssl", "backup", "recording-retention", "ai-providers", "api-budgets"].includes(activeSubTab) ? "xl:grid-cols-12" : "md:grid-cols-4"} gap-6 items-start`}>
+      <div className="flex flex-col md:flex-row gap-6 items-start w-full">
         
         {/* Left Side Sub-Tab Menu (Vertical Stack) */}
-        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates", "locations", "ssl", "backup", "recording-retention", "ai-providers", "api-budgets"].includes(activeSubTab) ? "xl:col-span-2" : "md:col-span-1"} p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1`}>
+        <div className="w-full md:w-64 lg:w-72 shrink-0 p-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-1">
           <button
             onClick={() => setActiveSubTab("pbx")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
@@ -404,10 +421,22 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
               <span>API Bütçe ve Tüketim</span>
             </button>
           )}
+
+          <button
+            onClick={() => setActiveSubTab("tenants")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "tenants"
+                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <Building2 size={14} className={activeSubTab === "tenants" ? "text-rose-600 dark:text-rose-400" : ""} />
+            <span>Müşteri (Tenant) Yönetimi</span>
+          </button>
         </div>
 
         {/* Right Side Settings Panel Area */}
-        <div className={`${["universal-api", "voice-biometrics", "autoprovision-templates", "locations", "ssl", "backup", "recording-retention", "ai-providers", "api-budgets"].includes(activeSubTab) ? "xl:col-span-10" : "md:col-span-3"} flex flex-col gap-6 w-full animate-in fade-in slide-in-from-right-4 duration-300`}>
+        <div className="flex-1 min-w-0 w-full flex flex-col gap-6 animate-in fade-in slide-in-from-right-4 duration-300">
           {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
           {activeSubTab === "numbering-plan" && <NumberingPlanPanel backendHost={backendHost} />}
           {activeSubTab === "smart-callback" && <SmartCallbackSettings backendHost={backendHost} />}
@@ -434,6 +463,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           )}
           {activeSubTab === "api-budgets" && (
             <APIBudgetSettings backendHost={backendHost} />
+          )}
+          {activeSubTab === "tenants" && (
+            <TenantManagementPanel backendHost={backendHost} />
           )}
         </div>
       </div>

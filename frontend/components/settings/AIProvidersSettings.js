@@ -51,7 +51,7 @@ export default function AIProvidersSettings({ backendHost = "localhost:8000" }) 
   };
 
   return (
-    <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-sm max-w-4xl animate-in fade-in duration-300">
+    <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-sm w-full animate-in fade-in duration-300">
       <div className="flex items-center gap-3 mb-2">
         <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg text-purple-600 dark:text-purple-400">
           <Key size={18} />
