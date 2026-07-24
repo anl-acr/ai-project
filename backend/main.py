@@ -4706,56 +4706,72 @@ async def new_get_users_endpoint(db: AsyncSession = Depends(get_db)):
 
 @app.post("/api/settings/users")
 async def new_save_users_endpoint(payload: List[UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SystemUser))
-    existing_users_db = result.scalars().all()
-    existing_users = {u.id: {c.name: getattr(u, c.name) for c in u.__table__.columns} for u in existing_users_db}
-    
-    for item in payload:
-        if item.id and item.id in existing_users:
-            if str(existing_users[item.id].get("extension")) == str(item.extension):
-                continue
-        validate_number_range(item.extension, "extension")
+    try:
+        result = await db.execute(select(SystemUser))
+        existing_users_db = result.scalars().all()
+        existing_by_ext = {str(u.extension): u for u in existing_users_db if u.extension}
+        existing_by_id = {u.id: u for u in existing_users_db if u.id is not None}
         
-    changes = []
-    await db.execute(delete(SystemUser))
-    
-    new_users = []
-    for idx, item in enumerate(payload):
-        data = item.model_dump()
-        if not data.get("sip_password") or data.get("sip_password") == "1234":
-            data["sip_password"] = generate_strong_sip_password()
-            
-        if not data.get("id"):
-            data["id"] = idx + 1
-            changes.append({"action": "CREATED", "name": data.get("full_name"), "extension": data.get("extension")})
-        else:
-            old_data = existing_users.get(data["id"])
-            if old_data:
-                diff = {}
-                for k, v in data.items():
-                    if k != "avatar" and old_data.get(k) != v:
-                        diff[k] = {"old": old_data.get(k), "new": v}
-                if diff:
-                    changes.append({"action": "UPDATED", "name": data.get("full_name"), "diff": diff})
+        for item in payload:
+            if item.id and item.id in existing_by_id:
+                if str(existing_by_id[item.id].extension) == str(item.extension):
+                    continue
+            validate_number_range(item.extension, "extension")
+
+        payload_user_ids = set()
+        new_users_out = []
+        changes = []
+        valid_keys = {c.name for c in SystemUser.__table__.columns}
+
+        for idx, item in enumerate(payload):
+            data = item.model_dump()
+            if not data.get("sip_password") or data.get("sip_password") == "1234":
+                data["sip_password"] = generate_strong_sip_password()
+                
+            target_user = existing_by_id.get(data.get("id")) or existing_by_ext.get(str(data.get("extension")))
+            filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
+
+            if target_user:
+                for k, v in filtered_data.items():
+                    setattr(target_user, k, v)
+                payload_user_ids.add(target_user.id)
+                changes.append({"action": "UPDATED", "name": data.get("full_name"), "extension": data.get("extension")})
+            else:
+                new_sys_user = SystemUser(**filtered_data)
+                db.add(new_sys_user)
+                changes.append({"action": "CREATED", "name": data.get("full_name"), "extension": data.get("extension")})
+
+        for u in existing_users_db:
+            if u.id not in payload_user_ids and u.role != "admin":
+                await db.delete(u)
+
+        await db.commit()
+
+        res_updated = await db.execute(select(SystemUser).order_by(SystemUser.id))
+        all_users_db = res_updated.scalars().all()
+        for u in all_users_db:
+            new_users_out.append({c.name: getattr(u, c.name) for c in u.__table__.columns})
+
+        settings_db["needs_apply"] = True
+        settings_db["users"] = new_users_out
+        save_settings(settings_db)
         
-        u = SystemUser(**data)
-        db.add(u)
-        new_users.append(data)
+        try:
+            await log_event(
+                user_id=user_info["user_id"],
+                action="UPDATE_USERS",
+                module="Users",
+                details={"changes": changes} if changes else {"status": "No changes detected"},
+                ip_address=user_info["ip_address"]
+            )
+        except Exception as le:
+            print(f"[Log Event Error]: {le}")
         
-    await db.commit()
-    settings_db["needs_apply"] = True
-    save_settings(settings_db)
-    settings_db["users"] = new_users
-    
-    await log_event(
-        user_id=user_info["user_id"],
-        action="UPDATE_USERS",
-        module="Users",
-        details={"changes": changes} if changes else {"status": "No changes detected"},
-        ip_address=user_info["ip_address"]
-    )
-    
-    return {"status": "success", "users": new_users}
+        return {"status": "success", "users": new_users_out}
+    except Exception as e:
+        await db.rollback()
+        print(f"[Save Users Error]: {e}")
+        raise HTTPException(status_code=500, detail=f"Kullanıcılar kaydedilirken hata oluştu: {str(e)}")
 
 @app.get("/api/settings/roles")
 async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
@@ -4849,32 +4865,60 @@ async def new_get_queues_endpoint(db: AsyncSession = Depends(get_db)):
 
 @app.post("/api/settings/queues")
 async def new_save_queues_endpoint(payload: List[Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
-    await db.execute(delete(PBXQueue))
-    new_queues = []
-    for idx, item in enumerate(payload):
-        data = item.model_dump() if hasattr(item, "model_dump") else item.copy()
-        if not data.get("id"):
-            data["id"] = idx + 1
+    try:
+        result = await db.execute(select(PBXQueue))
+        existing_queues_db = result.scalars().all()
+        existing_by_num = {str(q.queue_number): q for q in existing_queues_db if q.queue_number}
+        existing_by_id = {q.id: q for q in existing_queues_db if q.id is not None}
+
+        payload_queue_ids = set()
+        new_queues_out = []
         valid_keys = {c.name for c in PBXQueue.__table__.columns}
-        filtered_data = {k: v for k, v in data.items() if k in valid_keys}
-        q = PBXQueue(**filtered_data)
-        db.add(q)
-        new_queues.append(filtered_data)
-        
-    await db.commit()
-    settings_db["needs_apply"] = True
-    save_settings(settings_db)
-    settings_db["queues"] = new_queues
-    
-    await log_event(
-        user_id=user_info["user_id"],
-        action="UPDATE_QUEUES",
-        module="Queues",
-        details={"status": "updated"},
-        ip_address=user_info["ip_address"]
-    )
-    
-    return {"status": "success", "queues": new_queues}
+
+        for idx, item in enumerate(payload):
+            data = item.model_dump() if hasattr(item, "model_dump") else item.copy()
+            target_q = existing_by_id.get(data.get("id")) or existing_by_num.get(str(data.get("queue_number")))
+            filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
+
+            if target_q:
+                for k, v in filtered_data.items():
+                    setattr(target_q, k, v)
+                payload_queue_ids.add(target_q.id)
+            else:
+                new_sys_q = PBXQueue(**filtered_data)
+                db.add(new_sys_q)
+
+        for q in existing_queues_db:
+            if q.id not in payload_queue_ids:
+                await db.delete(q)
+
+        await db.commit()
+
+        res_updated = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+        all_queues_db = res_updated.scalars().all()
+        for q in all_queues_db:
+            new_queues_out.append({c.name: getattr(q, c.name) for c in q.__table__.columns})
+
+        settings_db["needs_apply"] = True
+        settings_db["queues"] = new_queues_out
+        save_settings(settings_db)
+
+        try:
+            await log_event(
+                user_id=user_info["user_id"],
+                action="UPDATE_QUEUES",
+                module="Queues",
+                details={"status": "updated"},
+                ip_address=user_info["ip_address"]
+            )
+        except Exception as le:
+            print(f"[Log Event Error]: {le}")
+
+        return {"status": "success", "queues": new_queues_out}
+    except Exception as e:
+        await db.rollback()
+        print(f"[Save Queues Error]: {e}")
+        raise HTTPException(status_code=500, detail=f"Kuyruklar kaydedilirken hata oluştu: {str(e)}")
 
 @app.get("/api/settings/trunks")
 async def new_list_trunks(db: AsyncSession = Depends(get_db)):
