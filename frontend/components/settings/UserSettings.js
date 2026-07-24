@@ -310,28 +310,34 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
   }, [systemRoles, role]);
 
+  const [submitting, setSubmitting] = useState(false);
+
   const handleSaveAll = async (updatedUsers) => {
     setError(null);
     try {
       const res = await fetch(`${API_BASE}/api/settings/users`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+        },
         body: JSON.stringify(updatedUsers)
       });
       if (res.ok) {
         const data = await res.json();
-        setUsers(data.users);
+        if (data.users) setUsers(data.users);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
+        return true;
       } else {
         const errData = await res.json();
         setError(errData.detail || "Kullanıcı kaydedilirken bir hata oluştu.");
-        fetchAllData(); // reload previous state
+        return false;
       }
     } catch (err) {
       console.error("Kullanıcı ayarları kaydedilemedi:", err);
       setError("Bağlantı hatası oluştu.");
-      fetchAllData();
+      return false;
     }
   };
 
@@ -465,7 +471,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const handleFormSubmit = async (e) => {
     e.preventDefault();
-    if (!fullName.trim() || !email.trim() || !extension.trim()) return;
+    setError(null);
+    if (!fullName.trim() || !email.trim() || !extension.trim()) {
+      setError("Lütfen Ad Soyad, E-posta ve Dahili Numara alanlarını doldurunuz.");
+      return;
+    }
 
     const userData = {
       full_name: fullName.trim(),
@@ -492,27 +502,35 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       department_id: selectedDepartment || null
     };
 
-    if (editingUser) {
-      // Edit mode
-      const updated = users.map((u) => {
-        if (u.id === editingUser.id) {
-          return { ...u, ...userData };
-        }
-        return u;
-      });
-      setUsers(updated);
-      await handleSaveAll(updated);
-      await syncUserAssociations(editingUser.id);
-    } else {
-      // Add mode
-      const nextId = users.length > 0 ? Math.max(...users.map(u => u.id || 0)) + 1 : 1;
-      const newUser = { id: nextId, ...userData };
-      const updated = [...users, newUser];
-      setUsers(updated);
-      await handleSaveAll(updated);
-      await syncUserAssociations(newUser.id);
+    setSubmitting(true);
+    let ok = false;
+    try {
+      if (editingUser) {
+        // Edit mode
+        const updated = users.map((u) => {
+          if (u.id === editingUser.id) {
+            return { ...u, ...userData };
+          }
+          return u;
+        });
+        setUsers(updated);
+        ok = await handleSaveAll(updated);
+        await syncUserAssociations(editingUser.id);
+      } else {
+        // Add mode
+        const nextId = users.length > 0 ? Math.max(...users.map(u => u.id || 0)) + 1 : 1;
+        const newUser = { id: nextId, ...userData };
+        const updated = [...users, newUser];
+        setUsers(updated);
+        ok = await handleSaveAll(updated);
+        await syncUserAssociations(newUser.id);
+      }
+    } finally {
+      setSubmitting(false);
     }
-    setShowModal(false);
+    if (ok) {
+      setShowModal(false);
+    }
   };
 
   const handleDeleteUser = (id) => {
@@ -976,6 +994,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                 {/* Tab Content Area */}
                 <div className="flex-1 overflow-y-auto">
                     <form onSubmit={handleFormSubmit} className="p-6 space-y-6 h-full flex flex-col justify-between">
+                        {error && (
+                          <div className="p-3.5 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5">
+                            <span>{error}</span>
+                            <button type="button" onClick={() => setError(null)} className="text-slate-400 hover:text-slate-600">
+                              <X size={14} />
+                            </button>
+                          </div>
+                        )}
                         
                         {/* TAB 1: GİRİŞ VE SIP */}
                         {activeTab === "login_sip" && (
@@ -1256,9 +1282,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             </button>
                             <button
                                 type="submit"
-                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-sm`}
+                                disabled={submitting}
+                                className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-sm disabled:opacity-50`}
                             >
-                                Kaydet
+                                {submitting ? "Kaydediliyor..." : "Kaydet"}
                             </button>
                         </div>
                     </form>

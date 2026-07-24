@@ -92,12 +92,17 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const [submitting, setSubmitting] = useState(false);
+
   const handleSaveAll = async (updatedRoles) => {
     setError("");
     try {
       const res = await fetch(`${API_BASE}/api/settings/roles`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+        },
         body: JSON.stringify(updatedRoles)
       });
       const data = await res.json();
@@ -105,13 +110,16 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         if (data.roles) setRoles(data.roles);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
+        return true;
       } else {
         const msg = data.detail || data.message || "Roller kaydedilirken bir hata oluştu.";
         setError(msg);
+        return false;
       }
     } catch (err) {
       console.error("Roller kaydedilemedi:", err);
       setError("Sunucuya bağlanırken bir hata oluştu.");
+      return false;
     }
   };
 
@@ -145,40 +153,48 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       return;
     }
 
-    if (editingRole) {
-      // Edit
-      const updated = roles.map((r) => {
-        if (r.id === editingRole.id) {
-          return {
-            ...r,
-            role_code: trimmedCode,
-            name: trimmedName,
-            permissions: Array.from(new Set([
-              ...(r.permissions || []).filter(p => !SYSTEM_FEATURES.some(f => p.startsWith(f.id + ':'))),
-              ...selectedPermissions
-            ])),
-            allowed_breaks: selectedBreaks
-          };
-        }
-        return r;
-      });
-      setRoles(updated);
-      await handleSaveAll(updated);
-    } else {
-      // Add
-      const nextId = roles.length > 0 ? Math.max(...roles.map(r => r.id || 0)) + 1 : 1;
-      const newRole = {
-        id: nextId,
-        role_code: trimmedCode,
-        name: trimmedName,
-        permissions: selectedPermissions,
-        allowed_breaks: selectedBreaks
-      };
-      const updated = [...roles, newRole];
-      setRoles(updated);
-      await handleSaveAll(updated);
+    setSubmitting(true);
+    let ok = false;
+    try {
+      if (editingRole) {
+        // Edit
+        const updated = roles.map((r) => {
+          if (r.id === editingRole.id) {
+            return {
+              ...r,
+              role_code: trimmedCode,
+              name: trimmedName,
+              permissions: Array.from(new Set([
+                ...(r.permissions || []).filter(p => !SYSTEM_FEATURES.some(f => p.startsWith(f.id + ':'))),
+                ...selectedPermissions
+              ])),
+              allowed_breaks: selectedBreaks
+            };
+          }
+          return r;
+        });
+        setRoles(updated);
+        ok = await handleSaveAll(updated);
+      } else {
+        // Add
+        const nextId = roles.length > 0 ? Math.max(...roles.map(r => r.id || 0)) + 1 : 1;
+        const newRole = {
+          id: nextId,
+          role_code: trimmedCode,
+          name: trimmedName,
+          permissions: selectedPermissions,
+          allowed_breaks: selectedBreaks
+        };
+        const updated = [...roles, newRole];
+        setRoles(updated);
+        ok = await handleSaveAll(updated);
+      }
+    } finally {
+      setSubmitting(false);
     }
-    setShowModal(false);
+    if (ok) {
+      setShowModal(false);
+    }
   };
 
   const handleDeleteRole = (id) => {
@@ -457,6 +473,14 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
 
             {/* Modal Body Form */}
             <form onSubmit={handleFormSubmit} className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+              {error && (
+                <div className="p-3.5 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5">
+                  <span>{error}</span>
+                  <button type="button" onClick={() => setError("")} className="text-slate-400 hover:text-slate-600">
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-4">
                 {/* Role Code */}
                 <div>
@@ -709,9 +733,10 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                 >Vazgeç</button>
                 <button
                   type="submit"
-                  className={`flex-1 py-3 rounded-2xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-md`}
+                  disabled={submitting}
+                  className={`flex-1 py-3 rounded-2xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-md disabled:opacity-50`}
                 >
-                  Kaydet
+                  {submitting ? "Kaydediliyor..." : "Kaydet"}
                 </button>
               </div>
             </form>
