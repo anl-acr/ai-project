@@ -70,7 +70,6 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
 
   const resolveHost = (bh) => {
     if (typeof window === "undefined") return bh || "localhost:8000";
-    if (bh) return bh;
     return `${window.location.hostname}:8000`;
   };
   const host = resolveHost(backendHost);
