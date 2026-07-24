@@ -1088,24 +1088,25 @@ settings_db = load_settings()
 # API Routes: PBX & Channel Settings
 # ----------------------------------------------------
 @app.get("/api/settings/roi_settings")
+@app.get("/settings/roi_settings")
 async def get_roi_settings():
     return settings_db.get("roi_settings", DEFAULT_SETTINGS["roi_settings"])
 
 @app.post("/api/settings/roi_settings")
+@app.post("/settings/roi_settings")
 async def save_roi_settings(payload: dict):
     settings_db["roi_settings"] = payload
-    save_settings(settings_db)
     return {"status": "success"}
 
 @app.get("/api/settings/pbx")
+@app.get("/settings/pbx")
 async def get_pbx_settings():
     return settings_db["pbx"]
 
 @app.post("/api/settings/pbx")
+@app.post("/settings/pbx")
 async def save_pbx_settings(payload: PBXSettingsSchema):
     settings_db["pbx"] = payload.model_dump()
-    save_settings(settings_db)
-    # Update local environment variables dynamically so services read them
     os.environ["AMI_HOST"] = payload.ami_host
     os.environ["AMI_PORT"] = str(payload.ami_port)
     os.environ["AMI_USER"] = payload.ami_user
@@ -1376,22 +1377,25 @@ async def get_trunks_status():
     return status_dict
 
 @app.get("/api/settings/channels")
+@app.get("/settings/channels")
 async def get_channel_settings():
     return settings_db["channels"]
 
 @app.post("/api/settings/channels")
+@app.post("/settings/channels")
 async def save_channel_settings(payload: ChannelSettingsSchema):
     settings_db["channels"] = payload.model_dump()
     return {"status": "success", "message": "Kanal entegrasyon ayarları kaydedildi."}
 
 @app.get("/api/settings/smart-callback")
+@app.get("/settings/smart-callback")
 async def get_smart_callback_settings():
     return settings_db.get("smart_callback", DEFAULT_SETTINGS["smart_callback"])
 
 @app.post("/api/settings/smart-callback")
+@app.post("/settings/smart-callback")
 async def save_smart_callback_settings(payload: SmartCallbackSettingsSchema):
     settings_db["smart_callback"] = payload.model_dump()
-    save_settings(settings_db)
     return {"status": "success", "message": "Akıllı geri arama (Smart Callback) ayarları kaydedildi."}
 
 # ----------------------------------------------------
@@ -1422,13 +1426,14 @@ class CustomAPIAssistantPayload(BaseModel):
     history: Optional[List[dict]] = []
 
 @app.get("/api/settings/custom-apis")
+@app.get("/settings/custom-apis")
 async def get_custom_apis_endpoint():
     return settings_db.get("custom_apis", [])
 
 @app.post("/api/settings/custom-apis")
+@app.post("/settings/custom-apis")
 async def save_custom_apis_endpoint(payload: CustomAPIsSavePayload):
     settings_db["custom_apis"] = [api.model_dump() for api in payload.custom_apis]
-    save_settings(settings_db)
     return {"status": "success", "message": "Evrensel API tanımları kaydedildi."}
 
 @app.post("/api/settings/custom-apis/test")
@@ -1556,13 +1561,14 @@ class VoiceBiometricsSettingsSchema(BaseModel):
     auto_blacklist: bool
 
 @app.get("/api/settings/voice-biometrics")
+@app.get("/settings/voice-biometrics")
 async def get_voice_biometrics_settings():
     return settings_db.get("voice_biometrics", DEFAULT_SETTINGS["voice_biometrics"])
 
 @app.post("/api/settings/voice-biometrics")
+@app.post("/settings/voice-biometrics")
 async def save_voice_biometrics_settings(payload: VoiceBiometricsSettingsSchema):
     settings_db["voice_biometrics"] = payload.model_dump()
-    save_settings(settings_db)
     return {"status": "success", "message": "Ses biyometrisi ve deepfake koruma ayarları kaydedildi."}
 
 class RecordingRetentionSettingsSchema(BaseModel):
@@ -1572,13 +1578,14 @@ class RecordingRetentionSettingsSchema(BaseModel):
     delete_by_days: bool
 
 @app.get("/api/settings/recording-retention")
+@app.get("/settings/recording-retention")
 async def get_recording_retention_settings():
     return settings_db.get("recording_retention", DEFAULT_SETTINGS["recording_retention"])
 
 @app.post("/api/settings/recording-retention")
+@app.post("/settings/recording-retention")
 async def save_recording_retention_settings(payload: RecordingRetentionSettingsSchema):
     settings_db["recording_retention"] = payload.model_dump()
-    save_settings(settings_db)
     
     # Run simulated disk cleanup log
     try:
@@ -1638,30 +1645,35 @@ DIALER_RECORDS = [
 DIALER_STATE = {"status": "paused", "current_calls": 0}
 
 @app.get("/api/settings/dialer")
+@app.get("/settings/dialer")
 async def get_dialer_settings():
     return settings_db.get("dialer", DEFAULT_SETTINGS["dialer"])
 
 @app.post("/api/settings/dialer")
+@app.post("/settings/dialer")
 async def save_smart_dialer_settings(payload: DialerSettingsSchema):
     settings_db["dialer"] = payload.model_dump()
-    save_settings(settings_db)
     return {"status": "success", "message": "Dış arama (Outbound Dialer) ayarları kaydedildi."}
 
 @app.get("/api/settings/call-flow")
+@app.get("/settings/call-flow")
 async def get_call_flow_settings():
     return settings_db.get("call_flow", DEFAULT_SETTINGS["call_flow"])
 
 @app.post("/api/settings/call-flow")
+@app.post("/settings/call-flow")
 async def save_call_flow_settings(payload: CallFlowSettingsSchema):
     settings_db["call_flow"] = payload.model_dump()
-    save_settings(settings_db)
     return {"status": "success", "message": "Giriş çağrı akış şeması (Call Flow) başarıyla kaydedildi."}
 
 @app.get("/api/settings/call-flow/workflows")
+@app.get("/settings/call-flow/workflows")
 async def get_workflows():
     return settings_db.get("workflows", DEFAULT_SETTINGS["workflows"])
 
 @app.post("/api/settings/call-flow/workflows")
+@app.post("/settings/call-flow/workflows")
+async def save_workflow(payload: WorkflowSchema):
 async def save_workflow(payload: WorkflowSchema):
     wfs = settings_db.get("workflows", [])
     updated = False
