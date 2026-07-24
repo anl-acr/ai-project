@@ -52,6 +52,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const [breaks, setBreaks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState("");
 
   // Search filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -85,30 +86,37 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       if (dataBreaks) setBreaks(dataBreaks);
     } catch (err) {
       console.error("Roller/Molalar yüklenemedi:", err);
+      setError("Rol ve mola tanımları sunucudan alınamadı.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleSaveAll = async (updatedRoles) => {
+    setError("");
     try {
       const res = await fetch(`${API_BASE}/api/settings/roles`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(updatedRoles)
       });
-      if (res.ok) {
-        const data = await res.json();
-        setRoles(data.roles);
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        if (data.roles) setRoles(data.roles);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
+      } else {
+        const msg = data.detail || data.message || "Roller kaydedilirken bir hata oluştu.";
+        setError(msg);
       }
     } catch (err) {
       console.error("Roller kaydedilemedi:", err);
+      setError("Sunucuya bağlanırken bir hata oluştu.");
     }
   };
 
   const openAddModal = () => {
+    setError("");
     setEditingRole(null);
     setRoleCode("");
     setRoleName("");
@@ -118,6 +126,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   };
 
   const openEditModal = (r) => {
+    setError("");
     setEditingRole(r);
     setRoleCode(r.role_code);
     setRoleName(r.name);
@@ -128,7 +137,13 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
 
   const handleFormSubmit = (e) => {
     e.preventDefault();
-    if (!roleCode.trim() || !roleName.trim()) return;
+    setError("");
+    const trimmedCode = roleCode.trim().toLowerCase().replace(/[^a-z0-9_]/g, "_");
+    const trimmedName = roleName.trim();
+    if (!trimmedCode || !trimmedName) {
+      setError("Lütfen geçerli bir Rol Kodu ve Rol Adı giriniz.");
+      return;
+    }
 
     if (editingRole) {
       // Edit
@@ -136,8 +151,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         if (r.id === editingRole.id) {
           return {
             ...r,
-            role_code: roleCode.trim().toLowerCase(),
-            name: roleName.trim(),
+            role_code: trimmedCode,
+            name: trimmedName,
             permissions: Array.from(new Set([
               ...(r.permissions || []).filter(p => !SYSTEM_FEATURES.some(f => p.startsWith(f.id + ':'))),
               ...selectedPermissions
@@ -154,8 +169,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       const nextId = roles.length > 0 ? Math.max(...roles.map(r => r.id || 0)) + 1 : 1;
       const newRole = {
         id: nextId,
-        role_code: roleCode.trim().toLowerCase(),
-        name: roleName.trim(),
+        role_code: trimmedCode,
+        name: trimmedName,
         permissions: selectedPermissions,
         allowed_breaks: selectedBreaks
       };
@@ -195,58 +210,61 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
-  // Helper to color code role cards uniquely based on code name
   const getRoleCardStyles = (code) => {
     if (code === "admin") {
       return {
-        borderClass: "border-l-4 border-l-purple-500 border-slate-200/80 dark:border-slate-800/85",
-        bgClass: "from-purple-50/10 to-transparent",
-        iconColor: "text-primary",
-        badgeClass: "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-200/50"
+        bgClass: "from-rose-500/10 via-rose-500/5 to-transparent",
+        borderClass: "border-rose-200 dark:border-rose-900/40",
+        badgeClass: "bg-rose-100 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-900/50",
+        iconColor: "text-rose-500"
       };
     }
     if (code === "supervisor") {
       return {
-        borderClass: "border-l-4 border-l-emerald-500 border-slate-200/80 dark:border-slate-800/85",
-        bgClass: "from-emerald-50/10 to-transparent",
-        iconColor: "text-primary",
-        badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50"
+        bgClass: "from-indigo-500/10 via-indigo-500/5 to-transparent",
+        borderClass: "border-indigo-200 dark:border-indigo-900/40",
+        badgeClass: "bg-indigo-100 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/50",
+        iconColor: "text-indigo-500"
+      };
+    }
+    if (code === "agent") {
+      return {
+        bgClass: "from-emerald-500/10 via-emerald-500/5 to-transparent",
+        borderClass: "border-emerald-200 dark:border-emerald-900/40",
+        badgeClass: "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-900/50",
+        iconColor: "text-emerald-500"
       };
     }
     return {
-      borderClass: "border-l-4 border-l-blue-500 border-slate-200/80 dark:border-slate-800/85",
-      bgClass: "from-blue-50/10 to-transparent",
-      iconColor: "text-primary",
-      badgeClass: "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200/50"
+      bgClass: "from-purple-500/10 via-purple-500/5 to-transparent",
+      borderClass: "border-purple-200 dark:border-purple-900/40",
+      badgeClass: "bg-purple-100 dark:bg-purple-950/40 text-purple-700 dark:text-purple-400 border-purple-200 dark:border-purple-900/50",
+      iconColor: "text-purple-500"
     };
   };
 
-  const filteredRoles = roles.filter((r) => {
-    const query = searchQuery.toLowerCase();
-    return (
-      r.name.toLowerCase().includes(query) ||
-      r.role_code.toLowerCase().includes(query)
-    );
-  });
+  const filteredRoles = roles.filter(
+    (r) =>
+      r.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.role_code?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
-    <div className="w-full space-y-6">
-      {/* Standalone Header Card */}
-      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
-            <Shield size={20} />
-          </div>
-          <div>
-            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">ROL YETKİLENDİRME PANELİ</h3>
-            <p className="text-[10px] text-slate-505 dark:text-slate-400 mt-0.5 font-medium">
-              Sistemdeki modüllerin eylem yetkilerini (Okuma, Yazma, Silme) detaylı olarak sınırlayın ve rol-mola ilişkilerini yönetin.
-            </p>
-          </div>
+    <div className="space-y-6">
+      {/* Header Info */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white dark:bg-slate-900 p-6 rounded-3xl border border-slate-200/80 dark:border-slate-800/80 shadow-sm">
+        <div>
+          <h3 className="text-base font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
+            <Shield size={18} className="text-purple-500" />
+            Rol ve Yetki Tanımları
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            Sistem kullanıcılarının erişebileceği modülleri, yetkilerini ve molalarını detaylıca yapılandırın.
+          </p>
         </div>
 
-        {/* Search Bar + "+" Icon Wrapper */}
-        <div className="flex items-center gap-2.5">
+        {/* Search & Add Button */}
+        <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
           <div className="relative">
             <input
               type="text"
@@ -267,6 +285,16 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
           </button>
         </div>
       </div>
+
+      {/* Error Alert Banner */}
+      {error && (
+        <div className="p-3.5 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5 animate-in fade-in slide-in-from-top-1 duration-200">
+          <span>{error}</span>
+          <button type="button" onClick={() => setError("")} className="text-slate-400 hover:text-slate-600">
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Success Alert Banner */}
       {success && (

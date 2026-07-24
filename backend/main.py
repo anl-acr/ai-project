@@ -4769,47 +4769,73 @@ async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
 
 @app.post("/api/settings/roles")
 async def new_save_roles_endpoint(payload: List[RoleSchema], user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SystemRole))
-    existing_roles_db = result.scalars().all()
-    existing_roles = {r.id: {c.name: getattr(r, c.name) for c in r.__table__.columns} for r in existing_roles_db}
-    
-    changes = []
-    await db.execute(delete(SystemRole))
-    
-    new_roles = []
-    for idx, item in enumerate(payload):
-        data = item.model_dump()
-        if not data.get("id"):
-            data["id"] = idx + 1
-            changes.append({"action": "CREATED", "name": data.get("name"), "role_code": data.get("role_code")})
-        else:
-            old_data = existing_roles.get(data["id"])
-            if old_data:
-                diff = {}
-                for k, v in data.items():
-                    if old_data.get(k) != v:
-                        diff[k] = {"old": old_data.get(k), "new": v}
-                if diff:
-                    changes.append({"action": "UPDATED", "name": data.get("name"), "diff": diff})
-                    
-        r = SystemRole(**data)
-        db.add(r)
-        new_roles.append(data)
+    try:
+        result = await db.execute(select(SystemRole))
+        existing_roles_db = result.scalars().all()
+        existing_by_code = {r.role_code: r for r in existing_roles_db}
+        existing_by_id = {r.id: r for r in existing_roles_db if r.id is not None}
         
-    await db.commit()
-    settings_db["needs_apply"] = True
-    save_settings(settings_db)
-    settings_db["roles"] = new_roles
-    
-    await log_event(
-        user_id=user_info["user_id"],
-        action="UPDATE_ROLES",
-        module="Roles",
-        details={"changes": changes} if changes else {"status": "No changes detected"},
-        ip_address=user_info["ip_address"]
-    )
-    
-    return {"status": "success", "roles": new_roles}
+        payload_role_codes = set()
+        new_roles_out = []
+        changes = []
+        
+        for idx, item in enumerate(payload):
+            data = item.model_dump()
+            code = data.get("role_code", "").strip().lower()
+            if not code:
+                continue
+            payload_role_codes.add(code)
+            
+            target_role = existing_by_id.get(data.get("id")) or existing_by_code.get(code)
+            
+            if target_role:
+                target_role.role_code = code
+                target_role.name = data.get("name")
+                target_role.permissions = data.get("permissions", [])
+                target_role.allowed_breaks = data.get("allowed_breaks", [])
+                changes.append({"action": "UPDATED", "name": data.get("name"), "role_code": code})
+            else:
+                new_sys_role = SystemRole(
+                    role_code=code,
+                    name=data.get("name"),
+                    permissions=data.get("permissions", []),
+                    allowed_breaks=data.get("allowed_breaks", [])
+                )
+                db.add(new_sys_role)
+                changes.append({"action": "CREATED", "name": data.get("name"), "role_code": code})
+                
+        for r in existing_roles_db:
+            if r.role_code not in payload_role_codes and r.role_code != "admin":
+                await db.delete(r)
+                changes.append({"action": "DELETED", "name": r.name, "role_code": r.role_code})
+
+        await db.commit()
+
+        res_updated = await db.execute(select(SystemRole).order_by(SystemRole.id))
+        all_roles_db = res_updated.scalars().all()
+        for r in all_roles_db:
+            new_roles_out.append({c.name: getattr(r, c.name) for c in r.__table__.columns})
+
+        settings_db["needs_apply"] = True
+        settings_db["roles"] = new_roles_out
+        save_settings(settings_db)
+        
+        try:
+            await log_event(
+                user_id=user_info["user_id"],
+                action="UPDATE_ROLES",
+                module="Roles",
+                details={"changes": changes} if changes else {"status": "No changes detected"},
+                ip_address=user_info["ip_address"]
+            )
+        except Exception as le:
+            print(f"[Log Event Error]: {le}")
+        
+        return {"status": "success", "roles": new_roles_out}
+    except Exception as e:
+        await db.rollback()
+        print(f"[Save Roles Error]: {e}")
+        raise HTTPException(status_code=500, detail=f"Roller kaydedilirken hata oluştu: {str(e)}")
 
 @app.get("/api/settings/queues")
 async def new_get_queues_endpoint(db: AsyncSession = Depends(get_db)):
