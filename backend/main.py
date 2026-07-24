@@ -5148,10 +5148,20 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
             elif data.get("trunk_name") and data.get("trunk_name") in existing_by_name:
                 target_trunk = existing_by_name[data["trunk_name"]]
 
+            if "port" in filtered_data:
+                try:
+                    filtered_data["port"] = int(filtered_data["port"])
+                except (ValueError, TypeError):
+                    filtered_data["port"] = 5060
+
             if target_trunk:
                 for k, v in filtered_data.items():
                     setattr(target_trunk, k, v)
             else:
+                if not filtered_data.get("trunk_name"):
+                    filtered_data["trunk_name"] = "Yeni_Trunk"
+                if not filtered_data.get("host"):
+                    filtered_data["host"] = "127.0.0.1"
                 if not filtered_data.get("did_number"):
                     filtered_data["did_number"] = ""
                 if not filtered_data.get("transfer_target"):

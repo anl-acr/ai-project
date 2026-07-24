@@ -182,17 +182,29 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     setLoading((prev) => ({ ...prev, trunks: true }));
 
     try {
-      const res = await fetch(`${API_BASE}/api/settings/trunks`, {
+      const url = `${API_BASE}/api/settings/trunks`;
+      const res = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+        },
         body: JSON.stringify(newTrunk)
       });
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
         closeModal();
-        fetchTrunks();
+        if (data.trunks) {
+          setTrunks(data.trunks);
+        } else {
+          fetchTrunks();
+        }
+      } else {
+        alert(data.detail || "Dış hat kaydedilirken bir hata oluştu.");
       }
     } catch (err) {
       console.error("[Trunks] Ekleme/Guncelleme hatasi:", err);
+      alert("Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
     } finally {
       setLoading((prev) => ({ ...prev, trunks: false }));
     }
