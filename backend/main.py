@@ -1746,58 +1746,96 @@ async def control_dialer(payload: DialerControlPayload):
     return {"status": "success", "state": DIALER_STATE}
 
 @app.get("/api/settings/breaks")
+@app.get("/settings/breaks")
 async def get_breaks_endpoint():
     return settings_db.get("breaks", [])
 
 @app.post("/api/settings/breaks")
-async def save_breaks_endpoint(payload: List[BreakSchema]):
-    settings_db["breaks"] = []
-    for idx, item in enumerate(payload):
+@app.post("/settings/breaks")
+async def save_breaks_endpoint(payload: Union[List[BreakSchema], BreakSchema]):
+    is_single = not isinstance(payload, list)
+    items_list = [payload] if is_single else payload
+    if not is_single:
+        settings_db["breaks"] = []
+    for idx, item in enumerate(items_list):
         data = item.model_dump()
         if not data.get("id"):
-            data["id"] = idx + 1
-        settings_db["breaks"].append(data)
+            data["id"] = len(settings_db.get("breaks", [])) + 1
+        if is_single:
+            existing_idx = next((i for i, b in enumerate(settings_db.get("breaks", [])) if b.get("id") == data["id"]), None)
+            if existing_idx is not None:
+                settings_db["breaks"][existing_idx] = data
+            else:
+                settings_db.setdefault("breaks", []).append(data)
+        else:
+            settings_db["breaks"].append(data)
     save_settings(settings_db)
     return {"status": "success", "breaks": settings_db["breaks"]}
 
 import uuid
 
 @app.get("/api/settings/locations")
+@app.get("/settings/locations")
 async def get_locations_endpoint():
     return settings_db.get("locations", [])
 
 @app.post("/api/settings/locations")
-async def save_locations_endpoint(payload: List[LocationSchema]):
-    settings_db["locations"] = []
-    for item in payload:
+@app.post("/settings/locations")
+async def save_locations_endpoint(payload: Union[List[LocationSchema], LocationSchema]):
+    is_single = not isinstance(payload, list)
+    items_list = [payload] if is_single else payload
+    if not is_single:
+        settings_db["locations"] = []
+    for item in items_list:
         data = item.model_dump()
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
-        settings_db["locations"].append(data)
+        if is_single:
+            existing_idx = next((i for i, loc in enumerate(settings_db.get("locations", [])) if loc.get("id") == data["id"]), None)
+            if existing_idx is not None:
+                settings_db["locations"][existing_idx] = data
+            else:
+                settings_db.setdefault("locations", []).append(data)
+        else:
+            settings_db["locations"].append(data)
     save_settings(settings_db)
     return {"status": "success", "locations": settings_db["locations"]}
 
 @app.get("/api/settings/departments")
+@app.get("/settings/departments")
 async def get_departments_endpoint():
     return settings_db.get("departments", [])
 
 @app.post("/api/settings/departments")
-async def save_departments_endpoint(payload: List[DepartmentSchema]):
-    settings_db["departments"] = []
-    for item in payload:
+@app.post("/settings/departments")
+async def save_departments_endpoint(payload: Union[List[DepartmentSchema], DepartmentSchema]):
+    is_single = not isinstance(payload, list)
+    items_list = [payload] if is_single else payload
+    if not is_single:
+        settings_db["departments"] = []
+    for item in items_list:
         data = item.model_dump()
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
-        settings_db["departments"].append(data)
+        if is_single:
+            existing_idx = next((i for i, d in enumerate(settings_db.get("departments", [])) if d.get("id") == data["id"]), None)
+            if existing_idx is not None:
+                settings_db["departments"][existing_idx] = data
+            else:
+                settings_db.setdefault("departments", []).append(data)
+        else:
+            settings_db["departments"].append(data)
     save_settings(settings_db)
     return {"status": "success", "departments": settings_db["departments"]}
 
 @app.get("/api/agent/status")
+@app.get("/agent/status")
 async def get_agent_status_endpoint():
     from backend.services.agent_presence import get_agent_state
     return get_agent_state()
 
 @app.post("/api/agent/status")
+@app.post("/agent/status")
 async def update_agent_status_endpoint(payload: AgentStateSchema):
     from backend.services.agent_presence import update_agent_state
     new_state = update_agent_state(
