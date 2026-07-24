@@ -55,6 +55,20 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def auto_api_prefix_middleware(request: Request, call_next):
+    path = request.url.path
+    response = await call_next(request)
+    if response.status_code == 404:
+        if path.startswith("/api/"):
+            request.scope["path"] = path[4:]
+        else:
+            request.scope["path"] = "/api" + path
+        retry_response = await call_next(request)
+        if retry_response.status_code != 404:
+            return retry_response
+    return response
+
 # Serve call recordings statically
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
 app.mount("/api/recordings", StaticFiles(directory=RECORDINGS_DIR), name="recordings")
@@ -4696,6 +4710,7 @@ async def startup_event():
 # --- REFACTORED ENDPOINTS ---
 
 @app.get("/api/settings/users")
+@app.get("/settings/users")
 async def new_get_users_endpoint(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SystemUser).order_by(SystemUser.id))
     users = result.scalars().all()
@@ -4706,6 +4721,7 @@ async def new_get_users_endpoint(db: AsyncSession = Depends(get_db)):
     return out
 
 @app.post("/api/settings/users")
+@app.post("/settings/users")
 async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
         is_single = not isinstance(payload, list)
@@ -4780,11 +4796,13 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         raise HTTPException(status_code=500, detail=f"Kullanıcılar kaydedilirken hata oluştu: {str(e)}")
 
 @app.put("/api/settings/users/{user_id}")
+@app.put("/settings/users/{user_id}")
 async def update_single_user_endpoint(user_id: int, payload: UserSchema, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     payload.id = user_id
     return await new_save_users_endpoint(payload=payload, background_tasks=background_tasks, user_info=user_info, db=db)
 
 @app.delete("/api/settings/users/{user_id}")
+@app.delete("/settings/users/{user_id}")
 async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
         res = await db.execute(select(SystemUser).where(SystemUser.id == user_id))
@@ -4815,6 +4833,7 @@ async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(ge
         raise HTTPException(status_code=500, detail=f"Kullanıcı silinirken hata oluştu: {str(e)}")
 
 @app.get("/api/settings/roles")
+@app.get("/settings/roles")
 async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(SystemRole).order_by(SystemRole.id))
     roles = result.scalars().all()
@@ -4825,6 +4844,7 @@ async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
     return out
 
 @app.post("/api/settings/roles")
+@app.post("/settings/roles")
 async def new_save_roles_endpoint(payload: Union[List[RoleSchema], RoleSchema], user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
         is_single = not isinstance(payload, list)
