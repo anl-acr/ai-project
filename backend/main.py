@@ -1321,29 +1321,30 @@ async def list_trunks():
     return settings_db["trunks"]
 
 @app.post("/api/v1_old/settings/trunks")
-async def add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks: BackgroundTasks):
+async def add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info)):
     data = payload.model_dump()
     if not data.get("id"):
-        # Auto-generate ID
-        data["id"] = max([t["id"] for t in settings_db["trunks"]]) + 1 if settings_db["trunks"] else 1
-        settings_db["trunks"].append(data)
+        data["id"] = max([t["id"] for t in settings_db.get("trunks", [])] or [0]) + 1
+        settings_db.setdefault("trunks", []).append(data)
     else:
-        # Update existing
-        for index, t in enumerate(settings_db["trunks"]):
-            if t["id"] == data["id"]:
+        for index, t in enumerate(settings_db.get("trunks", [])):
+            if t.get("id") == data["id"]:
                 settings_db["trunks"][index] = data
                 break
                 
     save_settings(settings_db)
     regenerate_pjsip_custom_conf(background_tasks)
     
-    await log_event(
-        user_id=user_info["user_id"],
-        action="SAVE_TRUNK",
-        module="SIP Trunks",
-        details={"trunk_name": data.get("trunk_name")},
-        ip_address=user_info["ip_address"]
-    )
+    try:
+        await log_event(
+            user_id=user_info.get("user_id", "admin"),
+            action="SAVE_TRUNK",
+            module="SIP Trunks",
+            details={"trunk_name": data.get("trunk_name")},
+            ip_address=user_info.get("ip_address")
+        )
+    except Exception as le:
+        print(f"[Log Event Warning]: {le}")
     
     return {"status": "success", "message": "SIP Trunk başarıyla kaydedildi.", "trunk": data}
 
