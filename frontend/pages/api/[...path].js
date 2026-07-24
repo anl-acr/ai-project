@@ -1,22 +1,21 @@
 export const config = {
   api: {
-    bodyParser: false,
-    externalResolver: true,
+    bodyParser: true,
   },
 };
 
 export default async function handler(req, res) {
   const { path } = req.query;
   const subPath = Array.isArray(path) ? path.join('/') : path || '';
-  
-  // Construct target URL to Python FastAPI server on 127.0.0.1:8000
   const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : '';
   const targetUrl = `http://127.0.0.1:8000/api/${subPath}${queryString}`;
 
   try {
-    const headers = { ...req.headers };
-    delete headers.host;
-    delete headers.connection;
+    const headers = {
+      'content-type': req.headers['content-type'] || 'application/json',
+    };
+    if (req.headers['x-user-id']) headers['x-user-id'] = req.headers['x-user-id'];
+    if (req.headers['authorization']) headers['authorization'] = req.headers['authorization'];
 
     const fetchOptions = {
       method: req.method,
@@ -24,11 +23,7 @@ export default async function handler(req, res) {
     };
 
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      const buffers = [];
-      for await (const chunk of req) {
-        buffers.push(chunk);
-      }
-      fetchOptions.body = Buffer.concat(buffers);
+      fetchOptions.body = typeof req.body === 'object' ? JSON.stringify(req.body) : (req.body || '');
     }
 
     const backendRes = await fetch(targetUrl, fetchOptions);
@@ -38,8 +33,8 @@ export default async function handler(req, res) {
     }
     
     res.status(backendRes.status);
-    const responseArrayBuffer = await backendRes.arrayBuffer();
-    res.send(Buffer.from(responseArrayBuffer));
+    const data = await backendRes.text();
+    res.send(data);
   } catch (error) {
     console.error(`[API Proxy Error to ${targetUrl}]:`, error);
     res.status(500).json({ detail: `Backend proxy error: ${error.message}` });

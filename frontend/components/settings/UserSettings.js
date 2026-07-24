@@ -149,20 +149,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const safeFetch = async (path, options = {}) => {
     const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-    const hostname = typeof window !== "undefined" ? window.location.hostname : "localhost";
-    
-    const primaryUrl = path.startsWith("http") ? path : `${protocol}//${window.location.host}${path.startsWith('/') ? path : '/' + path}`;
-    try {
-      const res = await fetch(primaryUrl, options);
-      if (res.status !== 404) {
-        return res;
-      }
-    } catch (e) {
-      console.warn(`[safeFetch] Primary fetch to ${primaryUrl} failed, trying fallback:`, e);
-    }
-
-    const fallbackUrl = path.startsWith("http") ? path : `${protocol}//${hostname}:8000${path.startsWith('/') ? path : '/' + path}`;
-    return await fetch(fallbackUrl, options);
+    const url = path.startsWith("http") ? path : `${protocol}//${window.location.host}${path.startsWith('/') ? path : '/' + path}`;
+    return await fetch(url, options);
   };
 
   useEffect(() => {
@@ -331,7 +319,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const handleSaveAll = async (updatedUsers) => {
     setError(null);
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 12000);
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
     try {
       const res = await safeFetch(`/api/settings/users`, {
         method: "POST",
