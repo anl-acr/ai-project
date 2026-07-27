@@ -55,19 +55,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.middleware("http")
-async def auto_api_prefix_middleware(request: Request, call_next):
-    path = request.url.path
-    response = await call_next(request)
-    if response.status_code == 404:
-        if path.startswith("/api/"):
-            request.scope["path"] = path[4:]
-        else:
-            request.scope["path"] = "/api" + path
-        retry_response = await call_next(request)
-        if retry_response.status_code != 404:
-            return retry_response
-    return response
+
 
 # Serve call recordings statically
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
@@ -2999,12 +2987,15 @@ async def get_ai_agents():
 @app.post("/api/settings/ai-agents")
 async def save_ai_agent(payload: AIAgentSchema):
     tenant_id = getattr(payload, "tenant_id", None)
+    if not payload.id or not str(payload.id).strip():
+        import time
+        payload.id = f"agent-{int(time.time() * 1000)}"
     check_name_uniqueness(payload.name, "ai_agents", payload.id, label="Yapay Zeka Asistanı", name_field="name", tenant_id=tenant_id)
 
     agents = settings_db.get("ai_agents", [])
     exists = False
     for idx, agent in enumerate(agents):
-        if str(agent["id"]) == str(payload.id):
+        if str(agent.get("id")) == str(payload.id):
             agents[idx] = payload.model_dump()
             exists = True
             break
@@ -3013,6 +3004,7 @@ async def save_ai_agent(payload: AIAgentSchema):
     settings_db["ai_agents"] = agents
     save_settings(settings_db)
     return {"status": "success", "message": f"'{payload.name}' başarıyla kaydedildi."}
+
 
 
 @app.delete("/api/settings/ai-agents/{agent_id}")
