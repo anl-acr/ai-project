@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
 export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
@@ -85,7 +86,8 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
+
 
   // LLM Provider options
   const LLM_PROVIDER_OPTIONS = [

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Sliders, Plus, Trash2, Save, HelpCircle, CornerDownRight, CheckCircle } from "lucide-react";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
 export default function RuleEditor({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -14,7 +15,8 @@ export default function RuleEditor({ backendHost = "localhost:8000" }) {
   const [response, setResponse] = useState("");
   const [action, setAction] = useState("transfer_to_human");
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
+
 
   // Fetch active rules from database
   const fetchRules = () => {

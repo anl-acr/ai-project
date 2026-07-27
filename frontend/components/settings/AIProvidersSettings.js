@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { CheckCircle, Save, Key } from "lucide-react";
+import { CheckCircle, Save, Key, Eye, EyeOff } from "lucide-react";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
 export default function AIProvidersSettings({ backendHost = "localhost:8000" }) {
   const [providers, setProviders] = useState({
@@ -11,6 +12,9 @@ export default function AIProvidersSettings({ backendHost = "localhost:8000" }) 
   });
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [showKeys, setShowKeys] = useState({});
+
+  const API_BASE = getApiBaseUrl(backendHost);
 
   useEffect(() => {
     fetchProviders();
@@ -18,8 +22,7 @@ export default function AIProvidersSettings({ backendHost = "localhost:8000" }) 
 
   const fetchProviders = async () => {
     try {
-      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-      const res = await fetch(`${protocol}//${backendHost}/api/settings/ai-providers`);
+      const res = await fetch(`${API_BASE}/api/settings/ai-providers`);
       if (res.ok) {
         const data = await res.json();
         setProviders(data);
@@ -33,8 +36,7 @@ export default function AIProvidersSettings({ backendHost = "localhost:8000" }) 
     setLoading(true);
     setSaveSuccess(false);
     try {
-      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-      const res = await fetch(`${protocol}//${backendHost}/api/settings/ai-providers`, {
+      const res = await fetch(`${API_BASE}/api/settings/ai-providers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(providers)

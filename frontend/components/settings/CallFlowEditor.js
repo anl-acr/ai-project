@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { getApiBaseUrl } from "../../utils/apiHost";
 import { 
   GitBranch, 
   Save, 
@@ -87,7 +88,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   
   const canvasRef = useRef(null);
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
+
 
   // Fetch workflows list
   const fetchWorkflows = () => {

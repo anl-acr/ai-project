@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 import { createPortal } from "react-dom";
 
 export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
@@ -26,7 +27,8 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const [ttsText, setTtsText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
+
 
   useEffect(() => {
     fetchAnnouncements();

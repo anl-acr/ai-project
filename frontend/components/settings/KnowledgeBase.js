@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
 export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -48,7 +49,8 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
   const [deleteTargetName, setDeleteTargetName] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
+
 
   // Fetch indexed sources list
   const fetchSources = () => {
