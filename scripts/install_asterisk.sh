@@ -247,12 +247,12 @@ bind=0.0.0.0:5060
 [transport-ws]
 type=transport
 protocol=ws
-bind=0.0.0.0
+bind=0.0.0.0:8088
 
 [transport-wss]
 type=transport
 protocol=wss
-bind=0.0.0.0
+bind=0.0.0.0:8089
 
 [transport-tls]
 type=transport
@@ -264,6 +264,7 @@ method=tlsv1_2
 
 #include /etc/asterisk/pjsip_custom.conf
 EOM
+
 
 # /etc/asterisk/extensions.conf
 cat <<EOM > /etc/asterisk/extensions.conf
@@ -321,6 +322,8 @@ EOM
 
 # 7. Servisi Yeniden Başlatma
 echo "[6/6] Asterisk servisi daemon-reload ve restart ediliyor..."
+pkill -9 -f asterisk || true
+sleep 1
 systemctl daemon-reload
 systemctl enable asterisk
 systemctl restart asterisk
@@ -330,4 +333,5 @@ echo "          KURULUM TAMAMLANDI! ASTERISK 18 BAŞARIYLA ÇALIŞIYOR        "
 echo "======================================================================"
 sleep 2
 asterisk -rx "core show version"
+
 
