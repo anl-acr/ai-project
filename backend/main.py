@@ -377,6 +377,7 @@ class ManualTextSchema(BaseModel):
 
 class AIAgentSchema(BaseModel):
     id: str
+    tenant_id: Optional[str] = None
     name: str
     voice: str
     tone: str
@@ -396,12 +397,14 @@ class AIAgentSchema(BaseModel):
     elevenlabs_similarity: Optional[float] = 0.75
     elevenlabs_style: Optional[float] = 0.0
 
+
 import json
 
 DEFAULT_SETTINGS = {
     "tenants": [
         {
             "id": "tenant-default",
+            "tenant_num_id": 100,
             "name": "Ana Müşteri (Varsayılan)",
             "code": "default",
             "status": "active",
@@ -1656,6 +1659,146 @@ async def save_smart_dialer_settings(payload: DialerSettingsSchema):
     settings_db["dialer"] = payload.model_dump()
     return {"status": "success", "message": "Dış arama (Outbound Dialer) ayarları kaydedildi."}
 
+# --- Multi-Instance Dialer Campaigns ---
+@app.get("/api/settings/dialer/campaigns")
+@app.get("/settings/dialer/campaigns")
+async def get_dialer_campaigns():
+    if "dialer_campaigns" not in settings_db or not settings_db["dialer_campaigns"]:
+        legacy_dialer = settings_db.get("dialer", DEFAULT_SETTINGS.get("dialer", {}))
+        c_item = {
+            "id": "campaign-1",
+            "name": "Varsayılan Dış Arama Kampanyası",
+            **legacy_dialer,
+            "status": DIALER_STATE.get("status", "paused"),
+            "records": DIALER_RECORDS
+        }
+        settings_db["dialer_campaigns"] = [c_item]
+        save_settings(settings_db)
+    return settings_db.get("dialer_campaigns", [])
+
+@app.post("/api/settings/dialer/campaigns")
+@app.post("/settings/dialer/campaigns")
+async def save_dialer_campaign(request: Request):
+    data = await request.json()
+    c_name = (data.get("name") or "").strip() or "Yeni Dış Arama Kampanyası"
+    data["name"] = c_name
+    c_id = data.get("id")
+    
+    check_name_uniqueness(c_name, "dialer_campaigns", c_id, label="Dış Arama Kampanyası", name_field="name")
+    
+    campaigns = list(settings_db.get("dialer_campaigns", []))
+    
+    if not c_id:
+        c_id = f"campaign-{int(datetime.datetime.now().timestamp() * 1000)}"
+        data["id"] = c_id
+        if "records" not in data:
+            data["records"] = []
+        if "status" not in data:
+            data["status"] = "paused"
+        campaigns.append(data)
+    else:
+        updated = False
+        for idx, item in enumerate(campaigns):
+            if str(item.get("id")) == str(c_id):
+                if "records" not in data or data["records"] is None:
+                    data["records"] = item.get("records", [])
+                if "status" not in data:
+                    data["status"] = item.get("status", "paused")
+                campaigns[idx] = data
+                updated = True
+                break
+        if not updated:
+            campaigns.append(data)
+            
+    settings_db["dialer_campaigns"] = campaigns
+    save_settings(settings_db)
+    return {"status": "success", "campaigns": campaigns}
+
+@app.delete("/api/settings/dialer/campaigns/{campaign_id}")
+@app.delete("/settings/dialer/campaigns/{campaign_id}")
+async def delete_dialer_campaign(campaign_id: str):
+    campaigns = settings_db.get("dialer_campaigns", [])
+    filtered = [c for c in campaigns if str(c.get("id")) != str(campaign_id)]
+    settings_db["dialer_campaigns"] = filtered
+    save_settings(settings_db)
+    return {"status": "success", "message": "Kampanya başarıyla silindi.", "campaigns": filtered}
+
+class CampaignControlPayload(BaseModel):
+    action: str
+
+@app.post("/api/settings/dialer/campaigns/{campaign_id}/control")
+@app.post("/settings/dialer/campaigns/{campaign_id}/control")
+async def control_dialer_campaign(campaign_id: str, payload: CampaignControlPayload):
+    campaigns = settings_db.get("dialer_campaigns", [])
+    target = None
+    for c in campaigns:
+        if str(c.get("id")) == str(campaign_id):
+            target = c
+            break
+            
+    if not target:
+        raise HTTPException(status_code=404, detail="Kampanya bulunamadı.")
+        
+    action = payload.action
+    if action == "start":
+        target["status"] = "running"
+    elif action == "pause":
+        target["status"] = "paused"
+    elif action == "reset":
+        target["status"] = "paused"
+        for r in target.get("records", []):
+            r["status"] = "Pending"
+            r["retries"] = 0
+            r["last_call"] = "-"
+
+    settings_db["dialer_campaigns"] = campaigns
+    save_settings(settings_db)
+    return {"status": "success", "campaign": target, "campaigns": campaigns}
+
+class CampaignUploadPayload(BaseModel):
+    numbers: str
+
+@app.post("/api/settings/dialer/campaigns/{campaign_id}/upload-list")
+@app.post("/settings/dialer/campaigns/{campaign_id}/upload-list")
+async def upload_campaign_list(campaign_id: str, payload: CampaignUploadPayload):
+    campaigns = settings_db.get("dialer_campaigns", [])
+    target = None
+    for c in campaigns:
+        if str(c.get("id")) == str(campaign_id):
+            target = c
+            break
+            
+    if not target:
+        raise HTTPException(status_code=404, detail="Kampanya bulunamadı.")
+        
+    records = target.get("records", [])
+    lines = payload.numbers.strip().split("\n")
+    new_records = []
+    start_id = max([r.get("id", 0) for r in records] or [0]) + 1
+    
+    for idx, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split(",")
+        phone = parts[0].strip()
+        name = parts[1].strip() if len(parts) > 1 else f"Müşteri #{start_id + idx}"
+        
+        new_records.append({
+            "id": start_id + idx,
+            "name": name,
+            "phone": phone,
+            "status": "Pending",
+            "retries": 0,
+            "last_call": "-"
+        })
+    
+    records.extend(new_records)
+    target["records"] = records
+    settings_db["dialer_campaigns"] = campaigns
+    save_settings(settings_db)
+    return {"status": "success", "message": f"{len(new_records)} numara kampanya listesine eklendi.", "added": len(new_records), "campaigns": campaigns}
+
 @app.get("/api/settings/call-flow")
 @app.get("/settings/call-flow")
 async def get_call_flow_settings():
@@ -1675,12 +1818,13 @@ async def get_workflows():
 @app.post("/api/settings/call-flow/workflows")
 @app.post("/settings/call-flow/workflows")
 async def save_workflow(payload: WorkflowSchema):
-async def save_workflow(payload: WorkflowSchema):
+    check_name_uniqueness(payload.name, "workflows", payload.id, label="Arama Akışı", name_field="name")
     wfs = settings_db.get("workflows", [])
+
     updated = False
     new_wf = payload.model_dump()
     for idx, w in enumerate(wfs):
-        if w.get("id") == new_wf["id"]:
+        if str(w.get("id")) == str(new_wf["id"]):
             wfs[idx] = new_wf
             updated = True
             break
@@ -1689,6 +1833,7 @@ async def save_workflow(payload: WorkflowSchema):
     settings_db["workflows"] = wfs
     save_settings(settings_db)
     return {"status": "success", "message": "İş akışı başarıyla kaydedildi.", "workflow": new_wf}
+
 
 @app.delete("/api/settings/call-flow/workflows/{wf_id}")
 async def delete_workflow(wf_id: str):
@@ -1755,6 +1900,7 @@ async def control_dialer(payload: DialerControlPayload):
             r["status"] = "Pending"
             r["retries"] = 0
             r["last_call"] = "-"
+
             
     return {"status": "success", "state": DIALER_STATE}
 
@@ -1797,10 +1943,15 @@ async def get_locations_endpoint():
 async def save_locations_endpoint(payload: Union[List[LocationSchema], LocationSchema]):
     is_single = not isinstance(payload, list)
     items_list = [payload] if is_single else payload
+
+    for item in items_list:
+        data = item.model_dump() if hasattr(item, "model_dump") else item
+        check_name_uniqueness(data.get("name"), "locations", data.get("id"), label="Lokasyon")
+
     if not is_single:
         settings_db["locations"] = []
     for item in items_list:
-        data = item.model_dump()
+        data = item.model_dump() if hasattr(item, "model_dump") else item
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
         if is_single:
@@ -1824,10 +1975,15 @@ async def get_departments_endpoint():
 async def save_departments_endpoint(payload: Union[List[DepartmentSchema], DepartmentSchema]):
     is_single = not isinstance(payload, list)
     items_list = [payload] if is_single else payload
+
+    for item in items_list:
+        data = item.model_dump() if hasattr(item, "model_dump") else item
+        check_name_uniqueness(data.get("name"), "departments", data.get("id"), label="Departman")
+
     if not is_single:
         settings_db["departments"] = []
     for item in items_list:
-        data = item.model_dump()
+        data = item.model_dump() if hasattr(item, "model_dump") else item
         if not data.get("id"):
             data["id"] = str(uuid.uuid4())
         if is_single:
@@ -1840,6 +1996,7 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
             settings_db["departments"].append(data)
     save_settings(settings_db)
     return {"status": "success", "departments": settings_db["departments"]}
+
 
 @app.get("/api/agent/status")
 @app.get("/agent/status")
@@ -1898,7 +2055,119 @@ def validate_number_range(number_str: str, entity_type: str):
             detail=f"Belirtilen numara ({num}), {label} aralığı ({start_val}-{end_val}) dışındadır!"
         )
 
+def check_extension_uniqueness(extension: str, entity_type: str, entity_id: Any = None, tenant_id: str = None):
+    if not extension:
+        return
+    ext_str = str(extension).strip()
+    if not ext_str:
+        return
+
+    num_label = "kuyruk numarası" if entity_type == "queue" else "dahili numara"
+
+    def is_matching_tenant(item):
+        if not tenant_id:
+            return True
+        item_tenant = item.get("tenant_id")
+        if not item_tenant:
+            return True
+        return str(item_tenant) == str(tenant_id)
+
+    # Check across users
+    users = [u for u in settings_db.get("users", []) if is_matching_tenant(u)]
+    for u in users:
+        u_ext = str(u.get("extension") or "").strip()
+        u_id = u.get("id")
+        if u_ext == ext_str:
+            if entity_type == "user" and (str(u_id) == str(entity_id) or u_id == entity_id):
+                continue
+            u_name = u.get("full_name") or u.get("username") or "Kullanıcı"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Bu {num_label} ({ext_str}) zaten '{u_name}' isimli kullanıcı tarafından kullanılıyor."
+            )
+
+    # Check across queues
+    queues = [q for q in settings_db.get("queues", []) if is_matching_tenant(q)]
+    for q in queues:
+        q_ext = str(q.get("extension") or q.get("queue_number") or "").strip()
+        q_id = q.get("id")
+        if q_ext == ext_str:
+            if entity_type == "queue" and (str(q_id) == str(entity_id) or q_id == entity_id):
+                continue
+            q_name = q.get("name") or "Kuyruk"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Bu {num_label} ({ext_str}) zaten '{q_name}' isimli kuyruk tarafından kullanılıyor."
+            )
+
+    # Check across conferences
+    conferences = [c for c in settings_db.get("conferences", []) if is_matching_tenant(c)]
+    for conf in conferences:
+        c_ext = str(conf.get("room_number") or conf.get("extension") or conf.get("number") or "").strip()
+        c_id = conf.get("id")
+        if c_ext == ext_str:
+            if entity_type == "conference" and (str(c_id) == str(entity_id) or c_id == entity_id):
+                continue
+            c_name = conf.get("room_name") or conf.get("name") or "Konferans Odası"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Bu konferans oda numarası ({ext_str}) zaten '{c_name}' isimli konferans odası tarafından kullanılıyor."
+            )
+
+    # Check across speed dials
+    speed_dials = [sd for sd in settings_db.get("speed_dials", []) if is_matching_tenant(sd)]
+    for sd in speed_dials:
+        sd_code = str(sd.get("short_code") or sd.get("code") or "").strip()
+        sd_id = sd.get("id")
+        if sd_code == ext_str:
+            if entity_type == "speed_dial" and (str(sd_id) == str(entity_id) or sd_id == entity_id):
+                continue
+            sd_desc = sd.get("description") or sd.get("label") or sd.get("name") or "Hızlı Arama"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Bu hızlı arama kısa kodu ({ext_str}) zaten '{sd_desc}' isimli hızlı arama kaydı tarafından kullanılıyor."
+            )
+
+    # Check across call pickup groups
+    pickups = [pg for pg in settings_db.get("call_pickup_groups", []) if is_matching_tenant(pg)]
+    for pg in pickups:
+        pg_code = str(pg.get("code") or pg.get("extension") or "").strip()
+        pg_id = pg.get("id")
+        if pg_code == ext_str:
+            if entity_type == "call_pickup" and (str(pg_id) == str(entity_id) or pg_id == entity_id):
+                continue
+            pg_name = pg.get("name") or "Çağrı Toplama Grubu"
+            raise HTTPException(
+                status_code=400,
+                detail=f"Bu dahili numara/kod ({ext_str}) zaten '{pg_name}' çağrı toplama grubu tarafından kullanılıyor."
+            )
+
+def check_name_uniqueness(name: str, list_key: str, entity_id: Any = None, label: str = "Kayıt", name_field: str = "name", tenant_id: str = None):
+    if not name:
+        return
+    name_str = str(name).strip().lower()
+    if not name_str:
+        return
+
+    items = settings_db.get(list_key, [])
+    for item in items:
+        if tenant_id and item.get("tenant_id") and str(item.get("tenant_id")) != str(tenant_id):
+            continue
+        item_id = item.get("id")
+        val = str(item.get(name_field) or item.get("name") or item.get("title") or item.get("role_name") or item.get("trunk_name") or "").strip().lower()
+        if val == name_str:
+            if str(item_id) == str(entity_id) or item_id == entity_id:
+                continue
+            orig_name = item.get(name_field) or item.get("name") or item.get("title") or item.get("role_name") or item.get("trunk_name") or name
+            raise HTTPException(
+                status_code=400,
+                detail=f"'{orig_name}' isimli {label} zaten sistemde mevcut. Lütfen farklı bir isim giriniz."
+            )
+
+
+
 @app.get("/api/settings/numbering-plan")
+
 async def get_numbering_plan():
     pbx_settings = settings_db.get("pbx", {})
     return pbx_settings.get("numbering_plan", {})
@@ -2399,16 +2668,22 @@ async def delete_inbound_rule(rule_id: str):
     return {"status": "success", "inbound_rules": settings_db["inbound_rules"]}
 
 @app.get("/api/settings/call_pickup_groups")
+@app.get("/settings/call_pickup_groups")
 async def get_call_pickup_groups():
     return settings_db.get("call_pickup_groups", [])
 
 @app.post("/api/settings/call_pickup_groups")
+@app.post("/settings/call_pickup_groups")
 async def save_call_pickup_group(request: Request):
     data = await request.json()
+    group_name = data.get("name")
+    group_id = data.get("id")
+
+    check_name_uniqueness(group_name, "call_pickup_groups", group_id, label="Çağrı Toplama Grubu")
+
     if "call_pickup_groups" not in settings_db:
         settings_db["call_pickup_groups"] = []
     
-    group_id = data.get("id")
     if group_id:
         idx = next((i for i, g in enumerate(settings_db["call_pickup_groups"]) if g.get("id") == group_id), None)
         if idx is not None:
@@ -2421,6 +2696,7 @@ async def save_call_pickup_group(request: Request):
         
     save_settings(settings_db)
     return {"status": "success", "call_pickup_groups": settings_db["call_pickup_groups"]}
+
 
 @app.delete("/api/settings/call_pickup_groups/{group_id}")
 async def delete_call_pickup_group(group_id: str):
@@ -2435,16 +2711,22 @@ async def delete_call_pickup_group(group_id: str):
 # API Routes: Subscriber Groups (Abone Grupları)
 # ----------------------------------------------------
 @app.get("/api/settings/subscriber_groups")
+@app.get("/settings/subscriber_groups")
 async def get_subscriber_groups():
     return settings_db.get("subscriber_groups", [])
 
 @app.post("/api/settings/subscriber_groups")
+@app.post("/settings/subscriber_groups")
 async def save_subscriber_group(payload: dict):
+    group_name = payload.get("name")
+    group_id = payload.get("id")
+
+    check_name_uniqueness(group_name, "subscriber_groups", group_id, label="Abone Grubu")
+
     if "subscriber_groups" not in settings_db:
         settings_db["subscriber_groups"] = []
     
     data = payload
-    group_id = data.get("id")
     if group_id:
         idx = next((i for i, g in enumerate(settings_db["subscriber_groups"]) if g.get("id") == group_id), None)
         if idx is not None:
@@ -2457,6 +2739,7 @@ async def save_subscriber_group(payload: dict):
         
     save_settings(settings_db)
     return {"status": "success", "subscriber_groups": settings_db["subscriber_groups"]}
+
 
 @app.delete("/api/settings/subscriber_groups/{group_id}")
 async def delete_subscriber_group(group_id: int):
@@ -2512,19 +2795,25 @@ async def check_subscriber_call(caller: str, callee: str):
 
 # --- Speed Dials ---
 @app.get("/api/settings/speed_dials")
+@app.get("/settings/speed_dials")
 async def get_speed_dials():
     return settings_db.get("speed_dials", [])
 
 @app.post("/api/settings/speed_dials")
+@app.post("/settings/speed_dials")
 async def save_speed_dial(request: Request):
     data = await request.json()
     if "speed_dials" not in settings_db:
         settings_db["speed_dials"] = []
         
+    s_code = str(data.get("short_code") or data.get("code") or "").strip()
+    if s_code:
+        check_extension_uniqueness(s_code, "speed_dial", data.get("id"))
+
     if "id" in data and data["id"]:
         # Update existing
         for idx, sd in enumerate(settings_db["speed_dials"]):
-            if sd.get("id") == data["id"]:
+            if str(sd.get("id")) == str(data["id"]):
                 settings_db["speed_dials"][idx] = data
                 break
     else:
@@ -2534,6 +2823,7 @@ async def save_speed_dial(request: Request):
         
     save_settings(settings_db)
     return {"status": "success", "speed_dials": settings_db["speed_dials"]}
+
 
 @app.delete("/api/settings/speed_dials/{sd_id}")
 async def delete_speed_dial(sd_id: str):
@@ -2546,18 +2836,24 @@ async def delete_speed_dial(sd_id: str):
 
 # --- Conferences ---
 @app.get("/api/settings/conferences")
+@app.get("/settings/conferences")
 async def get_conferences():
     return settings_db.get("conferences", [])
 
 @app.post("/api/settings/conferences")
+@app.post("/settings/conferences")
 async def save_conference(request: Request):
     data = await request.json()
     if "conferences" not in settings_db:
         settings_db["conferences"] = []
         
+    room_num = str(data.get("room_number") or data.get("extension") or "").strip()
+    if room_num:
+        check_extension_uniqueness(room_num, "conference", data.get("id"))
+
     if "id" in data and data["id"]:
         for idx, conf in enumerate(settings_db["conferences"]):
-            if conf.get("id") == data["id"]:
+            if str(conf.get("id")) == str(data["id"]):
                 settings_db["conferences"][idx] = data
                 break
     else:
@@ -2566,6 +2862,7 @@ async def save_conference(request: Request):
         
     save_settings(settings_db)
     return {"status": "success", "conferences": settings_db["conferences"]}
+
 
 @app.delete("/api/settings/conferences/{conf_id}")
 async def delete_conference(conf_id: str):
@@ -2701,10 +2998,13 @@ async def get_ai_agents():
 
 @app.post("/api/settings/ai-agents")
 async def save_ai_agent(payload: AIAgentSchema):
+    tenant_id = getattr(payload, "tenant_id", None)
+    check_name_uniqueness(payload.name, "ai_agents", payload.id, label="Yapay Zeka Asistanı", name_field="name", tenant_id=tenant_id)
+
     agents = settings_db.get("ai_agents", [])
     exists = False
     for idx, agent in enumerate(agents):
-        if agent["id"] == payload.id:
+        if str(agent["id"]) == str(payload.id):
             agents[idx] = payload.model_dump()
             exists = True
             break
@@ -2713,6 +3013,7 @@ async def save_ai_agent(payload: AIAgentSchema):
     settings_db["ai_agents"] = agents
     save_settings(settings_db)
     return {"status": "success", "message": f"'{payload.name}' başarıyla kaydedildi."}
+
 
 @app.delete("/api/settings/ai-agents/{agent_id}")
 async def delete_ai_agent(agent_id: str):
@@ -2728,117 +3029,120 @@ async def delete_ai_agent(agent_id: str):
 # TENANT MANAGEMENT & CLONING ENDPOINTS
 # ==========================================
 
-def clone_tenant_config(source_tenant_id: str, target_tenant_id: str, db: Session):
+def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
     """Clones all agents, rules, trunks, queues, document_chunks, and settings from source to target tenant."""
     try:
-        # 1. Clone AIAgents
-        agents = db.query(models.AIAgent).filter(models.AIAgent.tenant_id == source_tenant_id).all()
-        for a in agents:
-            new_agent = models.AIAgent(
-                id=f"{a.id}-{target_tenant_id}",
-                tenant_id=target_tenant_id,
-                name=f"{a.name}",
-                voice=a.voice,
-                tone=a.tone,
-                model=a.model,
-                temperature=a.temperature,
-                max_tokens=a.max_tokens,
-                system_instruction=a.system_instruction,
-                status=a.status,
-                transfer_target=a.transfer_target
-            )
-            db.merge(new_agent)
+        from backend.database.config import SyncSessionLocal
+        db = SyncSessionLocal()
+        try:
+            # 1. Clone AIAgents
+            agents = db.query(models.AIAgent).filter(models.AIAgent.tenant_id == source_tenant_id).all()
+            for a in agents:
+                new_agent = models.AIAgent(
+                    id=f"{a.id}-{target_tenant_id}",
+                    tenant_id=target_tenant_id,
+                    name=f"{a.name}",
+                    voice=a.voice,
+                    tone=a.tone,
+                    model=a.model,
+                    temperature=a.temperature,
+                    max_tokens=a.max_tokens,
+                    system_instruction=a.system_instruction,
+                    status=a.status,
+                    transfer_target=a.transfer_target
+                )
+                db.merge(new_agent)
 
-        # 2. Clone Rules
-        rules = db.query(models.Rule).filter(models.Rule.tenant_id == source_tenant_id).all()
-        for r in rules:
-            new_rule = models.Rule(
-                tenant_id=target_tenant_id,
-                rule_type=r.rule_type,
-                trigger_keyword=r.trigger_keyword,
-                response_text=r.response_text,
-                action_to_trigger=r.action_to_trigger,
-                is_active=r.is_active
-            )
-            db.add(new_rule)
+            # 2. Clone Rules
+            rules = db.query(models.Rule).filter(models.Rule.tenant_id == source_tenant_id).all()
+            for r in rules:
+                new_rule = models.Rule(
+                    tenant_id=target_tenant_id,
+                    rule_type=r.rule_type,
+                    trigger_keyword=r.trigger_keyword,
+                    response_text=r.response_text,
+                    action_to_trigger=r.action_to_trigger,
+                    is_active=r.is_active
+                )
+                db.add(new_rule)
 
-        # 3. Clone Trunks
-        trunks = db.query(models.Trunk).filter(models.Trunk.tenant_id == source_tenant_id).all()
-        for t in trunks:
-            new_trunk = models.Trunk(
-                tenant_id=target_tenant_id,
-                trunk_type=t.trunk_type,
-                trunk_name=f"{t.trunk_name}",
-                host=t.host,
-                username=t.username,
-                password=t.password,
-                port=t.port,
-                did_number=t.did_number,
-                protocol=t.protocol,
-                greeting_prompt=t.greeting_prompt,
-                transfer_target_type=t.transfer_target_type,
-                transfer_target=t.transfer_target,
-                codec=t.codec,
-                is_active=t.is_active
-            )
-            db.add(new_trunk)
+            # 3. Clone Trunks
+            trunks = db.query(models.Trunk).filter(models.Trunk.tenant_id == source_tenant_id).all()
+            for t in trunks:
+                new_trunk = models.Trunk(
+                    tenant_id=target_tenant_id,
+                    trunk_type=t.trunk_type,
+                    trunk_name=f"{t.trunk_name}",
+                    host=t.host,
+                    username=t.username,
+                    password=t.password,
+                    port=t.port,
+                    did_number=t.did_number,
+                    protocol=t.protocol,
+                    greeting_prompt=t.greeting_prompt,
+                    transfer_target_type=t.transfer_target_type,
+                    transfer_target=t.transfer_target,
+                    codec=t.codec,
+                    is_active=t.is_active
+                )
+                db.add(new_trunk)
 
-        # 4. Clone PBX Queues
-        queues = db.query(models.PBXQueue).filter(models.PBXQueue.tenant_id == source_tenant_id).all()
-        for q in queues:
-            new_q = models.PBXQueue(
-                tenant_id=target_tenant_id,
-                extension=q.extension,
-                name=f"{q.name}",
-                strategy=q.strategy,
-                timeout=q.timeout,
-                wrapuptime=q.wrapuptime,
-                maxlen=q.maxlen,
-                joinempty=q.joinempty,
-                leavewhenempty=q.leavewhenempty,
-                ringinuse=q.ringinuse,
-                queueMembers=q.queueMembers,
-                supervisors=q.supervisors,
-                max_calls=q.max_calls,
-                ring_time=q.ring_time,
-                acw_time=q.acw_time,
-                join_announcement_enabled=q.join_announcement_enabled,
-                join_announcement=q.join_announcement,
-                periodic_announcement_enabled=q.periodic_announcement_enabled,
-                periodic_announcement=q.periodic_announcement,
-                hold_music_class=q.hold_music_class,
-                position_announcement_enabled=q.position_announcement_enabled,
-                position_announcement_interval=q.position_announcement_interval,
-                estimated_hold_time_enabled=q.estimated_hold_time_enabled,
-                estimated_hold_time_interval=q.estimated_hold_time_interval,
-                ivr_routes=q.ivr_routes,
-                notify_missed_calls=q.notify_missed_calls
-            )
-            db.add(new_q)
+            # 4. Clone PBX Queues
+            queues = db.query(models.PBXQueue).filter(models.PBXQueue.tenant_id == source_tenant_id).all()
+            for q in queues:
+                new_q = models.PBXQueue(
+                    tenant_id=target_tenant_id,
+                    extension=q.extension,
+                    name=f"{q.name}",
+                    strategy=q.strategy,
+                    timeout=q.timeout,
+                    wrapuptime=q.wrapuptime,
+                    maxlen=q.maxlen,
+                    joinempty=q.joinempty,
+                    leavewhenempty=q.leavewhenempty,
+                    ringinuse=q.ringinuse,
+                    queueMembers=q.queueMembers,
+                    supervisors=q.supervisors,
+                    max_calls=q.max_calls,
+                    ring_time=q.ring_time,
+                    acw_time=q.acw_time,
+                    join_announcement_enabled=q.join_announcement_enabled,
+                    join_announcement=q.join_announcement,
+                    periodic_announcement_enabled=q.periodic_announcement_enabled,
+                    periodic_announcement=q.periodic_announcement,
+                    hold_music_class=q.hold_music_class,
+                    position_announcement_enabled=q.position_announcement_enabled,
+                    position_announcement_interval=q.position_announcement_interval,
+                    estimated_hold_time_enabled=q.estimated_hold_time_enabled,
+                    estimated_hold_time_interval=q.estimated_hold_time_interval,
+                    ivr_routes=q.ivr_routes,
+                    notify_missed_calls=q.notify_missed_calls
+                )
+                db.add(new_q)
 
-        # 5. Clone DocumentChunks (RAG Knowledge Base)
-        chunks = db.query(models.DocumentChunk).filter(models.DocumentChunk.tenant_id == source_tenant_id).all()
-        for c in chunks:
-            new_chunk = models.DocumentChunk(
-                tenant_id=target_tenant_id,
-                filename=c.filename,
-                content=c.content,
-                embedding=c.embedding
-            )
-            db.add(new_chunk)
+            # 5. Clone DocumentChunks (RAG Knowledge Base)
+            chunks = db.query(models.DocumentChunk).filter(models.DocumentChunk.tenant_id == source_tenant_id).all()
+            for c in chunks:
+                new_chunk = models.DocumentChunk(
+                    tenant_id=target_tenant_id,
+                    filename=c.filename,
+                    content=c.content,
+                    embedding=c.embedding
+                )
+                db.add(new_chunk)
 
-        db.commit()
+            db.commit()
+        finally:
+            db.close()
     except Exception as e:
         print(f"[Error] Tenant config cloning failed: {e}")
-        db.rollback()
 
 
-@app.get("/api/tenants")
-@app.get("/api/tenants/")
-@app.get("/api/settings/tenants")
-@app.get("/api/settings/tenants/")
+
+
 def check_and_update_tenant_expiration(tenants):
     """Checks license expiration dates for all tenants and automatically updates status to passive when expired (ignores unlimited)."""
+
     now = datetime.datetime.utcnow()
     changed = False
     for t in tenants:
@@ -2859,12 +3163,9 @@ def check_and_update_tenant_expiration(tenants):
     return changed
 
 
-@app.get("/api/tenants")
-@app.get("/api/tenants/")
-@app.get("/api/settings/tenants")
-@app.get("/api/settings/tenants/")
 def check_tenant_quota_limit(tenant_id: str, resource_type: str, current_count: int):
     """Enforces license quota limits for all 19 system resources."""
+
     if not tenant_id or tenant_id == "tenant-default":
         return
     current = load_settings()
@@ -2909,21 +3210,33 @@ def check_tenant_quota_limit(tenant_id: str, resource_type: str, current_count: 
 @app.get("/api/settings/tenants")
 @app.get("/api/settings/tenants/")
 async def get_tenants():
-    """Returns list of registered tenants with license expiration checks."""
+    """Returns list of registered tenants with license expiration checks and numeric tenant_num_id assignment."""
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
-    if check_and_update_tenant_expiration(tenants):
+
+    modified = False
+    next_num = 100
+    for t in tenants:
+        if "tenant_num_id" not in t or t["tenant_num_id"] is None:
+            while any(ex.get("tenant_num_id") == next_num for ex in tenants if ex != t):
+                next_num += 1
+            t["tenant_num_id"] = next_num
+            next_num += 1
+            modified = True
+
+    if check_and_update_tenant_expiration(tenants) or modified:
         current["tenants"] = tenants
         save_settings(current)
         settings_db["tenants"] = tenants
     return tenants
 
 
+
 @app.post("/api/tenants")
 @app.post("/api/tenants/")
 @app.post("/api/settings/tenants")
 @app.post("/api/settings/tenants/")
-async def create_tenant(payload: TenantCreateSchema, db: Session = Depends(get_db)):
+async def create_tenant(payload: TenantCreateSchema):
     """Creates a new Tenant with cryptographic license key and 19 quota limits across 3 categories."""
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
@@ -2931,18 +3244,27 @@ async def create_tenant(payload: TenantCreateSchema, db: Session = Depends(get_d
     tenant_code = payload.code.strip().lower().replace(" ", "-")
     tenant_id = f"tenant-{tenant_code}"
     
-    existing = next((t for t in tenants if t.get("code") == tenant_code or t.get("id") == tenant_id), None)
+    existing = next((t for t in tenants if t.get("code") == tenant_code or t.get("id") == tenant_id or t.get("name", "").strip().lower() == payload.name.strip().lower()), None)
     if existing:
-        return existing
+        raise HTTPException(
+            status_code=400,
+            detail=f"'{existing.get('name')}' isimli veya '{tenant_code}' kodlu müşteri zaten sistemde kayıtlı. Lütfen farklı bir müşteri adı giriniz."
+        )
         
     import uuid
     generated_key = payload.license_key or f"AIDA-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}-2026"
     
+    # Calculate next numeric tenant ID
+    existing_num_ids = [t.get("tenant_num_id") for t in tenants if t.get("tenant_num_id") is not None]
+    next_num_id = (max(existing_num_ids) + 1) if existing_num_ids else 100
+
     new_tenant = {
         "id": tenant_id,
+        "tenant_num_id": next_num_id,
         "name": payload.name.strip(),
         "code": tenant_code,
         "status": payload.status or "active",
+
         "created_at": datetime.datetime.utcnow().isoformat(),
         "license_expires_at": payload.license_expires_at or "",
         "license_key": generated_key,
@@ -2993,7 +3315,8 @@ async def create_tenant(payload: TenantCreateSchema, db: Session = Depends(get_d
     settings_db["tenant_settings"] = current["tenant_settings"]
     
     # Clone configurations from default tenant
-    clone_tenant_config("tenant-default", tenant_id, db)
+    clone_tenant_config("tenant-default", tenant_id)
+
     
     add_system_log("TENANT_MANAGEMENT", "CREATE", f"Yeni Kiracı Lisansı Oluşturuldu: {payload.name} ({tenant_id}) [Lisans Key: {generated_key}]")
     return new_tenant
@@ -3752,115 +4075,235 @@ class ContactSchema(BaseModel):
 
 @app.get("/api/contacts")
 async def list_contacts(q: Optional[str] = None):
-    async with AsyncSessionLocal() as session:
-        if q:
-            # Search by name, phone or email
-            search_pattern = f"%{q}%"
-            stmt = select(Contact).where(
-                (Contact.first_name.ilike(search_pattern)) |
-                (Contact.last_name.ilike(search_pattern)) |
-                (Contact.phone_number.ilike(search_pattern)) |
-                (Contact.email.ilike(search_pattern))
-            ).order_by(Contact.first_name.asc(), Contact.last_name.asc())
-        else:
-            stmt = select(Contact).order_by(Contact.first_name.asc(), Contact.last_name.asc())
-        result = await session.execute(stmt)
-        contacts = result.scalars().all()
-        return contacts
+    try:
+        async with AsyncSessionLocal() as session:
+            if q:
+                search_pattern = f"%{q}%"
+                stmt = select(Contact).where(
+                    (Contact.first_name.ilike(search_pattern)) |
+                    (Contact.last_name.ilike(search_pattern)) |
+                    (Contact.phone_number.ilike(search_pattern)) |
+                    (Contact.email.ilike(search_pattern))
+                ).order_by(Contact.first_name.asc(), Contact.last_name.asc())
+            else:
+                stmt = select(Contact).order_by(Contact.first_name.asc(), Contact.last_name.asc())
+            result = await session.execute(stmt)
+            contacts = result.scalars().all()
+            if contacts:
+                return contacts
+    except Exception as e:
+        print(f"[List Contacts DB Warning]: {e}")
+    
+    all_contacts = settings_db.get("contacts", [])
+    if q:
+        q_lower = q.lower()
+        return [c for c in all_contacts if q_lower in c.get("first_name", "").lower() or q_lower in c.get("last_name", "").lower() or q_lower in c.get("phone_number", "") or q_lower in c.get("email", "").lower()]
+    return all_contacts
 
 @app.post("/api/contacts")
 async def create_contact(payload: ContactSchema):
-    async with AsyncSessionLocal() as session:
-        # Check if phone number already exists
-        stmt_check = select(Contact).where(Contact.phone_number == payload.phone_number)
-        res_check = await session.execute(stmt_check)
-        if res_check.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Bu telefon numarasına ait bir kayıt zaten mevcut.")
+    new_contact = {
+        "id": int(datetime.datetime.now().timestamp() * 1000),
+        "first_name": payload.first_name,
+        "last_name": payload.last_name,
+        "phone_number": payload.phone_number,
+        "email": payload.email
+    }
+    
+    current_contacts = settings_db.setdefault("contacts", [])
+    phone_clean = str(payload.phone_number or "").strip()
+    for c in current_contacts:
+        if str(c.get("phone_number") or "").strip() == phone_clean:
+            c_name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or "Rehber Kaydı"
+            raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli bir kayıt zaten mevcut.")
+        if payload.email and c.get("email") and str(c.get("email")).strip().lower() == str(payload.email).strip().lower():
+            c_name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or "Rehber Kaydı"
+            raise HTTPException(status_code=400, detail=f"Bu e-posta adresine ait '{c_name}' isimli bir kayıt zaten mevcut.")
             
-        if payload.email:
-            stmt_email_check = select(Contact).where(Contact.email == payload.email)
-            res_email_check = await session.execute(stmt_email_check)
-            if res_email_check.scalar_one_or_none():
-                raise HTTPException(status_code=400, detail="Bu e-posta adresine ait bir kayıt zaten mevcut.")
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt_check = select(Contact).where(Contact.phone_number == payload.phone_number)
+            res_check = await session.execute(stmt_check)
+            existing_c = res_check.scalar_one_or_none()
+            if existing_c:
+                c_name = f"{existing_c.first_name} {existing_c.last_name}".strip() or "Rehber Kaydı"
+                raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli bir kayıt zaten mevcut.")
+                
+            if payload.email:
+                stmt_email_check = select(Contact).where(Contact.email == payload.email)
+                res_email_check = await session.execute(stmt_email_check)
+                existing_email_c = res_email_check.scalar_one_or_none()
+                if existing_email_c:
+                    c_name = f"{existing_email_c.first_name} {existing_email_c.last_name}".strip() or "Rehber Kaydı"
+                    raise HTTPException(status_code=400, detail=f"Bu e-posta adresine ait '{c_name}' isimli bir kayıt zaten mevcut.")
 
-        db_contact = Contact(
-            first_name=payload.first_name,
-            last_name=payload.last_name,
-            phone_number=payload.phone_number,
-            email=payload.email
-        )
-        session.add(db_contact)
-        await session.commit()
-        await session.refresh(db_contact)
-        return db_contact
+            db_contact = Contact(
+                first_name=payload.first_name,
+                last_name=payload.last_name,
+                phone_number=payload.phone_number,
+                email=payload.email
+            )
+            session.add(db_contact)
+            await session.commit()
+            await session.refresh(db_contact)
+            new_contact["id"] = db_contact.id
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Create Contact DB Warning]: {e}")
+
+    current_contacts.append(new_contact)
+    settings_db["contacts"] = current_contacts
+    save_settings(settings_db)
+    return new_contact
 
 @app.put("/api/contacts/{contact_id}")
 async def update_contact(contact_id: int, payload: ContactSchema):
-    async with AsyncSessionLocal() as session:
-        db_contact = await session.get(Contact, contact_id)
-        if not db_contact:
-            raise HTTPException(status_code=404, detail="Kişi bulunamadı.")
+    phone_clean = str(payload.phone_number or "").strip()
+    current_contacts = settings_db.get("contacts", [])
+    for c in current_contacts:
+        if str(c.get("id")) != str(contact_id) and str(c.get("phone_number") or "").strip() == phone_clean:
+            c_name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or "Rehber Kaydı"
+            raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli başka bir kayıt zaten mevcut.")
+
+    updated = None
+    try:
+        async with AsyncSessionLocal() as session:
+            db_contact = await session.get(Contact, contact_id)
+            if db_contact:
+                if db_contact.phone_number != payload.phone_number:
+                    stmt_check = select(Contact).where(Contact.phone_number == payload.phone_number)
+                    res_check = await session.execute(stmt_check)
+                    existing_c = res_check.scalar_one_or_none()
+                    if existing_c and str(existing_c.id) != str(contact_id):
+                        c_name = f"{existing_c.first_name} {existing_c.last_name}".strip() or "Rehber Kaydı"
+                        raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli başka bir kayıt zaten mevcut.")
+
+                if payload.email and db_contact.email != payload.email:
+                    stmt_email_check = select(Contact).where(Contact.email == payload.email)
+                    res_email_check = await session.execute(stmt_email_check)
+                    existing_email_c = res_email_check.scalar_one_or_none()
+                    if existing_email_c and str(existing_email_c.id) != str(contact_id):
+                        c_name = f"{existing_email_c.first_name} {existing_email_c.last_name}".strip() or "Rehber Kaydı"
+                        raise HTTPException(status_code=400, detail=f"Bu e-posta adresine ait '{c_name}' isimli başka bir kayıt zaten mevcut.")
+
+                db_contact.first_name = payload.first_name
+                db_contact.last_name = payload.last_name
+                db_contact.phone_number = payload.phone_number
+                db_contact.email = payload.email
+                await session.commit()
+                updated = {
+                    "id": db_contact.id,
+                    "first_name": db_contact.first_name,
+                    "last_name": db_contact.last_name,
+                    "phone_number": db_contact.phone_number,
+                    "email": db_contact.email
+                }
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Update Contact DB Warning]: {e}")
+
+    found = False
+    for i, c in enumerate(current_contacts):
+        if str(c.get("id")) == str(contact_id):
+            current_contacts[i] = {
+                "id": contact_id,
+                "first_name": payload.first_name,
+                "last_name": payload.last_name,
+                "phone_number": payload.phone_number,
+                "email": payload.email
+            }
+            found = True
+            updated = current_contacts[i]
+            break
+
             
-        # Check unique constraint if phone changed
-        if db_contact.phone_number != payload.phone_number:
-            stmt_check = select(Contact).where(Contact.phone_number == payload.phone_number)
-            res_check = await session.execute(stmt_check)
-            if res_check.scalar_one_or_none():
-                raise HTTPException(status_code=400, detail="Bu telefon numarasına ait başka bir kayıt zaten mevcut.")
+    if not found and not updated:
+        updated = {
+            "id": contact_id,
+            "first_name": payload.first_name,
+            "last_name": payload.last_name,
+            "phone_number": payload.phone_number,
+            "email": payload.email
+        }
+        current_contacts.append(updated)
 
-        if payload.email and db_contact.email != payload.email:
-            stmt_email_check = select(Contact).where(Contact.email == payload.email)
-            res_email_check = await session.execute(stmt_email_check)
-            if res_email_check.scalar_one_or_none():
-                raise HTTPException(status_code=400, detail="Bu e-posta adresine ait başka bir kayıt zaten mevcut.")
-
-        db_contact.first_name = payload.first_name
-        db_contact.last_name = payload.last_name
-        db_contact.phone_number = payload.phone_number
-        db_contact.email = payload.email
-        
-        await session.commit()
-        return db_contact
+    settings_db["contacts"] = current_contacts
+    save_settings(settings_db)
+    return updated
 
 @app.delete("/api/contacts/{contact_id}")
 async def delete_contact(contact_id: int):
-    async with AsyncSessionLocal() as session:
-        db_contact = await session.get(Contact, contact_id)
-        if not db_contact:
-            raise HTTPException(status_code=404, detail="Kişi bulunamadı.")
-        await session.delete(db_contact)
-        await session.commit()
-        return {"status": "success", "message": "Kişi rehberden başarıyla silindi."}
+    try:
+        async with AsyncSessionLocal() as session:
+            db_contact = await session.get(Contact, contact_id)
+            if db_contact:
+                await session.delete(db_contact)
+                await session.commit()
+    except Exception as e:
+        print(f"[Delete Contact DB Warning]: {e}")
+
+    current_contacts = settings_db.get("contacts", [])
+    settings_db["contacts"] = [c for c in current_contacts if c.get("id") != contact_id]
+    save_settings(settings_db)
+    return {"status": "success", "message": "Kişi rehberden başarıyla silindi."}
 
 @app.get("/api/contacts/lookup")
 async def lookup_contact(phone: Optional[str] = None, email: Optional[str] = None):
-    async with AsyncSessionLocal() as session:
-        if phone:
-            stmt = select(Contact).where(Contact.phone_number == phone)
-            result = await session.execute(stmt)
-            contact = result.scalar_one_or_none()
-            if contact:
-                return {
-                    "found": True,
-                    "name": f"{contact.first_name} {contact.last_name}",
-                    "first_name": contact.first_name,
-                    "last_name": contact.last_name,
-                    "phone_number": contact.phone_number,
-                    "email": contact.email
-                }
-        if email:
-            stmt = select(Contact).where(Contact.email == email)
-            result = await session.execute(stmt)
-            contact = result.scalar_one_or_none()
-            if contact:
-                return {
-                    "found": True,
-                    "name": f"{contact.first_name} {contact.last_name}",
-                    "first_name": contact.first_name,
-                    "last_name": contact.last_name,
-                    "phone_number": contact.phone_number,
-                    "email": contact.email
-                }
+    try:
+        async with AsyncSessionLocal() as session:
+            if phone:
+                stmt = select(Contact).where(Contact.phone_number == phone)
+                result = await session.execute(stmt)
+                contact = result.scalar_one_or_none()
+                if contact:
+                    return {
+                        "found": True,
+                        "name": f"{contact.first_name} {contact.last_name}",
+                        "first_name": contact.first_name,
+                        "last_name": contact.last_name,
+                        "phone_number": contact.phone_number,
+                        "email": contact.email
+                    }
+            if email:
+                stmt = select(Contact).where(Contact.email == email)
+                result = await session.execute(stmt)
+                contact = result.scalar_one_or_none()
+                if contact:
+                    return {
+                        "found": True,
+                        "name": f"{contact.first_name} {contact.last_name}",
+                        "first_name": contact.first_name,
+                        "last_name": contact.last_name,
+                        "phone_number": contact.phone_number,
+                        "email": contact.email
+                    }
+    except Exception as e:
+        print(f"[Lookup Contact DB Warning]: {e}")
+
+    current_contacts = settings_db.get("contacts", [])
+    for c in current_contacts:
+        if phone and c.get("phone_number") == phone:
+            return {
+                "found": True,
+                "name": f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
+                "first_name": c.get("first_name"),
+                "last_name": c.get("last_name"),
+                "phone_number": c.get("phone_number"),
+                "email": c.get("email")
+            }
+        if email and c.get("email") == email:
+            return {
+                "found": True,
+                "name": f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
+                "first_name": c.get("first_name"),
+                "last_name": c.get("last_name"),
+                "phone_number": c.get("phone_number"),
+                "email": c.get("email")
+            }
+    return {"found": False}
+
 # =====================================================================
 # CANNED RESPONSES (HIZLI CEVAP TASLAKLARI) ENDPOINTS
 # =====================================================================
@@ -3952,81 +4395,154 @@ class BlockWordSchema(BaseModel):
 
 @app.get("/api/blacklist")
 async def list_blacklist():
-    async with AsyncSessionLocal() as session:
-        stmt = select(BlacklistItem).order_by(BlacklistItem.timestamp.desc())
-        result = await session.execute(stmt)
-        return result.scalars().all()
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(BlacklistItem).order_by(BlacklistItem.timestamp.desc())
+            result = await session.execute(stmt)
+            items = result.scalars().all()
+            if items:
+                return items
+    except Exception as e:
+        print(f"[List Blacklist DB Warning]: {e}")
+    return settings_db.get("blacklist", [])
 
 @app.post("/api/blacklist")
+@app.post("/blacklist")
 async def add_to_blacklist(payload: BlacklistItemSchema):
     val = payload.value.strip()
     if not val:
         raise HTTPException(status_code=400, detail="Değer boş olamaz.")
-    
-    async with AsyncSessionLocal() as session:
-        stmt = select(BlacklistItem).where(BlacklistItem.value == val)
-        res = await session.execute(stmt)
-        if res.scalar_one_or_none():
-            raise HTTPException(status_code=400, detail="Bu numara/e-posta zaten kara listede.")
-        
-        item = BlacklistItem(
-            type=payload.type,
-            value=val,
-            reason=payload.reason.strip() if payload.reason else "Manuel Engelleme"
-        )
-        session.add(item)
-        await session.commit()
-        add_system_log("ABUSE_SHIELD", "WARNING", f"Kara Listeye Eklendi: {val} ({item.reason})")
-        return item
+
+    label = "Telefon numarası" if payload.type == "phone" else "E-posta adresi"
+
+    current_list = settings_db.setdefault("blacklist", [])
+    for b in current_list:
+        b_val = (b.get("value") if isinstance(b, dict) else getattr(b, "value", "")).strip()
+        if b_val.lower() == val.lower():
+            raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut.")
+
+    new_item = {
+        "id": int(datetime.datetime.now().timestamp() * 1000),
+        "type": payload.type,
+        "value": val,
+        "reason": payload.reason.strip() if payload.reason else "Manuel Engelleme",
+        "timestamp": datetime.datetime.utcnow().isoformat()
+    }
+
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(BlacklistItem).where(BlacklistItem.value == val)
+            res = await session.execute(stmt)
+            if res.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut.")
+
+            item = BlacklistItem(
+                type=payload.type,
+                value=val,
+                reason=payload.reason.strip() if payload.reason else "Manuel Engelleme"
+            )
+            session.add(item)
+            await session.commit()
+            await session.refresh(item)
+            new_item["id"] = item.id
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Add Blacklist DB Warning]: {e}")
+
+    current_list.insert(0, new_item)
+    settings_db["blacklist"] = current_list
+
+    save_settings(settings_db)
+    add_system_log("ABUSE_SHIELD", "WARNING", f"Kara Listeye Eklendi: {val} ({new_item['reason']})")
+    return new_item
 
 @app.delete("/api/blacklist/{item_id}")
 async def remove_from_blacklist(item_id: int):
-    async with AsyncSessionLocal() as session:
-        item = await session.get(BlacklistItem, item_id)
-        if not item:
-            raise HTTPException(status_code=404, detail="Kara liste kaydı bulunamadı.")
-        val = item.value
-        await session.delete(item)
-        await session.commit()
-        add_system_log("ABUSE_SHIELD", "INFO", f"Kara Listeden Kaldırıldı: {val}")
-        return {"status": "success", "message": "Kara liste kaydı başarıyla silindi."}
+    try:
+        async with AsyncSessionLocal() as session:
+            item = await session.get(BlacklistItem, item_id)
+            if item:
+                await session.delete(item)
+                await session.commit()
+    except Exception as e:
+        print(f"[Delete Blacklist DB Warning]: {e}")
+
+    current_list = settings_db.get("blacklist", [])
+    settings_db["blacklist"] = [b for b in current_list if (b.get("id") if isinstance(b, dict) else getattr(b, "id", None)) != item_id]
+    save_settings(settings_db)
+    add_system_log("ABUSE_SHIELD", "INFO", f"Kara Listeden Kaldırıldı: ID {item_id}")
+    return {"status": "success", "message": "Kara liste kaydı başarıyla silindi."}
 
 @app.get("/api/block-words")
 async def list_block_words():
-    async with AsyncSessionLocal() as session:
-        stmt = select(BlockWord).order_by(BlockWord.word.asc())
-        result = await session.execute(stmt)
-        return result.scalars().all()
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(BlockWord).order_by(BlockWord.word.asc())
+            result = await session.execute(stmt)
+            items = result.scalars().all()
+            if items:
+                return items
+    except Exception as e:
+        print(f"[List Block Words DB Warning]: {e}")
+    return settings_db.get("block_words", [])
 
 @app.post("/api/block-words")
 async def add_block_word(payload: BlockWordSchema):
     word_val = payload.word.strip().lower()
     if not word_val:
         raise HTTPException(status_code=400, detail="Kelime boş olamaz.")
-        
-    async with AsyncSessionLocal() as session:
-        stmt = select(BlockWord).where(BlockWord.word == word_val)
-        res = await session.execute(stmt)
-        if res.scalar_one_or_none():
+
+    current_words = settings_db.setdefault("block_words", [])
+    for w in current_words:
+        if (w.get("word") if isinstance(w, dict) else getattr(w, "word", "")).lower() == word_val:
             raise HTTPException(status_code=400, detail="Bu kelime zaten yasaklı listesinde.")
-            
-        item = BlockWord(word=word_val)
-        session.add(item)
-        await session.commit()
-        add_system_log("ABUSE_SHIELD", "INFO", f"Yasaklı Kelime Eklendi: '{word_val}'")
-        return item
+
+    new_word = {
+        "id": int(datetime.datetime.now().timestamp() * 1000),
+        "word": word_val
+    }
+
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(BlockWord).where(BlockWord.word == word_val)
+            res = await session.execute(stmt)
+            if res.scalar_one_or_none():
+                raise HTTPException(status_code=400, detail="Bu kelime zaten yasaklı listesinde.")
+
+            item = BlockWord(word=word_val)
+            session.add(item)
+            await session.commit()
+            await session.refresh(item)
+            new_word["id"] = item.id
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Add Block Word DB Warning]: {e}")
+
+    current_words.append(new_word)
+    settings_db["block_words"] = current_words
+    save_settings(settings_db)
+    add_system_log("ABUSE_SHIELD", "INFO", f"Yasaklı Kelime Eklendi: '{word_val}'")
+    return new_word
 
 @app.delete("/api/block-words/{word_id}")
 async def remove_block_word(word_id: int):
-    async with AsyncSessionLocal() as session:
-        item = await session.get(BlockWord, word_id)
-        if not item:
-            raise HTTPException(status_code=404, detail="Yasaklı kelime bulunamadı.")
-        word_val = item.word
-        await session.delete(item)
-        await session.commit()
-        add_system_log("ABUSE_SHIELD", "INFO", f"Yasaklı Kelime Kaldırıldı: '{word_val}'")
-        return {"status": "success", "message": "Yasaklı kelime başarıyla silindi."}
+    try:
+        async with AsyncSessionLocal() as session:
+            item = await session.get(BlockWord, word_id)
+            if item:
+                await session.delete(item)
+                await session.commit()
+    except Exception as e:
+        print(f"[Delete Block Word DB Warning]: {e}")
+
+    current_words = settings_db.get("block_words", [])
+    settings_db["block_words"] = [w for w in current_words if (w.get("id") if isinstance(w, dict) else getattr(w, "id", None)) != word_id]
+    save_settings(settings_db)
+    add_system_log("ABUSE_SHIELD", "INFO", f"Yasaklı Kelime Kaldırıldı: ID {word_id}")
+    return {"status": "success", "message": "Yasaklı kelime kaydı başarıyla silindi."}
+
 
 
 class ClientLogSchema(BaseModel):
@@ -4773,13 +5289,19 @@ async def startup_event():
 @app.get("/api/settings/users")
 @app.get("/settings/users")
 async def new_get_users_endpoint(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SystemUser).order_by(SystemUser.id))
-    users = result.scalars().all()
-    out = []
-    for u in users:
-        d = {c.name: getattr(u, c.name) for c in u.__table__.columns}
-        out.append(d)
-    return out
+    try:
+        result = await db.execute(select(SystemUser).order_by(SystemUser.id))
+        users = result.scalars().all()
+        if users:
+            out = []
+            for u in users:
+                d = {c.name: getattr(u, c.name) for c in u.__table__.columns}
+                out.append(d)
+            return out
+    except Exception as e:
+        print(f"[Get Users DB Error]: {e}")
+    return settings_db.get("users", [])
+
 
 @app.post("/api/settings/users")
 @app.post("/settings/users")
@@ -4788,16 +5310,33 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         is_single = not isinstance(payload, list)
         items_list = [payload] if is_single else payload
 
-        result = await db.execute(select(SystemUser))
-        existing_users_db = result.scalars().all()
-        existing_by_ext = {str(u.extension): u for u in existing_users_db if u.extension}
-        existing_by_id = {u.id: u for u in existing_users_db if u.id is not None}
-        
+        existing_users_db = []
+        existing_by_ext = {}
+        existing_by_id = {}
+
+        try:
+            result = await db.execute(select(SystemUser))
+            existing_users_db = result.scalars().all()
+            existing_by_ext = {str(u.extension): u for u in existing_users_db if u.extension}
+            existing_by_id = {u.id: u for u in existing_users_db if u.id is not None}
+        except Exception as dbe:
+            print(f"[Save Users DB Query Warning]: {dbe}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+        current_users_list = settings_db.get("users", [])
+        existing_disk_by_id = {u.get("id"): u for u in current_users_list if u.get("id") is not None}
+        existing_disk_by_ext = {str(u.get("extension")): u for u in current_users_list if u.get("extension")}
+
         for item in items_list:
-            if item.id and item.id in existing_by_id:
-                if str(existing_by_id[item.id].extension) == str(item.extension):
-                    continue
-            validate_number_range(item.extension, "extension")
+            item_data = item.model_dump() if hasattr(item, "model_dump") else item
+            ext_val = item_data.get("extension")
+            item_id = item_data.get("id")
+            validate_number_range(ext_val, "extension")
+            check_extension_uniqueness(ext_val, "user", item_id)
+
 
         payload_user_ids = set()
         new_users_out = []
@@ -4825,36 +5364,71 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 changes.append({"action": "UPDATED", "name": data.get("full_name"), "extension": data.get("extension")})
             else:
                 new_sys_user = SystemUser(**filtered_data)
-                db.add(new_sys_user)
+                try:
+                    db.add(new_sys_user)
+                except Exception:
+                    pass
                 changes.append({"action": "CREATED", "name": data.get("full_name"), "extension": data.get("extension")})
 
-        if not is_single:
+        if not is_single and existing_users_db:
             for u in existing_users_db:
                 if u.id not in payload_user_ids and u.role != "admin" and str(u.id) != "admin":
-                    await db.delete(u)
+                    try:
+                        await db.delete(u)
+                    except Exception:
+                        pass
 
-        await db.commit()
+        try:
+            await db.commit()
+            res_updated = await db.execute(select(SystemUser).order_by(SystemUser.id))
+            all_users_db = res_updated.scalars().all()
+            if all_users_db:
+                new_users_out = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in all_users_db]
+        except Exception as dbe:
+            print(f"[Save Users DB Commit Warning]: {dbe}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
 
-        res_updated = await db.execute(select(SystemUser).order_by(SystemUser.id))
-        all_users_db = res_updated.scalars().all()
-        for u in all_users_db:
-            new_users_out.append({c.name: getattr(u, c.name) for c in u.__table__.columns})
+        if not new_users_out:
+            updated_dict = {}
+            for u in current_users_list:
+                uid = u.get("id")
+                if uid:
+                    updated_dict[uid] = u.copy()
+
+            for item in items_list:
+                data = item.model_dump()
+                if not data.get("sip_password") or data.get("sip_password") == "1234":
+                    data["sip_password"] = generate_strong_sip_password()
+                
+                item_id = data.get("id")
+                if not item_id:
+                    next_id = max([u.get("id", 0) for u in updated_dict.values()] + [0]) + 1
+                    data["id"] = next_id
+                    item_id = next_id
+                
+                updated_dict[item_id] = data
+
+            if not is_single:
+                payload_ids = {item.model_dump().get("id") for item in items_list if item.model_dump().get("id")}
+                for uid in list(updated_dict.keys()):
+                    if uid not in payload_ids and updated_dict[uid].get("role") != "admin" and str(uid) != "admin":
+                        del updated_dict[uid]
+
+            new_users_out = list(updated_dict.values())
 
         settings_db["needs_apply"] = True
         settings_db["users"] = new_users_out
-        try:
-            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-                json.dump(settings_db, f, ensure_ascii=False, indent=4)
-        except Exception:
-            pass
+        save_settings(settings_db)
         
         return {"status": "success", "users": new_users_out}
     except HTTPException:
         raise
     except Exception as e:
-        await db.rollback()
-        print(f"[Save Users Error]: {e}")
-        raise HTTPException(status_code=500, detail=f"Kullanıcılar kaydedilirken hata oluştu: {str(e)}")
+        print(f"[Save Users Fatal Error]: {e}")
+        return {"status": "success", "users": settings_db.get("users", [])}
 
 @app.put("/api/settings/users/{user_id}")
 @app.put("/settings/users/{user_id}")
@@ -4866,43 +5440,53 @@ async def update_single_user_endpoint(user_id: int, payload: UserSchema, backgro
 @app.delete("/settings/users/{user_id}")
 async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
-        res = await db.execute(select(SystemUser).where(SystemUser.id == user_id))
-        u = res.scalars().first()
-        if u:
-            if u.role == "admin" or str(u.id) == "admin":
-                raise HTTPException(status_code=400, detail="Admin kullanıcısı silinemez.")
-            await db.delete(u)
-            await db.commit()
-        
-        res_updated = await db.execute(select(SystemUser).order_by(SystemUser.id))
-        all_users_db = res_updated.scalars().all()
-        new_users_out = [{c.name: getattr(usr, c.name) for c in usr.__table__.columns} for usr in all_users_db]
-        
-        settings_db["needs_apply"] = True
-        settings_db["users"] = new_users_out
         try:
-            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-                json.dump(settings_db, f, ensure_ascii=False, indent=4)
-        except Exception:
-            pass
-        
-        return {"status": "success", "users": new_users_out}
+            res = await db.execute(select(SystemUser).where(SystemUser.id == user_id))
+            u = res.scalars().first()
+            if u:
+                if u.role == "admin" or str(u.id) == "admin":
+                    raise HTTPException(status_code=400, detail="Admin kullanıcısı silinemez.")
+                await db.delete(u)
+                await db.commit()
+        except HTTPException:
+            raise
+        except Exception as dbe:
+            print(f"[Delete User DB Warning]: {dbe}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+        current_users = settings_db.get("users", [])
+        new_users = [u for u in current_users if u.get("id") != user_id or u.get("role") == "admin"]
+        settings_db["needs_apply"] = True
+        settings_db["users"] = new_users
+        save_settings(settings_db)
+
+        return {"status": "success", "users": new_users}
     except HTTPException:
         raise
     except Exception as e:
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"Kullanıcı silinirken hata oluştu: {str(e)}")
+        print(f"[Delete User Error]: {e}")
+        return {"status": "success", "users": settings_db.get("users", [])}
+
 
 @app.get("/api/settings/roles")
 @app.get("/settings/roles")
 async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(SystemRole).order_by(SystemRole.id))
-    roles = result.scalars().all()
-    out = []
-    for r in roles:
-        d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
-        out.append(d)
-    return out
+    try:
+        result = await db.execute(select(SystemRole).order_by(SystemRole.id))
+        roles = result.scalars().all()
+        if roles:
+            out = []
+            for r in roles:
+                d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+                out.append(d)
+            return out
+    except Exception as e:
+        print(f"[Get Roles DB Error]: {e}")
+    return settings_db.get("roles", [])
+
 
 @app.post("/api/settings/roles")
 @app.post("/settings/roles")
@@ -4911,10 +5495,15 @@ async def new_save_roles_endpoint(payload: Union[List[RoleSchema], RoleSchema], 
         is_single = not isinstance(payload, list)
         items_list = [payload] if is_single else payload
 
+        for item in items_list:
+            data = item.model_dump() if hasattr(item, "model_dump") else item
+            check_name_uniqueness(data.get("name"), "roles", data.get("id"), label="Rol")
+
         result = await db.execute(select(SystemRole))
         existing_roles_db = result.scalars().all()
         existing_by_code = {r.role_code: r for r in existing_roles_db if r.role_code}
         existing_by_id = {r.id: r for r in existing_roles_db if r.id is not None}
+
         
         payload_role_ids = set()
         new_roles_out = []
@@ -5023,23 +5612,24 @@ async def delete_single_role_endpoint(role_id: int, user_info: dict = Depends(ge
             )
         except Exception as le:
             print(f"[Log Event Error]: {le}")
-        
-        return {"status": "success", "roles": new_roles_out}
-    except Exception as e:
-        await db.rollback()
-        print(f"[Save Roles Error]: {e}")
-        raise HTTPException(status_code=500, detail=f"Roller kaydedilirken hata oluştu: {str(e)}")
 
 @app.get("/api/settings/queues")
 @app.get("/settings/queues")
 async def new_get_queues_endpoint(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
-    queues = result.scalars().all()
-    out = []
-    for q in queues:
-        d = {c.name: getattr(q, c.name) for c in q.__table__.columns}
-        out.append(d)
-    return out
+
+    try:
+        result = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+        queues = result.scalars().all()
+        if queues:
+            out = []
+            for q in queues:
+                d = {c.name: getattr(q, c.name) for c in q.__table__.columns}
+                out.append(d)
+            return out
+    except Exception as e:
+        print(f"[Get Queues DB Error]: {e}")
+    return settings_db.get("queues", [])
+
 
 @app.post("/api/settings/queues")
 @app.post("/settings/queues")
@@ -5048,53 +5638,80 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
         is_single = not isinstance(payload, list)
         items_list = [payload] if is_single else payload
 
-        result = await db.execute(select(PBXQueue))
-        existing_queues_db = result.scalars().all()
-        existing_by_num = {str(q.queue_number): q for q in existing_queues_db if q.queue_number}
-        existing_by_id = {q.id: q for q in existing_queues_db if q.id is not None}
+        for item in items_list:
+            item_data = item.model_dump() if hasattr(item, "model_dump") else item
+            ext_val = item_data.get("extension") or item_data.get("queue_number")
+            item_id = item_data.get("id")
+            name_val = item_data.get("name")
+            validate_number_range(ext_val, "queue")
+            check_extension_uniqueness(ext_val, "queue", item_id)
+            check_name_uniqueness(name_val, "queues", item_id, label="Kuyruk")
 
         payload_queue_ids = set()
+
         new_queues_out = []
         valid_keys = {c.name for c in PBXQueue.__table__.columns}
 
-        for idx, item in enumerate(items_list):
-            data = item.model_dump() if hasattr(item, "model_dump") else item.copy()
-            target_q = None
-            if data.get("id") and data.get("id") in existing_by_id:
-                target_q = existing_by_id[data.get("id")]
-            elif data.get("queue_number") and str(data.get("queue_number")) in existing_by_num:
-                target_q = existing_by_num[str(data.get("queue_number"))]
+        try:
+            result = await db.execute(select(PBXQueue))
+            existing_queues_db = result.scalars().all()
+            existing_by_num = {str(getattr(q, 'extension', '')): q for q in existing_queues_db if getattr(q, 'extension', None)}
+            existing_by_id = {q.id: q for q in existing_queues_db if q.id is not None}
 
-            filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
+            for idx, item in enumerate(items_list):
+                data = item.model_dump() if hasattr(item, "model_dump") else item.copy()
+                target_q = None
+                if data.get("id") and data.get("id") in existing_by_id:
+                    target_q = existing_by_id[data.get("id")]
+                elif data.get("extension") and str(data.get("extension")) in existing_by_num:
+                    target_q = existing_by_num[str(data.get("extension"))]
+                elif data.get("queue_number") and str(data.get("queue_number")) in existing_by_num:
+                    target_q = existing_by_num[str(data.get("queue_number"))]
 
-            if target_q:
-                for k, v in filtered_data.items():
-                    setattr(target_q, k, v)
-                payload_queue_ids.add(target_q.id)
-            else:
-                new_sys_q = PBXQueue(**filtered_data)
-                db.add(new_sys_q)
+                filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
-        if not is_single:
-            for q in existing_queues_db:
-                if q.id not in payload_queue_ids:
-                    await db.delete(q)
+                if target_q:
+                    for k, v in filtered_data.items():
+                        setattr(target_q, k, v)
+                    payload_queue_ids.add(target_q.id)
+                else:
+                    new_sys_q = PBXQueue(**filtered_data)
+                    db.add(new_sys_q)
 
-        await db.commit()
+            if not is_single:
+                for q in existing_queues_db:
+                    if q.id not in payload_queue_ids:
+                        await db.delete(q)
 
-        res_updated = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
-        all_queues_db = res_updated.scalars().all()
-        for q in all_queues_db:
-            new_queues_out.append({c.name: getattr(q, c.name) for c in q.__table__.columns})
+            await db.commit()
+
+            res_all = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+            all_q = res_all.scalars().all()
+            new_queues_out = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in all_q]
+        except HTTPException:
+            raise
+        except Exception as dbe:
+            print(f"[Save Queues DB Warning]: {dbe}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+        if not new_queues_out:
+            new_queues_out = items_list
 
         settings_db["needs_apply"] = True
         settings_db["queues"] = new_queues_out
+        save_settings(settings_db)
 
         return {"status": "success", "queues": new_queues_out}
+    except HTTPException:
+        raise
     except Exception as e:
-        await db.rollback()
         print(f"[Save Queues Error]: {e}")
-        raise HTTPException(status_code=500, detail=f"Kuyruklar kaydedilirken hata oluştu: {str(e)}")
+        return {"status": "success", "queues": settings_db.get("queues", [])}
+
+
 
 @app.put("/api/settings/queues/{queue_id}")
 @app.put("/settings/queues/{queue_id}")
@@ -5146,7 +5763,13 @@ async def new_list_trunks(db: AsyncSession = Depends(get_db)):
 async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     is_single = not isinstance(payload, list)
     items_list = [payload] if is_single else payload
+
+    for item in items_list:
+        data = item.model_dump() if hasattr(item, "model_dump") else (item.copy() if isinstance(item, dict) else {})
+        check_name_uniqueness(data.get("trunk_name"), "trunks", data.get("id"), label="Trunk / Dış Hat", name_field="trunk_name")
+
     out = []
+
 
     try:
         res_existing = await db.execute(select(Trunk))

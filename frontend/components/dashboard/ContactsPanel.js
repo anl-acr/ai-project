@@ -1,15 +1,26 @@
 import React, { useState, useEffect } from "react";
-import { Search, Plus, Edit2, Trash2, BookOpen, Save, X, Phone, Mail, CheckCircle } from "lucide-react";
+import { Search, Plus, Edit2, Trash2, BookOpen, Save, X, Phone, Mail, CheckCircle, AlertTriangle } from "lucide-react";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
-export default function ContactsPanel({ backendHost = "localhost:8000" }) {
+export default function ContactsPanel({ backendHost }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [contacts, setContacts] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+
+  useEffect(() => {
+    if (errorMsg) {
+      const timer = setTimeout(() => {
+        setErrorMsg("");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMsg]);
+
 
   // Role Permissions State
   const [hasWritePermission, setHasWritePermission] = useState(false);
@@ -28,7 +39,7 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
   // Delete Modal State
   const [deleteTargetId, setDeleteTargetId] = useState(null);
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
 
   // Fetch contacts
   const fetchContacts = async (q = "") => {
@@ -51,8 +62,7 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
   useEffect(() => {
     const checkPermissions = async () => {
       try {
-        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-        const resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`);
+        const resStatus = await fetch(`${API_BASE}/api/agent/status`);
         const statusData = await resStatus.json();
         if (!statusData.is_logged_in) {
           // Default dev fallback
@@ -61,7 +71,7 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
           return;
         }
 
-        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+        const resUsers = await fetch(`${API_BASE}/api/settings/users`);
         const usersData = await resUsers.json();
         const currentUser = usersData.find(u => u.id === statusData.user_id);
         if (!currentUser) {
@@ -70,7 +80,8 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
           return;
         }
 
-        const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
+        const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
+
         const rolesData = await resRoles.json();
         const currentRole = rolesData.find(r => r.role_code === currentUser.role);
         if (!currentRole) {
@@ -127,17 +138,31 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
   // Submit create or edit form
   const handleFormSubmit = async (e) => {
     e.preventDefault();
+    setErrorMsg("");
     if (!firstName.trim() || !lastName.trim() || !phone.trim()) {
       setErrorMsg("Ad, Soyad ve Telefon alanları zorunludur.");
       return;
     }
 
+    const phoneClean = phone.trim();
+
+    // Client-side phone number duplicate check
+    const dupPhoneContact = (contacts || []).find(
+      c => String(c.phone_number || "").trim() === phoneClean && (!editingContact || String(c.id) !== String(editingContact.id))
+    );
+    if (dupPhoneContact) {
+      const cName = `${dupPhoneContact.first_name || ""} ${dupPhoneContact.last_name || ""}`.trim() || "Kayıtlı Kişi";
+      setErrorMsg(`Bu telefon numarasına (${phoneClean}) ait '${cName}' isimli bir kayıt zaten mevcut.`);
+      return;
+    }
+
     const payload = {
-      first_name: firstName,
-      last_name: lastName,
-      phone_number: phone,
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+      phone_number: phoneClean,
       email: email.trim() || null
     };
+
 
     setLoading(true);
     setErrorMsg("");
@@ -318,10 +343,22 @@ export default function ContactsPanel({ backendHost = "localhost:8000" }) {
 
             <form onSubmit={handleFormSubmit} className="p-6 space-y-4">
               {errorMsg && (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-primary dark:text-rose-400 text-xs font-semibold">
-                  {errorMsg}
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between animate-in fade-in duration-200">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>{errorMsg}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setErrorMsg("")}
+                    className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+                    title="Kapat"
+                  >
+                    <X size={14} />
+                  </button>
                 </div>
               )}
+
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">

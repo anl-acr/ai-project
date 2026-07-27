@@ -46,8 +46,11 @@ export default function ConfirmDeleteModal({
         <div className="px-6 pb-6 pt-2 flex gap-3">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 rounded-xl font-bold border dark: dark: dark: hover: dark:hover: transition-all bg-slate-500 hover:bg-slate-600 text-white border-transparent"
-          >Vazgeç</button>
+            className="flex-1 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
+          >
+            Vazgeç
+          </button>
+
           <button
             onClick={onConfirm}
             className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white transition-all shadow-sm shadow-rose-600/10"

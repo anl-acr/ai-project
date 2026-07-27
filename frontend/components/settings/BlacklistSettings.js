@@ -2,8 +2,9 @@ import React, { useState, useEffect } from "react";
 import { Shield, Plus, Trash2, Search, X, Check, AlertCircle, AlertTriangle, FileText, Type } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
-export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
+export default function BlacklistSettings({ backendHost }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("list"); // list, words
   const [blacklist, setBlacklist] = useState([]);
@@ -27,12 +28,23 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
   // Role permissions
   const [permissions, setPermissions] = useState({ write: false, delete: false });
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  const API_BASE = getApiBaseUrl(backendHost);
+
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError("");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
 
   useEffect(() => {
     fetchPermissions();
     fetchData();
   }, [backendHost, activeTab]);
+
 
   const fetchPermissions = async () => {
     try {
@@ -96,16 +108,33 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
 
   const handleAddBlacklist = async (e) => {
     e.preventDefault();
-    if (!formValue.trim()) return;
     setError("");
     setSuccess("");
+
+    if (!formValue.trim()) {
+      setError("Lütfen engellenecek telefon numarası veya e-posta adresini giriniz.");
+      return;
+    }
+
+    const val = formValue.trim();
+    const label = formType === "phone" ? "Telefon numarası" : "E-posta adresi";
+
+    // Client-side duplicate check
+    const dupItem = (blacklist || []).find(
+      b => String(b.value || "").trim().toLowerCase() === val.toLowerCase()
+    );
+    if (dupItem) {
+      setError(`Bu ${label.toLowerCase()} (${val}) zaten kara listede mevcut.`);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/blacklist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: formType,
-          value: formValue.trim(),
+          value: val,
           reason: formReason.trim() || "Manuel Engelleme"
         })
       });
@@ -116,7 +145,7 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
         setShowAddModal(false);
         fetchData();
       } else {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         setError(errData.detail || "Ekleme hatası oluştu.");
       }
     } catch (err) {
@@ -126,14 +155,28 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
 
   const handleAddWord = async (e) => {
     e.preventDefault();
-    if (!formWord.trim()) return;
     setError("");
     setSuccess("");
+
+    if (!formWord.trim()) {
+      setError("Lütfen engellenecek kelime veya cümleyi giriniz.");
+      return;
+    }
+
+    const w = formWord.trim();
+    const dupWord = (blockWords || []).find(
+      bw => String(bw.word || bw || "").trim().toLowerCase() === w.toLowerCase()
+    );
+    if (dupWord) {
+      setError(`'${w}' kelimesi/cümlesi zaten yasaklı kelimeler listesinde mevcut.`);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/block-words`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ word: formWord.trim() })
+        body: JSON.stringify({ word: w })
       });
       if (res.ok) {
         setSuccess("Yasaklı kelime/cümle başarıyla eklendi.");
@@ -141,13 +184,14 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
         setShowAddWordModal(false);
         fetchData();
       } else {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         setError(errData.detail || "Ekleme hatası oluştu.");
       }
     } catch (err) {
       setError("Bağlantı hatası oluştu.");
     }
   };
+
 
   const handleDeleteConfirm = async () => {
     if (!deleteTarget) return;
@@ -387,6 +431,23 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
               </button>
             </div>
             <form onSubmit={handleAddBlacklist} className="p-5 space-y-4">
+              {error && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between animate-in fade-in duration-200 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setError("")}
+                    className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+                    title="Kapat"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Engel Türü</label>
                 <select
@@ -459,6 +520,23 @@ export default function BlacklistSettings({ backendHost = "localhost:8000" }) {
               </button>
             </div>
             <form onSubmit={handleAddWord} className="p-5 space-y-4">
+              {error && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between animate-in fade-in duration-200 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setError("")}
+                    className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+                    title="Kapat"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Yasaklanacak İfade</label>
                 <input

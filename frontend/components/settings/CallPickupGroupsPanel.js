@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, ChevronRight, ChevronLeft } from "lucide-react";
+import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, ChevronRight, ChevronLeft, AlertTriangle } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
 const DualListBox = ({ 
+
   title, 
   availableItems, 
   selectedIds, 
@@ -183,8 +185,12 @@ const DualListBox = ({
   );
 };
 
-export default function CallPickupGroupsPanel({ backendHost = "localhost:8000" }) {
-  const { bg, hover, text, border, ring, lightBg } = useTheme();
+import { getBackendHost } from "../../utils/apiHost";
+
+export default function CallPickupGroupsPanel({ backendHost }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  
+  const API_BASE = getApiBaseUrl(backendHost);
 
   const [groups, setGroups] = useState([]);
   const [users, setUsers] = useState([]);
@@ -192,6 +198,7 @@ export default function CallPickupGroupsPanel({ backendHost = "localhost:8000" }
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState(null);
 
   const [showModal, setShowModal] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
@@ -202,18 +209,24 @@ export default function CallPickupGroupsPanel({ backendHost = "localhost:8000" }
     extensions: []
   });
 
-  const apiHost = backendHost;
-
   useEffect(() => {
     fetchData();
   }, [backendHost]);
 
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   const fetchData = async () => {
     try {
-      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
       const [resGroups, resUsers] = await Promise.all([
-        fetch(`${protocol}//${apiHost}/api/settings/call_pickup_groups`),
-        fetch(`${protocol}//${apiHost}/api/settings/users`)
+        fetch(`${API_BASE}/api/settings/call_pickup_groups`),
+        fetch(`${API_BASE}/api/settings/users`)
       ]);
 
       if (resGroups.ok) setGroups(await resGroups.json());
@@ -227,6 +240,7 @@ export default function CallPickupGroupsPanel({ backendHost = "localhost:8000" }
   };
 
   const handleOpenModal = (group = null) => {
+    setError(null);
     if (group) {
       setSelectedGroup(group);
       setFormData({
@@ -244,6 +258,7 @@ export default function CallPickupGroupsPanel({ backendHost = "localhost:8000" }
   };
 
   const handleCloseModal = () => {
+    setError(null);
     setShowModal(false);
     setSelectedGroup(null);
   };
@@ -254,29 +269,51 @@ export default function CallPickupGroupsPanel({ backendHost = "localhost:8000" }
   };
 
   const handleSave = async () => {
+    setError(null);
+    if (!formData.name || !formData.name.trim()) {
+      setError("Lütfen grup adını giriniz.");
+      return;
+    }
+
+    const groupName = formData.name.trim();
+
+    // Client-side duplicate group name check
+    const dupGroup = (groups || []).find(
+      g => String(g.name || "").trim().toLowerCase() === groupName.toLowerCase() && (!selectedGroup || g.id !== selectedGroup.id)
+    );
+    if (dupGroup) {
+      setError(`'${groupName}' isimli bir çağrı toplama grubu zaten mevcut. Lütfen farklı bir isim giriniz.`);
+      return;
+    }
+
     const payload = {
       id: selectedGroup ? selectedGroup.id : null,
-      ...formData
+      name: groupName,
+      extensions: formData.extensions
     };
 
     try {
-      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-      const res = await fetch(`${protocol}//${apiHost}/api/settings/call_pickup_groups`, {
+      const res = await fetch(`${API_BASE}/api/settings/call_pickup_groups`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
       });
       if (res.ok) {
         const data = await res.json();
-        setGroups(data.call_pickup_groups);
+        setGroups(data.call_pickup_groups || data);
         setSuccess(true);
         setTimeout(() => setSuccess(false), 3000);
         handleCloseModal();
+      } else {
+        const errData = await res.json().catch(() => ({ detail: "Grup kaydedilemedi." }));
+        setError(errData.detail || "Grup kaydedilirken bir hata oluştu.");
       }
     } catch (err) {
       console.error("Grup kaydedilemedi:", err);
+      setError("Sunucu ile iletişim kurulurken bir hata oluştu.");
     }
   };
+
 
   const handleDelete = async () => {
     try {
@@ -437,7 +474,25 @@ export default function CallPickupGroupsPanel({ backendHost = "localhost:8000" }
               </button>
             </div>
             
+            {error && (
+              <div className="mx-6 mt-3 p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between animate-in fade-in duration-200 shrink-0">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>{error}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setError(null)}
+                  className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+                  title="Kapat"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             <div className="p-6 overflow-y-auto flex-1 space-y-8 bg-slate-50/30 dark:bg-slate-950/20">
+
               
               {/* Genel Section */}
               <div className="space-y-4">

@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from "react";
 import { Building2, Plus, Trash2, Edit3, Shield, CheckCircle, AlertTriangle, Calendar, Clock, Lock, ShieldAlert, Key, Bot, PhoneCall, Cpu, Network, GitMerge, PhoneOutgoing, Users, Volume2, BookOpen, Ban, MapPin, Briefcase, Zap } from "lucide-react";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
 const DEFAULT_TENANTS = [
   { 
-    id: "tenant-default", name: "Ana Müşteri (Varsayılan)", code: "default", status: "active", license_expires_at: "", license_key: "AIDA-DEFAULT-ENTERPRISE-2026", plan_tier: "enterprise",
+    id: "tenant-default", tenant_num_id: 100, name: "Ana Müşteri (Varsayılan)", code: "default", status: "active", license_expires_at: "", license_key: "AIDA-DEFAULT-ENTERPRISE-2026", plan_tier: "enterprise",
     max_agents: 50, max_rag_docs: 500, max_scenarios: 50,
     max_users: 100, max_announcements: 50, max_queues: 50, max_inbound_rules: 100, max_outbound_rules: 100, max_pickup_groups: 20, max_subscriber_groups: 20, max_phonebook_contacts: 2000, max_trunks: 20, max_conference_rooms: 20, max_speed_dials: 100, max_blacklist_entries: 500, max_locations: 20, max_departments: 30,
     max_call_flows: 50, max_dialers: 20
   },
   { 
-    id: "tenant-test-teknoloji", name: "Test Teknoloji", code: "test-teknoloji", status: "active", license_expires_at: "2026-12-31", license_key: "AIDA-78B1-99F4-2026", plan_tier: "professional",
+    id: "tenant-test-teknoloji", tenant_num_id: 101, name: "Test Teknoloji", code: "test-teknoloji", status: "active", license_expires_at: "2026-12-31", license_key: "AIDA-78B1-99F4-2026", plan_tier: "professional",
     max_agents: 20, max_rag_docs: 100, max_scenarios: 20,
     max_users: 50, max_announcements: 20, max_queues: 10, max_inbound_rules: 25, max_outbound_rules: 25, max_pickup_groups: 10, max_subscriber_groups: 10, max_phonebook_contacts: 500, max_trunks: 5, max_conference_rooms: 5, max_speed_dials: 50, max_blacklist_entries: 100, max_locations: 5, max_departments: 10,
     max_call_flows: 10, max_dialers: 5
@@ -27,6 +28,8 @@ export default function TenantManagementPanel({ backendHost }) {
   const [tenants, setTenants] = useState(DEFAULT_TENANTS);
   const [showModal, setShowModal] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
+
+  const API_BASE = getApiBaseUrl(backendHost);
 
   // General Form states
   const [name, setName] = useState("");
@@ -71,16 +74,13 @@ export default function TenantManagementPanel({ backendHost }) {
 
   useEffect(() => {
     fetchTenants();
-  }, []);
+  }, [backendHost]);
 
   const fetchTenants = async () => {
     try {
-      const host = backendHost || (typeof window !== "undefined" ? `${window.location.hostname}:8000` : "localhost:8000");
-      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
-      
-      let res = await fetch(`${protocol}//${host}/api/settings/tenants`);
+      let res = await fetch(`${API_BASE}/api/settings/tenants`);
       if (!res.ok) {
-        res = await fetch(`${protocol}//${host}/api/tenants`);
+        res = await fetch(`${API_BASE}/api/tenants`);
       }
       if (res.ok) {
         const data = await res.json();
@@ -92,6 +92,7 @@ export default function TenantManagementPanel({ backendHost }) {
       console.error("Failed to load tenants", e);
     }
   };
+
 
   const handleOpenAddModal = () => {
     setEditingTenant(null);
@@ -170,25 +171,31 @@ export default function TenantManagementPanel({ backendHost }) {
 
   const handleSaveTenant = async (e) => {
     e.preventDefault();
-    if (!name || !code) return;
+    const finalName = name.trim();
+    if (!finalName) {
+      setErrorMsg("Lütfen Müşteri / Firma Adı giriniz.");
+      return;
+    }
+
+    const finalCode = (code.trim() || finalName.toLowerCase())
+      .replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s").replace(/ı/g, "i").replace(/ö/g, "o").replace(/ç/g, "c")
+      .replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
 
     setLoading(true);
     setErrorMsg("");
-    const host = backendHost || (typeof window !== "undefined" ? `${window.location.hostname}:8000` : "localhost:8000");
-    const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
 
     try {
       const url = editingTenant 
-        ? `${protocol}//${host}/api/settings/tenants/${editingTenant.id}`
-        : `${protocol}//${host}/api/settings/tenants`;
+        ? `${API_BASE}/api/settings/tenants/${editingTenant.id}`
+        : `${API_BASE}/api/settings/tenants`;
       const method = editingTenant ? "PUT" : "POST";
 
       const res = await fetch(url, {
         method: method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: name,
-          code: code,
+          name: finalName,
+          code: finalCode,
           status: status,
           license_expires_at: isUnlimited ? "" : licenseExpiresAt,
           license_key: licenseKey,
@@ -243,11 +250,8 @@ export default function TenantManagementPanel({ backendHost }) {
 
   const executeDeleteTenant = async () => {
     if (!tenantToDelete) return;
-    const host = backendHost || (typeof window !== "undefined" ? `${window.location.hostname}:8000` : "localhost:8000");
-    const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
-
     try {
-      const res = await fetch(`${protocol}//${host}/api/settings/tenants/${tenantToDelete.id}`, {
+      const res = await fetch(`${API_BASE}/api/settings/tenants/${tenantToDelete.id}`, {
         method: "DELETE"
       });
       if (res.ok) {
@@ -260,6 +264,7 @@ export default function TenantManagementPanel({ backendHost }) {
       setTenantToDelete(null);
     }
   };
+
 
   return (
     <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-6 shadow-sm w-full animate-in fade-in duration-300">
@@ -317,16 +322,23 @@ export default function TenantManagementPanel({ backendHost }) {
                   : "bg-slate-50/60 dark:bg-slate-950/40 border-slate-200/90 dark:border-slate-800/80 hover:border-slate-300 dark:hover:border-slate-700"
               }`}
             >
-              {/* Müşteri / Firma Adı & License Key */}
+              {/* Müşteri / Firma Adı & License Key & Tenant ID */}
               <div className="lg:col-span-3 flex flex-col justify-center">
-                <span className="font-extrabold text-slate-900 dark:text-white text-sm">{t.name}</span>
-                <div className="flex items-center gap-1.5 mt-1.5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-extrabold text-slate-900 dark:text-white text-sm">{t.name}</span>
+                  <span className="text-[10px] font-mono font-extrabold bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/50 px-2 py-0.5 rounded-md" title="Asterisk Dialplan Sayısal Tenant ID">
+                    Tenant ID: {t.tenant_num_id || 100}
+                  </span>
+                </div>
+                <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
                   <span className="text-[10px] font-mono bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
                     <Key size={10} className="text-rose-500" />
                     {t.license_key || `AIDA-${t.code.toUpperCase()}-2026`}
                   </span>
+                  <span className="text-[9px] font-mono text-slate-400">({t.id})</span>
                 </div>
               </div>
+
 
               {/* Paket & Durum Rozeti */}
               <div className="lg:col-span-2 flex flex-col items-start gap-1">
@@ -441,7 +453,17 @@ export default function TenantManagementPanel({ backendHost }) {
               </div>
             )}
 
+            {editingTenant && (
+              <div className="p-3 mb-4 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 rounded-xl flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Asterisk Dialplan Sayısal Tenant ID:</span>
+                <span className="text-xs font-mono font-extrabold text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-900 px-3 py-1 rounded-lg border border-rose-200 dark:border-rose-900">
+                  ID: {editingTenant.tenant_num_id || 100} ({editingTenant.id})
+                </span>
+              </div>
+            )}
+
             <form onSubmit={handleSaveTenant} className="space-y-5">
+
               
               {/* Genel Bilgiler */}
               <div className="grid grid-cols-2 gap-4">
@@ -451,7 +473,17 @@ export default function TenantManagementPanel({ backendHost }) {
                     type="text"
                     required
                     value={name}
-                    onChange={(e) => setName(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setName(val);
+                      if (!editingTenant) {
+                        const slug = val
+                          .toLowerCase()
+                          .replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s").replace(/ı/g, "i").replace(/ö/g, "o").replace(/ç/g, "c")
+                          .replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+                        setCode(slug);
+                      }
+                    }}
                     placeholder="Örn: Acme Holding A.Ş."
                     className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-medium text-slate-800 dark:text-white"
                   />
@@ -461,13 +493,13 @@ export default function TenantManagementPanel({ backendHost }) {
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Kod Adı (Slug Code)</label>
                   <input
                     type="text"
-                    required
                     disabled={!!editingTenant}
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
-                    placeholder="Örn: acme-corp"
+                    placeholder="Otomatik Oluşturulur (Örn: acme-corp)"
                     className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-800 dark:text-white disabled:opacity-60"
                   />
+
                 </div>
               </div>
 

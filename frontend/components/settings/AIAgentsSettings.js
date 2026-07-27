@@ -17,7 +17,9 @@ import {
   HelpCircle,
   Play,
   Pause,
-  RefreshCw
+  RefreshCw,
+  AlertTriangle,
+  X
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -29,6 +31,17 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError("");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
 
   // API Providers States
   const [providers, setProviders] = useState({
@@ -176,6 +189,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   }, []);
 
   const handleCreateNewAgent = () => {
+    setError("");
     setAgentId(`agent-${Date.now()}`);
     setAgentName("Yeni Yapay Zeka Asistanı");
     setAgentVoice("Aoede (Dişi - Türkçe / İngilizce)");
@@ -201,6 +215,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   };
 
   const handleEditAgent = (agent) => {
+    setError("");
     setAgentId(agent.id);
     setAgentName(agent.name);
     
@@ -232,12 +247,28 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   };
 
   const handleSaveAgent = async () => {
-    if (!agentName) return;
+    setError("");
+    const aName = agentName.trim();
+
+    if (!aName) {
+      setError("Lütfen Yapay Zeka Asistanı Adı giriniz.");
+      return;
+    }
+
+    // Client-side duplicate check for Agent Name
+    const dupAgent = (agents || []).find(
+      a => String(a.name || "").trim().toLowerCase() === aName.toLowerCase() && (!agentId || String(a.id) !== String(agentId))
+    );
+    if (dupAgent) {
+      setError(`'${aName}' isimli Yapay Zeka Asistanı zaten mevcut. Lütfen farklı bir isim giriniz.`);
+      return;
+    }
+
     setLoading(true);
 
     const payload = {
       id: agentId,
-      name: agentName,
+      name: aName,
       voice: ttsProvider === "elevenlabs" ? (elevenlabsVoiceId || "ElevenLabs Custom Voice") : agentVoice,
       tone: agentTone,
       provider: llmProvider,
@@ -270,13 +301,29 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
           setViewMode("list");
           fetchAgents();
         }, 1200);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setError(errData.detail || "Yapay zeka asistanı kaydedilirken hata oluştu.");
       }
     } catch (err) {
       console.error("[AI-Agents] Save error:", err);
+      setError("Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
     } finally {
       setLoading(false);
     }
   };
+
+  const handleCancelEdit = () => {
+    setError("");
+    // Stop audio if playing
+    if (audioInstance) {
+      audioInstance.pause();
+      setIsPlaying(false);
+    }
+    setViewMode("list");
+    fetchAgents();
+  };
+
 
   const handleSaveProviders = async () => {
     setLoading(true);
@@ -297,15 +344,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
-  const handleCancelEdit = () => {
-    // Stop audio if playing
-    if (audioInstance) {
-      audioInstance.pause();
-      setIsPlaying(false);
-    }
-    setViewMode("list");
-    fetchAgents();
-  };
+
 
   const openDeleteModal = (e, id) => {
     e.stopPropagation();
@@ -599,6 +638,24 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
           <span>Temsilci ayarları başarıyla kaydedildi, listeye dönülüyor.</span>
         </div>
       )}
+
+      {error && (
+        <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-3 transition-all animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={14} className="shrink-0 text-rose-500" />
+            <span>{error}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setError("")}
+            className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+            title="Kapat"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
 
       {/* Editor Grid */}
       <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6">

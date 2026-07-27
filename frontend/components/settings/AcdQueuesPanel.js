@@ -4,48 +4,38 @@ import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import QueueEditModal from "./QueueEditModal";
 import { useTheme } from "../../utils/theme";
+import { getBackendHost, getApiBaseUrl } from "../../utils/apiHost";
 
-export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
+export default function AcdQueuesPanel({ backendHost }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   
-  const [queues, setQueues] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [success, setSuccess] = useState(false);
-  const [error, setError] = useState(null);
+  const apiHost = getBackendHost(backendHost);
+  const API_BASE = getApiBaseUrl(backendHost);
 
+  const [queues, setQueues] = useState([]);
+  const [allUsers, setAllUsers] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [selectedQueue, setSelectedQueue] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ show: false, id: null });
-  const [allUsers, setAllUsers] = useState([]);
-
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState(null);
   const [isColumnSelectOpen, setIsColumnSelectOpen] = useState(false);
-  const columnLabels = {
-    extension: "Kuyruk Adı / No",
-    strategy: "Strateji",
-    members: "Üyeler & Yöneticiler"
-  };
-
-  const [visibleColumns, setVisibleColumns] = useState(() => {
-    const saved = localStorage.getItem("acdQueuesPanelColumns");
-    if (saved) return JSON.parse(saved);
-    return { extension: true, strategy: true, members: true };
+  const [visibleColumns, setVisibleColumns] = useState({
+    name: true,
+    extension: true,
+    strategy: true,
+    members: true,
+    supervisors: true,
+    timeout: true,
+    actions: true
   });
-
-  const handleToggleColumn = (col) => {
-    setVisibleColumns(prev => {
-      const updated = { ...prev, [col]: !prev[col] };
-      localStorage.setItem("acdQueuesPanelColumns", JSON.stringify(updated));
-      return updated;
-    });
-  };
-
-  const apiHost = backendHost;
 
   const fetchData = async () => {
     try {
-      const usersRes = await fetch(`${window.location.protocol}//${apiHost}/api/settings/users`);
+      const usersRes = await fetch(`${API_BASE}/api/settings/users`);
       let usersData = [];
       let usersList = [];
       if (usersRes.ok) {
@@ -54,7 +44,7 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
       }
       setAllUsers(usersList);
 
-      const queuesRes = await fetch(`${window.location.protocol}//${apiHost}/api/settings/queues`);
+      const queuesRes = await fetch(`${API_BASE}/api/settings/queues`);
       if (queuesRes.ok) {
         const rawQueues = await queuesRes.json();
         const queuesList = Array.isArray(rawQueues) ? rawQueues : (rawQueues?.queues || []);
@@ -83,11 +73,12 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
+
   useEffect(() => {
     fetchData();
   }, []);
 
-  const handleSaveQueue = async (updatedQueue) => {
+  const handleSaveQueue = async (updatedQueue, onError) => {
     let newQueues;
     const safeQueues = Array.isArray(queues) ? queues : [];
     if (selectedQueue) {
@@ -100,7 +91,7 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
     }
     
     try {
-      const res = await fetch(`${window.location.protocol}//${apiHost}/api/settings/queues`, {
+      const res = await fetch(`${API_BASE}/api/settings/queues`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newQueues)
@@ -127,19 +118,28 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
           };
         });
         setQueues(enrichedQueues);
+        setShowModal(false);
+        setSelectedQueue(null);
+      } else {
+        const errData = await res.json().catch(() => ({ detail: "Kuyruk kaydedilemedi." }));
+        if (onError) {
+          onError(errData.detail || "Kuyruk kaydedilirken hata oluştu.");
+        }
       }
     } catch (err) {
       console.error("Queue save error:", err);
+      if (onError) {
+        onError("Sunucu ile iletişim kurulurken bir hata oluştu.");
+      }
     }
-    setShowModal(false);
-    setSelectedQueue(null);
   };
+
 
   const handleDeleteConfirm = async () => {
     if (!deleteConfirm.id) return;
     const newQueues = queues.filter(q => q.id !== deleteConfirm.id);
     try {
-      const res = await fetch(`${window.location.protocol}//${apiHost}/api/settings/queues`, {
+      const res = await fetch(`${API_BASE}/api/settings/queues`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(newQueues)
@@ -247,7 +247,7 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
           }
         }
 
-        const res = await fetch(`${window.location.protocol}//${apiHost}/api/settings/queues`, {
+        const res = await fetch(`${API_BASE}/api/settings/queues`, {
            method: "POST",
            headers: { "Content-Type": "application/json" },
            body: JSON.stringify(newQueues)
@@ -536,7 +536,7 @@ export default function AcdQueuesPanel({ backendHost = "localhost:8000" }) {
         onSave={handleSaveQueue}
         queueData={selectedQueue}
         allQueues={queues}
-        API_BASE={`${window.location.protocol}//${apiHost}`}
+        API_BASE={API_BASE}
       />
 
       {/* DELETE MODAL PLACEHOLDER */}

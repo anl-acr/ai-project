@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Search, Trash2, Edit2, X, Users, Check, AlertCircle, Mic } from "lucide-react";
+import { Plus, Search, Trash2, Edit2, X, Users, Check, AlertCircle, Mic, AlertTriangle } from "lucide-react";
+
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import TransferList from "../ui/TransferList";
 import { useTheme } from "../../utils/theme";
@@ -32,9 +33,19 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
   useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError("");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  useEffect(() => {
     fetchPermissions();
     fetchData();
   }, [backendHost]);
+
 
   const fetchPermissions = async () => {
     try {
@@ -97,19 +108,32 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!roomNumber.trim() || !roomName.trim()) {
-      setError("Oda Numarası ve Oda Adı zorunludur.");
-      return;
-    }
     setError("");
     setSuccess("");
+
+    if (!roomNumber.trim() || !roomName.trim()) {
+      setError("Lütfen Oda Numarası ve Oda Adı alanlarını doldurunuz.");
+      return;
+    }
+
+    const roomNum = roomNumber.trim();
+
+    // Client-side duplicate check for conference room_number / extension
+    const dupConf = (conferences || []).find(
+      c => String(c.room_number || c.extension || c.number || "").trim() === roomNum && (!editingId || String(c.id) !== String(editingId))
+    );
+    if (dupConf) {
+      setError(`Bu Konferans Oda Numarası (${roomNum}) zaten '${dupConf.room_name || dupConf.name || 'Konferans Odası'}' tarafından kullanılıyor.`);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/settings/conferences`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: editingId,
-          room_number: roomNumber.trim(),
+          room_number: roomNum,
           room_name: roomName.trim(),
           internals: selectedInternals,
           externals: externalNumbers,
@@ -121,7 +145,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
         setShowModal(false);
         fetchData();
       } else {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         setError(errData.detail || "Kaydetme hatası oluştu.");
       }
     } catch (err) {
@@ -148,6 +172,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
   };
 
   const openAddModal = () => {
+    setError("");
     setEditingId(null);
     setRoomNumber("");
     setRoomName("");
@@ -159,6 +184,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
   };
 
   const openEditModal = (item) => {
+    setError("");
     setEditingId(item.id);
     setRoomNumber(item.room_number || "");
     setRoomName(item.room_name || "");
@@ -168,6 +194,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
     setRecordingEnabled(item.recording_enabled || false);
     setShowModal(true);
   };
+
 
   const toggleInternal = (userId) => {
     setSelectedInternals(prev => 
@@ -343,6 +370,24 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
                 <X size={18} />
               </button>
             </div>
+            
+            {error && (
+              <div className="mx-4 mt-3 p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between animate-in fade-in duration-200 shrink-0">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>{error}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setError("")}
+                  className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+                  title="Kapat"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             
             <div className="p-4 overflow-y-auto space-y-5">
               <div className="grid grid-cols-2 gap-4">

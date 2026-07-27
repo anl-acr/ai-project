@@ -21,7 +21,9 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
         setIsLoading(true);
         setTwoFactorError("");
         try {
-            const res = await fetch(`http://${backendHost || '127.0.0.1'}:8000/api/auth/verify_2fa`, {
+            const apiBase = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost || window.location.host}` : "http://localhost:3000";
+            const res = await fetch(`${apiBase}/api/auth/verify_2fa`, {
+
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ user_id: twoFactorUserId, code: twoFactorCode })

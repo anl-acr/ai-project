@@ -15,8 +15,10 @@ import {
   HelpCircle,
   Fingerprint,
   Search,
-  Shield
+  Shield,
+  AlertTriangle
 } from "lucide-react";
+
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -39,6 +41,17 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
   const [trunkStatuses, setTrunkStatuses] = useState({});
   const [pbxSuccess, setPbxSuccess] = useState(false);
   const [loading, setLoading] = useState({ pbx: false, trunks: false });
+  const [trunkError, setTrunkError] = useState("");
+
+  useEffect(() => {
+    if (trunkError) {
+      const timer = setTimeout(() => {
+        setTrunkError("");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [trunkError]);
+
 
   // Voice Biometric Settings States
   const [bioEnabled, setBioEnabled] = useState(true);
@@ -179,6 +192,24 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
   // Add Trunk Submit
   const handleAddTrunk = async (e) => {
     e.preventDefault();
+    setTrunkError("");
+
+    if (!newTrunk.trunk_name || !newTrunk.trunk_name.trim()) {
+      setTrunkError("Lütfen bağlantı (Trunk) adını giriniz.");
+      return;
+    }
+
+    const tName = newTrunk.trunk_name.trim();
+
+    // Client-side duplicate check by Trunk Name
+    const dupTrunk = (trunks || []).find(
+      t => String(t.trunk_name || "").trim().toLowerCase() === tName.toLowerCase() && (!newTrunk.id || String(t.id) !== String(newTrunk.id))
+    );
+    if (dupTrunk) {
+      setTrunkError(`'${tName}' isimli Dış Hat (Trunk) zaten mevcut. Lütfen farklı bir isim giriniz.`);
+      return;
+    }
+
     setLoading((prev) => ({ ...prev, trunks: true }));
 
     try {
@@ -189,7 +220,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
           "Content-Type": "application/json",
           "X-User-ID": localStorage.getItem("current_user_id") || "admin"
         },
-        body: JSON.stringify(newTrunk)
+        body: JSON.stringify({ ...newTrunk, trunk_name: tName })
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -200,17 +231,18 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
           fetchTrunks();
         }
       } else {
-        alert(data.detail || "Dış hat kaydedilirken bir hata oluştu.");
+        setTrunkError(data.detail || "Dış hat kaydedilirken bir hata oluştu.");
       }
     } catch (err) {
       console.error("[Trunks] Ekleme/Guncelleme hatasi:", err);
-      alert("Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
+      setTrunkError("Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
     } finally {
       setLoading((prev) => ({ ...prev, trunks: false }));
     }
   };
 
   const closeModal = () => {
+    setTrunkError("");
     setShowModal(false);
     setModalStep(1);
     setNewTrunk({
@@ -231,10 +263,12 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
   };
 
   const handleEditTrunk = (t) => {
+    setTrunkError("");
     setNewTrunk({ ...t });
     setModalStep(2); // Skip Step 1 since type is chosen
     setShowModal(true);
   };
+
 
   // Delete Confirmation Modal State
   const [deleteConfirm, setDeleteConfirm] = useState({ show: false, id: null });
@@ -638,6 +672,23 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
             {/* Step 2: Fill Details Form */}
             {modalStep === 2 && (
               <form onSubmit={handleAddTrunk} className="p-5 flex flex-col gap-4">
+                {trunkError && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between animate-in fade-in duration-200">
+                    <div className="flex items-center gap-2">
+                      <AlertTriangle size={14} className="shrink-0" />
+                      <span>{trunkError}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTrunkError("")}
+                      className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+                      title="Kapat"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+
                 
                 {/* Info Text */}
                 <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide border-b border-slate-100 dark:border-slate-800 pb-1.5 flex items-center gap-1">

@@ -217,8 +217,12 @@ const DualListBox = ({
   );
 };
 
-export default function InboundRulesPanel({ backendHost = "localhost:8000" }) {
-  const { bg, hover, text, border, ring, lightBg } = useTheme();
+import { getBackendHost } from "../../utils/apiHost";
+
+export default function InboundRulesPanel({ backendHost }) {
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+
+  const apiHost = getBackendHost(backendHost);
 
   const [rules, setRules] = useState([]);
   const [trunks, setTrunks] = useState([]);
@@ -242,8 +246,6 @@ export default function InboundRulesPanel({ backendHost = "localhost:8000" }) {
     did_match_mode: "all",
     did_patterns: []
   });
-
-  const apiHost = backendHost;
 
   useEffect(() => {
     fetchData();

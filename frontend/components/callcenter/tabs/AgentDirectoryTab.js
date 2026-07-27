@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Users, Search, Phone, Building2, User, PhoneCall, GitBranch, LayoutGrid } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 
+import { getApiBaseUrl } from "../../../utils/apiHost";
+
 export default function AgentDirectoryTab({ backendHost, currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   
@@ -16,27 +18,27 @@ export default function AgentDirectoryTab({ backendHost, currentUser }) {
   const fetchDirectory = async () => {
     try {
       setLoading(true);
-      const protocol = window.location.protocol;
+      const apiBase = getApiBaseUrl(backendHost);
       
       // Fetch data
       const [usersRes, contactsRes, queuesRes, workflowsRes] = await Promise.all([
-        fetch(`${protocol}//${backendHost}/api/settings/users`),
-        fetch(`${protocol}//${backendHost}/api/contacts`),
-        fetch(`${protocol}//${backendHost}/api/settings/queues`),
-        fetch(`${protocol}//${backendHost}/api/settings/call-flow/workflows`)
+        fetch(`${apiBase}/api/settings/users`),
+        fetch(`${apiBase}/api/contacts`),
+        fetch(`${apiBase}/api/settings/queues`),
+        fetch(`${apiBase}/api/settings/call-flow/workflows`)
       ]);
       
-      const usersData = await usersRes.json();
-      const contactsData = await contactsRes.json();
-      const queuesData = await queuesRes.json();
-      const workflowsData = await workflowsRes.json();
+      const usersData = usersRes.ok ? await usersRes.json() : [];
+      const contactsData = contactsRes.ok ? await contactsRes.json() : [];
+      const queuesData = queuesRes.ok ? await queuesRes.json() : [];
+      const workflowsData = workflowsRes.ok ? await workflowsRes.json() : [];
       
       // Map and merge
-      const formattedUsers = (Array.isArray(usersData) ? usersData : []).map(u => ({
+      const formattedUsers = (Array.isArray(usersData) ? usersData : (usersData?.users || [])).map(u => ({
         id: `user_${u.id}`,
         name: u.full_name || u.username,
         number: u.extension,
-        subtitle: u.department || "Dahili Kullanıcı",
+        subtitle: u.role === 'admin' ? "Yönetici" : "Dahili Kullanıcı",
         type: "internal",
         avatar: u.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(u.full_name || u.username)}&background=random`
       }));
@@ -50,7 +52,7 @@ export default function AgentDirectoryTab({ backendHost, currentUser }) {
         avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(c.first_name + ' ' + c.last_name)}&background=random`
       }));
 
-      const formattedQueues = (Array.isArray(queuesData) ? queuesData : []).map(q => ({
+      const formattedQueues = (Array.isArray(queuesData) ? queuesData : (queuesData?.queues || [])).map(q => ({
         id: `queue_${q.id}`,
         name: q.name,
         number: q.extension,
@@ -59,7 +61,7 @@ export default function AgentDirectoryTab({ backendHost, currentUser }) {
         icon: <Users size={20} className="text-purple-500" />
       }));
 
-      const formattedWorkflows = (Array.isArray(workflowsData) ? workflowsData : []).map(w => ({
+      const formattedWorkflows = (Array.isArray(workflowsData) ? workflowsData : (workflowsData?.workflows || [])).map(w => ({
         id: `wf_${w.id}`,
         name: w.name,
         number: w.id, // e.g. "wf-1"
@@ -81,7 +83,7 @@ export default function AgentDirectoryTab({ backendHost, currentUser }) {
   };
 
   const filteredDirectory = directory.filter(item => {
-    if (!searchQuery) return false; // Boş olduğunda hiçbir şey gösterme
+    if (!searchQuery) return true; // Boş olduğunda tüm rehberi göster
     const q = searchQuery.toLowerCase();
     return (
       (item.name && item.name.toLowerCase().includes(q)) ||
@@ -89,6 +91,7 @@ export default function AgentDirectoryTab({ backendHost, currentUser }) {
       (item.subtitle && item.subtitle.toLowerCase().includes(q))
     );
   });
+
 
   const triggerCall = (number) => {
     alert(`Aranıyor: ${number}\n\nNot: Gerçek çağrı entegrasyonu MVP aşamasında henüz aktif değildir.`);

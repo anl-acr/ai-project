@@ -24,9 +24,38 @@ import RecordingRetentionSettings from "./RecordingRetentionSettings";
 import AIProvidersSettings from "./AIProvidersSettings";
 import APIBudgetSettings from "./APIBudgetSettings";
 import TenantManagementPanel from "./TenantManagementPanel";
+import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [activeSubTab, setActiveSubTab] = useState("pbx"); // pbx, trunks, channels
+
+  // Read URL subtab query parameter on initial mount
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const subtabFromUrl = urlParams.get("subtab");
+      if (subtabFromUrl) {
+        const resolvedSubtab = getSubtabFromTurkishSlug(subtabFromUrl);
+        setActiveSubTab(resolvedSubtab);
+      }
+    }
+  }, []);
+
+  // Sync activeSubTab state changes to URL query string with Turkish Slugs (?subtab=...)
+  useEffect(() => {
+    if (typeof window !== "undefined" && activeSubTab) {
+      const turkishSubtab = getTurkishSlugForSubtab(activeSubTab);
+      const currentUrlParams = new URLSearchParams(window.location.search);
+      const currentSubtabInUrl = currentUrlParams.get("subtab");
+      if (currentSubtabInUrl !== turkishSubtab) {
+        currentUrlParams.set("subtab", turkishSubtab);
+        const newUrl = `${window.location.pathname}?${currentUrlParams.toString()}`;
+        window.history.replaceState({ subtab: turkishSubtab }, "", newUrl);
+      }
+    }
+  }, [activeSubTab]);
+
+
   const [hasCannedPermission, setHasCannedPermission] = useState(false);
   const [hasBlacklistPermission, setHasBlacklistPermission] = useState(false);
   const [hasQAPermission, setHasQAPermission] = useState(false);

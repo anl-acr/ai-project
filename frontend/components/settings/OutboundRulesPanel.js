@@ -2,6 +2,8 @@ import React, { useState, useEffect } from "react";
 import { Plus, Search, Edit2, Trash2, X, PhoneForwarded, Users, CheckCircle, ChevronRight, ChevronLeft, ArrowUp, ArrowDown } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+import { getBackendHost } from "../../utils/apiHost";
+
 
 const DualListBox = ({ 
   title, 
@@ -217,8 +219,10 @@ const DualListBox = ({
   );
 };
 
-export default function OutboundRulesPanel({ backendHost = "localhost:8000" }) {
+export default function OutboundRulesPanel({ backendHost }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+
+  const apiHost = getBackendHost(backendHost);
 
   const [rules, setRules] = useState([]);
   const [trunks, setTrunks] = useState([]);
@@ -239,8 +243,6 @@ export default function OutboundRulesPanel({ backendHost = "localhost:8000" }) {
     trunk_ids: [],
     allowed_users: []
   });
-
-  const apiHost = backendHost;
 
   useEffect(() => {
     fetchData();

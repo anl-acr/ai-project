@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import Head from "next/head";
+import { useRouter } from "next/router";
+
 import { 
   Bot, 
   Database, 
@@ -51,6 +53,10 @@ import {
 import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
 import { useTheme, setThemeColor } from "../utils/theme";
+import { getBackendHost } from "../utils/apiHost";
+import { getTurkishSlugForTab, getTabFromTurkishSlug } from "../utils/slugHelper";
+
+
 
 import dynamic from "next/dynamic";
 
@@ -104,13 +110,60 @@ const SUPER_ADMIN = {
 };
 
 export default function Home() {
+  const router = useRouter();
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
+
+  // Read URL query tab parameter on initial page mount or popstate
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const urlParams = new URLSearchParams(window.location.search);
+      const tabFromUrl = urlParams.get("tab");
+      if (tabFromUrl) {
+        const resolvedTab = getTabFromTurkishSlug(tabFromUrl);
+        setActiveTab(resolvedTab);
+      }
+    }
+  }, [router.isReady]);
+
+  // Sync activeTab state changes to browser URL query string with Turkish Slugs (?tab=...)
+  useEffect(() => {
+    if (typeof window !== "undefined" && activeTab) {
+      const turkishSlug = getTurkishSlugForTab(activeTab);
+      const currentUrlParams = new URLSearchParams(window.location.search);
+      const currentTabInUrl = currentUrlParams.get("tab");
+      if (currentTabInUrl !== turkishSlug) {
+        currentUrlParams.set("tab", turkishSlug);
+        const newUrl = `${window.location.pathname}?${currentUrlParams.toString()}`;
+        window.history.replaceState({ tab: turkishSlug }, "", newUrl);
+      }
+    }
+  }, [activeTab]);
+
+  // Support browser Back/Forward popstate navigation
+  useEffect(() => {
+    const handlePopState = () => {
+      if (typeof window !== "undefined") {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabFromUrl = urlParams.get("tab");
+        if (tabFromUrl) {
+          setActiveTab(getTabFromTurkishSlug(tabFromUrl));
+        } else {
+          setActiveTab("dashboard");
+        }
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+
   const [isEditingCallFlow, setIsEditingCallFlow] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [applyStatus, setApplyStatus] = useState("idle"); // idle, success, error
   const [applyError, setApplyError] = useState("");
   const [hasPendingChanges, setHasPendingChanges] = useState(false);
+
   const [activeCallId, setActiveCallId] = useState(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [hasOmnichannelPermission, setHasOmnichannelPermission] = useState(false);
@@ -162,13 +215,19 @@ export default function Home() {
       if (typeof url === 'string' && url.includes('/api/settings/') && !url.includes('/api/settings/apply')) {
         if (['POST', 'PUT', 'DELETE'].includes(options.method)) {
           if (response.ok) {
-            setHasPendingChanges(true);
-            localStorage.setItem('hasPendingChanges', 'true');
+            setHasPendingChanges((prev) => {
+              if (!prev) {
+                localStorage.setItem('hasPendingChanges', 'true');
+                return true;
+              }
+              return prev;
+            });
           }
         }
       }
       return response;
     };
+
     
     return () => {
       window.fetch = originalFetch;
@@ -345,9 +404,8 @@ export default function Home() {
     }
   }, [settingsModalOpen]);
 
-  const backendHost = typeof window !== 'undefined'
-    ? window.location.host
-    : "localhost:8000";
+  const backendHost = getBackendHost();
+
 
   const checkRolePermissions = async () => {
     let currentUserData = null;
@@ -712,8 +770,10 @@ export default function Home() {
     const originalLog = console.log;
     const originalWarn = console.warn;
     const originalError = console.error;
+    const rawFetch = window.fetch;
 
     const sendLog = (level, args) => {
+      if (level !== "error") return;
       const message = args.map(arg => {
         if (typeof arg === "object") {
           try { return JSON.stringify(arg); } catch(e) { return String(arg); }
@@ -721,12 +781,14 @@ export default function Home() {
         return String(arg);
       }).join(" ");
 
-      fetch(`http://${backendHost}/api/client-logs`, {
+      const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
+      rawFetch(`${protocol}//${backendHost}/api/client-logs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ level, message })
       }).catch(() => {});
     };
+
 
     console.log = (...args) => {
       originalLog(...args);

@@ -1,9 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Plus, Trash2, Phone, Search, List, Edit2, AlertCircle } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
+import { getBackendHost } from "../../../utils/apiHost";
 
 export default function AgentSpeedDialTab({ backendHost, currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  
+  const host = getBackendHost(backendHost);
+  const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
+
   const [speedDials, setSpeedDials] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -21,7 +26,7 @@ export default function AgentSpeedDialTab({ backendHost, currentUser }) {
   const fetchSpeedDials = async () => {
     if (!currentUser) return;
     try {
-      const res = await fetch(`http://${backendHost}/api/agent/speed_dials?extension=${currentUser.extension || currentUser.id}`);
+      const res = await fetch(`${protocol}//${host}/api/agent/speed_dials?extension=${currentUser.extension || currentUser.id}`);
       const data = await res.json();
       setSpeedDials(data || []);
     } catch (err) {
@@ -44,7 +49,7 @@ export default function AgentSpeedDialTab({ backendHost, currentUser }) {
         payload.id = editingItem.id;
       }
 
-      const res = await fetch(`http://${backendHost}/api/agent/speed_dials?extension=${currentUser.extension || currentUser.id}`, {
+      const res = await fetch(`${protocol}//${host}/api/agent/speed_dials?extension=${currentUser.extension || currentUser.id}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -64,7 +69,8 @@ export default function AgentSpeedDialTab({ backendHost, currentUser }) {
   const handleDelete = async () => {
     if (!deleteTarget || !currentUser) return;
     try {
-      const res = await fetch(`http://${backendHost}/api/agent/speed_dials/${deleteTarget.id}?extension=${currentUser.extension || currentUser.id}`, {
+      const res = await fetch(`${protocol}//${host}/api/agent/speed_dials/${deleteTarget.id}?extension=${currentUser.extension || currentUser.id}`, {
+
         method: "DELETE"
       });
       const data = await res.json();

@@ -6,6 +6,8 @@ import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import SearchableSelect from "../ui/SearchableSelect";
 
+import { getApiBaseUrl } from "../../utils/apiHost";
+
 const PRESET_AVATARS = [
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Can",
@@ -28,6 +30,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState(null);
 
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+
   // Search filter
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -40,7 +52,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     role: "Rol",
     email: "E-Posta Adresi",
     extension: "Dahili Numarası",
-    recording: "Ses Kayıt",
     recording: "Ses Kayıt",
     outboundRule: "Giden Kuralı",
     pickupGroup: "Çağrı Toplama Grubu",
@@ -66,7 +77,6 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       role: true,
       email: true,
       extension: true,
-      recording: true,
       recording: true,
       outboundRule: true,
       pickupGroup: true,
@@ -148,45 +158,75 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [selectedDepartment, setSelectedDepartment] = useState("");
 
   const safeFetch = async (path, options = {}) => {
-    return await fetch(path, options);
+    const apiBase = getApiBaseUrl(backendHost);
+    const url = path.startsWith("http") ? path : `${apiBase}${path}`;
+    return await fetch(url, options);
   };
 
   useEffect(() => {
     fetchAllData();
-  }, []);
+  }, [backendHost]);
 
   const fetchAllData = async () => {
     setLoading(true);
     try {
-      const resUsers = await safeFetch(`/api/settings/users`);
-      const dataUsers = await resUsers.json();
-      setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
+      try {
+        const resUsers = await safeFetch(`/api/settings/users`);
+        if (resUsers.ok) {
+          const dataUsers = await resUsers.json();
+          setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
+        }
+      } catch (e) {
+        console.error("Users fetch error:", e);
+      }
 
-      const resRoles = await safeFetch(`/api/settings/roles`);
-      const dataRoles = await resRoles.json();
-      setSystemRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
+      try {
+        const resRoles = await safeFetch(`/api/settings/roles`);
+        if (resRoles.ok) {
+          const dataRoles = await resRoles.json();
+          setSystemRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
+        }
+      } catch (e) {}
 
-      const resOut = await safeFetch(`/api/settings/outbound_rules`);
-      const dataOut = await resOut.json();
-      setOutboundRules(Array.isArray(dataOut) ? dataOut : (dataOut?.outbound_rules || []));
+      try {
+        const resOut = await safeFetch(`/api/settings/outbound_rules`);
+        if (resOut.ok) {
+          const dataOut = await resOut.json();
+          setOutboundRules(Array.isArray(dataOut) ? dataOut : (dataOut?.outbound_rules || []));
+        }
+      } catch (e) {}
 
-      const resGroups = await safeFetch(`/api/settings/call_pickup_groups`);
-      const dataGroups = await resGroups.json();
-      setCallPickupGroups(Array.isArray(dataGroups) ? dataGroups : (dataGroups?.call_pickup_groups || []));
+      try {
+        const resGroups = await safeFetch(`/api/settings/call_pickup_groups`);
+        if (resGroups.ok) {
+          const dataGroups = await resGroups.json();
+          setCallPickupGroups(Array.isArray(dataGroups) ? dataGroups : (dataGroups?.call_pickup_groups || []));
+        }
+      } catch (e) {}
 
-      const resLocs = await safeFetch(`/api/settings/locations`);
-      const dataLocs = await resLocs.json();
-      setLocations(Array.isArray(dataLocs) ? dataLocs : (dataLocs?.locations || []));
+      try {
+        const resLocs = await safeFetch(`/api/settings/locations`);
+        if (resLocs.ok) {
+          const dataLocs = await resLocs.json();
+          setLocations(Array.isArray(dataLocs) ? dataLocs : (dataLocs?.locations || []));
+        }
+      } catch (e) {}
 
-      const resDepts = await safeFetch(`/api/settings/departments`);
-      const dataDepts = await resDepts.json();
-      setDepartments(Array.isArray(dataDepts) ? dataDepts : (dataDepts?.departments || []));
+      try {
+        const resDepts = await safeFetch(`/api/settings/departments`);
+        if (resDepts.ok) {
+          const dataDepts = await resDepts.json();
+          setDepartments(Array.isArray(dataDepts) ? dataDepts : (dataDepts?.departments || []));
+        }
+      } catch (e) {}
+
     } catch (err) {
       console.error(`Veriler yüklenemedi:`, err);
     } finally {
       setLoading(false);
     }
   };
+
 
   const fileInputRef = useRef(null);
 
@@ -500,10 +540,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       return;
     }
 
+    const extInput = extension.trim();
+    const duplicateUser = users.find(
+      (u) => String(u.extension).trim() === extInput && (!editingUser || u.id !== editingUser.id)
+    );
+    if (duplicateUser) {
+      setError(`Bu dahili numara (${extInput}) zaten '${duplicateUser.full_name}' isimli kullanıcı tarafından kullanılıyor.`);
+      return;
+    }
+
     const userData = {
       full_name: fullName.trim(),
       email: email.trim(),
-      extension: extension.trim(),
+      extension: extInput,
       avatar,
       role,
       is_active: isActive,
@@ -536,17 +585,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           }
           return u;
         });
-        setUsers(updated);
         ok = await handleSaveAll(updated);
-        await syncUserAssociations(editingUser.id);
+        if (ok) {
+          await syncUserAssociations(editingUser.id);
+        }
       } else {
         // Add mode
-        const nextId = users.length > 0 ? Math.max(...users.map(u => u.id || 0)) + 1 : 1;
+        const nextId = users.length > 0 ? Math.max(...users.map((u) => u.id || 0)) + 1 : 1;
         const newUser = { id: nextId, ...userData };
         const updated = [...users, newUser];
-        setUsers(updated);
         ok = await handleSaveAll(updated);
-        await syncUserAssociations(newUser.id);
+        if (ok) {
+          await syncUserAssociations(newUser.id);
+        }
       }
     } finally {
       setSubmitting(false);
@@ -555,6 +606,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       setShowModal(false);
     }
   };
+
 
   const handleDeleteUser = (id) => {
     setDeleteTargetId(id);
@@ -765,10 +817,21 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       )}
 
       {error && (
-        <div className="p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center gap-2">
-          <AlertTriangle size={14} /> {error}
+        <div className="p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={14} className="shrink-0" />
+            <span>{error}</span>
+          </div>
+          <button
+            onClick={() => setError(null)}
+            className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+            title="Kapat"
+          >
+            <X size={14} />
+          </button>
         </div>
       )}
+
 
       {/* Users List (Responsive Full Width Table Rows) */}
       {loading ? (

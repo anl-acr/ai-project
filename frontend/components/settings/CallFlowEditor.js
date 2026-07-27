@@ -60,9 +60,19 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
   const [newAgentTargetValue, setNewAgentTargetValue] = useState("");
   const [isNodeModalOpen, setIsNodeModalOpen] = useState(false);
   
-  const [trunks, setTrunks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [workflowError, setWorkflowError] = useState("");
+
+  useEffect(() => {
+    if (workflowError) {
+      const timer = setTimeout(() => {
+        setWorkflowError("");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [workflowError]);
+
   
   // Custom Delete Modal states
   const [deleteTargetId, setDeleteTargetId] = useState(null);
@@ -602,6 +612,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
   // Launch edit view mode
   const handleEditWorkflow = (wf) => {
+    setWorkflowError("");
     setCurrentWfId(wf.id);
     setWorkflowName(wf.name);
     setWorkflowStatus(wf.status);
@@ -615,6 +626,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
   // Launch new workflow template creation
   const handleCreateNewWorkflow = () => {
+    setWorkflowError("");
     const newId = `wf-${Date.now()}`;
     setCurrentWfId(newId);
     setWorkflowName("Yeni Arama Akışı");
@@ -631,11 +643,28 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
   // Save current editing workflow to database
   const handleSaveWorkflow = async () => {
+    setWorkflowError("");
+    const wfName = workflowName.trim();
+
+    if (!wfName) {
+      setWorkflowError("Lütfen bir Arama Akışı adı giriniz.");
+      return;
+    }
+
+    // Client-side duplicate check for Workflow Name
+    const dupWf = (workflows || []).find(
+      w => String(w.name || "").trim().toLowerCase() === wfName.toLowerCase() && (!currentWfId || String(w.id) !== String(currentWfId))
+    );
+    if (dupWf) {
+      setWorkflowError(`'${wfName}' isimli Arama Akışı zaten mevcut. Lütfen farklı bir isim giriniz.`);
+      return;
+    }
+
     setLoading(true);
     try {
       const payload = {
         id: currentWfId,
-        name: workflowName,
+        name: wfName,
         trunk_id: trunkId,
         status: workflowStatus,
         nodes,
@@ -657,15 +686,20 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
           if (onEditStateChange) onEditStateChange(false);
           fetchWorkflows();
         }, 1200);
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setWorkflowError(errData.detail || "Arama akışı kaydedilirken bir hata oluştu.");
       }
     } catch (err) {
       console.error("[CallFlow] Save workflow error:", err);
+      setWorkflowError("Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
     } finally {
       setLoading(false);
     }
   };
 
   const handleCancelEdit = () => {
+    setWorkflowError("");
     setViewMode("list");
     if (onEditStateChange) onEditStateChange(false);
     fetchWorkflows();
@@ -949,6 +983,24 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
           <span>Arama akış şeması başarıyla kaydedildi ve listeye dönülüyor.</span>
         </div>
       )}
+
+      {workflowError && (
+        <div className="absolute top-20 left-1/2 transform -translate-x-1/2 p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-3 shadow-lg transition-all z-40 animate-in fade-in duration-200 min-w-[320px]">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={14} className="shrink-0 text-rose-500" />
+            <span>{workflowError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setWorkflowError("")}
+            className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+            title="Kapat"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
 
       {/* Editor Canvas Container split */}
       <div className="flex-1 flex overflow-hidden relative">

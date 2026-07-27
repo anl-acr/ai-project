@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, PhoneForwarded } from "lucide-react";
+import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../../utils/theme";
 
@@ -8,6 +8,21 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   
   const [activeTab, setActiveTab] = useState("general");
   const [memberView, setMemberView] = useState("agents"); // 'agents' or 'supervisors'
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError(null);
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  useEffect(() => {
+    setError(null);
+  }, [isOpen, queueData]);
+
   
   // Dummy Data for dropdowns
   const strategies = [
@@ -159,23 +174,56 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   };
 
   const handleSave = () => {
-    // Validate Extension (Numbering Plan mock validation for frontend)
-    const ext = parseInt(formData.extension);
-    if (isNaN(ext) || ext < 2000 || ext > 2999) {
-      alert("Kuyruk numarası 2000 - 2999 aralığında olmalıdır.");
+    setError(null);
+    if (!formData.name || !formData.name.trim()) {
+      setError("Lütfen kuyruk adını giriniz.");
       return;
     }
-    
+    const ext = parseInt(formData.extension);
+    if (isNaN(ext) || ext <= 0) {
+      setError("Lütfen geçerli bir kuyruk dahili numarası giriniz.");
+      return;
+    }
+
+    const extStr = String(ext).trim();
+    const qName = formData.name.trim();
+
+    // Check duplicate extension in allQueues
+    const dupExtQueue = (allQueues || []).find(
+      q => String(q.extension || q.queue_number || "").trim() === extStr && (!queueData || q.id !== queueData.id)
+    );
+    if (dupExtQueue) {
+      setError(`Bu kuyruk numarası (${extStr}) zaten '${dupExtQueue.name || 'Kuyruk'}' isimli kuyruk tarafından kullanılıyor.`);
+      return;
+    }
+
+
+    // Check duplicate queue name in allQueues
+    const dupNameQueue = (allQueues || []).find(
+      q => String(q.name || "").trim().toLowerCase() === qName.toLowerCase() && (!queueData || q.id !== queueData.id)
+    );
+    if (dupNameQueue) {
+      setError(`'${qName}' isimli bir kuyruk zaten mevcut. Lütfen farklı bir isim giriniz.`);
+      return;
+    }
+
     if (onSave) {
-      onSave({
-        ...formData,
-        queueMembers,
-        supervisors
-      });
+      onSave(
+        {
+          ...formData,
+          extension: extStr,
+          name: qName,
+          queueMembers,
+          supervisors
+        },
+        (errMsg) => setError(errMsg)
+      );
     } else {
       onClose();
     }
   };
+
+
 
   const renderTabs = () => (
     <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 p-4 pb-0">
@@ -600,7 +648,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           </button>
         </div>
 
+        {error && (
+          <div className="mx-6 mt-3 p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between animate-in fade-in duration-200 shrink-0">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={14} className="shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+              title="Kapat"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        )}
+
         {/* Tabs */}
+
         <div className="bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
           {renderTabs()}
         </div>

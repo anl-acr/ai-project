@@ -20,8 +20,9 @@ export default function TenantSwitcher({ backendHost }) {
 
   const fetchTenants = async () => {
     try {
-      const host = backendHost || (typeof window !== "undefined" ? `${window.location.hostname}:8000` : "localhost:8000");
-      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:3000");
+      const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
+
       
       let res = await fetch(`${protocol}//${host}/api/settings/tenants`);
       if (!res.ok) {
@@ -100,8 +101,9 @@ export default function TenantSwitcher({ backendHost }) {
               >
                 <div className="flex flex-col leading-tight">
                   <span className="font-bold">{tenant.name}</span>
-                  <span className="text-[10px] text-slate-400 font-mono">ID: {tenant.id}</span>
+                  <span className="text-[10px] text-slate-400 font-mono">Tenant ID: {tenant.tenant_num_id || 100} ({tenant.id})</span>
                 </div>
+
                 {activeTenant.id === tenant.id && (
                   <Check size={16} className="text-rose-600 dark:text-rose-400" />
                 )}

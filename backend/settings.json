@@ -7,7 +7,8 @@
             "status": "active",
             "created_at": "2026-01-01T00:00:00",
             "max_agents": 10,
-            "max_trunks": 5
+            "max_trunks": 5,
+            "tenant_num_id": 108
         },
         {
             "id": "tenant-test-teknoloji",
@@ -16,7 +17,8 @@
             "status": "active",
             "created_at": "2026-07-24T13:19:00",
             "max_agents": 20,
-            "max_trunks": 20
+            "max_trunks": 20,
+            "tenant_num_id": 109
         }
     ],
     "pbx": {
@@ -117,7 +119,9 @@
             "elevenlabs_voice_id": "Xb7hH8MSUJpSbSDYk0k2",
             "elevenlabs_stability": 0.5,
             "elevenlabs_similarity": 0.75,
-            "elevenlabs_style": 0.0
+            "elevenlabs_style": 0.0,
+            "llm_provider": "openai",
+            "tts_provider": "elevenlabs"
         },
         {
             "id": "agent-support",
@@ -129,7 +133,9 @@
             "max_tokens": 300,
             "system_instruction": "Sen sabırlı ve çözüm odaklı bir müşteri destek asistanısın. Müşterilerin teknik sorunlarına çözüm üretiyorsun.",
             "status": "active",
-            "transfer_target": "200"
+            "transfer_target": "200",
+            "llm_provider": "google",
+            "tts_provider": "google"
         }
     ],
     "ai_providers": {
@@ -570,7 +576,10 @@
             "transport": "UDP",
             "active_sessions": [],
             "location_id": "ba981f0a-8e25-4859-bed2-33b818621411",
-            "department_id": "e70d14c4-b8aa-4522-a393-050e242be99e"
+            "department_id": "e70d14c4-b8aa-4522-a393-050e242be99e",
+            "two_factor_enabled": false,
+            "two_factor_method": "app",
+            "two_factor_secret": null
         },
         {
             "id": 2,
@@ -597,7 +606,10 @@
             "transport": "UDP",
             "active_sessions": [],
             "location_id": null,
-            "department_id": null
+            "department_id": null,
+            "two_factor_enabled": false,
+            "two_factor_method": "app",
+            "two_factor_secret": null
         },
         {
             "id": 3,
@@ -624,7 +636,70 @@
             "transport": "UDP",
             "active_sessions": [],
             "location_id": null,
-            "department_id": null
+            "department_id": null,
+            "two_factor_enabled": false,
+            "two_factor_method": "app",
+            "two_factor_secret": null
+        },
+        {
+            "id": 4,
+            "full_name": "MUHAMMET DOGAN",
+            "email": "doganm@testteknoloji.com.tr",
+            "extension": "1003",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
+            "role": "admin",
+            "is_active": true,
+            "gsm_number": null,
+            "mobile_transfer_enabled": false,
+            "theme_color": "rose",
+            "password": "test12343567u213",
+            "sip_password": "DCztBoha)9MNu*JZ",
+            "outbound_caller_id": "",
+            "forwarding_always": null,
+            "forwarding_busy": null,
+            "forwarding_no_answer": null,
+            "voicemail_active": false,
+            "voicemail_announcement": "Varsayılan Anons",
+            "voicemail_pin": "",
+            "voicemail_to_email": false,
+            "recording_active": false,
+            "transport": "UDP",
+            "active_sessions": [],
+            "location_id": null,
+            "department_id": null,
+            "two_factor_enabled": false,
+            "two_factor_method": "app",
+            "two_factor_secret": null
+        },
+        {
+            "id": 5,
+            "full_name": "MUHAMMET DOGAN",
+            "email": "doganm@test.com",
+            "extension": "1004",
+            "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Muhammet",
+            "role": "admin",
+            "is_active": true,
+            "gsm_number": null,
+            "mobile_transfer_enabled": false,
+            "theme_color": "rose",
+            "password": null,
+            "sip_password": "o5*O6Ila%Eu3^kOto9WRt7j0",
+            "outbound_caller_id": null,
+            "forwarding_always": null,
+            "forwarding_busy": null,
+            "forwarding_no_answer": null,
+            "voicemail_active": false,
+            "voicemail_announcement": null,
+            "voicemail_pin": null,
+            "voicemail_to_email": false,
+            "recording_active": false,
+            "transport": "UDP",
+            "active_sessions": [],
+            "location_id": null,
+            "department_id": null,
+            "two_factor_enabled": false,
+            "two_factor_method": "app",
+            "two_factor_secret": null
         }
     ],
     "roles": [
@@ -634,103 +709,103 @@
             "name": "Admin",
             "permissions": [
                 "universal_api:read",
-                "pbx:delete",
-                "announcements:read",
-                "logs:access",
+                "inbound_rules:write",
+                "inbound_rules:delete",
+                "backup_restore:write",
                 "call_panel:listen_records",
-                "blacklist:delete",
-                "subscriber_groups:write",
-                "omnichannel:access",
-                "call_pickup_groups:delete",
-                "storage:access",
-                "roles:write",
-                "voice_biometrics:delete",
-                "conferences:write",
-                "subscriber_groups:delete",
-                "contacts:read",
-                "security:read",
-                "pbx:write",
-                "canned_responses:write",
-                "ssl:read",
-                "outbound_rules:delete",
-                "ai_whisper:access",
-                "ai_agents:access",
                 "pbx:read",
-                "speed_dials:write",
+                "ai_whisper:access",
+                "trunks:write",
+                "api_budgets:write",
+                "outbound_rules:read",
+                "subscriber_groups:delete",
+                "storage:access",
+                "conferences:delete",
+                "voice_biometrics:write",
+                "autoprovision_templates:delete",
+                "announcements:read",
                 "mobile_transfer:write",
                 "backup_restore:read",
-                "autoprovision:read",
-                "backup_restore:write",
+                "subscriber_groups:write",
+                "roles:read",
+                "conferences:read",
+                "ssl:write",
                 "autoprovision_templates:write",
-                "trunks:read",
-                "voice_biometrics:read",
-                "autoprovision_templates:read",
-                "call_panel:listen_records:access",
-                "inbound_rules:delete",
-                "call_panel:access",
-                "conferences:delete",
-                "inbound_rules:read",
-                "call_pickup_groups:write",
-                "autoprovision_templates:delete",
-                "ai_agents:read",
-                "speed_dials:delete",
-                "recording_retention:write",
-                "autoprovision:write",
-                "transcripts:access",
-                "security:delete",
-                "blacklist:write",
-                "universal_api:write",
-                "api_budgets:write",
                 "security:write",
-                "voice_biometrics:write",
+                "wallboard:access",
+                "logs:access",
+                "dialer:access",
+                "contacts:delete",
+                "breaks:read",
+                "speed_dials:delete",
+                "canned_responses:read",
+                "ai_agents:write",
+                "acd_queues:delete",
+                "qa:read",
+                "autoprovision:read",
+                "roi_settings:read",
+                "api_budgets:read",
+                "contacts:write",
+                "roles:write",
+                "canned_responses:delete",
+                "inbound_rules:read",
+                "roi_settings:delete",
+                "transcripts:access",
+                "ai_agents:access",
+                "outbound_rules:write",
+                "roi_settings:write",
+                "pbx:write",
+                "pbx:delete",
+                "call_pickup_groups:write",
+                "call_panel:access",
+                "roles:delete",
+                "omnichannel:access",
+                "blacklist:read",
+                "recording_retention:delete",
+                "qa:write",
+                "universal_api:write",
+                "blacklist:delete",
+                "outbound_rules:delete",
+                "universal_api:delete",
+                "users:write",
+                "announcements:delete",
+                "canned_responses:write",
+                "users:read",
+                "recording_retention:write",
+                "ai_agents:delete",
+                "recording_retention:read",
+                "reports:access",
+                "call_pickup_groups:read",
+                "security:delete",
+                "speed_dials:read",
+                "call_panel:listen_records:access",
+                "trunks:read",
+                "speed_dials:write",
+                "channels:read",
+                "users:delete",
+                "contacts:read",
+                "security:read",
                 "announcements:write",
+                "qa:delete",
+                "trunks:delete",
+                "subscriber_groups:read",
+                "call_pickup_groups:delete",
+                "acd_queues:write",
+                "ssl:read",
+                "voice_biometrics:read",
+                "conferences:write",
+                "mobile_transfer:read",
+                "breaks:write",
+                "ai_agents:read",
+                "voice_biometrics:delete",
                 "channels:write",
                 "breaks:delete",
-                "universal_api:delete",
-                "subscriber_groups:read",
-                "users:read",
-                "acd_queues:write",
-                "roi_settings:read",
-                "users:delete",
-                "qa:write",
-                "roles:read",
-                "breaks:write",
-                "breaks:read",
-                "call_pickup_groups:read",
-                "outbound_rules:write",
-                "trunks:delete",
-                "inbound_rules:write",
-                "blacklist:read",
-                "roi_settings:write",
-                "acd_queues:read",
-                "recording_retention:read",
-                "contacts:write",
-                "conferences:read",
                 "call_flow:access",
-                "speed_dials:read",
-                "announcements:delete",
-                "users:write",
-                "dialer:access",
-                "qa:delete",
-                "reports:access",
-                "mobile_transfer:read",
-                "canned_responses:delete",
-                "wallboard:access",
-                "roi_settings:delete",
-                "contacts:delete",
-                "acd_queues:delete",
-                "ai_agents:write",
-                "canned_responses:read",
-                "ai_agents:delete",
-                "qa:read",
-                "trunks:write",
-                "channels:read",
-                "roles:delete",
-                "outbound_rules:read",
-                "api_budgets:read",
-                "ssl:write",
+                "blacklist:write",
+                "acd_queues:read",
+                "autoprovision_templates:read",
                 "autoprovision:delete",
-                "recording_retention:delete"
+                "autoprovision:write"
             ],
             "allowed_breaks": [
                 1783110216802,
@@ -794,6 +869,17 @@
             "did_patterns": [
                 "908503607390"
             ]
+        },
+        {
+            "id": "919cec9f-19e4-4dac-a1f2-4a6901211613",
+            "name": "test 3 ",
+            "trunk_ids": [
+                1
+            ],
+            "destination_type": "user",
+            "destination_id": "1",
+            "did_match_mode": "all",
+            "did_patterns": []
         }
     ],
     "call_pickup_groups": [
@@ -810,15 +896,55 @@
             "extensions": [
                 1784287229522
             ]
+        },
+        {
+            "id": "9f49d6ef-43fa-4370-9076-a26ac7dc8767",
+            "name": "test ",
+            "extensions": [
+                1
+            ]
         }
     ],
-    "subscriber_groups": [],
+    "subscriber_groups": [
+        {
+            "id": 1,
+            "name": "test ",
+            "extensions": [
+                1
+            ],
+            "allowed_outbound_groups": [
+                2
+            ],
+            "allowed_inbound_groups": [
+                2
+            ]
+        },
+        {
+            "id": 2,
+            "name": "test 322",
+            "extensions": [
+                2
+            ],
+            "allowed_outbound_groups": [
+                1
+            ],
+            "allowed_inbound_groups": [
+                1
+            ]
+        }
+    ],
     "speed_dials": [
         {
             "id": "8cbf1b9f-3845-42fc-a6a4-c20610f1f6a6",
             "short_code": "4000",
             "long_number": "05071796372",
             "description": "anıl test"
+        },
+        {
+            "id": "513bfe2b-e170-4955-ba61-7f365059d7e5",
+            "short_code": "4001",
+            "long_number": "67890*97865",
+            "description": "gs<dfas"
         }
     ],
     "conferences": [
@@ -833,6 +959,16 @@
                 "05523114113"
             ],
             "recording_enabled": true
+        },
+        {
+            "id": "30afa718-8c3a-4544-8ca7-4336568a0446",
+            "room_number": "3001",
+            "room_name": "test",
+            "internals": [
+                1
+            ],
+            "externals": [],
+            "recording_enabled": false
         }
     ],
     "queues": [
@@ -912,7 +1048,86 @@
             ],
             "supervisors": [
                 2
+            ],
+            "members_count": 1,
+            "members_list": [
+                "ANIL ACAR"
+            ],
+            "supervisors_count": 1,
+            "supervisors_list": [
+                "Murat BATTAL"
             ]
+        },
+        {
+            "extension": "2001",
+            "name": "test 2 ",
+            "strategy": "ringall",
+            "max_calls": 0,
+            "ring_time": 15,
+            "acw_time": 5,
+            "join_announcement_enabled": false,
+            "join_announcement": "",
+            "periodic_announcement_enabled": false,
+            "periodic_announcement": "",
+            "hold_music_class": "default",
+            "position_announcement_enabled": false,
+            "position_announcement_interval": 60,
+            "estimated_hold_time_enabled": false,
+            "estimated_hold_time_interval": 60,
+            "ivr_routes": {
+                "0": {
+                    "type": "",
+                    "target": ""
+                },
+                "1": {
+                    "type": "",
+                    "target": ""
+                },
+                "2": {
+                    "type": "",
+                    "target": ""
+                },
+                "3": {
+                    "type": "",
+                    "target": ""
+                },
+                "4": {
+                    "type": "",
+                    "target": ""
+                },
+                "5": {
+                    "type": "",
+                    "target": ""
+                },
+                "6": {
+                    "type": "",
+                    "target": ""
+                },
+                "7": {
+                    "type": "",
+                    "target": ""
+                },
+                "8": {
+                    "type": "",
+                    "target": ""
+                },
+                "9": {
+                    "type": "",
+                    "target": ""
+                },
+                "*": {
+                    "type": "",
+                    "target": ""
+                },
+                "#": {
+                    "type": "",
+                    "target": ""
+                }
+            },
+            "notify_missed_calls": false,
+            "queueMembers": [],
+            "supervisors": [],
+            "id": 2
         }
     ],
     "autoprovision_templates": [
@@ -958,6 +1173,24 @@
             "allowed_users": [
                 1784287229522
             ]
+        },
+        {
+            "id": "84492575-0ddf-464f-8f96-2e4886c2f781",
+            "name": "test 2 ",
+            "caller_id": "",
+            "patterns": [
+                {
+                    "pattern": "x.",
+                    "strip": "",
+                    "prepend": ""
+                }
+            ],
+            "trunk_ids": [
+                1
+            ],
+            "allowed_users": [
+                1
+            ]
         }
     ],
     "agent_speed_dials": {
@@ -969,7 +1202,7 @@
             }
         ]
     },
-    "needs_apply": false,
+    "needs_apply": true,
     "locations": [
         {
             "id": "ba981f0a-8e25-4859-bed2-33b818621411",
@@ -986,5 +1219,1195 @@
             "location_id": "ba981f0a-8e25-4859-bed2-33b818621411",
             "name": "Teknik Destek"
         }
-    ]
+    ],
+    "contacts": [
+        {
+            "id": 1785146464579,
+            "first_name": "ANIL",
+            "last_name": "ACAR",
+            "phone_number": "05071796372",
+            "email": "anila@testteknoloji.com.tr"
+        },
+        {
+            "id": 1785146519733,
+            "first_name": "test ",
+            "last_name": "test 2",
+            "phone_number": "05385554433",
+            "email": null
+        }
+    ],
+    "blacklist": [
+        {
+            "id": 1785146829529,
+            "type": "phone",
+            "value": "09006665544",
+            "reason": "deneme",
+            "timestamp": "2026-07-27T10:07:09.529713"
+        },
+        {
+            "id": 1785146690885,
+            "type": "phone",
+            "value": "05551234567",
+            "reason": "Spam Arama",
+            "timestamp": "2026-07-27T10:04:50.885126"
+        }
+    ],
+    "dialer_campaigns": [
+        {
+            "id": "campaign-1",
+            "name": "Varsayılan Dış Arama Kampanyası",
+            "enabled": false,
+            "dial_mode": "progressive",
+            "concurrent_calls": 5,
+            "retry_count": 3,
+            "retry_interval_minutes": 15,
+            "route_destination_type": "ai",
+            "route_destination": "Sales_AI",
+            "outbound_trunk_id": 1,
+            "allowed_days": [
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday"
+            ],
+            "allowed_hours_start": "09:00",
+            "allowed_hours_end": "18:00",
+            "status": "paused",
+            "records": [
+                {
+                    "id": 1,
+                    "name": "Ahmet Yılmaz",
+                    "phone": "05051234567",
+                    "status": "Answered",
+                    "retries": 1,
+                    "last_call": "2026-07-04 14:22"
+                },
+                {
+                    "id": 2,
+                    "name": "Ayşe Demir",
+                    "phone": "05329876543",
+                    "status": "Pending",
+                    "retries": 0,
+                    "last_call": "-"
+                },
+                {
+                    "id": 3,
+                    "name": "Mehmet Kaya",
+                    "phone": "05445556677",
+                    "status": "Failed",
+                    "retries": 3,
+                    "last_call": "2026-07-04 15:10"
+                },
+                {
+                    "id": 4,
+                    "name": "Fatma Şahin",
+                    "phone": "05553332211",
+                    "status": "Pending",
+                    "retries": 0,
+                    "last_call": "-"
+                }
+            ]
+        }
+    ],
+    "tenant_settings": {
+        "tenant-acme": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        },
+        "tenant-beta": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        },
+        "tenant-test": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        },
+        "tenant-deneme-holding": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        },
+        "tenant-demo-holding": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        },
+        "tenant-mega-holding-a-s": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        },
+        "tenant-uzay-teknoloji-a-s": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        },
+        "tenant-holfing": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        },
+        "tenant-test-holding": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
+        }
+    }
 }

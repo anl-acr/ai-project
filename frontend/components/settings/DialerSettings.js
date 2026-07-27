@@ -16,8 +16,16 @@ import {
   ListFilter,
   FileText,
   AlertCircle,
-  Plus
+  AlertTriangle,
+  Plus,
+  Trash2,
+  Edit2,
+  X,
+  Search
 } from "lucide-react";
+import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import { useTheme } from "../../utils/theme";
+import { getApiBaseUrl } from "../../utils/apiHost";
 
 const InfoTooltip = ({ text }) => {
   return (
@@ -32,11 +40,30 @@ const InfoTooltip = ({ text }) => {
 };
 
 export default function DialerSettings({ backendHost = "localhost:8000" }) {
-  const [activeSubTab, setActiveSubTab] = useState("rules"); // rules, upload, monitor
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   
-  // Campaign & Rule Settings
-  const [config, setConfig] = useState({
-    enabled: false,
+  const [campaigns, setCampaigns] = useState([]);
+  const [trunks, setTrunks] = useState([]);
+  const [aiAgents, setAiAgents] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  
+  // Active selected campaign for monitoring / upload
+  const [selectedCampaignId, setSelectedCampaignId] = useState(null);
+
+  // Modals & Errors
+  const [showCampaignModal, setShowCampaignModal] = useState(false);
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState({ show: false, id: null });
+  const [campaignError, setCampaignError] = useState("");
+  const [uploadMessage, setUploadMessage] = useState("");
+  const [uploadSuccess, setUploadSuccess] = useState(false);
+
+  // Form Fields for Campaign Create/Edit
+  const [editingId, setEditingId] = useState(null);
+  const [formCampaign, setFormCampaign] = useState({
+    name: "",
+    enabled: true,
     dial_mode: "progressive",
     concurrent_calls: 5,
     retry_count: 3,
@@ -49,27 +76,41 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
     allowed_hours_end: "18:00"
   });
 
-  const [trunks, setTrunks] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  // Manual list upload input
+  const [uploadInput, setUploadInput] = useState("");
 
-  // Monitor & Upload States
-  const [records, setRecords] = useState([]);
-  const [dialerState, setDialerState] = useState({ status: "paused", current_calls: 0 });
-  const [manualInput, setManualInput] = useState("");
-  const [uploadSuccess, setUploadSuccess] = useState(false);
-  const [uploadMessage, setUploadMessage] = useState("");
+  const API_BASE = getApiBaseUrl(backendHost);
 
-  const API_BASE = `${window.location.protocol}//${backendHost}`;
+  // Auto-dismiss campaignError after 5 seconds
+  useEffect(() => {
+    if (campaignError) {
+      const timer = setTimeout(() => {
+        setCampaignError("");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [campaignError]);
+
+  const fetchCampaigns = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/dialer/campaigns`);
+      if (res.ok) {
+        const data = await res.json();
+        setCampaigns(data);
+        if (data.length > 0 && !selectedCampaignId) {
+          setSelectedCampaignId(data[0].id);
+        }
+      }
+    } catch (err) {
+      console.error("[Dialer] Kampanyalar yuklenemedi:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Fetch settings
-    fetch(`${API_BASE}/api/settings/dialer`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data) setConfig(data);
-      })
-      .catch((err) => console.error("[Dialer] Konfigurasyon hatasi:", err));
+    fetchCampaigns();
 
     // Fetch trunks
     fetch(`${API_BASE}/api/settings/trunks`)
@@ -79,677 +120,643 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
       })
       .catch((err) => console.error("[Dialer] Trunks hatasi:", err));
 
-    // Fetch records initially
-    fetchRecords();
-  }, []);
-
-  // Poll records if dialer is running
-  useEffect(() => {
-    let timer;
-    if (dialerState.status === "running") {
-      timer = setInterval(() => {
-        fetchRecords();
-      }, 3000);
-    }
-    return () => clearInterval(timer);
-  }, [dialerState.status]);
-
-  const fetchRecords = () => {
-    fetch(`${API_BASE}/api/dialer/records`)
+    // Fetch AI Agents
+    fetch(`${API_BASE}/api/settings/ai-agents`)
       .then((res) => res.json())
       .then((data) => {
-        if (data.records) setRecords(data.records);
-        if (data.state) setDialerState(data.state);
+        if (Array.isArray(data)) setAiAgents(data);
       })
-      .catch((err) => console.error("[Dialer] Kayitlar yuklenemedi:", err));
-  };
+      .catch((err) => console.error("[Dialer] AI Agents hatasi:", err));
+  }, [backendHost]);
 
-  const handleConfigChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setConfig((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : type === "number" ? parseInt(value) || 0 : value
-    }));
-  };
-
-  const handleDayToggle = (day) => {
-    setConfig((prev) => {
-      const days = [...prev.allowed_days];
-      if (days.includes(day)) {
-        return { ...prev, allowed_days: days.filter((d) => d !== day) };
-      } else {
-        return { ...prev, allowed_days: [...days, day] };
-      }
+  // Handle open modal to create campaign
+  const handleOpenCreateModal = () => {
+    setCampaignError("");
+    setEditingId(null);
+    setFormCampaign({
+      name: "",
+      enabled: true,
+      dial_mode: "progressive",
+      concurrent_calls: 5,
+      retry_count: 3,
+      retry_interval_minutes: 15,
+      route_destination_type: "ai",
+      route_destination: aiAgents[0]?.name || "Sales_AI",
+      outbound_trunk_id: trunks[0]?.id || 1,
+      allowed_days: ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      allowed_hours_start: "09:00",
+      allowed_hours_end: "18:00"
     });
+    setShowCampaignModal(true);
   };
 
-  const handleConfigSave = async (e) => {
+  // Handle open modal to edit campaign
+  const handleOpenEditModal = (c) => {
+    setCampaignError("");
+    setEditingId(c.id);
+    setFormCampaign({
+      name: c.name || "",
+      enabled: c.enabled !== false,
+      dial_mode: c.dial_mode || "progressive",
+      concurrent_calls: c.concurrent_calls || 5,
+      retry_count: c.retry_count || 3,
+      retry_interval_minutes: c.retry_interval_minutes || 15,
+      route_destination_type: c.route_destination_type || "ai",
+      route_destination: c.route_destination || "Sales_AI",
+      outbound_trunk_id: c.outbound_trunk_id || 1,
+      allowed_days: c.allowed_days || ["monday", "tuesday", "wednesday", "thursday", "friday"],
+      allowed_hours_start: c.allowed_hours_start || "09:00",
+      allowed_hours_end: c.allowed_hours_end || "18:00"
+    });
+    setShowCampaignModal(true);
+  };
+
+  // Save Campaign (Create or Edit)
+  const handleSaveCampaign = async (e) => {
     e.preventDefault();
+    setCampaignError("");
+
+    if (!formCampaign.name || !formCampaign.name.trim()) {
+      setCampaignError("Lütfen Dış Arama Kampanyası Adı giriniz.");
+      return;
+    }
+
+    const cName = formCampaign.name.trim();
+
+    // Client-side duplicate check for Campaign Name
+    const dupCampaign = (campaigns || []).find(
+      c => String(c.name || "").trim().toLowerCase() === cName.toLowerCase() && (!editingId || String(c.id) !== String(editingId))
+    );
+    if (dupCampaign) {
+      setCampaignError(`'${cName}' isimli Dış Arama Kampanyası zaten mevcut. Lütfen farklı bir isim giriniz.`);
+      return;
+    }
+
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/settings/dialer`, {
+      const res = await fetch(`${API_BASE}/api/settings/dialer/campaigns`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(config)
+        body: JSON.stringify({
+          ...formCampaign,
+          id: editingId,
+          name: cName
+        })
       });
+
       if (res.ok) {
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 3000);
+        const data = await res.json();
+        if (data.campaigns) setCampaigns(data.campaigns);
+        setShowCampaignModal(false);
+        fetchCampaigns();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setCampaignError(errData.detail || "Kampanya kaydedilirken hata oluştu.");
       }
     } catch (err) {
-      console.error("[Dialer] Hata:", err);
+      console.error("[Dialer] Save campaign error:", err);
+      setCampaignError("Bağlantı hatası oluştu. Lütfen tekrar deneyiniz.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleManualUpload = async (e) => {
-    e.preventDefault();
-    if (!manualInput.trim()) return;
+  // Delete Campaign
+  const handleDeleteCampaign = async () => {
+    if (!deleteConfirm.id) return;
     try {
-      const res = await fetch(`${API_BASE}/api/dialer/upload-list`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ numbers: manualInput })
+      const res = await fetch(`${API_BASE}/api/settings/dialer/campaigns/${deleteConfirm.id}`, {
+        method: "DELETE"
       });
       if (res.ok) {
         const data = await res.json();
-        setUploadSuccess(true);
-        setUploadMessage(data.message);
-        setManualInput("");
-        fetchRecords();
-        setTimeout(() => setUploadSuccess(false), 4000);
+        setCampaigns(data.campaigns || []);
+        if (selectedCampaignId === deleteConfirm.id) {
+          setSelectedCampaignId(data.campaigns?.[0]?.id || null);
+        }
       }
     } catch (err) {
-      console.error("[Dialer] Liste eklenemedi:", err);
+      console.error("[Dialer] Delete error:", err);
+    } finally {
+      setDeleteConfirm({ show: false, id: null });
     }
   };
 
-  const handleDialerAction = async (action) => {
+  // Campaign Control (Start / Pause / Reset)
+  const handleControlCampaign = async (cId, action) => {
     try {
-      const res = await fetch(`${API_BASE}/api/dialer/control`, {
+      const res = await fetch(`${API_BASE}/api/settings/dialer/campaigns/${cId}/control`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action })
       });
       if (res.ok) {
         const data = await res.json();
-        setDialerState(data.state);
-        fetchRecords();
+        if (data.campaigns) setCampaigns(data.campaigns);
       }
     } catch (err) {
-      console.error("[Dialer] Kontrol hatasi:", err);
+      console.error("[Dialer] Control error:", err);
     }
   };
 
-  // Stats calculation
-  const totalRecords = records.length;
-  const answeredRecords = records.filter((r) => r.status === "Answered").length;
-  const pendingRecords = records.filter((r) => r.status === "Pending").length;
-  const failedRecords = records.filter((r) => r.status === "Failed").length;
-  const successRate = totalRecords > 0 ? Math.round((answeredRecords / totalRecords) * 100) : 0;
+  // Upload List to Campaign
+  const handleUploadList = async (e) => {
+    e.preventDefault();
+    if (!uploadInput.trim() || !selectedCampaignId) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/dialer/campaigns/${selectedCampaignId}/upload-list`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ numbers: uploadInput })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setUploadSuccess(true);
+        setUploadMessage(data.message);
+        setUploadInput("");
+        if (data.campaigns) setCampaigns(data.campaigns);
+        setShowUploadModal(false);
+        setTimeout(() => setUploadSuccess(false), 4000);
+      }
+    } catch (err) {
+      console.error("[Dialer] Upload error:", err);
+    }
+  };
+
+  const selectedCampaign = campaigns.find(c => c.id === selectedCampaignId) || campaigns[0];
+
+  const filteredCampaigns = campaigns.filter(c =>
+    String(c.name || "").toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   return (
     <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full">
       
-      {/* Title */}
-      <div className="flex items-center gap-3">
-        <div className="p-3 bg-blue-50 dark:bg-primary/20 text-primary dark:text-blue-450 border border-blue-105 dark:border-blue-900/40 rounded-2xl">
-          <PhoneCall size={24} />
+      {/* Title & Actions Header Card */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className={`p-2.5 ${lightBg} ${text} rounded-xl`}>
+            <PhoneCall size={20} />
+          </div>
+          <div>
+            <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">DIŞ ARAMA (OUTBOUND DIALER) KAMPANYALARI</h3>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
+              Otomatik dış arama kampanyalarının oluşturulması, mod yönetimi, liste yükleme ve canlı takibi.
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Dış Arama Modülü (Outbound Dialer)</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-            Otomatik dış arama kampanyaları düzenleyin, arama kurallarını kısıtlayın ve çağrı yanıtlandığında yapay zeka veya kuyruğa yönlendirin.
-          </p>
+
+        {/* Search + Unified Red Plus Button */}
+        <div className="flex items-center gap-2.5">
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Kampanya Ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className={`w-48 text-xs pl-8 pr-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
+            />
+          </div>
+
+          <button
+            onClick={handleOpenCreateModal}
+            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-md shadow-rose-600/20 transition-colors"
+            title="Yeni Dış Arama Kampanyası Ekle"
+          >
+            <Plus size={16} />
+          </button>
         </div>
       </div>
 
-      {/* Sub-Tabs Nav */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800 gap-1 pb-px">
-        <button
-          onClick={() => setActiveSubTab("rules")}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold transition-all duration-200 border-b-2 ${
-            activeSubTab === "rules"
-              ? "border-blue-550 text-primary dark:text-blue-400"
-              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-          }`}
-        >
-          <Sliders size={14} /> Arama Kuralları & Kampanya
-        </button>
-        <button
-          onClick={() => setActiveSubTab("upload")}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold transition-all duration-200 border-b-2 ${
-            activeSubTab === "upload"
-              ? "border-blue-550 text-primary dark:text-blue-400"
-              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-          }`}
-        >
-          <Upload size={14} /> Liste Yükleme
-        </button>
-        <button
-          onClick={() => setActiveSubTab("monitor")}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold transition-all duration-200 border-b-2 ${
-            activeSubTab === "monitor"
-              ? "border-blue-550 text-primary dark:text-blue-400"
-              : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-800 dark:hover:text-slate-200"
-          }`}
-        >
-          <Activity size={14} /> Canlı Kampanya İzleme
-        </button>
-      </div>
+      {uploadSuccess && (
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800/40 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+          <CheckCircle size={14} />
+          <span>{uploadMessage}</span>
+        </div>
+      )}
 
-      {/* TAB CONTENT: RULES & CONFIG */}
-      {activeSubTab === "rules" && (
-        <form onSubmit={handleConfigSave} className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 flex flex-col gap-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl p-6 shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <div className="flex items-center gap-2">
-                <Sliders size={16} className="text-blue-550" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">Kampanya Ayarları</h3>
-              </div>
-              <label className="relative inline-flex items-center cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  name="enabled"
-                  checked={config.enabled}
-                  onChange={handleConfigChange}
-                  className="sr-only peer"
-                />
-                <div className="w-9 h-5 bg-slate-200 dark:bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-              </label>
-            </div>
-
-            {/* Constraints and Hours */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center">
-                  Arama Modu
-                  <InfoTooltip text="Predictive: Temsilci meşguliyet tahminine göre arama yapar. Progressive: Boştaki temsilci sayısına göre arar. Power: Eş zamanlı sabit sayıda arama tetikler." />
-                </label>
-                <select
-                  name="dial_mode"
-                  value={config.dial_mode}
-                  onChange={handleConfigChange}
-                  disabled={!config.enabled}
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-750 dark:text-slate-300 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                >
-                  <option value="progressive">Progressive (Boşta temsilci varsa)</option>
-                  <option value="predictive">Predictive (AI Tahmine Dayalı)</option>
-                  <option value="power">Power Dialer (Sabit Hızlı Arama)</option>
-                  <option value="preview">Preview (Temsilci onaylı arama)</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center">
-                  Arama Çıkış Hattı
-                  <InfoTooltip text="Otomatik arama çağrılarının gönderileceği dış SIP hat (Trunk) tanımı." />
-                </label>
-                <select
-                  name="outbound_trunk_id"
-                  value={config.outbound_trunk_id}
-                  onChange={handleConfigChange}
-                  disabled={!config.enabled}
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-700 dark:text-slate-350 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                >
-                  {trunks.map((t) => (
-                    <option key={t.id} value={t.id}>{t.trunk_name} ({t.did_number})</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Speed & Retries */}
-            <div className="grid grid-cols-3 gap-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center">
-                  Eş Zamanlı Arama
-                  <InfoTooltip text="Aynı anda aktif olabilecek maksimum çağrı sayısı." />
-                </label>
-                <input
-                  type="number"
-                  name="concurrent_calls"
-                  value={config.concurrent_calls}
-                  onChange={handleConfigChange}
-                  disabled={!config.enabled}
-                  required
-                  min="1"
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none focus:border-blue-500 font-mono disabled:opacity-50"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center">
-                  Tekrar Arama Sınırı
-                  <InfoTooltip text="Yanıt alınamayan bir kaydın maksimum kaç defa tekrar aranacağı." />
-                </label>
-                <input
-                  type="number"
-                  name="retry_count"
-                  value={config.retry_count}
-                  onChange={handleConfigChange}
-                  disabled={!config.enabled}
-                  required
-                  min="0"
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none focus:border-blue-500 font-mono disabled:opacity-50"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center">
-                  Tekrar Arama Süresi (Dk)
-                  <InfoTooltip text="Meşgul veya cevapsız aramanın tekrar denenmesi için geçmesi gereken bekleme süresi." />
-                </label>
-                <input
-                  type="number"
-                  name="retry_interval_minutes"
-                  value={config.retry_interval_minutes}
-                  onChange={handleConfigChange}
-                  disabled={!config.enabled}
-                  required
-                  min="1"
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none focus:border-blue-500 font-mono disabled:opacity-50"
-                />
-              </div>
-            </div>
-
-            {/* Answer Routing */}
-            <div className="grid grid-cols-2 gap-4 border-t border-slate-100 dark:border-slate-850 pt-4">
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-455 dark:text-slate-400 font-bold uppercase tracking-wider text-blue-550 flex items-center">
-                  Müşteri Yanıtladığında Yönlendirme
-                  <InfoTooltip text="Müşteri telefonu açtığında çağrının kime/nereye aktarılacağı. AI Agent: Yapay zekaya bağlar. Çağrı Kuyruğu: Belirtilen destek kuyruğuna bağlar. Dahili Abone: Doğrudan dahili numaraya aktarır. IVR Menüsü: Önceden tanımlanmış sesli anons ve menü yönlendirmesine aktarır." />
-                </label>
-                <select
-                  name="route_destination_type"
-                  value={config.route_destination_type}
-                  onChange={handleConfigChange}
-                  disabled={!config.enabled}
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-750 dark:text-slate-300 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                >
-                  <option value="ai">Yapay Zeka (AI Agent Greeting)</option>
-                  <option value="queue">Çağrı Kuyruğu (Queue)</option>
-                  <option value="extension">Dahili Abone (Extension)</option>
-                  <option value="ivr">IVR Menüsü (Anons & Tuşlama)</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-455 dark:text-slate-400 font-bold uppercase tracking-wider text-blue-550 flex items-center">
-                  Hedef Yapay Zeka / Kuyruk / Dahili / IVR
-                  <InfoTooltip text="Yapay Zeka adı (örn: Sales_AI), Kuyruk adı (örn: satis_kuyrugu), Dahili no (örn: 200) veya IVR şablonu (örn: ana_menu) yazın." />
-                </label>
-                <input
-                  type="text"
-                  name="route_destination"
-                  value={config.route_destination}
-                  onChange={handleConfigChange}
-                  disabled={!config.enabled}
-                  required
-                  placeholder="Örn: Sales_AI, satis_kuyrugu, 200, ana_menu"
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-855 dark:text-white focus:outline-none focus:border-blue-500 font-mono disabled:opacity-50"
-                />
-              </div>
-            </div>
-
-            {/* Time Restrictions */}
-            <div className="flex flex-col gap-3 border-t border-slate-100 dark:border-slate-855 pt-4">
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center">
-                Arama Saat Kısıtlamaları
-                <InfoTooltip text="Kampanyanın otomatik olarak çalışmasına izin verilen haftalık saat aralığı." />
-              </span>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">İzin Başlangıç Saati</label>
-                  <input
-                    type="time"
-                    name="allowed_hours_start"
-                    value={config.allowed_hours_start}
-                    onChange={handleConfigChange}
-                    disabled={!config.enabled}
-                    className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">İzin Bitiş Saati</label>
-                  <input
-                    type="time"
-                    name="allowed_hours_end"
-                    value={config.allowed_hours_end}
-                    onChange={handleConfigChange}
-                    disabled={!config.enabled}
-                    className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 disabled:opacity-50"
-                  />
-                </div>
-              </div>
-
-              {/* Allowed Days */}
-              <div className="flex flex-col gap-1.5 mt-1">
-                <label className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Arama Günleri</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {[
-                    { code: "monday", label: "Pzt" },
-                    { code: "tuesday", label: "Sal" },
-                    { code: "wednesday", label: "Çar" },
-                    { code: "thursday", label: "Per" },
-                    { code: "friday", label: "Cum" },
-                    { code: "saturday", label: "Cmt" },
-                    { code: "sunday", label: "Paz" }
-                  ].map((d) => {
-                    const active = config.allowed_days.includes(d.code);
-                    return (
-                      <button
-                        key={d.code}
-                        type="button"
-                        disabled={!config.enabled}
-                        onClick={() => handleDayToggle(d.code)}
-                        className={`px-3 py-1 rounded-lg text-[10px] font-bold border transition ${
-                          active
-                            ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/30"
-                            : "bg-slate-50 dark:bg-slate-950 text-slate-400 dark:text-slate-600 border-slate-200 dark:border-slate-850 hover:bg-slate-100"
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-
+      {/* Campaigns Table List (Row View matching Users) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
+        {filteredCampaigns.length === 0 ? (
+          <div className="p-12 text-center">
+            <AlertCircle size={36} className="mx-auto text-slate-400 mb-2" />
+            <p className="text-xs font-bold text-slate-500 dark:text-slate-400">Henüz kaydedilmiş bir dış arama kampanyası bulunmuyor.</p>
             <button
-              type="submit"
-              disabled={loading}
-              className="mt-2 py-2.5 bg-primary hover:bg-primary disabled:bg-blue-400 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-blue-500/10 transition duration-200"
+              onClick={handleOpenCreateModal}
+              className="mt-3 px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 transition"
             >
-              <Save size={14} /> {loading ? "Kaydediliyor..." : "Kampanya Ayarlarını Kaydet"}
+              <Plus size={14} /> Yeni Kampanya Oluştur
             </button>
-
-            {saveSuccess && (
-              <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-350 text-[10px] flex items-center gap-1.5 font-semibold">
-                <CheckCircle size={12} />
-                <span>Kampanya ve arama kuralları başarıyla kaydedildi.</span>
-              </div>
-            )}
           </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                  <th className="py-3 px-4">Durum</th>
+                  <th className="py-3 px-4">Kampanya Adı</th>
+                  <th className="py-3 px-4">Mod / Hat</th>
+                  <th className="py-3 px-4">Hedef Yönlendirme</th>
+                  <th className="py-3 px-4">İlerleme</th>
+                  <th className="py-3 px-4 text-right">İşlemler</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 font-medium">
+                {filteredCampaigns.map((c) => {
+                  const records = c.records || [];
+                  const total = records.length;
+                  const answered = records.filter(r => r.status === "Answered").length;
+                  const pending = records.filter(r => r.status === "Pending").length;
+                  const progressPct = total > 0 ? Math.round(((total - pending) / total) * 100) : 0;
+                  const trunkObj = trunks.find(t => t.id === c.outbound_trunk_id);
 
-          {/* Tips card */}
-          <div className="flex flex-col gap-5 bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-5">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <HelpCircle size={14} className="text-primary" />
-              Dialer Kuralları
-            </h4>
-            <div className="space-y-4 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-              <div>
-                <p className="font-bold text-slate-700 dark:text-slate-300">Progressive Arama</p>
-                <p className="mt-0.5">Sadece temsilci kuyruklarında boşta (Available) olan bir temsilci var ise arama tetiklenir. Eş zamanlı arama limiti taşmayı önler.</p>
-              </div>
-              <div>
-                <p className="font-bold text-slate-700 dark:text-slate-300">Predictive Arama</p>
-                <p className="mt-0.5">Yapay zeka, çağrı kuyruğundaki ortalama konuşma sürelerini ve temsilcilerin boşalacağı anı tahmin ederek telefona cevap verme sürelerine göre aramaları önceden tetikler.</p>
-              </div>
-              <div>
-                <p className="font-bold text-slate-700 dark:text-slate-300">Arama Kısıtlamaları</p>
-                <p className="mt-0.5">Yasal sınırlar çerçevesinde sadece seçilen gün ve saat aralıkları içerisinde arama yapılır. Bu saatler dışında dialer otomatik durur.</p>
-              </div>
-            </div>
-          </div>
-        </form>
-      )}
-
-      {/* TAB CONTENT: UPLOAD LIST */}
-      {activeSubTab === "upload" && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 flex flex-col gap-6">
-            
-            {/* Input list form */}
-            <form onSubmit={handleManualUpload} className="flex flex-col p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl gap-4 shadow-sm">
-              <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-                <FileText size={16} className="text-primary" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">Arama Listesi Numaraları Ekle</h3>
-              </div>
-
-              {/* Mock Drag & Drop File Upload Area */}
-              <div className="flex flex-col items-center justify-center border-2 border-dashed border-slate-200 dark:border-slate-800 hover:border-blue-500 rounded-xl p-8 bg-slate-50 dark:bg-slate-950/40 text-center cursor-pointer transition">
-                <Upload size={28} className="text-slate-400 dark:text-slate-600 mb-2 hover:scale-110 transition duration-200" />
-                <p className="text-xs font-bold text-slate-700 dark:text-slate-300">CSV veya Excel Dosyası Sürükleyin</p>
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1">Sadece .csv, .xlsx formatları. İlk kolon numara, ikinci kolon isim olmalıdır.</p>
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                  Manuel Numara Girişi (Satır Başına Tek Kayıt)
-                </label>
-                <textarea
-                  rows="4"
-                  value={manualInput}
-                  onChange={(e) => setManualInput(e.target.value)}
-                  placeholder="Örn: 05051234567,Ahmet Yılmaz&#10;05327654321,Ayşe Can&#10;05448889900"
-                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/65 dark:border-slate-800 rounded-xl text-xs text-slate-850 dark:text-white focus:outline-none focus:border-blue-500 font-mono resize-none"
-                />
-              </div>
-
-              <button
-                type="submit"
-                className="py-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm shadow-blue-500/10 transition duration-200"
-              >
-                <Plus size={14} /> Numaraları Listeye Ekle
-              </button>
-
-              {uploadSuccess && (
-                <div className="p-2.5 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-700 dark:text-emerald-350 text-[10px] flex items-center gap-1.5 font-semibold">
-                  <CheckCircle size={12} />
-                  <span>{uploadMessage}</span>
-                </div>
-              )}
-            </form>
-
-            {/* List Preview */}
-            <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm">
-              <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
-                <ListFilter size={16} className="text-primary" />
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-350">Arama Sırasındaki Numaralar ({records.length})</h3>
-              </div>
-
-              <div className="max-h-60 overflow-y-auto">
-                <table className="w-full text-left text-xs border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                      <th className="py-2">No</th>
-                      <th className="py-2">İsim Soyisim</th>
-                      <th className="py-2">Telefon</th>
-                      <th className="py-2">Durum</th>
-                      <th className="py-2">Tekrar Arama</th>
-                      <th className="py-2">Son Çağrı</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {records.map((r, i) => (
-                      <tr key={r.id} className="border-b border-slate-100 dark:border-slate-850 text-slate-700 dark:text-slate-300 font-medium">
-                        <td className="py-2.5">{i + 1}</td>
-                        <td className="py-2.5 font-bold text-slate-800 dark:text-white">{r.name}</td>
-                        <td className="py-2.5 font-mono">{r.phone}</td>
-                        <td className="py-2.5">
-                          <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                            r.status === "Answered" 
-                              ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary" 
-                              : r.status === "Failed" 
-                              ? "bg-rose-50 dark:bg-rose-950/20 text-primary"
-                              : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-                          }`}>
-                            {r.status === "Answered" ? "Cevaplandı" : r.status === "Failed" ? "Başarısız" : "Bekliyor"}
-                          </span>
-                        </td>
-                        <td className="py-2.5 font-mono">{r.retries}</td>
-                        <td className="py-2.5 font-mono text-[10px] text-slate-400">{r.last_call}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-5 bg-slate-50/50 dark:bg-slate-900/40 border border-slate-200/60 dark:border-slate-800/60 rounded-2xl p-5">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-              <AlertCircle size={14} className="text-primary" />
-              Yükleme İpuçları
-            </h4>
-            <div className="space-y-4 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-              <p>Dosyaları sürükleyip bırakarak yüklerken, rehber kolonlarının sırasına dikkat edin. Yanlış biçimlendirilmiş numaralar otomatik olarak yoksayılır.</p>
-              <p>Manuel ekleme yaparken telefon numarasını yazıp virgülden sonra isim belirtebilirsiniz. Her satıra tek bir numara girmelisiniz.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* TAB CONTENT: LIVE CAMPAIGN MONITOR */}
-      {activeSubTab === "monitor" && (
-        <div className="flex flex-col gap-6">
-          
-          {/* Dialer control bar */}
-          <div className="flex flex-wrap items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl gap-4 shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="relative flex h-3.5 w-3.5">
-                {dialerState.status === "running" ? (
-                  <>
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-primary"></span>
-                  </>
-                ) : (
-                  <span className="relative inline-flex rounded-full h-3.5 w-3.5 bg-primary"></span>
-                )}
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-900 dark:text-white">
-                  Kampanya Durumu: {dialerState.status === "running" ? "YÜRÜTÜLÜYOR" : "DURDURULDU"}
-                </p>
-                <p className="text-[10px] text-slate-400 mt-0.5">
-                  Eş zamanlı aktif arama: <span className="font-bold text-slate-700 dark:text-slate-305 font-mono">{dialerState.current_calls}</span>
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              {dialerState.status === "paused" ? (
-                <button
-                  onClick={() => handleDialerAction("start")}
-                  disabled={!config.enabled}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary disabled:bg-slate-300 dark:disabled:bg-slate-800 transition rounded-xl font-bold text-xs text-white shadow-sm"
-                >
-                  <Play size={14} /> Kampanyayı Başlat
-                </button>
-              ) : (
-                <button
-                  onClick={() => handleDialerAction("pause")}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary transition rounded-xl font-bold text-xs text-white shadow-sm"
-                >
-                  <Pause size={14} /> Kampanyayı Duraklat
-                </button>
-              )}
-              <button
-                onClick={() => handleDialerAction("reset")}
-                className="flex items-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 transition rounded-xl font-bold text-xs text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
-              >
-                <RotateCcw size={14} /> Yeniden Başlat (Sıfırla)
-              </button>
-            </div>
-          </div>
-
-          {/* Real-time stats row */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm">
-              <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Toplam Liste</p>
-              <p className="text-2xl font-extrabold text-slate-900 dark:text-white mt-1 font-mono">{totalRecords}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm">
-              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-primary">Cevaplandı</p>
-              <p className="text-2xl font-extrabold text-primary dark:text-blue-400 mt-1 font-mono">{answeredRecords}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm">
-              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-primary">Bekleyen</p>
-              <p className="text-2xl font-extrabold text-primary dark:text-amber-400 mt-1 font-mono">{pendingRecords}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm">
-              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-primary">Başarısız</p>
-              <p className="text-2xl font-extrabold text-primary dark:text-rose-450 mt-1 font-mono">{failedRecords}</p>
-            </div>
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl text-center shadow-sm col-span-2 md:col-span-1">
-              <p className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider text-primary">Başarı Oranı</p>
-              <p className="text-2xl font-extrabold text-primary dark:text-emerald-450 mt-1 font-mono">%{successRate}</p>
-            </div>
-          </div>
-
-          {/* Active Calls Activity Monitor */}
-          {dialerState.status === "running" && (
-            <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col gap-3">
-              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Aktif Arama Kanalları</span>
-                <span className="text-[10px] bg-blue-50 dark:bg-blue-900/30 text-primary px-2 py-0.5 rounded-lg font-bold font-mono">Eş zamanlı arama limiti: {config.concurrent_calls}</span>
-              </div>
-              
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                {Array.from({ length: dialerState.current_calls }).map((_, idx) => (
-                  <div key={idx} className="p-3 bg-slate-50 dark:bg-slate-950/40 border border-slate-100 dark:border-slate-850 rounded-xl flex items-center justify-between animate-pulse">
-                    <div className="flex items-center gap-2">
-                      <PhoneCall size={14} className="text-primary" />
-                      <div>
-                        <p className="text-[10px] font-bold text-slate-800 dark:text-slate-250">Aktif Çağrı #{idx + 1}</p>
-                        <p className="text-[9px] text-slate-400 font-mono">Aranıyor (Trunk #{config.outbound_trunk_id})...</p>
-                      </div>
-                    </div>
-                    <span className="text-[8px] px-1.5 py-0.5 bg-blue-50 dark:bg-blue-900/30 text-primary rounded font-bold uppercase font-mono">Çevriliyor</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Live Call list in Monitor */}
-          <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3 mb-4">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Arama Kuyruğu Kayıt Listesi</h3>
-              <span className="text-[10px] text-slate-400">Canlı olarak güncellenir</span>
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="py-2.5">Müşteri</th>
-                    <th className="py-2.5">Telefon</th>
-                    <th className="py-2.5">Durum</th>
-                    <th className="py-2.5">Deneme</th>
-                    <th className="py-2.5">Son Deneme Tarihi</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {records.map((r) => (
-                    <tr key={r.id} className="border-b border-slate-100 dark:border-slate-850 hover:bg-slate-50/40 dark:hover:bg-slate-950/20 text-slate-700 dark:text-slate-350 transition-colors">
-                      <td className="py-3 font-bold text-slate-850 dark:text-white">{r.name}</td>
-                      <td className="py-3 font-mono">{r.phone}</td>
-                      <td className="py-3">
-                        <span className={`px-2.5 py-0.5 rounded-full text-[9px] font-bold ${
-                          r.status === "Answered" 
-                            ? "bg-emerald-50 dark:bg-emerald-900/30 text-primary dark:text-emerald-450 border border-emerald-100/40" 
-                            : r.status === "Failed" 
-                            ? "bg-rose-50 dark:bg-rose-900/30 text-primary dark:text-rose-455 border border-rose-100/40"
-                            : "bg-slate-50 dark:bg-slate-800 text-slate-500 border border-slate-200/40"
+                  return (
+                    <tr
+                      key={c.id}
+                      className="hover:bg-slate-50/70 dark:hover:bg-slate-850/40 transition-colors"
+                    >
+                      {/* Status */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider inline-flex items-center gap-1.5 ${
+                          c.status === "running"
+                            ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50"
+                            : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50"
                         }`}>
-                          {r.status === "Answered" ? "Cevaplandı" : r.status === "Failed" ? "Başarısız" : "Bekliyor"}
+                          <span className={`w-1.5 h-1.5 rounded-full ${c.status === "running" ? "bg-emerald-500 animate-pulse" : "bg-amber-500"}`} />
+                          {c.status === "running" ? "ÇALIŞIYOR" : "DURDURULDU"}
                         </span>
                       </td>
-                      <td className="py-3 font-mono">{r.retries}</td>
-                      <td className="py-3 font-mono text-[10px] text-slate-400">{r.last_call}</td>
+
+                      {/* Campaign Name */}
+                      <td className="py-3.5 px-4 whitespace-nowrap font-bold text-slate-800 dark:text-white">
+                        {c.name}
+                      </td>
+
+                      {/* Mode & Trunk */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 uppercase">
+                          {c.dial_mode} DIALER
+                        </div>
+                        <div className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                          {trunkObj ? trunkObj.trunk_name : `Hat #${c.outbound_trunk_id}`} ({c.concurrent_calls} Eşzamanlı)
+                        </div>
+                      </td>
+
+                      {/* Route Destination */}
+                      <td className="py-3.5 px-4 whitespace-nowrap">
+                        <span className="px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-md text-[10px] font-bold uppercase mr-1.5">
+                          {c.route_destination_type === "ai" ? "AI Asistan" : c.route_destination_type === "queue" ? "Kuyruk" : "Dahili"}
+                        </span>
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+                          {c.route_destination}
+                        </span>
+                      </td>
+
+                      {/* Progress Bar & Stats */}
+                      <td className="py-3.5 px-4 min-w-[200px]">
+                        <div className="flex items-center justify-between text-[10px] font-bold text-slate-500 dark:text-slate-400 mb-1">
+                          <span>%{progressPct} ({total - pending}/{total})</span>
+                          <span className="text-[9px] font-normal text-slate-400">Yanıtlanan: {answered}</span>
+                        </div>
+                        <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                          <div
+                            className="bg-rose-500 h-full transition-all duration-300 rounded-full"
+                            style={{ width: `${progressPct}%` }}
+                          />
+                        </div>
+                      </td>
+
+                      {/* Actions */}
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1">
+                          {c.status === "running" ? (
+                            <button
+                              onClick={() => handleControlCampaign(c.id, "pause")}
+                              className="p-1.5 bg-amber-50 dark:bg-amber-950/30 text-amber-600 hover:bg-amber-100 rounded-lg transition-colors"
+                              title="Kampanyayı Durdur"
+                            >
+                              <Pause size={14} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleControlCampaign(c.id, "start")}
+                              className="p-1.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 hover:bg-emerald-100 rounded-lg transition-colors"
+                              title="Kampanyayı Başlat"
+                            >
+                              <Play size={14} />
+                            </button>
+                          )}
+
+                          <button
+                            onClick={() => handleControlCampaign(c.id, "reset")}
+                            className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+                            title="İlerlemeyi Sıfırla"
+                          >
+                            <RotateCcw size={14} />
+                          </button>
+
+                          <button
+                            onClick={() => {
+                              setSelectedCampaignId(c.id);
+                              setShowUploadModal(true);
+                            }}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg transition-colors"
+                            title="Numara Listesi Yükle"
+                          >
+                            <Upload size={14} />
+                          </button>
+
+                          <button
+                            onClick={() => handleOpenEditModal(c)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-lg transition-colors"
+                            title="Kampanya Ayarlarını Düzenle"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+
+                          <button
+                            onClick={() => setDeleteConfirm({ show: true, id: c.id })}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-lg transition-colors"
+                            title="Kampanyayı Sil"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Add / Edit Campaign Modal */}
+      {showCampaignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800 shrink-0">
+              <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">
+                {editingId ? "DIŞ ARAMA KAMPANYASINI DÜZENLE" : "YENİ DIŞ ARAMA KAMPANYASI"}
+              </h3>
+              <button
+                onClick={() => setShowCampaignModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1 rounded-lg transition-colors"
+              >
+                <X size={18} />
+              </button>
             </div>
+
+            {/* Native Red Error Banner */}
+            {campaignError && (
+              <div className="mx-4 mt-3 p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between animate-in fade-in duration-200 shrink-0">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0 text-rose-500" />
+                  <span>{campaignError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCampaignError("")}
+                  className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+                  title="Kapat"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
+            <form onSubmit={handleSaveCampaign} className="p-5 overflow-y-auto space-y-4">
+              {/* Campaign Name */}
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Kampanya Adı</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Satış Arama Kampanyası"
+                  value={formCampaign.name}
+                  onChange={(e) => setFormCampaign(prev => ({ ...prev, name: e.target.value }))}
+                  className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                />
+              </div>
+
+              {/* Mode & Trunk */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider flex items-center">
+                    Arama Modu
+                    <InfoTooltip text="Progressive: Temsilci boştaysa arar. Predictive: Tahminleme yapar. Power: Sabit hızda arar." />
+                  </label>
+                  <select
+                    value={formCampaign.dial_mode}
+                    onChange={(e) => setFormCampaign(prev => ({ ...prev, dial_mode: e.target.value }))}
+                    className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                  >
+                    <option value="progressive">Progressive (Temsilciye Duyarlı)</option>
+                    <option value="predictive">Predictive (Yapay Zeka Tahminli)</option>
+                    <option value="power">Power Dialer (Sabit Hızlı Arama)</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                    Arama Çıkış Hattı (Trunk)
+                  </label>
+                  <select
+                    value={formCampaign.outbound_trunk_id}
+                    onChange={(e) => setFormCampaign(prev => ({ ...prev, outbound_trunk_id: parseInt(e.target.value) || 1 }))}
+                    className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                  >
+                    {trunks.map(t => (
+                      <option key={t.id} value={t.id}>{t.trunk_name} ({t.did_number})</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Concurrent & Retries */}
+              <div className="grid grid-cols-3 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Eşzamanlı Arama Limiti</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="50"
+                    value={formCampaign.concurrent_calls}
+                    onChange={(e) => setFormCampaign(prev => ({ ...prev, concurrent_calls: parseInt(e.target.value) || 1 }))}
+                    className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Tekrar Arama Denemesi</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="10"
+                    value={formCampaign.retry_count}
+                    onChange={(e) => setFormCampaign(prev => ({ ...prev, retry_count: parseInt(e.target.value) || 1 }))}
+                    className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Tekrar Aralığı (Dakika)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="1440"
+                    value={formCampaign.retry_interval_minutes}
+                    onChange={(e) => setFormCampaign(prev => ({ ...prev, retry_interval_minutes: parseInt(e.target.value) || 5 }))}
+                    className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                </div>
+              </div>
+
+              {/* Destination Routing */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Çağrı Yanıtlandığında Hedef</label>
+                  <select
+                    value={formCampaign.route_destination_type}
+                    onChange={(e) => setFormCampaign(prev => ({ ...prev, route_destination_type: e.target.value }))}
+                    className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                  >
+                    <option value="ai">Yapay Zeka Asistanı (AI)</option>
+                    <option value="extension">Temsilci Dahili Numarası</option>
+                    <option value="queue">Kuyruk (ACD Queue)</option>
+                  </select>
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Hedef Seçimi</label>
+                  {formCampaign.route_destination_type === "ai" ? (
+                    <select
+                      value={formCampaign.route_destination}
+                      onChange={(e) => setFormCampaign(prev => ({ ...prev, route_destination: e.target.value }))}
+                      className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                    >
+                      {aiAgents.map(a => (
+                        <option key={a.id || a.name} value={a.name}>{a.name} ({a.role || 'Asistan'})</option>
+                      ))}
+                      {aiAgents.length === 0 && <option value="Sales_AI">Sales_AI (Satış Asistanı)</option>}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      placeholder="Örn: 200 veya Queue_1000"
+                      value={formCampaign.route_destination}
+                      onChange={(e) => setFormCampaign(prev => ({ ...prev, route_destination: e.target.value }))}
+                      className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                    />
+                  )}
+                </div>
+              </div>
+
+              {/* Working Hours */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Başlangıç Saati</label>
+                  <input
+                    type="time"
+                    value={formCampaign.allowed_hours_start}
+                    onChange={(e) => setFormCampaign(prev => ({ ...prev, allowed_hours_start: e.target.value }))}
+                    className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Bitiş Saati</label>
+                  <input
+                    type="time"
+                    value={formCampaign.allowed_hours_end}
+                    onChange={(e) => setFormCampaign(prev => ({ ...prev, allowed_hours_end: e.target.value }))}
+                    className={`px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-3 justify-end pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowCampaignModal(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition shadow-md shadow-rose-600/15`}
+                >
+                  {loading ? "Kaydediliyor..." : "Kampanyayı Kaydet"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
+
+      {/* Upload Numbers Modal */}
+      {showUploadModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm">
+          <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-2xl shadow-xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                <Upload size={16} className="text-rose-500" />
+                <span>Telefon Listesi Yükle ({selectedCampaign?.name})</span>
+              </h3>
+              <button
+                onClick={() => setShowUploadModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 p-1 rounded-lg transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <form onSubmit={handleUploadList} className="p-5 space-y-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                  Telefon Numaraları (Her satıra bir numara veya "Numara, İsim")
+                </label>
+                <textarea
+                  rows={8}
+                  required
+                  placeholder={"05321002030, Ahmet Yılmaz\n05332003040, Mehmet Demir\n05553004050"}
+                  value={uploadInput}
+                  onChange={(e) => setUploadInput(e.target.value)}
+                  className={`w-full text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} font-mono`}
+                />
+              </div>
+
+              <div className="flex gap-3 justify-end pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowUploadModal(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition`}
+                >
+                  Numaraları Listeye Ekle
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmDeleteModal
+        isOpen={deleteConfirm.show}
+        onClose={() => setDeleteConfirm({ show: false, id: null })}
+        onConfirm={handleDeleteCampaign}
+        title="Kampanyayı Sil"
+        message="Bu Dış Arama Kampanyasını ve kampanya listesindeki tüm arama verilerini silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+      />
     </div>
   );
 }

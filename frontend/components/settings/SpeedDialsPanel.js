@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Search, Trash2, Edit2, X, PhoneCall, Check, AlertCircle } from "lucide-react";
+import { Plus, Search, Trash2, Edit2, X, PhoneCall, Check, AlertCircle, AlertTriangle } from "lucide-react";
+
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -27,9 +28,19 @@ export default function SpeedDialsPanel({ backendHost = "localhost:8000" }) {
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
   useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => {
+        setError("");
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
+  useEffect(() => {
     fetchPermissions();
     fetchData();
   }, [backendHost]);
+
 
   const fetchPermissions = async () => {
     try {
@@ -83,19 +94,32 @@ export default function SpeedDialsPanel({ backendHost = "localhost:8000" }) {
 
   const handleSave = async (e) => {
     e.preventDefault();
-    if (!shortCode.trim() || !longNumber.trim()) {
-      setError("Kısa kod ve uzun numara alanları zorunludur.");
-      return;
-    }
     setError("");
     setSuccess("");
+
+    if (!shortCode.trim() || !longNumber.trim()) {
+      setError("Lütfen Kısa Kod ve Uzun Numara alanlarını doldurunuz.");
+      return;
+    }
+
+    const sCode = shortCode.trim();
+
+    // Client-side duplicate check for short_code
+    const dupSd = (speedDials || []).find(
+      s => String(s.short_code || s.code || "").trim() === sCode && (!editingId || String(s.id) !== String(editingId))
+    );
+    if (dupSd) {
+      setError(`Bu Hızlı Arama Kısa Kodu (${sCode}) zaten '${dupSd.description || dupSd.label || 'Hızlı Arama Kaydı'}' tarafından kullanılıyor.`);
+      return;
+    }
+
     try {
       const res = await fetch(`${API_BASE}/api/settings/speed_dials`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: editingId,
-          short_code: shortCode.trim(),
+          short_code: sCode,
           long_number: longNumber.trim(),
           description: description.trim()
         })
@@ -105,7 +129,7 @@ export default function SpeedDialsPanel({ backendHost = "localhost:8000" }) {
         setShowModal(false);
         fetchData();
       } else {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         setError(errData.detail || "Kaydetme hatası oluştu.");
       }
     } catch (err) {
@@ -132,6 +156,7 @@ export default function SpeedDialsPanel({ backendHost = "localhost:8000" }) {
   };
 
   const openAddModal = () => {
+    setError("");
     setEditingId(null);
     setShortCode("");
     setLongNumber("");
@@ -140,12 +165,14 @@ export default function SpeedDialsPanel({ backendHost = "localhost:8000" }) {
   };
 
   const openEditModal = (item) => {
+    setError("");
     setEditingId(item.id);
     setShortCode(item.short_code || "");
     setLongNumber(item.long_number || "");
     setDescription(item.description || "");
     setShowModal(true);
   };
+
 
   // Filter items
   const filteredList = speedDials.filter(item =>
@@ -290,6 +317,23 @@ export default function SpeedDialsPanel({ backendHost = "localhost:8000" }) {
               </button>
             </div>
             <form onSubmit={handleSave} className="p-4 space-y-4">
+              {error && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center justify-between animate-in fade-in duration-200 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={14} className="shrink-0" />
+                    <span>{error}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setError("")}
+                    className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
+                    title="Kapat"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Kısa Kod</label>
                 <input
