@@ -115,12 +115,14 @@ preload => bridge_softmix.so
 preload => bridge_holding.so
 preload => res_stasis.so
 preload => res_stasis_device_state.so
+preload => res_pjproject.so
 preload => res_pjsip.so
 preload => res_http_websocket.so
 preload => res_pjsip_outbound_publish.so
 preload => res_pjsip_pubsub.so
 preload => res_pjsip_session.so
 preload => res_pjsip_transport_websocket.so
+
 
 noload => app_nbscat.so
 noload => chan_oss.so
@@ -292,16 +294,40 @@ touch /etc/asterisk/pjsip_custom.conf
 touch /etc/asterisk/extensions_custom.conf
 touch /etc/asterisk/queues_custom.conf
 
-# İzinlerin Güncellenmesi
+# Çalışma Dizinlerinin Oluşturulması ve İzinlerin Güncellenmesi
+mkdir -p /var/run/asterisk /var/log/asterisk /var/spool/asterisk /var/lib/asterisk /etc/asterisk/keys
 chown -R asterisk:asterisk /etc/asterisk /var/lib/asterisk /var/spool/asterisk /var/log/asterisk /var/run/asterisk /tmp/asterisk_build
-chmod -R 775 /etc/asterisk
+chmod -R 775 /etc/asterisk /var/run/asterisk
+
+# Systemd Servis Dosyasının Oluşturulması
+cat <<EOM > /etc/systemd/system/asterisk.service
+[Unit]
+Description=Asterisk PBX Engine
+After=network.target
+
+[Service]
+Type=forking
+User=asterisk
+Group=asterisk
+ExecStart=/usr/sbin/asterisk -U asterisk -G asterisk
+ExecReload=/usr/sbin/asterisk -rx 'module reload'
+ExecStop=/usr/sbin/asterisk -rx 'core stop now'
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOM
 
 # 7. Servisi Yeniden Başlatma
-echo "[6/6] Asterisk servisi başlatılıyor..."
+echo "[6/6] Asterisk servisi daemon-reload ve restart ediliyor..."
+systemctl daemon-reload
 systemctl enable asterisk
 systemctl restart asterisk
 
 echo "======================================================================"
 echo "          KURULUM TAMAMLANDI! ASTERISK 18 BAŞARIYLA ÇALIŞIYOR        "
 echo "======================================================================"
+sleep 2
 asterisk -rx "core show version"
+
