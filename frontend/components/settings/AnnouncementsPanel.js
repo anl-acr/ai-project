@@ -162,7 +162,8 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
   const handleDownload = async (ann) => {
     try {
-      const response = await fetch(`${API_BASE}/uploads/announcements/${ann.filename}`);
+      const response = await fetch(`${API_BASE}/api/uploads/announcements/${ann.filename}`);
+
       if (!response.ok) throw new Error("Dosya bulunamadı");
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -313,8 +314,9 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                 </div>
                 
                 {playingId === ann.id && (
-                  <audio ref={audioRef} src={`${API_BASE}/uploads/announcements/${ann.filename}`} className="hidden" />
+                  <audio ref={audioRef} src={`${API_BASE}/api/uploads/announcements/${ann.filename}`} className="hidden" />
                 )}
+
               </div>
             ))}
           </div>

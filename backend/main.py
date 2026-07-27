@@ -71,6 +71,8 @@ app.mount("/api/recordings", StaticFiles(directory=RECORDINGS_DIR), name="record
 
 os.makedirs("uploads/announcements", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+app.mount("/api/uploads", StaticFiles(directory="uploads"), name="api_uploads")
+
 
 # Temp storage for PDF uploads
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "uploads", "tmp")
