@@ -55,6 +55,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def auto_api_prefix_middleware(request: Request, call_next):
+    path = request.scope.get("path", "")
+    if path and not path.startswith("/api") and not path.startswith("/uploads") and not path.startswith("/static"):
+        request.scope["path"] = "/api" + path
+    return await call_next(request)
+
+
 
 
 # Serve call recordings statically
