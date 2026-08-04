@@ -692,32 +692,29 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
             
         print(f"Sistem talimatlari derlendi: {len(system_instruction)} karakter.")
 
-        # Map frontend voice names to Gemini voice names
-        voice_map = {
-            "Puck (İngilizce - Erkek)": "Puck",
-            "Charon (İngilizce - Erkek)": "Charon",
-            "Aoede (İngilizce - Dişi)": "Aoede",
-            "Kore (İngilizce - Dişi)": "Kore",
-            "Fenrir (İngilizce - Erkek)": "Fenrir",
-            "Dilara (Türkçe - Dişi - Premium)": "Aoede"
-        }
+        # Flexible voice resolution for Gemini voices (Puck, Charon, Kore, Fenrir, Aoede)
+        agent_voice_raw = ai_agent.get("voice", VOICE_NAME) if ai_agent else VOICE_NAME
+        valid_gemini_voices = ["Puck", "Charon", "Kore", "Fenrir", "Aoede"]
+        agent_voice = "Aoede" # Default female voice
         
+        for gv in valid_gemini_voices:
+            if gv.lower() in str(agent_voice_raw).lower():
+                agent_voice = gv
+                break
+                
         model_name = ai_agent.get("model", GEMINI_MODEL) if ai_agent else GEMINI_MODEL
         
         # Ensure we use a Live API compatible model
         if "2.0-flash-exp" in model_name or "1.5" in model_name or "1.0" in model_name or model_name == "gemini-2.0-flash" or "eleven" in model_name.lower() or not model_name.lower().startswith("gemini"):
-            print(f"[Uyari] '{model_name}' Live WebSocket API'si ile doğrudan kullanılamaz. Zeka motoru 'models/gemini-2.5-flash-native-audio-latest' olarak ayarlandı.")
             model_name = "models/gemini-2.5-flash-native-audio-latest"
             
         formatted_model = model_name if model_name.startswith("models/") else f"models/{model_name}"
             
         agent_temperature = float(ai_agent.get("temperature", 0.7)) if ai_agent else 0.7
         agent_max_tokens = int(ai_agent.get("max_tokens", 300)) if ai_agent else 300
-        agent_voice_raw = ai_agent.get("voice", VOICE_NAME) if ai_agent else VOICE_NAME
-        agent_voice = voice_map.get(agent_voice_raw, VOICE_NAME)
+        agent_name = ai_agent.get("name", "Varsayılan Temsilci") if ai_agent else "Varsayılan Temsilci"
         
-        # Ensure model name includes "models/" prefix
-        formatted_model = f"models/{model_name}" if not model_name.startswith("models/") else model_name
+        print(f"[AI Agent Active Config] Temsilci: '{agent_name}' | LLM Sağlayıcı: '{llm_provider.upper()}' (Model: '{formatted_model}') | TTS Sağlayıcı: '{tts_provider.upper()}' (Ses Tonu: '{agent_voice}', Ham: '{agent_voice_raw}') | Sıcaklık: {agent_temperature}")
 
         generation_config = {
             "responseModalities": ["AUDIO"],
