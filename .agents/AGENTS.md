@@ -47,8 +47,10 @@
   - Dialplan dynamically constructs 36-char RFC 4122 compliant UUIDs via MD5 fallback for `AudioSocket`.
   - Dialplan sync command: `python3 backend/scripts/sync_asterisk.py` (zero external python dependencies).
   - PJSIP trunk settings are saved in PostgreSQL / `settings.json` and generated in `/etc/asterisk/pjsip_custom.conf`.
-- **RAG & Web Crawler**:
+- **RAG & Web Crawler / Gemini Live Architecture**:
   - `index_website_url` uses `verify=False` and standard User-Agent header to handle self-signed or expired SSL certificates.
+  - Gemini Multimodal Live API WebSocket (`responseModalities: ["AUDIO"]`) does not support function calling (tools) during live audio streams, which previously caused `1007 (invalid frame payload data)` protocol crashes when invoking `query_knowledge_base`.
+  - Resolution: Knowledge Base (RAG) chunks are dynamically injected directly into Gemini's `systemInstruction` at call initialization (`get_all_knowledge_base_context()`), providing sub-second native voice answers with zero WebSocket errors.
 - **AI Voice Audio Cutoff (Barge-in Echo Suppression)**:
   - Low-amplitude background noise/echo (`avg_amplitude < 150`) is suppressed while `model_is_speaking` is True to prevent Gemini's server-side VAD from false-triggering `interrupted: true` and cutting off the AI's voice mid-sentence.
 
