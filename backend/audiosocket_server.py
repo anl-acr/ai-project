@@ -868,12 +868,20 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                         audio_buffer.extend(payload)
                         
                         if len(audio_buffer) >= 1600:
-                            # Suppress low-amplitude background noise/echo while AI is speaking to prevent false interruption (barge-in)
-                            if call_state.get("model_is_speaking", False) and avg_amplitude < 150:
+                            buf_bytes = bytes(audio_buffer)
+                            audio_buffer.clear()
+                            
+                            import array
+                            samples_16 = array.array('h', buf_bytes)
+                            buf_avg_amp = sum(abs(s) for s in samples_16) / len(samples_16) if samples_16 else 0
+                            call_state["last_buf_amp"] = buf_avg_amp
+                            
+                            # Suppress background noise/echo while AI is speaking or playing audio queue unless user speaks loudly (amp >= 600)
+                            is_speaking = call_state.get("model_is_speaking", False) or not asterisk_write_queue.empty()
+                            if is_speaking and buf_avg_amp < 600:
                                 pcm_16k = b'\x00' * 3200
                             else:
-                                pcm_16k = resample_8k_to_16k(bytes(audio_buffer))
-                            audio_buffer.clear()
+                                pcm_16k = resample_8k_to_16k(buf_bytes)
                             
                             b64_audio = base64.b64encode(pcm_16k).decode('utf-8')
                             if not call_state.get("tool_call_in_progress", False):
@@ -1052,7 +1060,11 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             
                     # Check for Interruption/Barge-in (Musteri lafa girdi)
                     if "serverContent" in resp and resp["serverContent"].get("interrupted"):
-                        print("Musteri lafa girdi (Barge-in/Interruption algilandi). Ses durduruluyor!")
+                        last_amp = call_state.get("last_buf_amp", 0)
+                        if last_amp < 600:
+                            print(f"[Barge-in Guard] Ignored false Gemini interruption event (low amp: {last_amp:.1f}).")
+                            continue
+                        print(f"Musteri lafa girdi (Barge-in/Interruption algilandi, amp: {last_amp:.1f}). Ses durduruluyor!")
                         call_state["model_is_speaking"] = False
                         # Clear write queue to stop playback instantly
                         while not asterisk_write_queue.empty():
