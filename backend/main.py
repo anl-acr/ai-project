@@ -5550,6 +5550,13 @@ async def startup_event():
         
     asyncio.create_task(start_ami_listener())
 
+    try:
+        from backend.audiosocket_server import start_server as start_audiosocket_server
+        asyncio.create_task(start_audiosocket_server())
+        print("[Startup] AudioSocket TCP Sunucusu (Port 9092) başarıyla arka planda başlatıldı.")
+    except Exception as e_audio:
+        print(f"[Startup Error] AudioSocket TCP sunucusu başlatılamadı: {e_audio}")
+
 
 # --- REFACTORED ENDPOINTS ---
 
