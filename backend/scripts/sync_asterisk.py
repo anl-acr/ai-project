@@ -6,33 +6,49 @@ PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from dotenv import load_dotenv
-env_path = os.path.join(BASE_DIR, ".env")
-if os.path.exists(env_path):
-    load_dotenv(env_path)
-
-from backend.database.config import SyncSessionLocal
-from backend.database.models import SystemUser, Trunk, PBXQueue
+try:
+    from dotenv import load_dotenv
+    env_path = os.path.join(BASE_DIR, ".env")
+    if os.path.exists(env_path):
+        load_dotenv(env_path)
+except ImportError:
+    pass
 
 def sync():
     users_list = []
     trunks_list = []
     queues_list = []
     
-    with SyncSessionLocal() as session:
-        db_users = session.query(SystemUser).all()
-        for u in db_users:
-            users_list.append({col.name: getattr(u, col.name) for col in SystemUser.__table__.columns})
-            
-        db_trunks = session.query(Trunk).all()
-        for t in db_trunks:
-            trunks_list.append({col.name: getattr(t, col.name) for col in Trunk.__table__.columns})
-            
-        db_queues = session.query(PBXQueue).all()
-        for q in db_queues:
-            queues_list.append({col.name: getattr(q, col.name) for col in PBXQueue.__table__.columns})
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser, Trunk, PBXQueue
+        with SyncSessionLocal() as session:
+            db_users = session.query(SystemUser).all()
+            for u in db_users:
+                users_list.append({col.name: getattr(u, col.name) for col in SystemUser.__table__.columns})
+                
+            db_trunks = session.query(Trunk).all()
+            for t in db_trunks:
+                trunks_list.append({col.name: getattr(t, col.name) for col in Trunk.__table__.columns})
+                
+            db_queues = session.query(PBXQueue).all()
+            for q in db_queues:
+                queues_list.append({col.name: getattr(q, col.name) for col in PBXQueue.__table__.columns})
+    except Exception as e_db:
+        print(f"[Sync Script] Veritabanı bağlantısı veya modül hatası: {e_db}")
+        settings_path = os.path.join(BASE_DIR, "settings.json")
+        if os.path.exists(settings_path):
+            import json
+            try:
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    s_data = json.load(f)
+                    users_list = s_data.get("users", [])
+                    trunks_list = s_data.get("trunks", [])
+                    queues_list = s_data.get("queues", [])
+            except Exception as e_json:
+                print(f"[Sync Script] settings.json okunamadı: {e_json}")
 
-    print(f"[Sync Script] Veritabanından {len(users_list)} kullanıcı, {len(trunks_list)} trunk ve {len(queues_list)} kuyruk yüklendi.")
+    print(f"[Sync Script] Toplam {len(users_list)} kullanıcı, {len(trunks_list)} trunk ve {len(queues_list)} kuyruk ile konfigürasyon hazırlanıyor.")
 
     pjsip_content = """; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK & KULLANICI AYARLARI
