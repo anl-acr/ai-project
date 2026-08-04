@@ -1442,53 +1442,59 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
         run_queue_reload()
 
 def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks] = None):
-    conf_content = """; ==========================================
+    is_docker = os.path.exists("/.dockerenv") or os.getenv("IS_DOCKER", "false").lower() == "true"
+    default_backend_host = "host.docker.internal:8000" if is_docker else "127.0.0.1:8000"
+    default_audiosocket_host = "host.docker.internal:9092" if is_docker else "127.0.0.1:9092"
+    backend_host = os.getenv("BACKEND_HOST", default_backend_host)
+    audiosocket_host = os.getenv("AUDIOSOCKET_HOST", default_audiosocket_host)
+
+    conf_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
 ; ==========================================
 
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
-exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
-same => n,Set(CALL_UUID=${UUID()})
-same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
+same => n,Set(CALL_UUID=${{UUID()}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,Progress()
 same => n,Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
-same => n,AudioSocket(${CALL_UUID},192.168.65.254:9092)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
 
 ; Uluslararası / + ile gelen DID numaraları için (+90...)
-exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
-same => n,Set(CALL_UUID=${UUID()})
-same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
+same => n,Set(CALL_UUID=${{UUID()}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,Progress()
 same => n,Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
-same => n,AudioSocket(${CALL_UUID},192.168.65.254:9092)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
 
 ; Fallback (s uzantısı)
-exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${CALLERID(num)})
-same => n,Set(CALL_UUID=${UUID()})
-same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=s&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${{CALLERID(num)}})
+same => n,Set(CALL_UUID=${{UUID()}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=s&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,Progress()
 same => n,Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
-same => n,AudioSocket(${CALL_UUID},192.168.65.254:9092)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
 
 ; Her türlü diğer numara/uzantı formatı için Catch-all
-exten => _.,1,NoOp(Gelen arama catch-all ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
-same => n,Set(CALL_UUID=${UUID()})
-same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+exten => _.,1,NoOp(Gelen arama catch-all ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
+same => n,Set(CALL_UUID=${{UUID()}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,Progress()
 same => n,Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
-same => n,AudioSocket(${CALL_UUID},192.168.65.254:9092)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
-exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${UNIQUEID})
+exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UNIQUEID}})
 same => n,Playback(transfer-please-wait)
 same => n,Queue(temsilci_kuyrugu)
 same => n,Hangup()
@@ -1497,33 +1503,33 @@ same => n,Hangup()
 ; WebRTC istemcileri (temsilciler) bu context üzerinden görüşme yapar
 
 ; Dış hat aramaları için (0 ile başlayan numaralar)
-exten => _0.,1,NoOp(Dis arama baslatiliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
-same => n,Set(CALL_UUID=${UUID()})
-same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
-same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
-same => n,Dial(PJSIP/Operator_Trunk/sip:${EXTEN}@ikonsip.com:5060,60,r)
+exten => _0.,1,NoOp(Dis arama baslatiliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(CALL_UUID=${{UUID()}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${{EXTEN}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
-exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${CALL_UUID})
-same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/end?call_id=${CALL_UUID})})
+exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${{CALL_UUID}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}})}})
 
 ; İç hat (Diğer temsilciler) aramaları için (2XX vb.)
-exten => _2XX,1,NoOp(ACL kontrol ediliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
-same => n,Set(ACL_RESULT=${CURL(http://host.docker.internal:8000/api/acl/check_subscriber_call?caller=${CALLERID(num)}&callee=${EXTEN})})
-same => n,GotoIf($["${ACL_RESULT}" = "ALLOW"]?allow:deny)
+exten => _2XX,1,NoOp(ACL kontrol ediliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
+same => n,GotoIf($["${{ACL_RESULT}}" = "ALLOW"]?allow:deny)
 same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Playback(ss-noservice)
 same => n,Hangup()
 same => n(allow),NoOp(ACL ONAYLANDI: Arama baslatiliyor)
-same => n,Dial(PJSIP/${EXTEN})
+same => n,Dial(PJSIP/${{EXTEN}})
 same => n,Hangup()
 
 [mobile_transfer_context]
-exten => s,1,NoOp(Mobil aktarim arandi ve cevaplandi. Arayan=${CALLERID(num)})
+exten => s,1,NoOp(Mobil aktarim arandi ve cevaplandi. Arayan=${{CALLERID(num)}})
 same => n,Progress()
 same => n,Answer()
-same => n,Playback(/var/spool/asterisk/monitor/summary_${CALL_UUID})
-same => n,Bridge(${CUSTOMER_CHANNEL})
+same => n,Playback(/var/spool/asterisk/monitor/summary_${{CALL_UUID}})
+same => n,Bridge(${{CUSTOMER_CHANNEL}})
 same => n,Hangup()
 """
 
