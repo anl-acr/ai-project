@@ -401,6 +401,25 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
             except Exception as e:
                 print(f"[AMI] Failed to schedule call analyzer task: {e}")
 
+async def get_all_knowledge_base_context() -> str:
+    """Fetches all indexed knowledge base document chunks from PostgreSQL to inject into system_instruction."""
+    try:
+        from backend.database.models import DocumentChunk
+        async with AsyncSessionLocal() as session:
+            stmt = select(DocumentChunk).limit(30)
+            res = await session.execute(stmt)
+            chunks = res.scalars().all()
+            if not chunks:
+                return ""
+            context = "\n\n--- BİLGİ BANKASI VE ŞİRKET DÖKÜMANLARI ---\n"
+            context += "Aşağıdaki bilgiler şirketin resmi bilgi bankasından taranmıştır. Müşteri soru sorduğunda bu dökümanlardaki bilgileri kullanarak doğrudan Türkçe yanıt ver:\n\n"
+            for c in chunks:
+                context += f"[Kaynak: {c.filename}]\n{c.content}\n\n"
+            return context
+    except Exception as e:
+        print(f"[RAG Context Error]: {e}")
+        return ""
+
 async def auto_blacklist_call(call_id: str, reason: str):
     from sqlalchemy import select
     from backend.main import add_system_log
@@ -623,12 +642,12 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
 
         # Compile dynamic system instruction from database rules
         system_instruction = await compile_system_prompt(ai_agent)
-        system_instruction += """
-\n--- OTOMATİK BİLGİ BANKASI VE ARAÇ KULLANIM KURALI ---
-Müşteri adres, konum, şirket bilgisi, ürün, hizmet, fiyat, mesai saati veya herhangi bir kurumsal detay sorduğunda:
-HİÇ TAHMİN YÜRÜTME. Kesinlikle 'query_knowledge_base' aracını çağırarak bilgi bankasında arama yap.
-Gelen arama sonucundaki bilgileri müşteriye nazik, anlaşılır ve Türkçe olarak sesli yanıtla.
-"""
+        
+        # Inject RAG Knowledge Base directly into system prompt for sub-second native voice responses
+        kb_context = await get_all_knowledge_base_context()
+        if kb_context:
+            system_instruction += kb_context
+            print(f"[RAG Live Inject] Bilgi bankası dökümanları doğrudan zeka motoruna yüklendi ({len(kb_context)} karakter).")
         
         # Check if Dynamic Emotion Management is enabled
         try:
@@ -765,23 +784,12 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                     "type": "OBJECT",
                                     "properties": {
                                         "name": { "type": "STRING", "description": "Müşterinin adı soyadı" },
-                                        "phone": { "type": "STRING", "description": "Müşterinin telefon..." },
+                                        "phone": { "type": "STRING", "description": "Müşterinin telefon numarası" },
                                         "date": { "type": "STRING", "description": "Randevu tarihi (YYYY-MM-DD formatında)" },
                                         "time": { "type": "STRING", "description": "Randevu saati (HH:MM formatında)" },
                                         "email": { "type": "STRING", "description": "Müşterinin e-posta adresi", "nullable": True }
                                     },
                                     "required": ["name", "phone", "date", "time"]
-                                }
-                            },
-                            {
-                                "name": "query_knowledge_base",
-                                "description": "Sistem dökümanlarında veya şirketin bilgi bankasında arama yapar.",
-                                "parameters": {
-                                    "type": "OBJECT",
-                                    "properties": {
-                                        "query": { "type": "STRING", "description": "Aranacak kelime veya soru" }
-                                    },
-                                    "required": ["query"]
                                 }
                             },
                             {
