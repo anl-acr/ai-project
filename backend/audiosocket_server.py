@@ -873,9 +873,9 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             buf_avg_amp = sum(abs(s) for s in samples_16) / len(samples_16) if samples_16 else 0
                             call_state["last_buf_amp"] = buf_avg_amp
                             
-                            # Suppress background noise/echo while AI is speaking or playing audio queue unless user speaks loudly (amp >= 600)
-                            is_speaking = call_state.get("model_is_speaking", False) or not asterisk_write_queue.empty()
-                            if is_speaking and buf_avg_amp < 600:
+                            # Suppress background line static while AI is speaking unless user speaks (amp >= 60)
+                            is_speaking = call_state.get("model_is_speaking", False)
+                            if is_speaking and buf_avg_amp < 60:
                                 pcm_16k = b'\x00' * 3200
                             else:
                                 pcm_16k = resample_8k_to_16k(buf_bytes)
@@ -968,19 +968,13 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                 async for raw_response in gemini_ws:
                     resp = json.loads(raw_response)
                     
-                    # Update model speaking state to prevent 1007 protocol violations during output
+                    # Update model speaking state
                     if "serverContent" in resp:
                         if "modelTurn" in resp["serverContent"]:
                             call_state["model_is_speaking"] = True
                         if resp["serverContent"].get("turnComplete"):
-                            # Wait for the audio queue to drain before freeing the model_is_speaking lock
-                            async def release_lock_after_drain(state, q):
-                                await q.join()
-                                await asyncio.sleep(0.2) # small buffer
-                                if q.empty():
-                                    state["model_is_speaking"] = False
-                                    print("[DEBUG] AI konusmasi tamamen bitti, kilit acildi.")
-                            asyncio.create_task(release_lock_after_drain(call_state, asterisk_write_queue))
+                            call_state["model_is_speaking"] = False
+                            print("[DEBUG] AI konusmasi bitti, kilit acildi (turnComplete).")
 
                     # 1. Capture User Speech Transcription (inputTranscription)
                     if "serverContent" in resp and "inputTranscription" in resp["serverContent"]:
