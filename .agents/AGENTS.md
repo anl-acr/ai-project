@@ -49,3 +49,7 @@
   - PJSIP trunk settings are saved in PostgreSQL / `settings.json` and generated in `/etc/asterisk/pjsip_custom.conf`.
 - **RAG & Web Crawler**:
   - `index_website_url` uses `verify=False` and standard User-Agent header to handle self-signed or expired SSL certificates.
+
+## Automatic Project Memory Update Rule
+- Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
+- Do not wait for explicit user prompt to update memory when a critical workflow or server insight is discovered.
