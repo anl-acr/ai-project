@@ -286,7 +286,7 @@ async def execute_custom_api(name: str, args: dict) -> dict:
     print(f"[Custom API] Executing dynamic call: {method} {url}")
     
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
             if method == "GET":
                 response = await client.get(url, headers=headers, params=query_params)
             elif method == "POST":

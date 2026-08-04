@@ -97,8 +97,11 @@ async def index_pdf_file(file_path: str, filename: str):
 async def index_website_url(url: str):
     """Crawls a website, extracts text, chunks it, embeds, and saves to local PostgreSQL."""
     print(f"[RAG] Web sitesi taranıyor: {url}")
-    async with httpx.AsyncClient() as client:
-        response = await client.get(url, follow_redirects=True)
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    async with httpx.AsyncClient(verify=False, follow_redirects=True, timeout=30.0) as client:
+        response = await client.get(url, headers=headers)
         html = response.text
         
     soup = BeautifulSoup(html, 'html.parser')
