@@ -972,8 +972,10 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                     if "serverContent" in resp:
                         if "modelTurn" in resp["serverContent"]:
                             call_state["model_is_speaking"] = True
+                            call_state["tool_call_in_progress"] = False
                         if resp["serverContent"].get("turnComplete"):
                             call_state["model_is_speaking"] = False
+                            call_state["tool_call_in_progress"] = False
                             print("[DEBUG] AI konusmasi bitti, kilit acildi (turnComplete).")
 
                     # 1. Capture User Speech Transcription (inputTranscription)
@@ -1116,10 +1118,9 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             call_uid = call.get("id")
                             
                             print(f"[Gemini] Fonksiyon cagirdi: {call_name} (Args: {call_args})")
-                            if call_name == "hangup_call":
+                            if call_name == "hangup_call" or call_name == "trigger_abuse_shield":
                                 call_state["should_hangup"] = True
                             if call_name == "trigger_abuse_shield":
-                                call_state["should_hangup"] = True
                                 reason_val = call_args.get("reason", "Yapay Zeka Suistimal Tespiti")
                                 await auto_blacklist_call(call_id, reason_val)
                             
@@ -1140,8 +1141,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             }
                         }
                         await gemini_ws.send(json.dumps(response_msg))
-                        print("[Gemini] Fonksiyon cevabi iletildi.")
-                        call_state["tool_call_in_progress"] = False
+                        print("[Gemini] Fonksiyon cevabi iletildi. Model yaniti bekleniyor...")
 
             except Exception as e:
                 print(f"Gemini okuma / Asterisk gonderim hatasi: {e}")
