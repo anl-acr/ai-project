@@ -49,6 +49,8 @@
   - PJSIP trunk settings are saved in PostgreSQL / `settings.json` and generated in `/etc/asterisk/pjsip_custom.conf`.
 - **RAG & Web Crawler**:
   - `index_website_url` uses `verify=False` and standard User-Agent header to handle self-signed or expired SSL certificates.
+- **AI Voice Audio Cutoff (Barge-in Echo Suppression)**:
+  - Low-amplitude background noise/echo (`avg_amplitude < 150`) is suppressed while `model_is_speaking` is True to prevent Gemini's server-side VAD from false-triggering `interrupted: true` and cutting off the AI's voice mid-sentence.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.

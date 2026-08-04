@@ -868,7 +868,11 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                         audio_buffer.extend(payload)
                         
                         if len(audio_buffer) >= 1600:
-                            pcm_16k = resample_8k_to_16k(bytes(audio_buffer))
+                            # Suppress low-amplitude background noise/echo while AI is speaking to prevent false interruption (barge-in)
+                            if call_state.get("model_is_speaking", False) and avg_amplitude < 150:
+                                pcm_16k = b'\x00' * 3200
+                            else:
+                                pcm_16k = resample_8k_to_16k(bytes(audio_buffer))
                             audio_buffer.clear()
                             
                             b64_audio = base64.b64encode(pcm_16k).decode('utf-8')
