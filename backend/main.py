@@ -1504,18 +1504,6 @@ same => n,Hangup()
 exten => h,1,NoOp(Cagri sonlandi: ${{EXTEN}})
 same => n,Hangup()
 
-; Her türlü diğer numara/uzantı formatı için Catch-all
-exten => _.,1,NoOp(Gelen arama catch-all ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
-same => n,Set(UUID_VAL=${{UUID()}})
-same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
-same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
-same => n,Progress()
-same => n,Answer()
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
-same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
-same => n,Hangup()
-
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
 exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UNIQUEID}})
 same => n,Playback(transfer-please-wait)
