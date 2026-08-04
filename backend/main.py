@@ -1,6 +1,13 @@
 import os
+import sys
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, PROJECT_ROOT)
+
 from dotenv import load_dotenv
-load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
+load_dotenv(os.path.join(BASE_DIR, '.env'))
 import shutil
 import socket
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
@@ -12,8 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import Session
 from typing import Union, List, Optional, Dict, Any
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 RECORDINGS_DIR = os.path.join(PROJECT_ROOT, "recordings")
 SETTINGS_FILE = os.path.join(BASE_DIR, "settings.json")
 ASTERISK_CONFIG_DIR = os.path.join(PROJECT_ROOT, "asterisk_config")
