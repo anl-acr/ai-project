@@ -1269,6 +1269,8 @@ outbound_auth={name}-auth
 client_uri=sip:{t.get('username','')}@{host}:{port}
 server_uri=sip:{host}:{port}
 contact_user={did}
+line=yes
+endpoint={name}
 
 [{name}-auth]
 type=auth
@@ -1287,8 +1289,12 @@ type=endpoint
 transport={transport}
 context=default
 disallow=all
-allow=ulaw,alaw,g729
+allow=ulaw,alaw,g722,g729
 aors={name}-aor
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
 """
         if t_type == "register":
             conf_content += f"""outbound_auth={name}-auth
