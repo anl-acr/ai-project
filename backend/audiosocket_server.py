@@ -623,6 +623,12 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
 
         # Compile dynamic system instruction from database rules
         system_instruction = await compile_system_prompt(ai_agent)
+        system_instruction += """
+\n--- OTOMATİK BİLGİ BANKASI VE ARAÇ KULLANIM KURALI ---
+Müşteri adres, konum, şirket bilgisi, ürün, hizmet, fiyat, mesai saati veya herhangi bir kurumsal detay sorduğunda:
+HİÇ TAHMİN YÜRÜTME. Kesinlikle 'query_knowledge_base' aracını çağırarak bilgi bankasında arama yap.
+Gelen arama sonucundaki bilgileri müşteriye nazik, anlaşılır ve Türkçe olarak sesli yanıtla.
+"""
         
         # Check if Dynamic Emotion Management is enabled
         try:

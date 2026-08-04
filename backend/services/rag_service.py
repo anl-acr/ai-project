@@ -197,8 +197,12 @@ async def query_vector_search(query: str, limit: int = None) -> str:
                 if similarity >= threshold:
                     matched_chunks.append(chunk)
             
+            # Fallback: if similarity threshold wasn't met, return the top matching chunks anyway
+            if not matched_chunks and rows:
+                matched_chunks = [c for c, dist in rows[:top_k]]
+            
             if not matched_chunks:
-                return "Bilgi bankasında arama yapıldı ancak yeterli eşleşme oranında (%{:.0f}) sonuç bulunamadı.".format(threshold * 100)
+                return "Bilgi bankasında arama yapıldı ancak henüz kaydedilmiş veri veya eşleşen bilgi bulunamadı."
                 
             results_text = "\n---\n".join([f"Kaynak: {c.filename}\n{c.content}" for c in matched_chunks])
             return results_text
