@@ -705,7 +705,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         model_name = ai_agent.get("model", GEMINI_MODEL) if ai_agent else GEMINI_MODEL
         
         # Ensure we use a Live API compatible model
-        if "1.5" in model_name or "1.0" in model_name or model_name == "gemini-2.0-flash" or "eleven" in model_name.lower() or not model_name.lower().startswith("gemini"):
+        if "2.0-flash-exp" in model_name or "1.5" in model_name or "1.0" in model_name or model_name == "gemini-2.0-flash" or "eleven" in model_name.lower() or not model_name.lower().startswith("gemini"):
             print(f"[Uyari] '{model_name}' Live WebSocket API'si ile doğrudan kullanılamaz. Zeka motoru 'models/gemini-2.5-flash-native-audio-latest' olarak ayarlandı.")
             model_name = "models/gemini-2.5-flash-native-audio-latest"
             
