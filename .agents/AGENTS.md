@@ -30,3 +30,22 @@
 - Always use the `useTheme()` hook from `../../utils/theme.js` to extract dynamic variables: `bg`, `hover`, `text`, `border`, `ring`, `lightBg`, `lightText`, `borderLight`.
 - Apply these destructured variables directly in your `className` (e.g., `className={"p-2 rounded " + bg + " " + hover}`).
 - If you absolutely must use inline Tailwind classes, use the generic `primary` tailwind color mapped to CSS variables (e.g., `text-primary`, `bg-primary`, `border-primary`).
+
+## Server Architecture & PM2 Process Memory
+- **Production Server Directory**: `/opt/ai-project`
+- **PM2 Managed Processes**:
+  - `aida-app` (ID 0): Frontend web application (Next.js / React)
+  - `aida-backend` (ID 2): Python FastAPI Backend & AudioSocket TCP Server
+  - Deployment Command: `git pull origin main && pm2 restart aida-backend`
+- **Virtual Environment**: `/opt/ai-project/venv` (`source venv/bin/activate`)
+- **Key Services & Ports**:
+  - Web Server / API: Port `8000` (FastAPI / Uvicorn)
+  - AI Voice AudioSocket TCP Server: Port `9092` (launched automatically by `main.py` startup event)
+  - Asterisk AMI: Port `5038` (`ai_backend_user` / `backend_secure_key_99`)
+  - PostgreSQL DB: Port `5444` (`ai_pbx` database)
+- **Asterisk Configuration & Sync**:
+  - Dialplan dynamically constructs 36-char RFC 4122 compliant UUIDs via MD5 fallback for `AudioSocket`.
+  - Dialplan sync command: `python3 backend/scripts/sync_asterisk.py` (zero external python dependencies).
+  - PJSIP trunk settings are saved in PostgreSQL / `settings.json` and generated in `/etc/asterisk/pjsip_custom.conf`.
+- **RAG & Web Crawler**:
+  - `index_website_url` uses `verify=False` and standard User-Agent header to handle self-signed or expired SSL certificates.
