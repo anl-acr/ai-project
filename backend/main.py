@@ -1143,15 +1143,35 @@ async def upload_ssl_certificates(
         raise HTTPException(status_code=500, detail=f"Sertifikalar yüklenirken hata oluştu: {str(e)}")
 
 def run_pjsip_reload():
-    # Trigger Asterisk PJSIP Reload command dynamically to make Asterisk register/unregister the trunk instantly
+    # Trigger Asterisk PJSIP & Dialplan Reload command dynamically
+    try:
+        import subprocess
+        res = subprocess.run(["asterisk", "-rx", "pjsip reload"], capture_output=True, text=True)
+        subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True)
+        if res.returncode == 0:
+            print("[Asterisk Config] PJSIP ve Dialplan başarıyla yenilendi (host).")
+            return
+    except Exception as e:
+        print(f"[Asterisk Config] Direct PJSIP reload failed: {e}")
+
     try:
         import subprocess
         subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "pjsip reload"], check=True, capture_output=True)
-        print("[Asterisk Config] PJSIP configurations reloaded successfully in Asterisk container.")
+        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True)
+        print("[Asterisk Config] PJSIP & Dialplan configurations reloaded successfully in Asterisk container.")
     except Exception as e:
         print(f"[Asterisk Config] Failed to reload PJSIP in Asterisk: {e}")
 
 def run_queue_reload():
+    try:
+        import subprocess
+        res = subprocess.run(["asterisk", "-rx", "queue reload all"], capture_output=True, text=True)
+        if res.returncode == 0:
+            print("[Asterisk Config] Queue reloaded successfully via host Asterisk.")
+            return
+    except Exception as e:
+        print(f"[Asterisk Config] Direct queue reload failed: {e}")
+
     try:
         import subprocess
         subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "queue reload all"], check=True, capture_output=True)
@@ -1159,7 +1179,47 @@ def run_queue_reload():
     except Exception as e:
         print(f"[Asterisk Config] Failed to reload queues in Asterisk: {e}")
 
+def run_dialplan_reload():
+    try:
+        import subprocess
+        res = subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True)
+        if res.returncode == 0:
+            print("[Asterisk Config] Dialplan reloaded successfully via host Asterisk.")
+            return
+    except Exception as e:
+        print(f"[Asterisk Config] Direct dialplan reload failed: {e}")
+
+    try:
+        import subprocess
+        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True)
+        print("[Asterisk Config] Dialplan configurations reloaded successfully in Asterisk container.")
+    except Exception as e:
+        print(f"[Asterisk Config] Failed to reload dialplan in Asterisk: {e}")
+
 def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = None):
+    # Fetch Users and Trunks from Database (with fallback to settings_db)
+    users_list = []
+    trunks_list = []
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser, Trunk
+        with SyncSessionLocal() as session:
+            db_users = session.query(SystemUser).all()
+            for u in db_users:
+                d = {col.name: getattr(u, col.name) for col in SystemUser.__table__.columns}
+                users_list.append(d)
+            db_trunks = session.query(Trunk).all()
+            for t in db_trunks:
+                d = {col.name: getattr(t, col.name) for col in Trunk.__table__.columns}
+                trunks_list.append(d)
+    except Exception as e_db:
+        print(f"[Asterisk Config] Database query error, using settings_db fallback: {e_db}")
+
+    if not users_list:
+        users_list = settings_db.get("users", [])
+    if not trunks_list:
+        trunks_list = settings_db.get("trunks", [])
+
     conf_content = """; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK AYARLARI
 ; ==========================================
@@ -1173,34 +1233,48 @@ bind=0.0.0.0
 type=transport
 protocol=tcp
 bind=0.0.0.0
+
+; WebRTC / Standard Dahili Şablonu
+[webrtc_agent_template](!)
+type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
 """
-    for t in settings_db.get("trunks", []):
-        if not t.get("is_active", True):
-            print(f"[Asterisk Config] Pasif trunk atlandi: {t['trunk_name']}")
+    for t in trunks_list:
+        is_act = t.get("is_active") if "is_active" in t else True
+        if not is_act:
+            t_name = t.get("trunk_name") or t.get("name") or "trunk"
+            print(f"[Asterisk Config] Pasif trunk atlandi: {t_name}")
             continue
-        name = t["trunk_name"]
-        host = t["host"]
-        port = t["port"]
-        did = t["did_number"]
+        name = t.get("trunk_name") or t.get("name") or "trunk"
+        host = t.get("host", "127.0.0.1")
+        port = t.get("port", 5060)
+        did = t.get("did_number", "")
         protocol = t.get("protocol", "udp")
         transport = "transport-tcp" if protocol == "tcp" else "transport-udp"
+        t_type = t.get("trunk_type", "ip")
         
-        conf_content += f"\n; --- TRUNK: {name} ({t['trunk_type'].upper()}) ---\n"
+        conf_content += f"\n; --- TRUNK: {name} ({t_type.upper()}) ---\n"
         
-        if t["trunk_type"] == "register":
+        if t_type == "register":
             conf_content += f"""[{name}-reg]
 type=registration
 transport={transport}
 outbound_auth={name}-auth
-client_uri=sip:{t['username']}@{host}:{port}
+client_uri=sip:{t.get('username','')}@{host}:{port}
 server_uri=sip:{host}:{port}
 contact_user={did}
 
 [{name}-auth]
 type=auth
 auth_type=userpass
-username={t['username']}
-password={t['password']}
+username={t.get('username','')}
+password={t.get('password','')}
 
 """
 
@@ -1216,9 +1290,9 @@ disallow=all
 allow=ulaw,alaw,g729
 aors={name}-aor
 """
-        if t["trunk_type"] == "register":
+        if t_type == "register":
             conf_content += f"""outbound_auth={name}-auth
-from_user={t['username']}
+from_user={t.get('username','')}
 from_domain={host}
 
 """
@@ -1234,14 +1308,15 @@ match={host}
     conf_content += "; DINAMIK OLARAK OLUŞTURULAN KULLANICI (DAHILI) AYARLARI\n"
     conf_content += "; ==========================================\n"
 
-    for u in settings_db.get("users", []):
-        if not u.get("is_active", True):
+    for u in users_list:
+        is_act = u.get("is_active") if "is_active" in u else True
+        if not is_act:
             continue
         ext = u.get("extension")
         if not ext:
             continue
-        pwd = u.get("sip_password", "1234")
-        name = u.get("full_name", ext)
+        pwd = u.get("sip_password") or u.get("password") or "1234"
+        name = u.get("full_name") or u.get("username") or ext
         
         conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
         conf_content += f"""[{ext}](webrtc_agent_template)
@@ -1269,26 +1344,59 @@ remove_existing=yes
         f.write(conf_content)
     print(f"[Asterisk Config] pjsip_custom.conf yeniden uretildi: {config_path}")
 
+    etc_dir = "/etc/asterisk"
+    if os.path.exists(etc_dir):
+        try:
+            etc_path = os.path.join(etc_dir, "pjsip_custom.conf")
+            with open(etc_path, "w", encoding="utf-8") as f:
+                f.write(conf_content)
+            print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf güncellendi: {etc_path}")
+        except Exception as e:
+            print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf yazılamadı: {e}")
+
     if background_tasks:
         background_tasks.add_task(run_pjsip_reload)
     else:
         run_pjsip_reload()
 
 def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
+    queues_list = []
+    users_list = []
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import PBXQueue, SystemUser
+        with SyncSessionLocal() as session:
+            db_queues = session.query(PBXQueue).all()
+            for q in db_queues:
+                d = {col.name: getattr(q, col.name) for col in PBXQueue.__table__.columns}
+                queues_list.append(d)
+            db_users = session.query(SystemUser).all()
+            for u in db_users:
+                d = {col.name: getattr(u, col.name) for col in SystemUser.__table__.columns}
+                users_list.append(d)
+    except Exception as e_db:
+        print(f"[Asterisk Config] Queue database query error, using settings_db fallback: {e_db}")
+
+    if not queues_list:
+        queues_list = settings_db.get("queues", [])
+    if not users_list:
+        users_list = settings_db.get("users", [])
+
     conf_content = """; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN KUYRUK AYARLARI
 ; ==========================================
 """
-    for q in settings_db.get("queues", []):
-        if not q.get("is_active", True):
+    for q in queues_list:
+        is_act = q.get("is_active") if "is_active" in q else True
+        if not is_act:
             continue
-        name = q.get("name", "queue_temp")
+        q_key = q.get("extension") or str(q.get("id")) or q.get("name", "queue_temp")
         strategy = q.get("strategy", "ringall")
         timeout = q.get("timeout", 15)
         retry = q.get("retry", 5)
         wrapup = q.get("wrapuptime", 0)
         
-        conf_content += f"\n[{name}]\n"
+        conf_content += f"\n[{q_key}]\n"
         conf_content += f"strategy={strategy}\n"
         conf_content += f"timeout={timeout}\n"
         conf_content += f"retry={retry}\n"
@@ -1298,10 +1406,16 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
         conf_content += "joinempty=yes\n"
         conf_content += "leavewhenempty=no\n"
         
-        for member in q.get("queueMembers", []):
-            user_id = member.get("user_id")
-            # Find the user's extension
-            u = next((u for u in settings_db.get("users", []) if u["id"] == user_id), None)
+        members = q.get("queueMembers") or q.get("members") or []
+        if isinstance(members, str):
+            import json
+            try:
+                members = json.loads(members)
+            except Exception:
+                members = []
+        for member in members:
+            user_id = member.get("user_id") if isinstance(member, dict) else member
+            u = next((u for u in users_list if str(u["id"]) == str(user_id)), None)
             if u and u.get("extension"):
                 conf_content += f"member => PJSIP/{u['extension']}\n"
                 
@@ -1312,10 +1426,128 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
         f.write(conf_content)
     print(f"[Asterisk Config] queues_custom.conf yeniden uretildi: {config_path}")
 
+    etc_dir = "/etc/asterisk"
+    if os.path.exists(etc_dir):
+        try:
+            etc_path = os.path.join(etc_dir, "queues_custom.conf")
+            with open(etc_path, "w", encoding="utf-8") as f:
+                f.write(conf_content)
+            print(f"[Asterisk Config] /etc/asterisk/queues_custom.conf güncellendi: {etc_path}")
+        except Exception as e:
+            print(f"[Asterisk Config] /etc/asterisk/queues_custom.conf yazılamadı: {e}")
+
     if background_tasks:
         background_tasks.add_task(run_queue_reload)
     else:
         run_queue_reload()
+
+def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks] = None):
+    conf_content = """; ==========================================
+; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
+; ==========================================
+
+[default]
+; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
+exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
+same => n,Set(CALL_UUID=${UUID()})
+same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+same => n,Progress()
+same => n,Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
+same => n,AudioSocket(${CALL_UUID},192.168.65.254:9092)
+same => n,Hangup()
+
+; Uluslararası / + ile gelen DID numaraları için (+90...)
+exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
+same => n,Set(CALL_UUID=${UUID()})
+same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+same => n,Progress()
+same => n,Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
+same => n,AudioSocket(${CALL_UUID},192.168.65.254:9092)
+same => n,Hangup()
+
+; Fallback (s uzantısı)
+exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${CALLERID(num)})
+same => n,Set(CALL_UUID=${UUID()})
+same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=s&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+same => n,Progress()
+same => n,Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
+same => n,AudioSocket(${CALL_UUID},192.168.65.254:9092)
+same => n,Hangup()
+
+; Her türlü diğer numara/uzantı formatı için Catch-all
+exten => _.,1,NoOp(Gelen arama catch-all ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
+same => n,Set(CALL_UUID=${UUID()})
+same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+same => n,Progress()
+same => n,Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
+same => n,AudioSocket(${CALL_UUID},192.168.65.254:9092)
+same => n,Hangup()
+
+; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
+exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${UNIQUEID})
+same => n,Playback(transfer-please-wait)
+same => n,Queue(temsilci_kuyrugu)
+same => n,Hangup()
+
+[webrtc_agents]
+; WebRTC istemcileri (temsilciler) bu context üzerinden görüşme yapar
+
+; Dış hat aramaları için (0 ile başlayan numaralar)
+exten => _0.,1,NoOp(Dis arama baslatiliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
+same => n,Set(CALL_UUID=${UUID()})
+same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${EXTEN}@ikonsip.com:5060,60,r)
+same => n,Hangup()
+
+exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${CALL_UUID})
+same => n,Set(CURL_RESULT=${CURL(http://host.docker.internal:8000/api/calls/end?call_id=${CALL_UUID})})
+
+; İç hat (Diğer temsilciler) aramaları için (2XX vb.)
+exten => _2XX,1,NoOp(ACL kontrol ediliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
+same => n,Set(ACL_RESULT=${CURL(http://host.docker.internal:8000/api/acl/check_subscriber_call?caller=${CALLERID(num)}&callee=${EXTEN})})
+same => n,GotoIf($["${ACL_RESULT}" = "ALLOW"]?allow:deny)
+same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
+same => n,Playback(ss-noservice)
+same => n,Hangup()
+same => n(allow),NoOp(ACL ONAYLANDI: Arama baslatiliyor)
+same => n,Dial(PJSIP/${EXTEN})
+same => n,Hangup()
+
+[mobile_transfer_context]
+exten => s,1,NoOp(Mobil aktarim arandi ve cevaplandi. Arayan=${CALLERID(num)})
+same => n,Progress()
+same => n,Answer()
+same => n,Playback(/var/spool/asterisk/monitor/summary_${CALL_UUID})
+same => n,Bridge(${CUSTOMER_CHANNEL})
+same => n,Hangup()
+"""
+
+    config_dir = ASTERISK_CONFIG_DIR
+    os.makedirs(config_dir, exist_ok=True)
+    config_path = os.path.join(config_dir, "extensions_custom.conf")
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.write(conf_content)
+    print(f"[Asterisk Config] extensions_custom.conf yeniden uretildi: {config_path}")
+
+    etc_dir = "/etc/asterisk"
+    if os.path.exists(etc_dir):
+        try:
+            etc_path = os.path.join(etc_dir, "extensions_custom.conf")
+            with open(etc_path, "w", encoding="utf-8") as f:
+                f.write(conf_content)
+            print(f"[Asterisk Config] /etc/asterisk/extensions_custom.conf güncellendi: {etc_path}")
+        except Exception as e:
+            print(f"[Asterisk Config] /etc/asterisk/extensions_custom.conf yazılamadı: {e}")
+
+    if background_tasks:
+        background_tasks.add_task(run_dialplan_reload)
+    else:
+        run_dialplan_reload()
 
 @app.get("/api/v1_old/settings/trunks")
 async def list_trunks():
@@ -5276,6 +5508,15 @@ async def startup_event():
             # Refresh global settings_db dict
             global settings_db
             settings_db.update(load_settings())
+
+            # Regenerate Asterisk configs (PJSIP endpoints, trunks, queues, dialplan) for native or docker Asterisk
+            try:
+                regenerate_pjsip_custom_conf()
+                regenerate_queues_conf()
+                regenerate_extensions_custom_conf()
+                print("[Asterisk Startup Sync] PJSIP, Kuyruk ve Dialplan konfigürasyonları Asterisk için başarıyla güncellendi.")
+            except Exception as e_ast:
+                print(f"[Asterisk Startup Sync Error]: {e_ast}")
 
             # Start background tasks
             asyncio.create_task(recording_cleanup_task())

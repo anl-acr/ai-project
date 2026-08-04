@@ -270,11 +270,57 @@ EOM
 cat <<EOM > /etc/asterisk/extensions.conf
 [general]
 static=yes
-writeprotect=yes
+writeprotect=no
 clearglobalvars=no
 
 [globals]
 CONSOLE=Console/dsp
+
+[default]
+; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
+exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: \${EXTEN} - Arayan: \${CALLERID(num)})
+same => n,Set(CALL_UUID=\${UUID()})
+same => n,Set(CURL_RESULT=\${CURL(http://127.0.0.1:8000/api/calls/register?call_id=\${CALL_UUID}&did=\${EXTEN}&caller=\${CALLERID(num)}&asterisk_id=\${UNIQUEID})})
+same => n,Progress()
+same => n,Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/\${CALL_UUID}.wav)
+same => n,AudioSocket(\${CALL_UUID},127.0.0.1:9092)
+same => n,Hangup()
+
+; Uluslararası / + ile gelen DID numaraları için (+90...)
+exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: \${EXTEN} - Arayan: \${CALLERID(num)})
+same => n,Set(CALL_UUID=\${UUID()})
+same => n,Set(CURL_RESULT=\${CURL(http://127.0.0.1:8000/api/calls/register?call_id=\${CALL_UUID}&did=\${EXTEN}&caller=\${CALLERID(num)}&asterisk_id=\${UNIQUEID})})
+same => n,Progress()
+same => n,Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/\${CALL_UUID}.wav)
+same => n,AudioSocket(\${CALL_UUID},127.0.0.1:9092)
+same => n,Hangup()
+
+; Fallback (s uzantısı)
+exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: \${CALLERID(num)})
+same => n,Set(CALL_UUID=\${UUID()})
+same => n,Set(CURL_RESULT=\${CURL(http://127.0.0.1:8000/api/calls/register?call_id=\${CALL_UUID}&did=s&caller=\${CALLERID(num)}&asterisk_id=\${UNIQUEID})})
+same => n,Progress()
+same => n,Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/\${CALL_UUID}.wav)
+same => n,AudioSocket(\${CALL_UUID},127.0.0.1:9092)
+same => n,Hangup()
+
+; Catch-all
+exten => _.,1,NoOp(Gelen arama catch-all ile yakalandi: \${EXTEN} - Arayan: \${CALLERID(num)})
+same => n,Set(CALL_UUID=\${UUID()})
+same => n,Set(CURL_RESULT=\${CURL(http://127.0.0.1:8000/api/calls/register?call_id=\${CALL_UUID}&did=\${EXTEN}&caller=\${CALLERID(num)}&asterisk_id=\${UNIQUEID})})
+same => n,Progress()
+same => n,Answer()
+same => n,MixMonitor(/var/spool/asterisk/monitor/\${CALL_UUID}.wav)
+same => n,AudioSocket(\${CALL_UUID},127.0.0.1:9092)
+same => n,Hangup()
+
+exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: \${UNIQUEID})
+same => n,Playback(transfer-please-wait)
+same => n,Queue(temsilci_kuyrugu)
+same => n,Hangup()
 
 #include /etc/asterisk/extensions_custom.conf
 EOM
