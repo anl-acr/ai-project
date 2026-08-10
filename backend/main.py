@@ -1,5 +1,6 @@
 import os
 import sys
+import subprocess
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -6376,7 +6377,7 @@ async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
         scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
         if scheme == "wss":
-            wss_url = f"wss://{req_host}/ws"
+            wss_url = f"wss://{req_host}:8089/ws"
         else:
             wss_url = f"ws://{req_host}:8088/ws"
             
