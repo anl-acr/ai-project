@@ -204,14 +204,19 @@ remove_existing=yes
 
         # Ensure #include /etc/asterisk/pjsip_custom.conf in /etc/asterisk/pjsip.conf
         pjsip_main = "/etc/asterisk/pjsip.conf"
+        need_append = True
         if os.path.exists(pjsip_main):
             with open(pjsip_main, "r", encoding="utf-8") as f:
                 curr_pjsip = f.read()
-            if "pjsip_custom.conf" not in curr_pjsip:
-                with open(pjsip_main, "a", encoding="utf-8") as f:
-                    f.write("\n#include /etc/asterisk/pjsip_custom.conf\n")
-                print("[Sync Script] #include /etc/asterisk/pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
+            if "#include /etc/asterisk/pjsip_custom.conf" in curr_pjsip or "#include pjsip_custom.conf" in curr_pjsip:
+                need_append = False
+        
+        if need_append:
+            with open(pjsip_main, "a", encoding="utf-8") as f:
+                f.write("\n#include /etc/asterisk/pjsip_custom.conf\n#include pjsip_custom.conf\n")
+            print("[Sync Script] #include pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
 
+        subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False)
         subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)
         print("[Sync Script] Asterisk PJSIP başarıyla yenilendi (pjsip reload).")
     except Exception as e_pjsip:
