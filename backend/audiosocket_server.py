@@ -277,15 +277,23 @@ def resample_8k_to_16k(data: bytes) -> bytes:
         out[i*2+2:i*2+4] = sample
     return bytes(out)
 
-def resample_24k_to_8k(data: bytes) -> bytes:
-    """Downsamples 24kHz mono 16-bit PCM to 8kHz mono 16-bit PCM using a [1, 2, 1] weighted average filter to prevent aliasing while preserving clarity."""
+def resample_24k_to_8k(data: bytes, leftover: bytearray = None) -> bytes:
+    """Downsamples 24kHz mono 16-bit PCM to 8kHz mono 16-bit PCM using a [1, 2, 1] weighted average filter, preserving leftover samples across chunk boundaries to eliminate metallic crackling."""
     import array
+    if leftover is not None and len(leftover) > 0:
+        data = bytes(leftover) + data
+        leftover.clear()
+        
     samples = array.array('h', data)
-    out_samples = array.array('h')
+    num_samples = len(samples)
+    remainder = num_samples % 3
     
-    # Process in groups of 3 samples (since 24kHz / 8kHz = 3)
-    for i in range(0, len(samples) - 2, 3):
-        # Weighted average filter of [1, 2, 1] / 4
+    usable_samples = num_samples - remainder
+    if remainder > 0 and leftover is not None:
+        leftover.extend(samples[usable_samples:].tobytes())
+        
+    out_samples = array.array('h')
+    for i in range(0, usable_samples, 3):
         weighted_val = int((samples[i] + 2 * samples[i+1] + samples[i+2]) // 4)
         out_samples.append(weighted_val)
         
@@ -916,12 +924,13 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                     
                     # Absolute time pacing for exactly 50 FPS (20ms frames)
                     next_time += 0.02
-                    delay = next_time - loop.time()
+                    now = loop.time()
+                    delay = next_time - now
                     if delay > 0:
                         await asyncio.sleep(delay)
-                    else:
-                        # Reset clock if we fall behind to prevent sudden burst of frames
-                        next_time = loop.time()
+                    elif delay < -0.1:
+                        # Only reset clock anchor if lag exceeds 100ms to prevent clock jitter crackle
+                        next_time = now
             except asyncio.CancelledError:
                 pass
             except Exception as e:
@@ -941,6 +950,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                 auto_detect_lang = False
                 
             audio_buffer = bytearray()
+            leftover_24k = bytearray()
             
             try:
                 async for raw_response in gemini_ws:
@@ -1070,8 +1080,8 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                 if "audio/pcm" in mime:
                                     b64_data = part["inlineData"]["data"]
                                     raw_pcm_24k = base64.b64decode(b64_data)
-                                    # Resample 24kHz PCM to 8kHz PCM for Asterisk
-                                    raw_pcm_8k = resample_24k_to_8k(raw_pcm_24k)
+                                    # Resample 24kHz PCM to 8kHz PCM for Asterisk with leftover boundary protection
+                                    raw_pcm_8k = resample_24k_to_8k(raw_pcm_24k, leftover_24k)
                                     
                                     audio_buffer.extend(raw_pcm_8k)
                                     
