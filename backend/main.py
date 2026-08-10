@@ -6331,17 +6331,29 @@ async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user
         
         # Veritabanından mevcut kullanıcıyı bul
         current_user = None
-        if user_id and user_id != "admin" and user_id != "Bilinmeyen":
+        if user_id:
             try:
-                uid = int(user_id)
-                result = await db.execute(select(SystemUser).filter(SystemUser.id == uid))
+                if str(user_id).isdigit():
+                    uid = int(user_id)
+                    result = await db.execute(select(SystemUser).filter(SystemUser.id == uid))
+                    db_user = result.scalars().first()
+                    if db_user:
+                        current_user = {c.name: getattr(db_user, c.name) for c in db_user.__table__.columns}
+            except Exception:
+                pass
+                
+        # Eğer admin veya id eşleşmesi ile kullanıcı bulunamadıysa ilk aktif kullanıcıyı al
+        if not current_user:
+            try:
+                result = await db.execute(select(SystemUser).filter(SystemUser.is_active == True))
                 db_user = result.scalars().first()
                 if db_user:
                     current_user = {c.name: getattr(db_user, c.name) for c in db_user.__table__.columns}
-            except ValueError:
+            except Exception:
                 pass
                 
-        agent_ext = current_user.get("extension", "101") if current_user else "200"
+        agent_ext = current_user.get("extension", "1000") if current_user else "1000"
+        sip_password = (current_user.get("sip_password") or current_user.get("password") or "1234") if current_user else "1234"
         
         # Dynamically compute WebSocket URL from incoming request header/host if set to 127.0.0.1
         configured_url = settings_db.get("pbx", {}).get("webrtc_wss_url", "")
@@ -6353,9 +6365,6 @@ async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user
         else:
             wss_url = configured_url
             
-        # PJSIP şifresi veritabanından alınıyor
-        sip_password = current_user.get("sip_password", "1234") if current_user else "1234"
-        
         return {
             "asteriskWssUrl": wss_url,
             "agentExtension": agent_ext,
