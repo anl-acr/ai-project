@@ -277,8 +277,8 @@ def resample_8k_to_16k(data: bytes) -> bytes:
         out[i*2+2:i*2+4] = sample
     return bytes(out)
 
-def resample_24k_to_8k(data: bytes, leftover: bytearray = None) -> bytes:
-    """Downsamples 24kHz mono 16-bit PCM to 8kHz mono 16-bit PCM using 3-sample arithmetic averaging with leftover sample boundary preservation to eliminate voice crackling."""
+def resample_pcm_to_8k(data: bytes, in_rate: int = 24000, leftover: bytearray = None) -> bytes:
+    """Dynamically resamples mono 16-bit PCM (16kHz or 24kHz) to 8kHz mono 16-bit PCM for Asterisk with leftover sample boundary preservation to eliminate voice speed distortion and crackling."""
     import array
     if leftover is not None and len(leftover) > 0:
         data = bytes(leftover) + data
@@ -286,15 +286,17 @@ def resample_24k_to_8k(data: bytes, leftover: bytearray = None) -> bytes:
         
     samples = array.array('h', data)
     num_samples = len(samples)
-    remainder = num_samples % 3
+    
+    ratio = max(1, int(round(in_rate / 8000.0)))  # 3 for 24kHz, 2 for 16kHz
+    remainder = num_samples % ratio
     
     usable_samples = num_samples - remainder
     if remainder > 0 and leftover is not None:
         leftover.extend(samples[usable_samples:].tobytes())
         
     out_samples = array.array('h')
-    for i in range(0, usable_samples, 3):
-        val = (int(samples[i]) + int(samples[i+1]) + int(samples[i+2])) // 3
+    for i in range(0, usable_samples, ratio):
+        val = sum(int(samples[i + j]) for j in range(ratio)) // ratio
         if val > 32767:
             val = 32767
         elif val < -32768:
@@ -1085,9 +1087,17 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                 mime = part["inlineData"].get("mimeType", "")
                                 if "audio/pcm" in mime:
                                     b64_data = part["inlineData"]["data"]
-                                    raw_pcm_24k = base64.b64decode(b64_data)
-                                    # Resample 24kHz PCM to 8kHz PCM for Asterisk with leftover boundary protection
-                                    raw_pcm_8k = resample_24k_to_8k(raw_pcm_24k, leftover_24k)
+                                    raw_pcm = base64.b64decode(b64_data)
+                                    
+                                    in_rate = 24000
+                                    if "rate=" in mime:
+                                        try:
+                                            in_rate = int(mime.split("rate=")[1].split(";")[0].strip())
+                                        except Exception:
+                                            in_rate = 24000
+                                            
+                                    # Resample input PCM (16kHz/24kHz) to 8kHz PCM for Asterisk with sample rate awareness & boundary protection
+                                    raw_pcm_8k = resample_pcm_to_8k(raw_pcm, in_rate=in_rate, leftover=leftover_24k)
                                     
                                     audio_buffer.extend(raw_pcm_8k)
                                     
