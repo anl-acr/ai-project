@@ -142,8 +142,8 @@ type=transport
 protocol=wss
 bind=0.0.0.0:8089
 
-; WebRTC / Standard Dahili Şablonu
-[webrtc_agent_template](!)
+; --- DEFAULT WEBRTC AGENT: 1000 ---
+[1000]
 type=endpoint
 context=webrtc_agents
 disallow=all
@@ -161,10 +161,6 @@ dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
 transport=transport-ws
-
-; --- DEFAULT WEBRTC AGENT: 1000 ---
-[1000](webrtc_agent_template)
-type=endpoint
 auth=1000-auth
 aors=1000
 callerid=Temsilci 1000 <1000>
@@ -185,14 +181,30 @@ remove_existing=yes
             if not is_act:
                 continue
             ext = str(u.get("extension", "")).strip()
-            if not ext:
+            if not ext or ext == "1000":
                 continue
             pwd = u.get("sip_password") or u.get("password") or "1234"
             name = u.get("full_name") or u.get("username") or ext
 
             pjsip_custom_content += f"\n; --- USER: {name} ({ext}) ---\n"
-            pjsip_custom_content += f"""[{ext}](webrtc_agent_template)
+            pjsip_custom_content += f"""[{ext}]
 type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+webrtc=yes
+use_avpf=yes
+media_encryption=dtls
+dtls_auto_generate_cert=yes
+dtls_verify=fingerprint
+dtls_setup=actpass
+ice_support=yes
+media_use_received_transport=yes
+transport=transport-ws
 auth={ext}-auth
 aors={ext}
 callerid={name} <{ext}>

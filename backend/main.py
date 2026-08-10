@@ -1327,24 +1327,22 @@ remove_existing=yes
         transport = "transport-tcp" if protocol == "tcp" else "transport-udp"
         t_type = t.get("trunk_type", "ip")
         
-        conf_content += f"\n; --- TRUNK: {name} ({t_type.upper()}) ---\n"
+        conf_content += f"\n; --- TRUNK: {name} ---\n"
         
         if t_type == "register":
-            conf_content += f"""[{name}-reg]
-type=registration
-transport={transport}
-outbound_auth={name}-auth
-client_uri=sip:{t.get('username','')}@{host}:{port}
-server_uri=sip:{host}:{port}
-contact_user={did}
-line=yes
-endpoint={name}
-
-[{name}-auth]
+            conf_content += f"""[{name}-auth]
 type=auth
 auth_type=userpass
 username={t.get('username','')}
 password={t.get('password','')}
+
+[{name}-reg]
+type=registration
+transport={transport}
+outbound_auth={name}-auth
+server_uri=sip:{host}:{port}
+client_uri=sip:{t.get('username','')}@{host}:{port}
+retry_interval=60
 
 """
 
@@ -1355,7 +1353,7 @@ contact=sip:{host}:{port}
 [{name}]
 type=endpoint
 transport={transport}
-context=default
+context=from-trunk
 disallow=all
 allow=ulaw,alaw,g722,g729
 aors={name}-aor
@@ -1387,14 +1385,30 @@ match={host}
         if not is_act:
             continue
         ext = u.get("extension")
-        if not ext:
+        if not ext or ext == "1000":
             continue
         pwd = u.get("sip_password") or u.get("password") or "1234"
         name = u.get("full_name") or u.get("username") or ext
         
         conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
-        conf_content += f"""[{ext}](webrtc_agent_template)
+        conf_content += f"""[{ext}]
 type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+webrtc=yes
+use_avpf=yes
+media_encryption=dtls
+dtls_auto_generate_cert=yes
+dtls_verify=fingerprint
+dtls_setup=actpass
+ice_support=yes
+media_use_received_transport=yes
+transport=transport-ws
 auth={ext}-auth
 aors={ext}
 callerid={name} <{ext}>
