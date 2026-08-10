@@ -4,7 +4,7 @@ import json
 import base64
 import datetime
 import websockets
-from sqlalchemy import update
+from sqlalchemy import select, update
 from backend.database.config import AsyncSessionLocal
 from backend.database.models import Call, Transcript, BlacklistItem, BlockWord
 from backend.services.websocket_manager import ws_manager
@@ -404,6 +404,7 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
 async def get_all_knowledge_base_context() -> str:
     """Fetches all indexed knowledge base document chunks from PostgreSQL to inject into system_instruction."""
     try:
+        from sqlalchemy import select
         from backend.database.models import DocumentChunk
         async with AsyncSessionLocal() as session:
             stmt = select(DocumentChunk).limit(30)
@@ -736,7 +737,8 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         formatted_model = model_name if model_name.startswith("models/") else f"models/{model_name}"
             
         agent_temperature = float(ai_agent.get("temperature", 0.7)) if ai_agent else 0.7
-        agent_max_tokens = int(ai_agent.get("max_tokens", 300)) if ai_agent else 300
+        raw_max_tokens = int(ai_agent.get("max_tokens", 2048)) if ai_agent else 2048
+        agent_max_tokens = max(raw_max_tokens, 2048)  # Audio tokens in live stream require ~60 tokens/sec; minimum 2048 ensures full responses without mid-sentence cutoff
         agent_name = ai_agent.get("name", "Varsayılan Temsilci") if ai_agent else "Varsayılan Temsilci"
         
         print(f"[AI Agent Active Config] Temsilci: '{agent_name}' | LLM Sağlayıcı: '{llm_provider.upper()}' (Model: '{formatted_model}') | TTS Sağlayıcı: '{tts_provider.upper()}' (Ses Tonu: '{agent_voice}', Ham: '{agent_voice_raw}') | Sıcaklık: {agent_temperature}")
@@ -944,6 +946,9 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                     except asyncio.QueueEmpty:
                         if call_state["should_hangup"] and not call_state["model_is_speaking"]:
                             print("Görüşme sonlandırma aracı çağrıldı ve ses kuyruğu boşaldı. Çağrı sonlandırılıyor...")
+                            if call_id:
+                                from backend.services.ami_manager import hangup_call as ami_hangup_call
+                                asyncio.create_task(ami_hangup_call(call_id))
                             break
                         audio_out = silence_frame
                     
