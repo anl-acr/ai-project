@@ -108,6 +108,22 @@ tlsprivatekey=/etc/asterisk/keys/webphone_privkey.pem
         except Exception as e:
             print(f"[Sync Script] http.conf hatası: {e}")
 
+    # Update /etc/asterisk/rtp.conf for WebRTC RTP NAT & STUN
+    rtp_content = """; ==========================================
+; Asterisk RTP Configuration
+; ==========================================
+[general]
+rtpstart=10000
+rtpend=20000
+stunaddr=stun.l.google.com:19302
+"""
+    if os.path.exists("/etc/asterisk"):
+        try:
+            with open("/etc/asterisk/rtp.conf", "w", encoding="utf-8") as f:
+                f.write(rtp_content)
+        except Exception as e:
+            print(f"[Sync Script] rtp.conf error: {e}")
+
     # Generate /etc/asterisk/pjsip_custom.conf directly in sync script
     try:
         import json
@@ -126,21 +142,29 @@ tlsprivatekey=/etc/asterisk/keys/webphone_privkey.pem
 type=transport
 protocol=udp
 bind=0.0.0.0
+external_media_address=78.189.210.15
+external_signaling_address=78.189.210.15
 
 [transport-tcp]
 type=transport
 protocol=tcp
 bind=0.0.0.0
+external_media_address=78.189.210.15
+external_signaling_address=78.189.210.15
 
 [transport-ws]
 type=transport
 protocol=ws
 bind=0.0.0.0:8088
+external_media_address=78.189.210.15
+external_signaling_address=78.189.210.15
 
 [transport-wss]
 type=transport
 protocol=wss
 bind=0.0.0.0:8089
+external_media_address=78.189.210.15
+external_signaling_address=78.189.210.15
 
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
@@ -148,6 +172,11 @@ type=endpoint
 context=default
 disallow=all
 allow=ulaw,alaw,g722,g729
+direct_media=no
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=no
+media_use_received_transport=yes
 outbound_auth=908503607390-auth
 aors=908503607390-aor
 

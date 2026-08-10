@@ -1259,21 +1259,29 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
 type=transport
 protocol=udp
 bind=0.0.0.0
+external_media_address=78.189.210.15
+external_signaling_address=78.189.210.15
 
 [transport-tcp]
 type=transport
 protocol=tcp
 bind=0.0.0.0
+external_media_address=78.189.210.15
+external_signaling_address=78.189.210.15
 
 [transport-ws]
 type=transport
 protocol=ws
 bind=0.0.0.0:8088
+external_media_address=78.189.210.15
+external_signaling_address=78.189.210.15
 
 [transport-wss]
 type=transport
 protocol=wss
 bind=0.0.0.0:8089
+external_media_address=78.189.210.15
+external_signaling_address=78.189.210.15
 
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
@@ -1281,6 +1289,11 @@ type=endpoint
 context=default
 disallow=all
 allow=ulaw,alaw,g722,g729
+direct_media=no
+rtp_symmetric=yes
+force_rport=yes
+rewrite_contact=no
+media_use_received_transport=yes
 outbound_auth=908503607390-auth
 aors=908503607390-aor
 
