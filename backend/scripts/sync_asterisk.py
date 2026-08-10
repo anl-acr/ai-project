@@ -227,15 +227,16 @@ remove_existing=yes
             pf.write(pjsip_custom_content)
         print(f"[Sync Script] pjsip_custom.conf yazıldı -> {pjsip_custom_path}")
 
-        # Ensure #include /etc/asterisk/pjsip_custom.conf on a clean new line in /etc/asterisk/pjsip.conf
+        # Clean and reset /etc/asterisk/pjsip.conf to cleanly include pjsip_custom.conf
         pjsip_main = "/etc/asterisk/pjsip.conf"
-        if os.path.exists(pjsip_main):
-            with open(pjsip_main, "r", encoding="utf-8") as f:
-                curr_pjsip = f.read()
-            if "#include /etc/asterisk/pjsip_custom.conf" not in curr_pjsip:
-                with open(pjsip_main, "a", encoding="utf-8") as f:
-                    f.write("\n\n#include /etc/asterisk/pjsip_custom.conf\n")
-                print("[Sync Script] #include /etc/asterisk/pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
+        clean_pjsip_main = """; ==========================================
+; Asterisk PJSIP Main Configuration
+; ==========================================
+#include /etc/asterisk/pjsip_custom.conf
+"""
+        with open(pjsip_main, "w", encoding="utf-8") as f:
+            f.write(clean_pjsip_main)
+        print("[Sync Script] /etc/asterisk/pjsip.conf temizlendi ve #include pjsip_custom.conf eklendi.")
 
         subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False)
         subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)

@@ -1432,13 +1432,14 @@ remove_existing=yes
     if os.path.exists(etc_dir):
         try:
             pjsip_main = os.path.join(etc_dir, "pjsip.conf")
-            if os.path.exists(pjsip_main):
-                with open(pjsip_main, "r", encoding="utf-8") as f:
-                    curr_pjsip = f.read()
-                if "#include /etc/asterisk/pjsip_custom.conf" not in curr_pjsip:
-                    with open(pjsip_main, "a", encoding="utf-8") as f:
-                        f.write("\n\n#include /etc/asterisk/pjsip_custom.conf\n")
-                    print("[Asterisk Config] #include /etc/asterisk/pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
+            clean_pjsip_main = """; ==========================================
+; Asterisk PJSIP Main Configuration
+; ==========================================
+#include /etc/asterisk/pjsip_custom.conf
+"""
+            with open(pjsip_main, "w", encoding="utf-8") as f:
+                f.write(clean_pjsip_main)
+            print("[Asterisk Config] /etc/asterisk/pjsip.conf temizlendi ve #include pjsip_custom.conf eklendi.")
 
             etc_path = os.path.join(etc_dir, "pjsip_custom.conf")
             with open(etc_path, "w", encoding="utf-8") as f:
