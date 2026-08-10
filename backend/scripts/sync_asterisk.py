@@ -215,16 +215,15 @@ remove_existing=yes
             pf.write(pjsip_custom_content)
         print(f"[Sync Script] pjsip_custom.conf yazıldı -> {pjsip_custom_path}")
 
-        # Also write directly into /etc/asterisk/pjsip.conf if not present
+        # Ensure #include /etc/asterisk/pjsip_custom.conf on a clean new line in /etc/asterisk/pjsip.conf
         pjsip_main = "/etc/asterisk/pjsip.conf"
         if os.path.exists(pjsip_main):
             with open(pjsip_main, "r", encoding="utf-8") as f:
                 curr_pjsip = f.read()
-            # If endpoint 1000 is not in pjsip.conf, append the custom content directly
-            if "[1000]" not in curr_pjsip:
+            if "#include /etc/asterisk/pjsip_custom.conf" not in curr_pjsip:
                 with open(pjsip_main, "a", encoding="utf-8") as f:
-                    f.write("\n" + pjsip_custom_content + "\n")
-                print("[Sync Script] Dahili ayarları /etc/asterisk/pjsip.conf dosyasına doğrudan yazıldı.")
+                    f.write("\n\n#include /etc/asterisk/pjsip_custom.conf\n")
+                print("[Sync Script] #include /etc/asterisk/pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
 
         subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False)
         subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)
