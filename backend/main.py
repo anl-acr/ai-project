@@ -6395,7 +6395,9 @@ async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user
                 pass
                 
         agent_ext = current_user.get("extension", "1000") if current_user else "1000"
-        sip_password = (current_user.get("sip_password") or current_user.get("password") or "1234") if current_user else "1234"
+        sip_password = "1234"
+        if current_user:
+            sip_password = current_user.get("sip_password") or current_user.get("password") or "1234"
         
         # Dynamically compute WebSocket URL from incoming request header/host
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
