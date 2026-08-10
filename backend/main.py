@@ -1436,8 +1436,12 @@ tlsprivatekey=/etc/asterisk/keys/asterisk.pem
             http_etc_path = "/etc/asterisk/http.conf"
             with open(http_etc_path, "w", encoding="utf-8") as f:
                 f.write(http_content)
-            subprocess.run(["asterisk", "-rx", "http reload"], check=False)
+            subprocess.run(["asterisk", "-rx", "module load res_http_websocket.so"], check=False)
+            subprocess.run(["asterisk", "-rx", "module load res_pjsip_transport_websocket.so"], check=False)
+            subprocess.run(["asterisk", "-rx", "module reload res_http_websocket.so"], check=False)
             subprocess.run(["asterisk", "-rx", "module reload res_pjsip_transport_websocket.so"], check=False)
+            subprocess.run(["asterisk", "-rx", "http reload"], check=False)
+            subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)
             print("[Asterisk Config] /etc/asterisk/http.conf ve WebSocket servisi başarıyla yenilendi.")
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/http.conf güncellenemedi: {e}")
