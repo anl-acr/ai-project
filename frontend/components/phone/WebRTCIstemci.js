@@ -64,6 +64,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
       authorizationUsername: agentExtension,
       authorizationPassword: password,
       displayName: `Temsilci ${agentExtension}`,
+      hackIpInContact: true,
       // Request media permissions for microphone
       delegate: {
         onInvite: (invite) => {

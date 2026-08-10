@@ -55,6 +55,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
       authorizationUsername: agentExtension,
       authorizationPassword: password,
       displayName: `Temsilci ${agentExtension}`,
+      hackIpInContact: true,
     };
 
     const ua = new SIP.UserAgent(userAgentOptions);

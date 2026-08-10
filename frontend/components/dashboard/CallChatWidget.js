@@ -253,6 +253,7 @@ export default function CallChatWidget({
       authorizationUsername: agentExtension,
       authorizationPassword: password,
       displayName: `Temsilci ${agentExtension}`,
+      hackIpInContact: true,
       delegate: {
         onInvite: (invite) => {
           console.log("[WebRTC] Gelen arama alindi!");
