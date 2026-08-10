@@ -1771,35 +1771,84 @@ export default function Home() {
             <div className="relative">
               <button
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                className="flex items-center gap-2 p-1.5 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm focus:outline-none"
+                className="flex items-center gap-2.5 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group"
+                title="Kullanıcı Profili ve Menüsü"
               >
-                <img
-                  src={agentAvatar}
-                  alt="Profil"
-                  className="w-8 h-8 rounded-full border border-slate-100 dark:border-slate-850/80 shrink-0"
-                />
+                <div className="relative shrink-0">
+                  <img
+                    src={agentAvatar}
+                    alt="Profil"
+                    className="w-7 h-7 rounded-full border border-slate-100 dark:border-slate-800 object-cover"
+                  />
+                  <span className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                </div>
+                <div className="hidden sm:flex flex-col text-left pr-0.5 max-w-[130px]">
+                  <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate leading-tight">
+                    {currentUser?.full_name || currentUser?.name || currentUser?.username || 'Kullanıcı'}
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 capitalize leading-tight">
+                    {currentUser?.role === 'admin' ? 'Yönetici' : currentUser?.role === 'supervisor' ? 'Süpervizör' : 'Temsilci'}
+                  </span>
+                </div>
+                <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors shrink-0" />
               </button>
 
               {profileDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-50 py-2 animate-in fade-in duration-100">
-                  <button
-                    onClick={() => {
-                      setProfileDropdownOpen(false);
-                      setSettingsModalOpen(true);
-                    }}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-2"
-                  >
-                    <Settings size={14} />
-                    <span>Profil Ayarları</span>
-                  </button>
-                  <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
-                  <button
-                    onClick={handleLogout}
-                    className="w-full text-left px-4 py-2.5 text-xs font-bold text-rose-600 dark:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 flex items-center gap-2"
-                  >
-                    <LogOut size={14} />
-                    <span>Çıkış Yap</span>
-                  </button>
+                <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                  {/* Active User Card Header */}
+                  <div className="p-3.5 bg-slate-50/90 dark:bg-slate-850/60 border-b border-slate-100 dark:border-slate-800/80">
+                    <div className="flex items-start gap-3">
+                      <div className="relative shrink-0 mt-0.5">
+                        <img
+                          src={agentAvatar}
+                          alt="Profil"
+                          className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 object-cover shadow-sm"
+                        />
+                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-xs font-extrabold text-slate-900 dark:text-white truncate leading-snug">
+                          {currentUser?.full_name || currentUser?.name || currentUser?.username || 'Aktif Kullanıcı'}
+                        </h4>
+                        <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 truncate mt-0.5">
+                          {currentUser?.email || (currentUser?.username ? `@${currentUser.username}` : 'Aktif Oturum')}
+                        </p>
+                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                          <span className={"inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold border " + lightBg + " " + text + " " + borderLight}>
+                            <User size={10} className="mr-1 shrink-0" />
+                            {currentUser?.role === 'admin' ? 'Sistem Yöneticisi' : currentUser?.role === 'supervisor' ? 'Süpervizör' : 'Çağrı Temsilcisi'}
+                          </span>
+                          {currentUser?.extension && (
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-350">
+                              Dahili: {currentUser.extension}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Menu Actions */}
+                  <div className="p-1.5">
+                    <button
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
+                        setSettingsModalOpen(true);
+                      }}
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-350 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors"
+                    >
+                      <Settings size={15} className="text-slate-400 dark:text-slate-500" />
+                      <span>Profil Ayarları</span>
+                    </button>
+                    <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
+                    <button
+                      onClick={handleLogout}
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2.5 transition-colors"
+                    >
+                      <LogOut size={15} className="text-rose-500" />
+                      <span>Çıkış Yap</span>
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
