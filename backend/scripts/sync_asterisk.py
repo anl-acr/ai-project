@@ -105,21 +105,117 @@ tlsprivatekey=/etc/asterisk/keys/webphone_privkey.pem
             http_conf_path = "/etc/asterisk/http.conf"
             with open(http_conf_path, "w", encoding="utf-8") as f:
                 f.write(http_content)
-            subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)
-            print("[Sync Script] http.conf ve PJSIP başarıyla yenilendi.")
-
-            # Ensure #include pjsip_custom.conf in pjsip.conf
-            pjsip_main = "/etc/asterisk/pjsip.conf"
-            if os.path.exists(pjsip_main):
-                with open(pjsip_main, "r", encoding="utf-8") as f:
-                    curr_pjsip = f.read()
-                if "#include pjsip_custom.conf" not in curr_pjsip:
-                    with open(pjsip_main, "a", encoding="utf-8") as f:
-                        f.write("\n#include pjsip_custom.conf\n")
-                    subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)
-                    print("[Sync Script] #include pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
         except Exception as e:
             print(f"[Sync Script] http.conf hatası: {e}")
+
+    # Generate /etc/asterisk/pjsip_custom.conf directly in sync script
+    try:
+        import json
+        settings_json_path = os.path.join(BASE_DIR, "settings.json")
+        users_list = []
+        if os.path.exists(settings_json_path):
+            with open(settings_json_path, "r", encoding="utf-8") as sf:
+                sdata = json.load(sf)
+                users_list = sdata.get("users", [])
+
+        pjsip_custom_content = """; ==========================================
+; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE DAHILI AYARLARI
+; ==========================================
+
+[transport-udp]
+type=transport
+protocol=udp
+bind=0.0.0.0
+
+[transport-tcp]
+type=transport
+protocol=tcp
+bind=0.0.0.0
+
+[transport-ws]
+type=transport
+protocol=ws
+bind=0.0.0.0:8088
+
+[transport-wss]
+type=transport
+protocol=wss
+bind=0.0.0.0:8089
+
+; WebRTC / Standard Dahili Şablonu
+[webrtc_agent_template](!)
+type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+webrtc=yes
+use_avpf=yes
+media_encryption=dtls
+dtls_auto_generate_cert=yes
+dtls_verify=fingerprint
+dtls_setup=actpass
+ice_support=yes
+media_use_received_transport=yes
+transport=transport-ws
+"""
+        for u in users_list:
+            is_act = u.get("is_active") if "is_active" in u else True
+            if not is_act:
+                continue
+            ext = str(u.get("extension", "")).strip()
+            if not ext:
+                continue
+            pwd = u.get("sip_password") or u.get("password") or "1234"
+            name = u.get("full_name") or u.get("username") or ext
+
+            pjsip_custom_content += f"\n; --- USER: {name} ({ext}) ---\n"
+            pjsip_custom_content += f"""[{ext}](webrtc_agent_template)
+type=endpoint
+auth={ext}-auth
+aors={ext}
+callerid={name} <{ext}>
+
+[{ext}-auth]
+type=auth
+auth_type=userpass
+username={ext}
+password={pwd}
+
+[{ext}]
+type=aor
+max_contacts=5
+remove_existing=yes
+"""
+
+        pjsip_custom_path = "/etc/asterisk/pjsip_custom.conf"
+        with open(pjsip_custom_path, "w", encoding="utf-8") as pf:
+            pf.write(pjsip_custom_content)
+        print(f"[Sync Script] pjsip_custom.conf yazıldı -> {pjsip_custom_path}")
+
+        # Also save to project config dir
+        prj_pjsip = os.path.join(PROJECT_ROOT, "asterisk_config", "pjsip_custom.conf")
+        os.makedirs(os.path.dirname(prj_pjsip), exist_ok=True)
+        with open(prj_pjsip, "w", encoding="utf-8") as pf:
+            pf.write(pjsip_custom_content)
+
+        # Ensure #include /etc/asterisk/pjsip_custom.conf in /etc/asterisk/pjsip.conf
+        pjsip_main = "/etc/asterisk/pjsip.conf"
+        if os.path.exists(pjsip_main):
+            with open(pjsip_main, "r", encoding="utf-8") as f:
+                curr_pjsip = f.read()
+            if "pjsip_custom.conf" not in curr_pjsip:
+                with open(pjsip_main, "a", encoding="utf-8") as f:
+                    f.write("\n#include /etc/asterisk/pjsip_custom.conf\n")
+                print("[Sync Script] #include /etc/asterisk/pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
+
+        subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)
+        print("[Sync Script] Asterisk PJSIP başarıyla yenilendi (pjsip reload).")
+    except Exception as e_pjsip:
+        print(f"[Sync Script] PJSIP oluşturma hatası: {e_pjsip}")
 
     # 2. Generate clean extensions_custom.conf without discouragged _.-pattern
     ext_content = """; ==========================================
