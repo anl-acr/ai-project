@@ -887,9 +887,9 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             buf_avg_amp = sum(abs(s) for s in samples_16) / len(samples_16) if samples_16 else 0
                             call_state["last_buf_amp"] = buf_avg_amp
                             
-                            # Suppress background line static while AI is speaking unless user speaks (amp >= 60)
+                            # Suppress line noise/echo while AI is speaking unless user speaks with clear voice (amp >= 250)
                             is_speaking = call_state.get("model_is_speaking", False)
-                            if is_speaking and buf_avg_amp < 60:
+                            if is_speaking and buf_avg_amp < 250:
                                 pcm_16k = b'\x00' * 3200
                             else:
                                 pcm_16k = resample_8k_to_16k(buf_bytes)
@@ -988,9 +988,18 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             call_state["model_is_speaking"] = True
                             call_state["tool_call_in_progress"] = False
                         if resp["serverContent"].get("turnComplete"):
-                            call_state["model_is_speaking"] = False
                             call_state["tool_call_in_progress"] = False
-                            print("[DEBUG] AI konusmasi bitti, kilit acildi (turnComplete).")
+                            print("[DEBUG] turnComplete sinyali alindi. Ses kuyrugu bosalana kadar kilit tutuluyor...")
+                            async def release_lock_after_drain(state, q):
+                                try:
+                                    await asyncio.wait_for(q.join(), timeout=15.0)
+                                except asyncio.TimeoutError:
+                                    pass
+                                await asyncio.sleep(0.15)
+                                if q.empty():
+                                    state["model_is_speaking"] = False
+                                    print("[DEBUG] AI konusmasi Asterisk uzerinde tamamen bitti, kilit acildi.")
+                            asyncio.create_task(release_lock_after_drain(call_state, asterisk_write_queue))
 
                     # 1. Capture User Speech Transcription (inputTranscription)
                     if "serverContent" in resp and "inputTranscription" in resp["serverContent"]:
@@ -1068,8 +1077,9 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                     # Check for Interruption/Barge-in (Musteri lafa girdi)
                     if "serverContent" in resp and resp["serverContent"].get("interrupted"):
                         last_amp = call_state.get("last_buf_amp", 0)
-                        if last_amp < 600:
+                        if last_amp < 250:
                             print(f"[Barge-in Guard] Ignored false Gemini interruption event (low amp: {last_amp:.1f}).")
+                            call_state["model_is_speaking"] = False
                             continue
                         print(f"Musteri lafa girdi (Barge-in/Interruption algilandi, amp: {last_amp:.1f}). Ses durduruluyor!")
                         call_state["model_is_speaking"] = False
