@@ -1418,8 +1418,25 @@ remove_existing=yes
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf yazılamadı: {e}")
             
+    # Auto-detect Let's Encrypt SSL certificate for domain
+    cert_file = "/etc/asterisk/keys/asterisk.pem"
+    key_file = "/etc/asterisk/keys/asterisk.pem"
+    letsencrypt_base = "/etc/letsencrypt/live"
+    if os.path.exists(letsencrypt_base):
+        try:
+            domains = [d for d in os.listdir(letsencrypt_base) if os.path.isdir(os.path.join(letsencrypt_base, d))]
+            if domains:
+                target_domain = domains[0]
+                fc = os.path.join(letsencrypt_base, target_domain, "fullchain.pem")
+                pk = os.path.join(letsencrypt_base, target_domain, "privkey.pem")
+                if os.path.exists(fc) and os.path.exists(pk):
+                    cert_file = fc
+                    key_file = pk
+        except Exception:
+            pass
+
     # Auto-sync /etc/asterisk/http.conf for WebRTC WebSocket port 8088
-    http_content = """; ==========================================
+    http_content = f"""; ==========================================
 ; Asterisk HTTP/WebSocket (WSS) Konfigürasyonu
 ; ==========================================
 [general]
@@ -1428,8 +1445,8 @@ bindaddr=0.0.0.0
 bindport=8088
 tlsenable=yes
 tlsbindaddr=0.0.0.0:8089
-tlscertfile=/etc/asterisk/keys/asterisk.pem
-tlsprivatekey=/etc/asterisk/keys/asterisk.pem
+tlscertfile={cert_file}
+tlsprivatekey={key_file}
 """
     if os.path.exists("/etc/asterisk"):
         try:
