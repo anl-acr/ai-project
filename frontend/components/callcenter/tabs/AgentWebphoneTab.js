@@ -45,7 +45,8 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     const { asteriskWssUrl, agentExtension, password } = webrtcConfig;
     if (!asteriskWssUrl || !agentExtension) return;
 
-    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${asteriskWssUrl.split('/')[2]}`);
+    const hostOnly = asteriskWssUrl.split('/')[2].split(':')[0];
+    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
     
     const userAgentOptions = {
       uri,
@@ -98,7 +99,8 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     if (!targetNum || !userAgentRef.current || !webrtcConfig) return;
     setCallStatus("Calling");
 
-    const targetURI = SIP.UserAgent.makeURI(`sip:${targetNum}@${webrtcConfig.asteriskWssUrl.split('/')[2]}`);
+    const hostOnly = webrtcConfig.asteriskWssUrl.split('/')[2].split(':')[0];
+    const targetURI = SIP.UserAgent.makeURI(`sip:${targetNum}@${hostOnly}`);
     const inviter = new SIP.Inviter(userAgentRef.current, targetURI, {
       sessionDescriptionHandlerOptions: {
         constraints: { audio: true, video: false }

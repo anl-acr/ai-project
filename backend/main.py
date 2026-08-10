@@ -6263,16 +6263,15 @@ async def receive_telegram_webhook(request: Request):
 # ==============================================================================
 
 @app.get("/api/webrtc/config")
-async def get_webrtc_config(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     """
-    Frontend'in WebRTC/SIP bağlantısı yapabilmesi için güvenli SIP yapılandırmasını döner.
+    Frontend'in WebRTC/SIP bağlantısı yapabilmesi için dinamik ve güvenli SIP yapılandırmasını döner.
     """
     try:
         if not user_info:
             raise HTTPException(status_code=401, detail="Unauthorized")
             
         user_id = user_info.get("user_id") or user_info.get("id")
-        print(f"DEBUG: get_webrtc_config received X-User-ID: {user_id}")
         
         # Veritabanından mevcut kullanıcıyı bul
         current_user = None
@@ -6282,29 +6281,30 @@ async def get_webrtc_config(user_info: dict = Depends(get_user_info), db: AsyncS
                 result = await db.execute(select(SystemUser).filter(SystemUser.id == uid))
                 db_user = result.scalars().first()
                 if db_user:
-                    # Convert to dict for compatibility with existing code
                     current_user = {c.name: getattr(db_user, c.name) for c in db_user.__table__.columns}
             except ValueError:
                 pass
                 
-        if not current_user and user_id != "admin":
-            # Just fallback to generic extension instead of 404
-            agent_ext = "101"
+        agent_ext = current_user.get("extension", "101") if current_user else "200"
+        
+        # Dynamically compute WebSocket URL from incoming request header/host if set to 127.0.0.1
+        configured_url = settings_db.get("pbx", {}).get("webrtc_wss_url", "")
+        if not configured_url or "127.0.0.1" in configured_url or "localhost" in configured_url:
+            req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
+            scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
+            port = 8089 if scheme == "wss" else 8088
+            wss_url = f"{scheme}://{req_host}:{port}/ws"
         else:
-            # Admin için 200, diğerleri için kendi dahilisi
-            agent_ext = current_user.get("extension", "101") if current_user else "200"
+            wss_url = configured_url
             
-            # WSS URL
-            wss_url = settings_db.get("pbx", {}).get("webrtc_wss_url", "wss://127.0.0.1:8089/ws")
-            
-            # PJSIP şifresi veritabanından alınıyor.
-            sip_password = current_user.get("sip_password", "1234") if current_user else "1234"
-            
-            return {
-                "asteriskWssUrl": wss_url,
-                "agentExtension": agent_ext,
-                "password": sip_password
-            }
+        # PJSIP şifresi veritabanından alınıyor
+        sip_password = current_user.get("sip_password", "1234") if current_user else "1234"
+        
+        return {
+            "asteriskWssUrl": wss_url,
+            "agentExtension": agent_ext,
+            "password": sip_password
+        }
     except Exception as e:
         print(f"WebRTC Config error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
