@@ -1292,6 +1292,7 @@ dtls_verify=fingerprint
 dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
+transport=transport-ws
 """
     for t in trunks_list:
         is_act = t.get("is_active") if "is_active" in t else True
@@ -1401,6 +1402,15 @@ remove_existing=yes
     etc_dir = "/etc/asterisk"
     if os.path.exists(etc_dir):
         try:
+            pjsip_main = os.path.join(etc_dir, "pjsip.conf")
+            if os.path.exists(pjsip_main):
+                with open(pjsip_main, "r", encoding="utf-8") as f:
+                    curr_pjsip = f.read()
+                if "#include pjsip_custom.conf" not in curr_pjsip:
+                    with open(pjsip_main, "a", encoding="utf-8") as f:
+                        f.write("\n#include pjsip_custom.conf\n")
+                    print("[Asterisk Config] #include pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
+
             etc_path = os.path.join(etc_dir, "pjsip_custom.conf")
             with open(etc_path, "w", encoding="utf-8") as f:
                 f.write(conf_content)

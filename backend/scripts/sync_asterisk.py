@@ -61,6 +61,17 @@ tlsprivatekey=/etc/asterisk/keys/asterisk.pem
             subprocess.run(["asterisk", "-rx", "http reload"], check=False)
             subprocess.run(["asterisk", "-rx", "module reload res_pjsip_transport_websocket.so"], check=False)
             print("[Sync Script] http.conf başarıyla güncellendi ve WebSocket reload edildi.")
+
+            # Ensure #include pjsip_custom.conf in pjsip.conf
+            pjsip_main = "/etc/asterisk/pjsip.conf"
+            if os.path.exists(pjsip_main):
+                with open(pjsip_main, "r", encoding="utf-8") as f:
+                    curr_pjsip = f.read()
+                if "#include pjsip_custom.conf" not in curr_pjsip:
+                    with open(pjsip_main, "a", encoding="utf-8") as f:
+                        f.write("\n#include pjsip_custom.conf\n")
+                    subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False)
+                    print("[Sync Script] #include pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
         except Exception as e:
             print(f"[Sync Script] http.conf hatası: {e}")
 
