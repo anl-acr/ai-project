@@ -249,6 +249,7 @@ export default function CallChatWidget({
     const userAgentOptions = {
       uri: uri,
       transportOptions: transportOptions,
+      viaHost: hostOnly,
       contactName: agentExtension,
       authorizationUsername: agentExtension,
       authorizationPassword: password,

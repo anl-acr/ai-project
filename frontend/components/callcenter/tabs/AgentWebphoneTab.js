@@ -51,6 +51,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     const userAgentOptions = {
       uri,
       transportOptions: { server: asteriskWssUrl, traceSip: false },
+      viaHost: hostOnly,
       contactName: agentExtension,
       authorizationUsername: agentExtension,
       authorizationPassword: password,

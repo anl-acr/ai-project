@@ -60,6 +60,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
     const userAgentOptions = {
       uri: uri,
       transportOptions: transportOptions,
+      viaHost: hostOnly,
       contactName: agentExtension,
       authorizationUsername: agentExtension,
       authorizationPassword: password,
