@@ -1275,8 +1275,8 @@ type=transport
 protocol=wss
 bind=0.0.0.0:8089
 
-; WebRTC / Standard Dahili Şablonu
-[webrtc_agent_template](!)
+; --- DEFAULT WEBRTC AGENT: 1000 ---
+[1000]
 type=endpoint
 context=webrtc_agents
 disallow=all
@@ -1294,10 +1294,6 @@ dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
 transport=transport-ws
-
-; --- DEFAULT WEBRTC AGENT: 1000 ---
-[1000](webrtc_agent_template)
-type=endpoint
 auth=1000-auth
 aors=1000
 callerid=Temsilci 1000 <1000>
