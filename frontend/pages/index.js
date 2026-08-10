@@ -413,10 +413,10 @@ export default function Home() {
       // 1. Synchronous storage check FIRST
       const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
       if (savedAuth) {
+        setIsLoggedIn(true);
         const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
         if (savedUserId === 'admin') {
           currentUserData = SUPER_ADMIN;
-          setIsLoggedIn(true);
           setCurrentUser(currentUserData);
           
           // Immediately give admin full permissions so dashboard doesn't flash empty
@@ -654,7 +654,7 @@ export default function Home() {
     syncAgentPresence();
   }, []);
 
-  const handleLogin = (username, password, rememberMe = true) => {
+  const handleLogin = async (username, password, rememberMe = true) => {
     setLoginError("");
     if (username === "admin" && password === "admin") { // Mock admin login
       if (rememberMe) {
@@ -670,7 +670,23 @@ export default function Home() {
       return { success: true };
     }
 
-    const foundUser = systemUsers.find(u => (u.username === username || u.email === username) && u.password === password);
+    let usersToSearch = systemUsers;
+    if (!usersToSearch || usersToSearch.length === 0) {
+      try {
+        const resUsers = await fetch(`${backendHost}/api/settings/users`);
+        if (resUsers.ok) {
+          usersToSearch = await resUsers.json();
+          setSystemUsers(usersToSearch);
+        }
+      } catch (err) {
+        console.error("Login user fetch error:", err);
+      }
+    }
+
+    const foundUser = (usersToSearch || []).find(u => 
+      (u.username === username || u.email === username || u.extension === username || u.full_name === username) && 
+      (u.password === password || u.sip_password === password)
+    );
     if (foundUser) {
       if (foundUser.two_factor_enabled) {
         return { success: true, requires2fa: true, user_id: foundUser.id.toString(), method: foundUser.two_factor_method || 'app' };
