@@ -278,7 +278,7 @@ def resample_8k_to_16k(data: bytes) -> bytes:
     return bytes(out)
 
 def resample_24k_to_8k(data: bytes, leftover: bytearray = None) -> bytes:
-    """Downsamples 24kHz mono 16-bit PCM to 8kHz mono 16-bit PCM using a [1, 2, 1] weighted average filter, preserving leftover samples across chunk boundaries to eliminate metallic crackling."""
+    """Downsamples 24kHz mono 16-bit PCM to 8kHz mono 16-bit PCM using 3-sample arithmetic averaging with leftover sample boundary preservation to eliminate voice crackling."""
     import array
     if leftover is not None and len(leftover) > 0:
         data = bytes(leftover) + data
@@ -294,8 +294,12 @@ def resample_24k_to_8k(data: bytes, leftover: bytearray = None) -> bytes:
         
     out_samples = array.array('h')
     for i in range(0, usable_samples, 3):
-        weighted_val = int((samples[i] + 2 * samples[i+1] + samples[i+2]) // 4)
-        out_samples.append(weighted_val)
+        val = (int(samples[i]) + int(samples[i+1]) + int(samples[i+2])) // 3
+        if val > 32767:
+            val = 32767
+        elif val < -32768:
+            val = -32768
+        out_samples.append(val)
         
     return out_samples.tobytes()
 
@@ -1057,13 +1061,15 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             continue
                         print(f"Musteri lafa girdi (Barge-in/Interruption algilandi, amp: {last_amp:.1f}). Ses durduruluyor!")
                         call_state["model_is_speaking"] = False
-                        # Clear write queue to stop playback instantly
+                        # Clear write queue and residual buffers to stop playback instantly
                         while not asterisk_write_queue.empty():
                             try:
                                 asterisk_write_queue.get_nowait()
                                 asterisk_write_queue.task_done()
                             except (asyncio.QueueEmpty, ValueError):
                                 break
+                        audio_buffer.clear()
+                        leftover_24k.clear()
                         # Save partial AI transcript with interrupted note
                         if current_ai_text.strip():
                             await write_db_transcript(call_id, "ai", current_ai_text.strip() + " [Sözü Kesildi]")
@@ -1088,6 +1094,12 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                     # Extract exact 320 byte chunks
                                     while len(audio_buffer) >= 320:
                                         chunk = bytes(audio_buffer[:320])
+                                        if asterisk_write_queue.qsize() > 100:
+                                            try:
+                                                asterisk_write_queue.get_nowait()
+                                                asterisk_write_queue.task_done()
+                                            except Exception:
+                                                pass
                                         await asterisk_write_queue.put(chunk)
                                         del audio_buffer[:320]
 
