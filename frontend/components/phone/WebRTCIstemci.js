@@ -123,8 +123,6 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
           if (state === SIP.RegistererState.Registered) {
             setRegistered(true);
             setError("");
-          } else {
-            setRegistered(false);
           }
         });
 

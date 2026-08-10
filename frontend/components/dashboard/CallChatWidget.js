@@ -318,8 +318,6 @@ export default function CallChatWidget({
           if (state === SIP.RegistererState.Registered) {
             setRegistered(true);
             setError("");
-          } else {
-            setRegistered(false);
           }
         });
 
