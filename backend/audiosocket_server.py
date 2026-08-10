@@ -712,10 +712,11 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                     })
                 
                 system_instruction += api_instruction
-                print(f"[Custom API] {len(custom_declarations)} adet özel API aracı sistem yönergesine eklendi.")
+                print(f"[Custom API] {len(custom_declarations)} adet özel API entegrasyonu sistem talimatına eklendi.")
         except Exception as e:
             print(f"[Custom API] Hata: {e}")
             
+        system_instruction += "\n\n--- CANLI SES SİSTEM KURALI ---\nMüşteri döküman, ürün veya model bilgisi sorduğunda harici araç/fonksiyon çağırma (tool call kullanma). Sistem talimatında ve Bilgi Bankasında sağlanan tüm verileri doğrudan sesli olarak Türkçe yanıtla.\n"
         print(f"Sistem talimatlari derlendi: {len(system_instruction)} karakter.")
 
         # Flexible voice resolution for Gemini voices (Puck, Charon, Kore, Fenrir, Aoede)
@@ -813,7 +814,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                     "required": ["reason"]
                                 }
                             }
-                        ] + custom_declarations
+                        ]
                     }
                 ],
                 "outputAudioTranscription": {},
