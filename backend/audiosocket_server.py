@@ -409,6 +409,20 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
             db_call.recording_path = f"/api/recordings/{call_id}.wav"
             await session.commit()
             
+            # Sync recording from Asterisk monitor directory to project recordings directory
+            try:
+                project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+                rec_dir = os.path.join(project_root, "recordings")
+                os.makedirs(rec_dir, exist_ok=True)
+                spool_file = f"/var/spool/asterisk/monitor/{call_id}.wav"
+                dest_file = os.path.join(rec_dir, f"{call_id}.wav")
+                if os.path.exists(spool_file):
+                    import shutil
+                    shutil.copy2(spool_file, dest_file)
+                    print(f"[Recording Synced]: {spool_file} -> {dest_file}")
+            except Exception as e:
+                print(f"[Recording Sync Error]: {e}")
+            
             try:
                 from backend.services.call_analyzer import analyze_call
                 asyncio.create_task(analyze_call(call_id))

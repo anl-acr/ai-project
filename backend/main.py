@@ -11,6 +11,7 @@ load_dotenv(os.path.join(BASE_DIR, '.env'))
 import shutil
 import socket
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -70,9 +71,33 @@ async def auto_api_prefix_middleware(request: Request, call_next):
 
 
 
-# Serve call recordings statically
+# Serve call recordings statically with fallback search in Asterisk spool directory
 os.makedirs(RECORDINGS_DIR, exist_ok=True)
-app.mount("/api/recordings", StaticFiles(directory=RECORDINGS_DIR), name="recordings")
+
+@app.get("/api/recordings/{filename}")
+async def get_recording_file(filename: str):
+    """Dynamically serves call audio recording files from project recordings directory, Asterisk spool directory, or NAS storage."""
+    # 1. Check project recordings directory
+    project_rec = os.path.join(RECORDINGS_DIR, filename)
+    if os.path.exists(project_rec) and os.path.getsize(project_rec) > 0:
+        return FileResponse(project_rec, media_type="audio/wav")
+        
+    # 2. Check Asterisk spool monitor directory
+    spool_rec = os.path.join("/var/spool/asterisk/monitor", filename)
+    if os.path.exists(spool_rec) and os.path.getsize(spool_rec) > 0:
+        try:
+            shutil.copy2(spool_rec, project_rec)
+        except Exception as e:
+            print(f"[Recording Auto-Copy Error]: {e}")
+        return FileResponse(spool_rec, media_type="audio/wav")
+        
+    # 3. Check NAS mount directory
+    nas_dir = "/mnt/nas/ai-recordings"
+    nas_rec = os.path.join(nas_dir, filename)
+    if os.path.exists(nas_rec) and os.path.getsize(nas_rec) > 0:
+        return FileResponse(nas_rec, media_type="audio/wav")
+        
+    raise HTTPException(status_code=404, detail="Ses kaydı dosyası sunucuda bulunamadı.")
 
 os.makedirs("uploads/announcements", exist_ok=True)
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
