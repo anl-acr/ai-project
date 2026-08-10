@@ -1264,6 +1264,16 @@ type=transport
 protocol=tcp
 bind=0.0.0.0
 
+[transport-ws]
+type=transport
+protocol=ws
+bind=0.0.0.0:8088
+
+[transport-wss]
+type=transport
+protocol=wss
+bind=0.0.0.0:8089
+
 ; WebRTC / Standard Dahili Şablonu
 [webrtc_agent_template](!)
 type=endpoint
