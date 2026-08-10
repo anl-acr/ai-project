@@ -1419,7 +1419,7 @@ remove_existing=yes
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf yazılamadı: {e}")
             
-    # Auto-detect Let's Encrypt SSL certificate for domain
+    # Auto-detect and copy Let's Encrypt SSL certificate for domain
     cert_file = "/etc/asterisk/keys/asterisk.pem"
     key_file = "/etc/asterisk/keys/asterisk.pem"
     letsencrypt_base = "/etc/letsencrypt/live"
@@ -1431,10 +1431,18 @@ remove_existing=yes
                 fc = os.path.join(letsencrypt_base, target_domain, "fullchain.pem")
                 pk = os.path.join(letsencrypt_base, target_domain, "privkey.pem")
                 if os.path.exists(fc) and os.path.exists(pk):
-                    cert_file = fc
-                    key_file = pk
-        except Exception:
-            pass
+                    ast_keys_dir = "/etc/asterisk/keys"
+                    os.makedirs(ast_keys_dir, exist_ok=True)
+                    ast_fc = os.path.join(ast_keys_dir, "webphone_fullchain.pem")
+                    ast_pk = os.path.join(ast_keys_dir, "webphone_privkey.pem")
+                    shutil.copy2(fc, ast_fc)
+                    shutil.copy2(pk, ast_pk)
+                    os.chmod(ast_fc, 0o644)
+                    os.chmod(ast_pk, 0o644)
+                    cert_file = ast_fc
+                    key_file = ast_pk
+        except Exception as e_ssl_main:
+            print(f"[Asterisk Config] SSL copy error: {e_ssl_main}")
 
     # Auto-sync /etc/asterisk/http.conf for WebRTC WebSocket port 8088
     http_content = f"""; ==========================================

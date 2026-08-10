@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+import shutil
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -40,7 +41,7 @@ permit = 0.0.0.0/0.0.0.0
         except Exception as e:
             print(f"[Sync Script] manager.conf hatası: {e}")
 
-    # Auto-detect Let's Encrypt SSL certificate for domain (e.g. aida.saphira.com.tr)
+    # Auto-detect and copy Let's Encrypt SSL certificate for domain (e.g. aida.saphira.com.tr)
     cert_file = "/etc/asterisk/keys/asterisk.pem"
     key_file = "/etc/asterisk/keys/asterisk.pem"
     letsencrypt_base = "/etc/letsencrypt/live"
@@ -52,9 +53,17 @@ permit = 0.0.0.0/0.0.0.0
                 fc = os.path.join(letsencrypt_base, target_domain, "fullchain.pem")
                 pk = os.path.join(letsencrypt_base, target_domain, "privkey.pem")
                 if os.path.exists(fc) and os.path.exists(pk):
-                    cert_file = fc
-                    key_file = pk
-                    print(f"[Sync Script] Let's Encrypt SSL sertifikası algılandı: {fc}")
+                    ast_keys_dir = "/etc/asterisk/keys"
+                    os.makedirs(ast_keys_dir, exist_ok=True)
+                    ast_fc = os.path.join(ast_keys_dir, "webphone_fullchain.pem")
+                    ast_pk = os.path.join(ast_keys_dir, "webphone_privkey.pem")
+                    shutil.copy2(fc, ast_fc)
+                    shutil.copy2(pk, ast_pk)
+                    os.chmod(ast_fc, 0o644)
+                    os.chmod(ast_pk, 0o644)
+                    cert_file = ast_fc
+                    key_file = ast_pk
+                    print(f"[Sync Script] Let's Encrypt SSL sertifikası Asterisk için hazırlandı: {ast_fc}")
         except Exception as e_ssl:
             print(f"[Sync Script] SSL arama hatası: {e_ssl}")
 
