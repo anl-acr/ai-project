@@ -49,7 +49,8 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
     if (!asteriskWssUrl || !agentExtension) return;
 
     setError("");
-    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${asteriskWssUrl.split('/')[2]}`);
+    const hostOnly = asteriskWssUrl.split('/')[2].split(':')[0];
+    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
     
     const transportOptions = {
       server: asteriskWssUrl,

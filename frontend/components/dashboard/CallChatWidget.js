@@ -238,7 +238,8 @@ export default function CallChatWidget({
 
     setError("");
     const wssServer = asteriskWssUrl;
-    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${wssServer.split('/')[2]}`);
+    const hostOnly = wssServer.split('/')[2].split(':')[0];
+    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
     
     const transportOptions = {
       server: wssServer,

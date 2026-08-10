@@ -1274,6 +1274,14 @@ direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
+webrtc=yes
+use_avpf=yes
+media_encryption=dtls
+dtls_auto_generate_cert=yes
+dtls_verify=fingerprint
+dtls_setup=actpass
+ice_support=yes
+media_use_received_transport=yes
 """
     for t in trunks_list:
         is_act = t.get("is_active") if "is_active" in t else True
