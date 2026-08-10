@@ -283,12 +283,20 @@ export default function CallChatWidget({
     const ua = new SIP.UserAgent(userAgentOptions);
     userAgentRef.current = ua;
 
+    ua.transport.onDisconnect = (error) => {
+      console.error("[WebRTC] Transport Disconnect:", error);
+      if (error) {
+        setError(`Asterisk 8088 Portuna Erişilemiyor (${error.message || 'Erişim Engellendi'})`);
+      }
+    };
+
     ua.start()
       .then(() => {
         const registererOptions = {};
         const registerer = new SIP.Registerer(ua, registererOptions);
         
         registerer.stateChange.addListener((state) => {
+          console.log(`[WebRTC] SIP Registerer durumu: ${state}`);
           if (state === SIP.RegistererState.Registered) {
             setRegistered(true);
             setError("");
@@ -301,7 +309,7 @@ export default function CallChatWidget({
       })
       .catch((err) => {
         console.error("[WebRTC] Baglanti/Register hatasi:", err);
-        setError("Asterisk WebRTC sunucusuna bağlanılamadı.");
+        setError(`WebRTC Bağlantı Hatası: ${err.message || 'Sunucu Yanıt Vermedi'}`);
         setRegistered(false);
       });
 
