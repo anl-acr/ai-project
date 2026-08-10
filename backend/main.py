@@ -6394,6 +6394,60 @@ async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user
         raise HTTPException(status_code=500, detail="Internal server error")
 
 # ==============================================================================
+# WebRTC Asterisk WebSocket Reverse Proxy
+# ==============================================================================
+@app.websocket("/ws")
+async def websocket_asterisk_proxy(websocket: WebSocket):
+    """
+    Proxies browser WebRTC WSS connections natively to local Asterisk WebSocket engine.
+    """
+    subprotocol = websocket.headers.get("sec-websocket-protocol", None)
+    subprotocols = [s.strip() for s in subprotocol.split(",")] if subprotocol else None
+    
+    if subprotocols:
+        await websocket.accept(subprotocol=subprotocols[0])
+    else:
+        await websocket.accept()
+        
+    try:
+        import websockets
+        async with websockets.connect(
+            "ws://127.0.0.1:8088/ws",
+            subprotocols=subprotocols
+        ) as asterisk_ws:
+            
+            async def client_to_asterisk():
+                try:
+                    while True:
+                        data = await websocket.receive()
+                        if "text" in data and data["text"]:
+                            await asterisk_ws.send(data["text"])
+                        elif "bytes" in data and data["bytes"]:
+                            await asterisk_ws.send(data["bytes"])
+                        elif data.get("type") == "websocket.disconnect":
+                            break
+                except Exception:
+                    pass
+
+            async def asterisk_to_client():
+                try:
+                    async for msg in asterisk_ws:
+                        if isinstance(msg, str):
+                            await websocket.send_text(msg)
+                        elif isinstance(msg, bytes):
+                            await websocket.send_bytes(msg)
+                except Exception:
+                    pass
+
+            await asyncio.gather(client_to_asterisk(), asterisk_to_client())
+    except Exception as e:
+        print(f"[Asterisk WS Proxy Error]: {e}")
+        try:
+            await websocket.close()
+        except Exception:
+            pass
+
+# ==============================================================================
 # System Health & Backup Endpoints
 # ==============================================================================
 @app.get("/api/system/health")
