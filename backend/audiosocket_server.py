@@ -1104,12 +1104,6 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                     # Extract exact 320 byte chunks
                                     while len(audio_buffer) >= 320:
                                         chunk = bytes(audio_buffer[:320])
-                                        if asterisk_write_queue.qsize() > 100:
-                                            try:
-                                                asterisk_write_queue.get_nowait()
-                                                asterisk_write_queue.task_done()
-                                            except Exception:
-                                                pass
                                         await asterisk_write_queue.put(chunk)
                                         del audio_buffer[:320]
 
