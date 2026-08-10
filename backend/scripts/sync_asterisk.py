@@ -41,34 +41,54 @@ permit = 0.0.0.0/0.0.0.0
         except Exception as e:
             print(f"[Sync Script] manager.conf hatası: {e}")
 
-    # Auto-detect and copy Let's Encrypt SSL certificate for domain (e.g. aida.saphira.com.tr)
-    cert_file = "/etc/asterisk/keys/asterisk.pem"
-    key_file = "/etc/asterisk/keys/asterisk.pem"
+    # Comprehensive search for SSL certificate (Let's Encrypt / System)
+    ast_keys_dir = "/etc/asterisk/keys"
+    os.makedirs(ast_keys_dir, exist_ok=True)
+    target_cert = None
+    target_key = None
+
     letsencrypt_base = "/etc/letsencrypt/live"
     if os.path.exists(letsencrypt_base):
         try:
-            domains = [d for d in os.listdir(letsencrypt_base) if os.path.isdir(os.path.join(letsencrypt_base, d))]
-            if domains:
-                target_domain = domains[0]
-                fc = os.path.join(letsencrypt_base, target_domain, "fullchain.pem")
-                pk = os.path.join(letsencrypt_base, target_domain, "privkey.pem")
-                if os.path.exists(fc) and os.path.exists(pk):
-                    ast_keys_dir = "/etc/asterisk/keys"
-                    os.makedirs(ast_keys_dir, exist_ok=True)
-                    ast_fc = os.path.join(ast_keys_dir, "webphone_fullchain.pem")
-                    ast_pk = os.path.join(ast_keys_dir, "webphone_privkey.pem")
-                    shutil.copy2(fc, ast_fc)
-                    shutil.copy2(pk, ast_pk)
-                    os.chmod(ast_fc, 0o644)
-                    os.chmod(ast_pk, 0o644)
-                    cert_file = ast_fc
-                    key_file = ast_pk
-                    print(f"[Sync Script] Let's Encrypt SSL sertifikası Asterisk için hazırlandı: {ast_fc}")
+            for root, dirs, files in os.walk(letsencrypt_base):
+                if "fullchain.pem" in files and "privkey.pem" in files:
+                    target_cert = os.path.join(root, "fullchain.pem")
+                    target_key = os.path.join(root, "privkey.pem")
+                    break
+        except Exception:
+            pass
+
+    if not target_cert:
+        for ssl_path in ["/etc/nginx", "/etc/ssl", "/etc/pki"]:
+            if os.path.exists(ssl_path):
+                for root, dirs, files in os.walk(ssl_path):
+                    for f in files:
+                        if (f.endswith(".crt") or f.endswith(".pem") or "fullchain" in f) and not target_cert:
+                            target_cert = os.path.join(root, f)
+                        elif (f.endswith(".key") or "privkey" in f) and not target_key:
+                            target_key = os.path.join(root, f)
+
+    if target_cert and target_key:
+        try:
+            ast_fc = os.path.join(ast_keys_dir, "webphone_fullchain.pem")
+            ast_pk = os.path.join(ast_keys_dir, "webphone_privkey.pem")
+            ast_combined = os.path.join(ast_keys_dir, "asterisk.pem")
+
+            shutil.copy2(target_cert, ast_fc)
+            shutil.copy2(target_key, ast_pk)
+
+            with open(ast_fc, "r") as f1, open(ast_pk, "r") as f2, open(ast_combined, "w") as fout:
+                fout.write(f1.read() + "\n" + f2.read())
+
+            os.chmod(ast_fc, 0o644)
+            os.chmod(ast_pk, 0o644)
+            os.chmod(ast_combined, 0o644)
+            print(f"[Sync Script] SSL sertifikası Asterisk için hazırlandı ve birleştirildi: {ast_combined}")
         except Exception as e_ssl:
-            print(f"[Sync Script] SSL arama hatası: {e_ssl}")
+            print(f"[Sync Script] SSL birleştirme hatası: {e_ssl}")
 
     # Update /etc/asterisk/http.conf for WebRTC WebSocket
-    http_content = f"""; ==========================================
+    http_content = """; ==========================================
 ; Asterisk HTTP/WebSocket (WSS) Konfigürasyonu
 ; ==========================================
 [general]
@@ -77,21 +97,16 @@ bindaddr=0.0.0.0
 bindport=8088
 tlsenable=yes
 tlsbindaddr=0.0.0.0:8089
-tlscertfile={cert_file}
-tlsprivatekey={key_file}
+tlscertfile=/etc/asterisk/keys/asterisk.pem
+tlsprivatekey=/etc/asterisk/keys/webphone_privkey.pem
 """
     if os.path.exists("/etc/asterisk"):
         try:
             http_conf_path = "/etc/asterisk/http.conf"
             with open(http_conf_path, "w", encoding="utf-8") as f:
                 f.write(http_content)
-            subprocess.run(["asterisk", "-rx", "module load res_http_websocket.so"], check=False)
-            subprocess.run(["asterisk", "-rx", "module load res_pjsip_transport_websocket.so"], check=False)
-            subprocess.run(["asterisk", "-rx", "module reload res_http_websocket.so"], check=False)
-            subprocess.run(["asterisk", "-rx", "module reload res_pjsip_transport_websocket.so"], check=False)
-            subprocess.run(["asterisk", "-rx", "http reload"], check=False)
             subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)
-            print("[Sync Script] http.conf başarıyla güncellendi ve WebSocket reload edildi.")
+            print("[Sync Script] http.conf ve PJSIP başarıyla yenilendi.")
 
             # Ensure #include pjsip_custom.conf in pjsip.conf
             pjsip_main = "/etc/asterisk/pjsip.conf"
