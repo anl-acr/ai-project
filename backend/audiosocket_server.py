@@ -716,7 +716,13 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         except Exception as e:
             print(f"[Custom API] Hata: {e}")
             
-        system_instruction += "\n\n--- CANLI SES SİSTEM KURALI ---\nMüşteri döküman, ürün veya model bilgisi sorduğunda harici araç/fonksiyon çağırma (tool call kullanma). Sistem talimatında ve Bilgi Bankasında sağlanan tüm verileri doğrudan sesli olarak Türkçe yanıtla.\n"
+        system_instruction += "\n\n--- OPERASYONEL EYLEM SİSTEM TALİMATLARI ---\n"
+        system_instruction += "Sen canlı sesli bir müşteri temsilcisisin. Tüm döküman, ürün ve model sorularını sana sağlanan Bilgi Bankasından doğrudan Türkçe konuşarak yanıtla.\n"
+        system_instruction += "Görüşme sırasında aşağıdaki durumlar gerçekleştiğinde cümlenin sonuna ilgili EYLEM KODUNU ekle:\n"
+        system_instruction += "1. Görüşmeyi sonlandırmak / kapatmak için (müşteri vedalaştığında veya işlemler bittiğinde): Cümlenin sonuna '[ACTION: HANGUP]' yaz.\n"
+        system_instruction += "2. Canlı temsilciye transfer etmek için (müşteri temsilci istediğinde): Cümlenin sonuna '[ACTION: TRANSFER]' yaz.\n"
+        system_instruction += "3. Küfür/hakaret durumunda: Cümlenin sonuna '[ACTION: ABUSE]' yaz.\n"
+        system_instruction += "Bu eylem kodlarını sesli okuma, sadece metne ekle.\n"
         print(f"Sistem talimatlari derlendi: {len(system_instruction)} karakter.")
 
         # Flexible voice resolution for Gemini voices (Puck, Charon, Kore, Fenrir, Aoede)
@@ -757,7 +763,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
             "maxOutputTokens": agent_max_tokens
         }
 
-        # Send Setup Config
+        # Send Setup Config (without tools to prevent 1007 audio modality crashes)
         setup_msg = {
             "setup": {
                 "model": formatted_model,
@@ -769,60 +775,12 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                         }
                     ]
                 },
-                "tools": [
-                    {
-                        "functionDeclarations": [
-                            {
-                                "name": "transfer_to_human",
-                                "description": "Çağrıyı veya sohbeti canlı müşteri temsilcisine transfer eder. Yapay zeka cevaplayamadığında veya müşteri talep ettiğinde çağrılır.",
-                                "parameters": {
-                                    "type": "OBJECT",
-                                    "properties": {}
-                                }
-                            },
-                            {
-                                "name": "book_appointment",
-                                "description": "Kullanıcı için randevu oluşturur. Tarih (YYYY-MM-DD) ve saat (HH:MM) parametrelerini gerektirir.",
-                                "parameters": {
-                                    "type": "OBJECT",
-                                    "properties": {
-                                        "name": { "type": "STRING", "description": "Müşterinin adı soyadı" },
-                                        "phone": { "type": "STRING", "description": "Müşterinin telefon numarası" },
-                                        "date": { "type": "STRING", "description": "Randevu tarihi (YYYY-MM-DD formatında)" },
-                                        "time": { "type": "STRING", "description": "Randevu saati (HH:MM formatında)" },
-                                        "email": { "type": "STRING", "description": "Müşterinin e-posta adresi", "nullable": True }
-                                    },
-                                    "required": ["name", "phone", "date", "time"]
-                                }
-                            },
-                            {
-                                "name": "hangup_call",
-                                "description": "Görüşmeyi sonlandırır. Müşteri işlemlerini tamamladığında veya vedalaştığında çağrıyı kapatmak için bu aracı çalıştır.",
-                                "parameters": {
-                                    "type": "OBJECT",
-                                    "properties": {}
-                                }
-                            },
-                            {
-                                "name": "trigger_abuse_shield",
-                                "description": "Müşterinin küfür, hakaret, suistimal veya dolandırıcılık teşebbüsünde bulunduğunu algıladığınızda bu aracı çağırın. Çağrıyı anında sonlandırır ve numarayı otomatik kara listeye alır.",
-                                "parameters": {
-                                    "type": "OBJECT",
-                                    "properties": {
-                                        "reason": { "type": "STRING", "description": "Engelleme sebebi (örn: 'Küfür ve Hakaret' veya 'Dolandırıcılık Şüphesi')" }
-                                    },
-                                    "required": ["reason"]
-                                }
-                            }
-                        ]
-                    }
-                ],
                 "outputAudioTranscription": {},
                 "inputAudioTranscription": {}
             }
         }
         await gemini_ws.send(json.dumps(setup_msg))
-        print("Gemini Kurulum mesaji (ve Arac tanimlari) gonderildi.")
+        print("Gemini Kurulum mesaji gonderildi.")
 
         # Send initial greeting request to Gemini so it speaks first
         greeting_msg = {
@@ -1126,10 +1084,25 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                     # Save full AI response when turn is completed & trigger remaining ElevenLabs TTS if active
                     if "serverContent" in resp and resp["serverContent"].get("turnComplete"):
                         if current_ai_text.strip():
-                            await write_db_transcript(call_id, "ai", current_ai_text.strip())
+                            clean_ai_text = current_ai_text.strip()
+                            if "[ACTION: HANGUP]" in clean_ai_text:
+                                print("[Action Marker] Call hangup requested via [ACTION: HANGUP]")
+                                call_state["should_hangup"] = True
+                                clean_ai_text = clean_ai_text.replace("[ACTION: HANGUP]", "").strip()
+                            if "[ACTION: TRANSFER]" in clean_ai_text:
+                                print("[Action Marker] Call transfer requested via [ACTION: TRANSFER]")
+                                clean_ai_text = clean_ai_text.replace("[ACTION: TRANSFER]", "").strip()
+                                from backend.services.ami_manager import redirect_call_to_human
+                                asyncio.create_task(redirect_call_to_human(call_id))
+                            if "[ACTION: ABUSE]" in clean_ai_text:
+                                print("[Action Marker] Abuse shield requested via [ACTION: ABUSE]")
+                                call_state["should_hangup"] = True
+                                clean_ai_text = clean_ai_text.replace("[ACTION: ABUSE]", "").strip()
+                                asyncio.create_task(auto_blacklist_call(call_id, "Yapay Zeka Suistimal Tespiti"))
+
+                            await write_db_transcript(call_id, "ai", clean_ai_text)
                             if is_elevenlabs_tts and elevenlabs_api_key:
-                                remaining_text = current_ai_text.strip()
-                                asyncio.create_task(stream_elevenlabs_tts_to_asterisk(remaining_text, elevenlabs_voice_id, elevenlabs_stability, elevenlabs_similarity, elevenlabs_style, elevenlabs_api_key, asterisk_write_queue))
+                                asyncio.create_task(stream_elevenlabs_tts_to_asterisk(clean_ai_text, elevenlabs_voice_id, elevenlabs_stability, elevenlabs_similarity, elevenlabs_style, elevenlabs_api_key, asterisk_write_queue))
                             current_ai_text = ""
                             
                         # Flush any remaining audio in the buffer at the end of the turn
