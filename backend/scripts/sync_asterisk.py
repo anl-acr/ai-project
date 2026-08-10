@@ -142,6 +142,15 @@ type=transport
 protocol=wss
 bind=0.0.0.0:8089
 
+; --- OPERATOR TRUNK (OUTBOUND LINK) ---
+[Operator_Trunk]
+type=endpoint
+context=default
+disallow=all
+allow=ulaw,alaw,g722,g729
+outbound_auth=908503607390-auth
+aors=908503607390-aor
+
 ; --- DEFAULT WEBRTC AGENT: 1000 ---
 [1000]
 type=endpoint
@@ -290,7 +299,8 @@ same => n,Hangup()
 
 [webrtc_agents]
 exten => _0.,1,NoOp(Dis arama baslatiliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
-same => n,Set(CALL_UUID=${UUID()})
+same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
+same => n,Set(CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
 same => n,Dial(PJSIP/Operator_Trunk/sip:${EXTEN}@ikonsip.com:5060,60,r)
