@@ -1294,6 +1294,24 @@ dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
 transport=transport-ws
+
+; --- DEFAULT WEBRTC AGENT: 1000 ---
+[1000](webrtc_agent_template)
+type=endpoint
+auth=1000-auth
+aors=1000
+callerid=Temsilci 1000 <1000>
+
+[1000-auth]
+type=auth
+auth_type=userpass
+username=1000
+password=1234
+
+[1000]
+type=aor
+max_contacts=5
+remove_existing=yes
 """
     for t in trunks_list:
         is_act = t.get("is_active") if "is_active" in t else True
