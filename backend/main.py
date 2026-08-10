@@ -6372,17 +6372,13 @@ async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user
         agent_ext = current_user.get("extension", "1000") if current_user else "1000"
         sip_password = (current_user.get("sip_password") or current_user.get("password") or "1234") if current_user else "1234"
         
-        # Dynamically compute WebSocket URL from incoming request header/host if set to 127.0.0.1
-        configured_url = settings_db.get("pbx", {}).get("webrtc_wss_url", "")
-        if not configured_url or "127.0.0.1" in configured_url or "localhost" in configured_url:
-            req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
-            scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
-            if scheme == "wss":
-                wss_url = f"wss://{req_host}/ws"
-            else:
-                wss_url = f"ws://{req_host}:8088/ws"
+        # Dynamically compute WebSocket URL from incoming request header/host
+        req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
+        scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
+        if scheme == "wss":
+            wss_url = f"wss://{req_host}/ws"
         else:
-            wss_url = configured_url
+            wss_url = f"ws://{req_host}:8088/ws"
             
         return {
             "asteriskWssUrl": wss_url,
@@ -6402,31 +6398,34 @@ async def websocket_asterisk_proxy(websocket: WebSocket):
     Proxies browser WebRTC WSS connections natively to local Asterisk WebSocket engine.
     """
     subprotocol = websocket.headers.get("sec-websocket-protocol", None)
-    subprotocols = [s.strip() for s in subprotocol.split(",")] if subprotocol else None
+    subprotocols = [s.strip() for s in subprotocol.split(",")] if subprotocol else ["sip"]
     
-    if subprotocols:
-        await websocket.accept(subprotocol=subprotocols[0])
-    else:
-        await websocket.accept()
-        
+    try:
+        await websocket.accept(subprotocol=subprotocols[0] if subprotocols else None)
+    except Exception as e_acc:
+        print(f"[Asterisk WS Proxy Accept Error]: {e_acc}")
+        return
+
     try:
         import websockets
         async with websockets.connect(
             "ws://127.0.0.1:8088/ws",
             subprotocols=subprotocols
         ) as asterisk_ws:
+            print(f"[Asterisk WS Proxy] WebSocket baglantisi kuruldu. Subprotocols: {subprotocols}")
             
             async def client_to_asterisk():
                 try:
                     while True:
-                        data = await websocket.receive()
-                        if "text" in data and data["text"]:
-                            await asterisk_ws.send(data["text"])
-                        elif "bytes" in data and data["bytes"]:
-                            await asterisk_ws.send(data["bytes"])
-                        elif data.get("type") == "websocket.disconnect":
+                        msg = await websocket.receive()
+                        if msg.get("type") == "websocket.receive":
+                            if "text" in msg and msg["text"]:
+                                await asterisk_ws.send(msg["text"])
+                            elif "bytes" in msg and msg["bytes"]:
+                                await asterisk_ws.send(msg["bytes"])
+                        elif msg.get("type") == "websocket.disconnect":
                             break
-                except Exception:
+                except Exception as e_c2a:
                     pass
 
             async def asterisk_to_client():
@@ -6436,12 +6435,12 @@ async def websocket_asterisk_proxy(websocket: WebSocket):
                             await websocket.send_text(msg)
                         elif isinstance(msg, bytes):
                             await websocket.send_bytes(msg)
-                except Exception:
+                except Exception as e_a2c:
                     pass
 
-            await asyncio.gather(client_to_asterisk(), asterisk_to_client())
+            await asyncio.gather(client_to_asterisk(), asterisk_to_client(), return_exceptions=True)
     except Exception as e:
-        print(f"[Asterisk WS Proxy Error]: {e}")
+        print(f"[Asterisk WS Proxy Connect Error]: {e}")
         try:
             await websocket.close()
         except Exception:
