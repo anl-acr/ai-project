@@ -191,30 +191,22 @@ max_contacts=5
 remove_existing=yes
 """
 
+        # Write directly to /etc/asterisk/pjsip_custom.conf
         pjsip_custom_path = "/etc/asterisk/pjsip_custom.conf"
         with open(pjsip_custom_path, "w", encoding="utf-8") as pf:
             pf.write(pjsip_custom_content)
         print(f"[Sync Script] pjsip_custom.conf yazıldı -> {pjsip_custom_path}")
 
-        # Also save to project config dir
-        prj_pjsip = os.path.join(PROJECT_ROOT, "asterisk_config", "pjsip_custom.conf")
-        os.makedirs(os.path.dirname(prj_pjsip), exist_ok=True)
-        with open(prj_pjsip, "w", encoding="utf-8") as pf:
-            pf.write(pjsip_custom_content)
-
-        # Ensure #include /etc/asterisk/pjsip_custom.conf in /etc/asterisk/pjsip.conf
+        # Also write directly into /etc/asterisk/pjsip.conf if not present
         pjsip_main = "/etc/asterisk/pjsip.conf"
-        need_append = True
         if os.path.exists(pjsip_main):
             with open(pjsip_main, "r", encoding="utf-8") as f:
                 curr_pjsip = f.read()
-            if "#include /etc/asterisk/pjsip_custom.conf" in curr_pjsip or "#include pjsip_custom.conf" in curr_pjsip:
-                need_append = False
-        
-        if need_append:
-            with open(pjsip_main, "a", encoding="utf-8") as f:
-                f.write("\n#include /etc/asterisk/pjsip_custom.conf\n#include pjsip_custom.conf\n")
-            print("[Sync Script] #include pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
+            # If endpoint 1000 is not in pjsip.conf, append the custom content directly
+            if "[1000]" not in curr_pjsip:
+                with open(pjsip_main, "a", encoding="utf-8") as f:
+                    f.write("\n" + pjsip_custom_content + "\n")
+                print("[Sync Script] Dahili ayarları /etc/asterisk/pjsip.conf dosyasına doğrudan yazıldı.")
 
         subprocess.run(["asterisk", "-rx", "module reload res_pjsip.so"], check=False)
         subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)

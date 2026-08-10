@@ -1404,17 +1404,13 @@ remove_existing=yes
     if os.path.exists(etc_dir):
         try:
             pjsip_main = os.path.join(etc_dir, "pjsip.conf")
-            need_append = True
             if os.path.exists(pjsip_main):
                 with open(pjsip_main, "r", encoding="utf-8") as f:
                     curr_pjsip = f.read()
-                if "#include /etc/asterisk/pjsip_custom.conf" in curr_pjsip or "#include pjsip_custom.conf" in curr_pjsip:
-                    need_append = False
-            
-            if need_append:
-                with open(pjsip_main, "a", encoding="utf-8") as f:
-                    f.write("\n#include /etc/asterisk/pjsip_custom.conf\n#include pjsip_custom.conf\n")
-                print("[Asterisk Config] #include pjsip_custom.conf -> /etc/asterisk/pjsip.conf eklendi.")
+                if "[1000]" not in curr_pjsip:
+                    with open(pjsip_main, "a", encoding="utf-8") as f:
+                        f.write("\n" + conf_content + "\n")
+                    print("[Asterisk Config] Dahili ayarları /etc/asterisk/pjsip.conf dosyasına doğrudan yazıldı.")
 
             etc_path = os.path.join(etc_dir, "pjsip_custom.conf")
             with open(etc_path, "w", encoding="utf-8") as f:
