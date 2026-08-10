@@ -64,6 +64,19 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     const ua = new SIP.UserAgent(userAgentOptions);
     userAgentRef.current = ua;
 
+    if (ua.transport) {
+      const originalOnMessage = ua.transport.onMessage;
+      ua.transport.onMessage = (message) => {
+        if (typeof message === "string" && message.includes("SIP/2.0 200 OK") && message.includes("REGISTER")) {
+          console.log("[WebRTC] Asterisk REGISTER 200 OK alındı! Hat Müsait / Online!");
+          setIsRegistered(true);
+        }
+        if (originalOnMessage) {
+          originalOnMessage.call(ua.transport, message);
+        }
+      };
+    }
+
     ua.start()
       .then(() => {
         const registerer = new SIP.Registerer(ua);

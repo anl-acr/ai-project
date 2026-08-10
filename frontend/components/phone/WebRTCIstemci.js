@@ -98,6 +98,20 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
     const ua = new SIP.UserAgent(userAgentOptions);
     userAgentRef.current = ua;
 
+    if (ua.transport) {
+      const originalOnMessage = ua.transport.onMessage;
+      ua.transport.onMessage = (message) => {
+        if (typeof message === "string" && message.includes("SIP/2.0 200 OK") && message.includes("REGISTER")) {
+          console.log("[WebRTC] Asterisk REGISTER 200 OK alındı! Hat Müsait / Online!");
+          setRegistered(true);
+          setError("");
+        }
+        if (originalOnMessage) {
+          originalOnMessage.call(ua.transport, message);
+        }
+      };
+    }
+
     // Start UA and register
     ua.start()
       .then(() => {

@@ -287,6 +287,20 @@ export default function CallChatWidget({
     const ua = new SIP.UserAgent(userAgentOptions);
     userAgentRef.current = ua;
 
+    if (ua.transport) {
+      const originalOnMessage = ua.transport.onMessage;
+      ua.transport.onMessage = (message) => {
+        if (typeof message === "string" && message.includes("SIP/2.0 200 OK") && message.includes("REGISTER")) {
+          console.log("[WebRTC] Asterisk REGISTER 200 OK alındı! Hat Müsait / Online!");
+          setRegistered(true);
+          setError("");
+        }
+        if (originalOnMessage) {
+          originalOnMessage.call(ua.transport, message);
+        }
+      };
+    }
+
     ua.transport.onDisconnect = (error) => {
       console.error("[WebRTC] Transport Disconnect:", error);
       if (error) {
