@@ -48,6 +48,8 @@
   - Dialplan dynamically constructs 36-char RFC 4122 compliant UUIDs via MD5 fallback for `AudioSocket`.
   - Dialplan sync command: `python3 backend/scripts/sync_asterisk.py` (zero external python dependencies).
   - PJSIP trunk settings are saved in PostgreSQL / `settings.json` and generated in `/etc/asterisk/pjsip_custom.conf`.
+  - **WebRTC SIP.js Contact Rewriting Rule**: PJSIP WebRTC endpoints MUST set `rewrite_contact=no`. If set to `yes`, Asterisk rewrites the `Contact` header in `SIP/2.0 200 OK` to the server's public IP, causing SIP.js (`No Contact header pointing to us`) to reject `200 OK` and abort registration.
+  - **Asterisk SSL Permissions**: Let's Encrypt certificates copied to `/etc/asterisk/keys/` must be combined (`fullchain.pem` + `privkey.pem` -> `asterisk.pem`) with `chmod 644` permissions so non-root Asterisk process can open WSS TLS on port 8089.
 - **RAG & Web Crawler / Gemini Live Architecture**:
   - `index_website_url` uses `verify=False` and standard User-Agent header to handle self-signed or expired SSL certificates.
   - Gemini Multimodal Live API WebSocket (`responseModalities: ["AUDIO"]`) does not support function calling (`tools` array with `functionDeclarations`) during live audio streams. Declaring `tools` causes `1007 (invalid frame payload data)` protocol crashes whenever Gemini attempts binary tool execution.
