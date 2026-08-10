@@ -36,7 +36,8 @@
 - **PM2 Managed Processes**:
   - `aida-app` (ID 0): Frontend web application (Next.js / React)
   - `aida-backend` (ID 2): Python FastAPI Backend & AudioSocket TCP Server
-  - Deployment Command: `git pull origin main && pm2 restart aida-backend`
+  - Backend Deployment Command: `git pull origin main && pm2 restart aida-backend`
+  - Frontend Deployment Command: `cd /opt/ai-project/frontend && git pull origin main && npm run build && pm2 restart aida-app`
 - **Virtual Environment**: `/opt/ai-project/venv` (`source venv/bin/activate`)
 - **Key Services & Ports**:
   - Web Server / API: Port `8000` (FastAPI / Uvicorn)
