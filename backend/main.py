@@ -1397,6 +1397,30 @@ remove_existing=yes
             print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf güncellendi: {etc_path}")
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf yazılamadı: {e}")
+            
+    # Auto-sync /etc/asterisk/http.conf for WebRTC WebSocket port 8088
+    http_content = """; ==========================================
+; Asterisk HTTP/WebSocket (WSS) Konfigürasyonu
+; ==========================================
+[general]
+enabled=yes
+bindaddr=0.0.0.0
+bindport=8088
+tlsenable=yes
+tlsbindaddr=0.0.0.0:8089
+tlscertfile=/etc/asterisk/keys/asterisk.pem
+tlsprivatekey=/etc/asterisk/keys/asterisk.pem
+"""
+    if os.path.exists("/etc/asterisk"):
+        try:
+            http_etc_path = "/etc/asterisk/http.conf"
+            with open(http_etc_path, "w", encoding="utf-8") as f:
+                f.write(http_content)
+            subprocess.run(["asterisk", "-rx", "http reload"], check=False)
+            subprocess.run(["asterisk", "-rx", "module reload res_pjsip_transport_websocket.so"], check=False)
+            print("[Asterisk Config] /etc/asterisk/http.conf ve WebSocket servisi başarıyla yenilendi.")
+        except Exception as e:
+            print(f"[Asterisk Config] /etc/asterisk/http.conf güncellenemedi: {e}")
 
     if background_tasks:
         background_tasks.add_task(run_pjsip_reload)

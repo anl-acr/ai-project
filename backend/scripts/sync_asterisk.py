@@ -40,6 +40,30 @@ permit = 0.0.0.0/0.0.0.0
         except Exception as e:
             print(f"[Sync Script] manager.conf hatası: {e}")
 
+    # Update /etc/asterisk/http.conf for WebRTC WebSocket
+    http_content = """; ==========================================
+; Asterisk HTTP/WebSocket (WSS) Konfigürasyonu
+; ==========================================
+[general]
+enabled=yes
+bindaddr=0.0.0.0
+bindport=8088
+tlsenable=yes
+tlsbindaddr=0.0.0.0:8089
+tlscertfile=/etc/asterisk/keys/asterisk.pem
+tlsprivatekey=/etc/asterisk/keys/asterisk.pem
+"""
+    if os.path.exists("/etc/asterisk"):
+        try:
+            http_conf_path = "/etc/asterisk/http.conf"
+            with open(http_conf_path, "w", encoding="utf-8") as f:
+                f.write(http_content)
+            subprocess.run(["asterisk", "-rx", "http reload"], check=False)
+            subprocess.run(["asterisk", "-rx", "module reload res_pjsip_transport_websocket.so"], check=False)
+            print("[Sync Script] http.conf başarıyla güncellendi ve WebSocket reload edildi.")
+        except Exception as e:
+            print(f"[Sync Script] http.conf hatası: {e}")
+
     # 2. Generate clean extensions_custom.conf without discouragged _.-pattern
     ext_content = """; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
