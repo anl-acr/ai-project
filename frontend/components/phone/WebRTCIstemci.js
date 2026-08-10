@@ -57,11 +57,12 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
       traceSip: true
     };
 
+    const resolvedViaHost = webrtcConfig?.viaHost || hostOnly;
     const userAgentOptions = {
       uri: uri,
       contactURI: uri,
       transportOptions: transportOptions,
-      viaHost: hostOnly,
+      viaHost: resolvedViaHost,
       contactName: agentExtension,
       authorizationUsername: agentExtension,
       authorizationPassword: password,

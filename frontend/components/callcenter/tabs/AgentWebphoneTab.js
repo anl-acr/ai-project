@@ -48,11 +48,12 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     const hostOnly = asteriskWssUrl.split('/')[2].split(':')[0];
     const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
     
+    const resolvedViaHost = webrtcConfig.viaHost || hostOnly;
     const userAgentOptions = {
       uri,
       contactURI: uri,
       transportOptions: { server: asteriskWssUrl, traceSip: false },
-      viaHost: hostOnly,
+      viaHost: resolvedViaHost,
       contactName: agentExtension,
       authorizationUsername: agentExtension,
       authorizationPassword: password,

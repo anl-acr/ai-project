@@ -6431,18 +6431,26 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         elif current_user:
             sip_password = current_user.get("sip_password") or current_user.get("password") or "1234"
         
-        # Dynamically compute WebSocket URL from incoming request header/host
+        # Dynamically compute WebSocket URL and resolved viaHost IP
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
+        client_ip = request.client.host if request.client else "127.0.0.1"
         scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
         if scheme == "wss":
             wss_url = f"wss://{req_host}:8089/ws"
         else:
             wss_url = f"ws://{req_host}:8088/ws"
             
+        import socket
+        try:
+            via_ip = socket.gethostbyname(req_host)
+        except Exception:
+            via_ip = client_ip if client_ip != "127.0.0.1" else "78.189.210.15"
+
         return {
             "asteriskWssUrl": wss_url,
             "agentExtension": agent_ext,
-            "password": sip_password
+            "password": sip_password,
+            "viaHost": via_ip
         }
     except Exception as e:
         print(f"WebRTC Config error: {e}")
@@ -6452,7 +6460,8 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         return {
             "asteriskWssUrl": wss_url,
             "agentExtension": "1000",
-            "password": "1234"
+            "password": "1234",
+            "viaHost": "78.189.210.15"
         }
 
 # ==============================================================================
