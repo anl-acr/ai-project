@@ -6377,8 +6377,10 @@ async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user
         if not configured_url or "127.0.0.1" in configured_url or "localhost" in configured_url:
             req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
             scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
-            port = 8089 if scheme == "wss" else 8088
-            wss_url = f"{scheme}://{req_host}:{port}/ws"
+            if scheme == "wss":
+                wss_url = f"wss://{req_host}/ws"
+            else:
+                wss_url = f"ws://{req_host}:8088/ws"
         else:
             wss_url = configured_url
             
