@@ -1293,7 +1293,6 @@ dtls_verify=fingerprint
 dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
-transport=transport-ws
 auth=1000-auth
 aors=1000
 callerid=Temsilci 1000 <1000>
@@ -1404,7 +1403,6 @@ dtls_verify=fingerprint
 dtls_setup=actpass
 ice_support=yes
 media_use_received_transport=yes
-transport=transport-ws
 auth={ext}-auth
 aors={ext}
 callerid={name} <{ext}>
@@ -6425,7 +6423,9 @@ async def get_webrtc_config(request: Request, user_info: dict = Depends(get_user
                 
         agent_ext = current_user.get("extension", "1000") if current_user else "1000"
         sip_password = "1234"
-        if current_user:
+        if agent_ext == "1000":
+            sip_password = "1234"
+        elif current_user:
             sip_password = current_user.get("sip_password") or current_user.get("password") or "1234"
         
         # Dynamically compute WebSocket URL from incoming request header/host
