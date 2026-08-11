@@ -58,7 +58,12 @@
   - Resolution: Knowledge Base (RAG) chunks are dynamically injected directly into Gemini's `systemInstruction` at call initialization (`get_all_knowledge_base_context()`), and operational actions (hangup, transfer, abuse) are handled cleanly via STT text markers (`[ACTION: HANGUP]`, `[ACTION: TRANSFER]`), completely eliminating WebSocket 1007 crashes.
 - **AI Voice Audio Cutoff (Barge-in Echo Suppression)**:
   - Low-amplitude background noise/echo (`avg_amplitude < 150`) is suppressed while `model_is_speaking` is True to prevent Gemini's server-side VAD from false-triggering `interrupted: true` and cutting off the AI's voice mid-sentence.
+- **Agent Daily Performance Stats & Reset Rule**:
+  - `GET /api/agent/stats` dynamically computes today's call counts (inbound, outbound, missed) and total break times (in minutes, with per-break breakdown e.g. Yemek Molası, İhtiyaç Molası) starting strictly from 00:00:00 local time (Turkey UTC+3 / UTC 21:00:00 of previous calendar day).
+  - Every night at 00:00:00 local time, `today_start_utc` advances automatically, resetting performance counters to 0 for the new day.
+  - Break sessions are tracked in PostgreSQL `agent_break_logs` table (`AgentBreakLog` model) via `POST /api/agent/status`, recording start times, end times, and duration in seconds.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
 - Do not wait for explicit user prompt to update memory when a critical workflow or server insight is discovered.
+

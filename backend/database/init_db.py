@@ -1,7 +1,7 @@
 import asyncio
 from sqlalchemy import text
 from backend.database.config import engine, Base
-from backend.database.models import Call, Transcript, Rule, Appointment, DocumentChunk, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, QAQuestion
+from backend.database.models import Call, Transcript, Rule, Appointment, DocumentChunk, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, QAQuestion, AgentBreakLog
 
 async def init_db():
     print("Veritabanı bağlantısı kuruluyor ve pgvector aktifleştiriliyor...")

@@ -2429,15 +2429,66 @@ async def get_agent_status_endpoint():
 
 @app.post("/api/agent/status")
 @app.post("/agent/status")
-async def update_agent_status_endpoint(payload: AgentStateSchema):
+async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSession = Depends(get_db)):
     from backend.services.agent_presence import update_agent_state
+    from backend.database.models import AgentBreakLog
+    from sqlalchemy import select, or_
+
     new_state = update_agent_state(
         is_logged_in=payload.is_logged_in,
         status=payload.status,
         current_break=payload.current_break,
         user_id=payload.user_id
     )
+
+    try:
+        user_id_str = str(payload.user_id) if payload.user_id is not None else None
+        ext_str = None
+
+        if user_id_str:
+            settings = load_settings()
+            for u in settings.get("users", []):
+                if str(u.get("id")) == user_id_str or str(u.get("extension")) == user_id_str:
+                    ext_str = str(u.get("extension", ""))
+                    break
+
+        now_utc = datetime.datetime.utcnow()
+
+        conditions = []
+        if user_id_str:
+            conditions.append(AgentBreakLog.user_id == user_id_str)
+        if ext_str:
+            conditions.append(AgentBreakLog.extension == ext_str)
+
+        if conditions:
+            stmt_active = select(AgentBreakLog).where(
+                AgentBreakLog.end_time.is_(None),
+                or_(*conditions)
+            )
+            res_active = await db.execute(stmt_active)
+            active_logs = res_active.scalars().all()
+            for active_log in active_logs:
+                active_log.end_time = now_utc
+                active_log.duration_seconds = max(0, int((now_utc - active_log.start_time).total_seconds()))
+
+        if payload.status == "break" and payload.current_break:
+            break_name = payload.current_break.get("name", "Mola")
+            new_log = AgentBreakLog(
+                user_id=user_id_str,
+                extension=ext_str,
+                break_name=break_name,
+                start_time=now_utc,
+                end_time=None,
+                duration_seconds=0
+            )
+            db.add(new_log)
+
+        await db.commit()
+    except Exception as e_brk:
+        print(f"[Agent Status] Error managing break logs: {e_brk}")
+
     return {"status": "success", "agent_state": new_state}
+
 
 def validate_number_range(number_str: str, entity_type: str):
     if not number_str:
@@ -5262,16 +5313,110 @@ async def update_call_qa(call_id: str, payload: dict, db: AsyncSession = Depends
 # --- Agent Dashboard Endpoints ---
 @app.get("/api/agent/stats")
 async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_db)):
+    from backend.database.models import Call, AgentBreakLog
+    from sqlalchemy import select, or_
+
+    # Calculate 00:00:00 of the current day in local TR time (UTC+3)
+    # TR local 00:00:00 corresponds to UTC 21:00:00 of the previous calendar day
+    now_utc = datetime.datetime.utcnow()
+    now_tr = now_utc + datetime.timedelta(hours=3)
+    today_tr_midnight = now_tr.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc = today_tr_midnight - datetime.timedelta(hours=3)
+
+    ext_str = str(extension).strip() if extension else None
+    target_exts = set()
+    target_user_ids = set()
+
+    if ext_str and ext_str not in ("undefined", "null", "none", "0", ""):
+        target_exts.add(ext_str)
+        target_user_ids.add(ext_str)
+
+        settings = load_settings()
+        for u in settings.get("users", []):
+            u_id = str(u.get("id"))
+            u_ext = str(u.get("extension", ""))
+            if ext_str == u_id or ext_str == u_ext:
+                if u_ext:
+                    target_exts.add(u_ext)
+                if u_id:
+                    target_user_ids.add(u_id)
+
+    # 1. Fetch calls starting today
+    stmt_calls = select(Call).where(Call.start_time >= today_start_utc)
+    res_calls = await db.execute(stmt_calls)
+    today_calls = res_calls.scalars().all()
+
+    inbound_count = 0
+    outbound_count = 0
+    missed_count = 0
+
+    for call in today_calls:
+        caller = str(call.caller_number or "")
+        callee = str(call.callee_number or "")
+        status = (call.status or "").lower()
+
+        if target_exts:
+            is_caller = any(caller == ext or caller.endswith(ext) for ext in target_exts)
+            is_callee = any(callee == ext or callee.endswith(ext) for ext in target_exts)
+
+            if is_callee and status in ("completed", "in_progress", "transferred", "answered"):
+                inbound_count += 1
+            elif is_caller and status in ("completed", "in_progress", "transferred", "answered"):
+                outbound_count += 1
+            elif (is_callee or is_caller) and status in ("missed", "no_answer", "busy", "cancelled", "failed", "abandoned", "blocked"):
+                missed_count += 1
+        else:
+            if status in ("missed", "no_answer", "busy", "cancelled", "failed", "abandoned", "blocked"):
+                missed_count += 1
+            elif len(caller) <= 4 and caller.isdigit():
+                outbound_count += 1
+            else:
+                inbound_count += 1
+
+    # 2. Fetch break logs for today
+    stmt_breaks = select(AgentBreakLog).where(
+        or_(
+            AgentBreakLog.start_time >= today_start_utc,
+            AgentBreakLog.end_time >= today_start_utc,
+            AgentBreakLog.end_time.is_(None)
+        )
+    )
+    res_breaks = await db.execute(stmt_breaks)
+    today_breaks = res_breaks.scalars().all()
+
+    break_dict = {}
+
+    for b_log in today_breaks:
+        if target_user_ids or target_exts:
+            b_uid = str(b_log.user_id or "")
+            b_ext = str(b_log.extension or "")
+            if b_uid not in target_user_ids and b_ext not in target_exts:
+                continue
+
+        eff_start = max(b_log.start_time, today_start_utc)
+        eff_end = b_log.end_time if b_log.end_time else now_utc
+
+        if eff_end > eff_start:
+            sec = (eff_end - eff_start).total_seconds()
+            b_name = b_log.break_name or "Mola"
+            break_dict[b_name] = break_dict.get(b_name, 0.0) + sec
+
+    break_details = []
+    total_break_minutes = 0
+
+    for b_name, sec in break_dict.items():
+        mins = int(round(sec / 60.0))
+        break_details.append({"name": b_name, "minutes": mins})
+        total_break_minutes += mins
+
     return {
-        "inbound": 12,
-        "outbound": 8,
-        "missed": 2,
-        "break_minutes": 45,
-        "break_details": [
-            {"name": "Yemek Molası", "minutes": 30},
-            {"name": "İhtiyaç Molası", "minutes": 15}
-        ]
+        "inbound": inbound_count,
+        "outbound": outbound_count,
+        "missed": missed_count,
+        "break_minutes": total_break_minutes,
+        "break_details": break_details
     }
+
 
 @app.get("/api/agent/directory")
 async def get_agent_directory():

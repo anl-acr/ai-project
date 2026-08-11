@@ -2,12 +2,15 @@ import React, { useState, useEffect, useRef } from "react";
 import * as SIP from "sip.js";
 import { Phone, PhoneOff, ShieldAlert, Wifi, WifiOff, MessageSquare, Send, X, Clock, ArrowRight, PhoneCall, Radio, Shield, Fingerprint, CheckCircle, AlertTriangle } from "lucide-react";
 import { playRingtoneSound, stopRingtoneSound } from "../../utils/audioHelper";
+import { findContactByPhone } from "../../utils/contactUtils";
 
 export default function CallChatWidget({
   onActiveCall = () => {},
   backendHost = "localhost:8000",
   currentUser
 }) {
+  const [contacts, setContacts] = useState([]);
+
   // Expanded/Collapsed State
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("phone"); // phone, traffic, chat
@@ -20,6 +23,20 @@ export default function CallChatWidget({
   const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : `http://${backendHost}`;
 
   const [isLoadingConfig, setIsLoadingConfig] = useState(true);
+
+  useEffect(() => {
+    const fetchContacts = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/contacts`);
+        if (res.ok) setContacts(await res.json());
+      } catch (err) {
+        console.error("Contacts fetch error in widget:", err);
+      }
+    };
+    fetchContacts();
+    window.addEventListener("CONTACTS_UPDATED", fetchContacts);
+    return () => window.removeEventListener("CONTACTS_UPDATED", fetchContacts);
+  }, [API_BASE]);
 
   useEffect(() => {
     let isMounted = true;
@@ -889,29 +906,32 @@ export default function CallChatWidget({
                   </div>
                 ) : (
                   <div className="space-y-2.5">
-                    {activeCalls.map((call) => (
-                      <div
-                        key={call.id}
-                        className="p-3.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-205 dark:border-slate-800/80 rounded-2xl flex items-center justify-between gap-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-primary rounded-xl animate-pulse">
-                            <PhoneCall size={13} />
+                    {activeCalls.map((call) => {
+                      const matched = findContactByPhone(call.caller_number, contacts);
+                      return (
+                        <div
+                          key={call.id}
+                          className="p-3.5 bg-slate-50 dark:bg-slate-950/40 border border-slate-200 dark:border-slate-800/80 rounded-2xl flex items-center justify-between gap-3"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-primary rounded-xl animate-pulse">
+                              <PhoneCall size={13} />
+                            </div>
+                            <div>
+                              <p className="text-[11px] font-extrabold text-slate-850 dark:text-white">
+                                {matched ? `${matched.displayName} (${call.caller_number})` : (call.caller_number || "Gizli Numara")}
+                              </p>
+                              <p className="text-[8px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest mt-0.5">
+                                Santral ID: {call.id.slice(0, 10)}...
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-[11px] font-extrabold text-slate-850 dark:text-white">
-                              {call.caller_number || "Gizli Numara"}
-                            </p>
-                            <p className="text-[8px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest mt-0.5">
-                              Santral ID: {call.id.slice(0, 10)}...
-                            </p>
+                          <div className="p-1.5 bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700/60 text-slate-500 rounded-lg">
+                            <ArrowRight size={12} />
                           </div>
                         </div>
-                        <div className="p-1.5 bg-white dark:bg-slate-800 border border-slate-200/50 dark:border-slate-700/60 text-slate-500 rounded-lg">
-                          <ArrowRight size={12} />
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

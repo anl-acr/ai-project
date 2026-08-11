@@ -1,29 +1,59 @@
 import React, { useState, useEffect } from "react";
-import { History, Phone, PhoneIncoming, PhoneOutgoing, Clock, CheckCircle2, XCircle, Play, X, Headphones } from "lucide-react";
+import { History, Phone, PhoneIncoming, PhoneOutgoing, Clock, CheckCircle2, XCircle, Play, X, Headphones, User } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
+import { findContactByPhone } from "../../../utils/contactUtils";
 
 export default function AgentHistoryTab({ backendHost, currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [calls, setCalls] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [directory, setDirectory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeAudio, setActiveAudio] = useState(null);
 
-  useEffect(() => {
-    // Protocol mapping
-    const protocol = window.location.protocol;
-    fetch(`${protocol}//${backendHost}/api/calls`)
-      .then(res => res.json())
-      .then(data => {
+  const fetchData = async () => {
+    try {
+      const protocol = window.location.protocol;
+      
+      // Fetch calls, contacts, and directory in parallel
+      const [callsRes, contactsRes, dirRes] = await Promise.all([
+        fetch(`${protocol}//${backendHost}/api/calls`),
+        fetch(`${protocol}//${backendHost}/api/contacts`),
+        fetch(`${protocol}//${backendHost}/api/agent/directory`)
+      ]);
+
+      let loadedCalls = [];
+      if (callsRes.ok) {
+        const data = await callsRes.json();
         const ext = currentUser?.extension || "1000";
-        // Filter calls for this agent
-        const myCalls = data.filter(c => c.caller_number === ext || c.callee_number === ext);
-        setCalls(myCalls);
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error("Failed to load calls", err);
-        setLoading(false);
-      });
+        loadedCalls = data.filter(c => c.caller_number === ext || c.callee_number === ext);
+      }
+
+      if (contactsRes.ok) {
+        const contactsData = await contactsRes.json();
+        setContacts(contactsData);
+      }
+
+      if (dirRes.ok) {
+        const dirData = await dirRes.json();
+        setDirectory(dirData);
+      }
+
+      setCalls(loadedCalls);
+    } catch (err) {
+      console.error("Failed to load history tab data", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
+
+    // Listen for contacts update event
+    const handleContactsUpdated = () => fetchData();
+    window.addEventListener('CONTACTS_UPDATED', handleContactsUpdated);
+    return () => window.removeEventListener('CONTACTS_UPDATED', handleContactsUpdated);
   }, [backendHost, currentUser]);
 
   const formatDuration = (secs, startTime, endTime) => {
@@ -77,7 +107,7 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
                   <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800 text-xs uppercase tracking-wider text-slate-500 dark:text-slate-400">
                     <th className="p-4 font-bold">Tarih</th>
                     <th className="p-4 font-bold">Yön</th>
-                    <th className="p-4 font-bold">Numara</th>
+                    <th className="p-4 font-bold">Numara / İsim</th>
                     <th className="p-4 font-bold">Durum</th>
                     <th className="p-4 font-bold">Süre</th>
                     <th className="p-4 font-bold text-right">İşlemler</th>
@@ -88,6 +118,7 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
                     const ext = currentUser?.extension || "1000";
                     const isOutbound = call.caller_number === ext;
                     const contactNumber = isOutbound ? call.callee_number : call.caller_number;
+                    const matchedContact = findContactByPhone(contactNumber, contacts, directory);
                     
                     return (
                       <tr key={idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -100,8 +131,22 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
                             {isOutbound ? "GİDEN" : "GELEN"}
                           </div>
                         </td>
-                        <td className="p-4 text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
-                          {contactNumber}
+                        <td className="p-4">
+                          {matchedContact ? (
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                <User size={13} className="text-slate-400 shrink-0" />
+                                {matchedContact.displayName}
+                              </span>
+                              <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
+                                {contactNumber}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
+                              {contactNumber}
+                            </span>
+                          )}
                         </td>
                         <td className="p-4">
                           <div className={`flex items-center gap-1.5 text-xs font-bold uppercase ${call.status === 'completed' || call.status === 'answered' || call.status === 'in_progress' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>
@@ -178,3 +223,4 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
     </div>
   );
 }
+

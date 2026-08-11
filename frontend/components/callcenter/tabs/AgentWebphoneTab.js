@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from "react";
 import TranscriptPanel from "../../dashboard/TranscriptPanel";
 import AgentSessionCard from "../../phone/AgentSessionCard";
-import { Phone, PhoneOff, Mic, MicOff, Pause, Play, Volume2 } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Pause, Play, Volume2, UserPlus, UserCheck, User, X } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import * as SIP from "sip.js";
+import { findContactByPhone } from "../../../utils/contactUtils";
 
 export default function AgentWebphoneTab({ backendHost, currentUser, activeCallId, pendingDial, setPendingDial }) {
   const { borderLight } = useTheme();
@@ -16,10 +17,46 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
   const [isMuted, setIsMuted] = useState(false);
   const [isOnHold, setIsOnHold] = useState(false);
 
+  // Contacts & Add Contact Modal State
+  const [contacts, setContacts] = useState([]);
+  const [directory, setDirectory] = useState([]);
+  const [isAddContactOpen, setIsAddContactOpen] = useState(false);
+  const [newContact, setNewContact] = useState({ firstName: "", lastName: "", email: "" });
+  const [savingContact, setSavingContact] = useState(false);
+  const [contactError, setContactError] = useState("");
+
   const userAgentRef = useRef(null);
   const sessionRef = useRef(null);
   const audioElRef = useRef(null);
   const inputRef = useRef(null);
+
+  // Fetch system contacts & directory
+  const fetchContactsAndDirectory = async () => {
+    try {
+      const protocol = window.location.protocol;
+      const [contactsRes, dirRes] = await Promise.all([
+        fetch(`${protocol}//${backendHost}/api/contacts`),
+        fetch(`${protocol}//${backendHost}/api/agent/directory`)
+      ]);
+      if (contactsRes.ok) {
+        const cData = await contactsRes.json();
+        setContacts(cData);
+      }
+      if (dirRes.ok) {
+        const dData = await dirRes.json();
+        setDirectory(dData);
+      }
+    } catch (err) {
+      console.error("Rehber verileri alınamadı:", err);
+    }
+  };
+
+  useEffect(() => {
+    fetchContactsAndDirectory();
+    const handleContactsUpdated = () => fetchContactsAndDirectory();
+    window.addEventListener("CONTACTS_UPDATED", handleContactsUpdated);
+    return () => window.removeEventListener("CONTACTS_UPDATED", handleContactsUpdated);
+  }, [backendHost]);
 
   useEffect(() => {
     if (!currentUser) return;
@@ -190,7 +227,6 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
   };
 
   const toggleHold = () => {
-    // Basic hold simulation (in a real scenario, re-INVITE with sendonly/recvonly is needed)
     if (!sessionRef.current) return;
     const pc = sessionRef.current.sessionDescriptionHandler?.peerConnection;
     if (pc) {
@@ -203,18 +239,54 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     }
   };
 
+  const handleSaveContact = async () => {
+    if (!newContact.firstName.trim() || !newContact.lastName.trim()) {
+      setContactError("Lütfen Ad ve Soyad alanlarını doldurun.");
+      return;
+    }
+    setSavingContact(true);
+    setContactError("");
+    try {
+      const protocol = window.location.protocol;
+      const res = await fetch(`${protocol}//${backendHost}/api/contacts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: newContact.firstName.trim(),
+          last_name: newContact.lastName.trim(),
+          phone_number: dialNumber.trim(),
+          email: newContact.email.trim() || null
+        })
+      });
+      if (res.ok) {
+        await fetchContactsAndDirectory();
+        window.dispatchEvent(new CustomEvent('CONTACTS_UPDATED'));
+        setIsAddContactOpen(false);
+      } else {
+        const errData = await res.json();
+        setContactError(errData.detail || "Kayıt eklenirken bir hata oluştu.");
+      }
+    } catch (err) {
+      console.error("Contact save error:", err);
+      setContactError("Bağlantı hatası oluştu.");
+    } finally {
+      setSavingContact(false);
+    }
+  };
+
   useEffect(() => {
     if (pendingDial && isRegistered && callStatus === "Idle") {
       setDialNumber(pendingDial);
       const numToDial = pendingDial;
       setPendingDial(null);
-      // Wait a tiny bit for state to settle, then call
       setTimeout(() => handleCall(numToDial), 100);
     }
   }, [pendingDial, isRegistered, callStatus]);
 
+  const matchedContact = findContactByPhone(dialNumber, contacts, directory);
+
   return (
-    <div className="w-full h-full p-4 lg:p-6 overflow-hidden flex flex-col">
+    <div className="w-full h-full p-4 lg:p-6 overflow-hidden flex flex-col relative">
       <audio ref={audioElRef} autoPlay style={{ display: "none" }} />
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
         
@@ -232,7 +304,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
               <p className={`text-[10px] font-extrabold uppercase tracking-widest ${callStatus !== 'Idle' ? 'text-emerald-500' : 'text-slate-400 dark:text-slate-500'}`}>
                 {callStatus === "InCall" ? "Görüşme Aktif" : callStatus === "Calling" ? "Aranıyor..." : "Hat Müsait"}
               </p>
-              <div className="mt-1 flex items-center justify-center">
+              <div className="mt-1 flex flex-col items-center justify-center">
                 <input 
                   ref={inputRef}
                   type="text"
@@ -244,6 +316,12 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
                   className="w-full text-center text-2xl font-mono font-bold tracking-widest text-slate-800 dark:text-white bg-transparent border-none outline-none focus:ring-0 placeholder:text-slate-300 dark:placeholder:text-slate-700 h-10 disabled:opacity-80"
                   autoFocus
                 />
+                {matchedContact && (
+                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center justify-center gap-1.5 animate-in fade-in">
+                    <UserCheck size={14} />
+                    {matchedContact.displayName}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -267,7 +345,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
             {/* Action Buttons */}
             <div className="flex items-center justify-center gap-6 mt-8 w-full">
                <button 
-                 onClick={handleCall}
+                 onClick={() => handleCall()}
                  disabled={callStatus !== "Idle"}
                  className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 hover:from-emerald-500 hover:to-emerald-700 disabled:opacity-50 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all hover:scale-105 active:scale-95"
                >
@@ -307,11 +385,40 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
                      {isOnHold ? <Pause size={32} /> : <Phone size={32} className={callStatus === 'Calling' ? 'animate-bounce' : ''} />}
                    </div>
                    
-                   <h2 className="text-4xl md:text-5xl font-extrabold text-slate-800 dark:text-white tracking-widest mb-3 drop-shadow-sm dark:drop-shadow-lg font-mono">
-                     {dialNumber}
-                   </h2>
+                   {matchedContact ? (
+                     <div className="flex flex-col items-center text-center">
+                       <div className="flex items-center gap-1.5 mb-1.5 px-3 py-1 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-full text-xs font-extrabold tracking-wide shadow-sm">
+                         <UserCheck size={14} />
+                         <span>Rehberde Kayıtlı</span>
+                       </div>
+                       <h2 className="text-3xl md:text-4xl font-extrabold text-slate-800 dark:text-white tracking-wide mb-1">
+                         {matchedContact.displayName}
+                       </h2>
+                       <p className="text-xl font-mono font-semibold text-slate-500 dark:text-slate-400 tracking-widest mb-3">
+                         {dialNumber}
+                       </p>
+                     </div>
+                   ) : (
+                     <div className="flex flex-col items-center text-center">
+                       <h2 className="text-4xl md:text-5xl font-extrabold text-slate-800 dark:text-white tracking-widest mb-2 font-mono drop-shadow-sm dark:drop-shadow-lg">
+                         {dialNumber}
+                       </h2>
+                       <button
+                         onClick={() => {
+                           setNewContact({ firstName: "", lastName: "", email: "" });
+                           setContactError("");
+                           setIsAddContactOpen(true);
+                         }}
+                         title="Kişiyi Rehbere Kaydet"
+                         className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-rose-500/20 transition-all shrink-0 cursor-pointer"
+                       >
+                         <UserPlus size={15} />
+                         Rehbere Kaydet
+                       </button>
+                     </div>
+                   )}
                    
-                   <div className="flex items-center gap-3">
+                   <div className="flex items-center gap-3 mt-2">
                      <span className="relative flex h-3 w-3">
                        <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${callStatus === 'InCall' ? 'bg-emerald-500 dark:bg-emerald-400' : 'bg-amber-500 dark:bg-amber-400'}`}></span>
                        <span className={`relative inline-flex rounded-full h-3 w-3 ${callStatus === 'InCall' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
@@ -348,6 +455,62 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
         </div>
         
       </div>
+
+      {/* In-Call Add Contact Modal */}
+      {isAddContactOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5 text-slate-800 dark:text-white font-bold">
+                <div className="p-2 bg-rose-100 dark:bg-rose-950/40 text-rose-600 rounded-xl">
+                  <UserPlus size={18} />
+                </div>
+                <span>Rehbere Kişi Ekle</span>
+              </div>
+              <button onClick={() => setIsAddContactOpen(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1 rounded-lg">
+                <X size={18} />
+              </button>
+            </div>
+
+            {contactError && (
+              <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs rounded-xl font-medium">
+                {contactError}
+              </div>
+            )}
+
+            <div className="space-y-3 text-left">
+              <div>
+                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">Telefon Numarası</label>
+                <input type="text" value={dialNumber} disabled className="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-mono font-bold border border-slate-200 dark:border-slate-700" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">Ad *</label>
+                  <input type="text" value={newContact.firstName} onChange={e => setNewContact({...newContact, firstName: e.target.value})} placeholder="Örn: Ahmet" className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl text-sm border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500" autoFocus />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">Soyad *</label>
+                  <input type="text" value={newContact.lastName} onChange={e => setNewContact({...newContact, lastName: e.target.value})} placeholder="Örn: Yılmaz" className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl text-sm border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">E-posta (İsteğe Bağlı)</label>
+                <input type="email" value={newContact.email} onChange={e => setNewContact({...newContact, email: e.target.value})} placeholder="ahmet@ornek.com" className="w-full px-3.5 py-2 bg-white dark:bg-slate-800 text-slate-800 dark:text-white rounded-xl text-sm border border-slate-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-rose-500" />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button onClick={() => setIsAddContactOpen(false)} className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 transition-colors">
+                Vazgeç
+              </button>
+              <button onClick={handleSaveContact} disabled={savingContact} className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 active:scale-95 rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50">
+                {savingContact ? "Kaydediliyor..." : "Kaydet"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

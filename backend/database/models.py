@@ -321,3 +321,15 @@ class BreakType(Base):
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     name = Column(String, nullable=False)
     color = Column(String, nullable=False)
+
+class AgentBreakLog(Base):
+    __tablename__ = "agent_break_logs"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    user_id = Column(String, nullable=True, index=True)
+    extension = Column(String, nullable=True, index=True)
+    break_name = Column(String, nullable=False)
+    start_time = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
+    end_time = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, default=0)
+
