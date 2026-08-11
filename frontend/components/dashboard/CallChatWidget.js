@@ -24,6 +24,20 @@ export default function CallChatWidget({
 
   const [isLoadingConfig, setIsLoadingConfig] = useState(true);
 
+  // Softphone States & References (Must be initialized before useEffect hooks!)
+  const [registered, setRegistered] = useState(false);
+  const [session, setSession] = useState(null);
+  const [callStatus, setCallStatus] = useState("Idle"); // Idle, Ringing, InCall
+  const [error, setError] = useState("");
+  const [callDuration, setCallDuration] = useState(0);
+
+  // Voice Biometric States
+  const [biometricStatus, setBiometricStatus] = useState(null);
+  const [savingVoiceprint, setSavingVoiceprint] = useState(false);
+
+  const userAgentRef = useRef(null);
+  const audioElRef = useRef(null);
+
   useEffect(() => {
     const fetchContacts = async () => {
       try {
@@ -81,22 +95,6 @@ export default function CallChatWidget({
     fetchConfig();
     return () => { isMounted = false; };
   }, [API_BASE, currentUser]);
-
-  // ----------------------------------------------------
-  // 1. WebRTC Softphone States & References
-  // ----------------------------------------------------
-  const [registered, setRegistered] = useState(false);
-  const [session, setSession] = useState(null);
-  const [callStatus, setCallStatus] = useState("Idle"); // Idle, Ringing, InCall
-  const [error, setError] = useState("");
-  const [callDuration, setCallDuration] = useState(0);
-
-  // Voice Biometric States
-  const [biometricStatus, setBiometricStatus] = useState(null);
-  const [savingVoiceprint, setSavingVoiceprint] = useState(false);
-
-  const userAgentRef = useRef(null);
-  const audioElRef = useRef(null);
 
   // Ringtone playback side-effect
   useEffect(() => {

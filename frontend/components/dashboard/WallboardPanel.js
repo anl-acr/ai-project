@@ -19,54 +19,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
-  useEffect(() => {
-    fetchInitialData();
-    checkAccess();
-  }, []);
-
-  // Poll active stats every 4 seconds
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchActiveCalls();
-    }, 4000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // Fetch real wallboard data from endpoints
-  useEffect(() => {
-    const fetchWallboardData = async () => {
-      try {
-        const [wbRes, agentsRes] = await Promise.all([
-          fetch(`${API_BASE}/api/reports/wallboard`, { cache: 'no-store' }),
-          fetch(`${API_BASE}/api/reports/agents`, { cache: 'no-store' })
-        ]);
-        
-        if (wbRes.ok) {
-          const wbData = await wbRes.json();
-          setQueueCount(wbData.queueCount || 0);
-          setAiResolvedCount(wbData.aiResolvedCount || 0);
-          setActiveCallsCount(wbData.activeCallsCount || 0);
-          setAvgHoldTime(wbData.avgHoldTime || 0);
-          setServiceLevel(wbData.serviceLevel ?? 100.0);
-          if (Array.isArray(wbData.recentLogs) && wbData.recentLogs.length > 0) {
-            setEventLogs(wbData.recentLogs);
-          }
-        }
-        
-        if (agentsRes.ok) {
-          const agentsData = await agentsRes.json();
-          setAgentsState(agentsData);
-        }
-      } catch (err) {
-        console.error("Failed to fetch wallboard data:", err);
-      }
-    };
-
-    fetchWallboardData();
-    const interval = setInterval(fetchWallboardData, 2000);
-    return () => clearInterval(interval);
-  }, []);
-
   const addLog = (time, type, text) => {
     setEventLogs(prev => [
       { id: Date.now() + Math.random(), time, type, text },
@@ -172,6 +124,54 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
       console.error("Wallboard active calls poll error:", err);
     }
   };
+
+  useEffect(() => {
+    fetchInitialData();
+    checkAccess();
+  }, []);
+
+  // Poll active stats every 4 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchActiveCalls();
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Fetch real wallboard data from endpoints
+  useEffect(() => {
+    const fetchWallboardData = async () => {
+      try {
+        const [wbRes, agentsRes] = await Promise.all([
+          fetch(`${API_BASE}/api/reports/wallboard`, { cache: 'no-store' }),
+          fetch(`${API_BASE}/api/reports/agents`, { cache: 'no-store' })
+        ]);
+        
+        if (wbRes.ok) {
+          const wbData = await wbRes.json();
+          setQueueCount(wbData.queueCount || 0);
+          setAiResolvedCount(wbData.aiResolvedCount || 0);
+          setActiveCallsCount(wbData.activeCallsCount || 0);
+          setAvgHoldTime(wbData.avgHoldTime || 0);
+          setServiceLevel(wbData.serviceLevel ?? 100.0);
+          if (Array.isArray(wbData.recentLogs) && wbData.recentLogs.length > 0) {
+            setEventLogs(wbData.recentLogs);
+          }
+        }
+        
+        if (agentsRes.ok) {
+          const agentsData = await agentsRes.json();
+          setAgentsState(agentsData);
+        }
+      } catch (err) {
+        console.error("Failed to fetch wallboard data:", err);
+      }
+    };
+
+    fetchWallboardData();
+    const interval = setInterval(fetchWallboardData, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   const formatSeconds = (sec) => {
     const mins = Math.floor(sec / 60);
