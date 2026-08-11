@@ -28,7 +28,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       .then((res) => res.json())
       .then((data) => {
         if (data) {
-          setAgentState(data);
+          setAgentState(data.agent_state || data.state || data);
         }
       })
       .catch((err) => console.error("Temsilci durumu alınamadı:", err));
@@ -62,7 +62,8 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       });
       const data = await res.json();
       if (res.ok && data.status === "success") {
-        setAgentState(data.state);
+        const updated = data.agent_state || data.state || newState;
+        setAgentState(updated);
       }
     } catch (err) {
       console.error("Agent durumu güncellenemedi:", err);
@@ -74,6 +75,8 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const safeUsers = Array.isArray(users) ? users : [];
   const safeRoles = Array.isArray(roles) ? roles : [];
   const safeBreaks = Array.isArray(breaks) ? breaks : [];
+
+  const effectiveUserId = agentState?.user_id || currentUser?.id;
 
   const handleLogin = () => {
     if (!currentUser) return;
@@ -102,7 +105,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       is_logged_in: true,
       status: "break",
       current_break: breakItem,
-      user_id: agentState.user_id
+      user_id: effectiveUserId
     };
     updateStateOnBackend(newState);
     setShowDropdown(false);
@@ -113,13 +116,13 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       is_logged_in: true,
       status: "online",
       current_break: null,
-      user_id: agentState.user_id
+      user_id: effectiveUserId
     };
     updateStateOnBackend(newState);
   };
 
   // Find currently logged in user profile
-  const loggedInUser = safeUsers.find(u => u.id === agentState.user_id);
+  const loggedInUser = safeUsers.find(u => u.id === effectiveUserId);
   const loggedInUserRoleObj = loggedInUser ? safeRoles.find(r => r.role_code === loggedInUser.role) : null;
 
   // Filter breaks allowed for this user's role
@@ -128,21 +131,21 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
   // Status style helper
   const getStatusDisplay = () => {
-    if (!agentState.is_logged_in) {
+    if (!agentState?.is_logged_in) {
       return {
         text: "Çevrimdışı (Giriş Yapılmadı)",
         badgeClass: "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200/50 dark:border-slate-700/50",
         indicatorClass: "bg-slate-400"
       };
     }
-    if (agentState.status === "online") {
+    if (agentState?.status === "online") {
       return {
         text: "Müsait (Çağrı Alabilir)",
         badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30",
         indicatorClass: "bg-primary animate-pulse"
       };
     }
-    if (agentState.status === "break" && agentState.current_break) {
+    if (agentState?.status === "break" && agentState?.current_break) {
       return {
         text: `Molada (${agentState.current_break.name})`,
         badgeClass: "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-200/50 dark:border-amber-900/30",

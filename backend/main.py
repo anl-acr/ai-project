@@ -2487,7 +2487,7 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
     except Exception as e_brk:
         print(f"[Agent Status] Error managing break logs: {e_brk}")
 
-    return {"status": "success", "agent_state": new_state}
+    return {"status": "success", "agent_state": new_state, "state": new_state}
 
 
 def validate_number_range(number_str: str, entity_type: str):
