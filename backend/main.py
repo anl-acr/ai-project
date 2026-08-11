@@ -4551,10 +4551,38 @@ class ContactSchema(BaseModel):
     phone_number: str
     email: Optional[str] = None
 
+def normalize_phone_py(num: str) -> str:
+    if not num:
+        return ""
+    cleaned = re.sub(r'\D', '', str(num))
+    return cleaned[-10:] if len(cleaned) >= 10 else cleaned
+
 @app.get("/api/contacts")
 async def list_contacts(q: Optional[str] = None):
     try:
         async with AsyncSessionLocal() as session:
+            # Sync any json contacts into DB if missing
+            file_contacts = settings_db.get("contacts", [])
+            if file_contacts:
+                stmt_all_check = select(Contact)
+                res_all_check = await session.execute(stmt_all_check)
+                existing_in_db = res_all_check.scalars().all()
+                existing_norms = {normalize_phone_py(ex.phone_number) for ex in existing_in_db if ex.phone_number}
+
+                for c in file_contacts:
+                    phone = str(c.get("phone_number") or "").strip()
+                    if phone:
+                        p_norm = normalize_phone_py(phone)
+                        if p_norm and p_norm not in existing_norms:
+                            session.add(Contact(
+                                first_name=c.get("first_name", ""),
+                                last_name=c.get("last_name", ""),
+                                phone_number=phone,
+                                email=c.get("email")
+                            ))
+                            existing_norms.add(p_norm)
+                await session.commit()
+
             if q:
                 search_pattern = f"%{q}%"
                 stmt = select(Contact).where(
@@ -4568,7 +4596,20 @@ async def list_contacts(q: Optional[str] = None):
             result = await session.execute(stmt)
             contacts = result.scalars().all()
             if contacts:
-                return contacts
+                contact_dicts = [
+                    {
+                        "id": c.id,
+                        "first_name": c.first_name,
+                        "last_name": c.last_name,
+                        "phone_number": c.phone_number,
+                        "email": c.email,
+                        "voiceprint": c.voiceprint
+                    }
+                    for c in contacts
+                ]
+                settings_db["contacts"] = contact_dicts
+                save_settings(settings_db)
+                return contact_dicts
     except Exception as e:
         print(f"[List Contacts DB Warning]: {e}")
     
@@ -4580,95 +4621,84 @@ async def list_contacts(q: Optional[str] = None):
 
 @app.post("/api/contacts")
 async def create_contact(payload: ContactSchema):
-    new_contact = {
-        "id": int(datetime.datetime.now().timestamp() * 1000),
-        "first_name": payload.first_name,
-        "last_name": payload.last_name,
-        "phone_number": payload.phone_number,
-        "email": payload.email
-    }
-    
-    current_contacts = settings_db.setdefault("contacts", [])
     phone_clean = str(payload.phone_number or "").strip()
-    for c in current_contacts:
-        if str(c.get("phone_number") or "").strip() == phone_clean:
-            c_name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or "Rehber Kaydı"
-            raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli bir kayıt zaten mevcut.")
-        if payload.email and c.get("email") and str(c.get("email")).strip().lower() == str(payload.email).strip().lower():
-            c_name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or "Rehber Kaydı"
-            raise HTTPException(status_code=400, detail=f"Bu e-posta adresine ait '{c_name}' isimli bir kayıt zaten mevcut.")
-            
+    phone_norm = normalize_phone_py(phone_clean)
+
     try:
         async with AsyncSessionLocal() as session:
-            stmt_check = select(Contact).where(Contact.phone_number == payload.phone_number)
-            res_check = await session.execute(stmt_check)
-            existing_c = res_check.scalar_one_or_none()
-            if existing_c:
-                c_name = f"{existing_c.first_name} {existing_c.last_name}".strip() or "Rehber Kaydı"
-                raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli bir kayıt zaten mevcut.")
-                
-            if payload.email:
-                stmt_email_check = select(Contact).where(Contact.email == payload.email)
-                res_email_check = await session.execute(stmt_email_check)
-                existing_email_c = res_email_check.scalar_one_or_none()
-                if existing_email_c:
-                    c_name = f"{existing_email_c.first_name} {existing_email_c.last_name}".strip() or "Rehber Kaydı"
+            stmt_all = select(Contact)
+            res_all = await session.execute(stmt_all)
+            all_db_contacts = res_all.scalars().all()
+
+            for existing_c in all_db_contacts:
+                if normalize_phone_py(existing_c.phone_number) == phone_norm:
+                    c_name = f"{existing_c.first_name} {existing_c.last_name}".strip() or "Rehber Kaydı"
+                    raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli bir kayıt zaten mevcut.")
+                if payload.email and existing_c.email and existing_c.email.strip().lower() == payload.email.strip().lower():
+                    c_name = f"{existing_c.first_name} {existing_c.last_name}".strip() or "Rehber Kaydı"
                     raise HTTPException(status_code=400, detail=f"Bu e-posta adresine ait '{c_name}' isimli bir kayıt zaten mevcut.")
 
             db_contact = Contact(
-                first_name=payload.first_name,
-                last_name=payload.last_name,
-                phone_number=payload.phone_number,
-                email=payload.email
+                first_name=payload.first_name.strip(),
+                last_name=payload.last_name.strip(),
+                phone_number=phone_clean,
+                email=payload.email.strip() if payload.email else None
             )
             session.add(db_contact)
             await session.commit()
             await session.refresh(db_contact)
-            new_contact["id"] = db_contact.id
+
+            new_contact = {
+                "id": db_contact.id,
+                "first_name": db_contact.first_name,
+                "last_name": db_contact.last_name,
+                "phone_number": db_contact.phone_number,
+                "email": db_contact.email
+            }
+
+            current_contacts = settings_db.setdefault("contacts", [])
+            current_contacts.append(new_contact)
+            settings_db["contacts"] = current_contacts
+            save_settings(settings_db)
+            return new_contact
     except HTTPException:
         raise
     except Exception as e:
         print(f"[Create Contact DB Warning]: {e}")
-
-    current_contacts.append(new_contact)
-    settings_db["contacts"] = current_contacts
-    save_settings(settings_db)
-    return new_contact
+        raise HTTPException(status_code=500, detail=f"Kişi eklenirken hata oluştu: {e}")
 
 @app.put("/api/contacts/{contact_id}")
 async def update_contact(contact_id: int, payload: ContactSchema):
     phone_clean = str(payload.phone_number or "").strip()
-    current_contacts = settings_db.get("contacts", [])
-    for c in current_contacts:
-        if str(c.get("id")) != str(contact_id) and str(c.get("phone_number") or "").strip() == phone_clean:
-            c_name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or "Rehber Kaydı"
-            raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli başka bir kayıt zaten mevcut.")
-
+    phone_norm = normalize_phone_py(phone_clean)
     updated = None
+
     try:
         async with AsyncSessionLocal() as session:
             db_contact = await session.get(Contact, contact_id)
+            if not db_contact:
+                stmt_find = select(Contact).where(Contact.id == contact_id)
+                res_find = await session.execute(stmt_find)
+                db_contact = res_find.scalar_one_or_none()
+
             if db_contact:
-                if db_contact.phone_number != payload.phone_number:
-                    stmt_check = select(Contact).where(Contact.phone_number == payload.phone_number)
-                    res_check = await session.execute(stmt_check)
-                    existing_c = res_check.scalar_one_or_none()
-                    if existing_c and str(existing_c.id) != str(contact_id):
-                        c_name = f"{existing_c.first_name} {existing_c.last_name}".strip() or "Rehber Kaydı"
-                        raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli başka bir kayıt zaten mevcut.")
+                stmt_all = select(Contact)
+                res_all = await session.execute(stmt_all)
+                all_contacts_db = res_all.scalars().all()
 
-                if payload.email and db_contact.email != payload.email:
-                    stmt_email_check = select(Contact).where(Contact.email == payload.email)
-                    res_email_check = await session.execute(stmt_email_check)
-                    existing_email_c = res_email_check.scalar_one_or_none()
-                    if existing_email_c and str(existing_email_c.id) != str(contact_id):
-                        c_name = f"{existing_email_c.first_name} {existing_email_c.last_name}".strip() or "Rehber Kaydı"
-                        raise HTTPException(status_code=400, detail=f"Bu e-posta adresine ait '{c_name}' isimli başka bir kayıt zaten mevcut.")
+                for existing_c in all_contacts_db:
+                    if str(existing_c.id) != str(contact_id):
+                        if normalize_phone_py(existing_c.phone_number) == phone_norm:
+                            c_name = f"{existing_c.first_name} {existing_c.last_name}".strip() or "Rehber Kaydı"
+                            raise HTTPException(status_code=400, detail=f"Bu telefon numarasına ({phone_clean}) ait '{c_name}' isimli başka bir kayıt zaten mevcut.")
+                        if payload.email and existing_c.email and existing_c.email.strip().lower() == payload.email.strip().lower():
+                            c_name = f"{existing_c.first_name} {existing_c.last_name}".strip() or "Rehber Kaydı"
+                            raise HTTPException(status_code=400, detail=f"Bu e-posta adresine ait '{c_name}' isimli başka bir kayıt zaten mevcut.")
 
-                db_contact.first_name = payload.first_name
-                db_contact.last_name = payload.last_name
-                db_contact.phone_number = payload.phone_number
-                db_contact.email = payload.email
+                db_contact.first_name = payload.first_name.strip()
+                db_contact.last_name = payload.last_name.strip()
+                db_contact.phone_number = phone_clean
+                db_contact.email = payload.email.strip() if payload.email else None
                 await session.commit()
                 updated = {
                     "id": db_contact.id,
@@ -4682,6 +4712,7 @@ async def update_contact(contact_id: int, payload: ContactSchema):
     except Exception as e:
         print(f"[Update Contact DB Warning]: {e}")
 
+    current_contacts = settings_db.get("contacts", [])
     found = False
     for i, c in enumerate(current_contacts):
         if str(c.get("id")) == str(contact_id):
@@ -4693,29 +4724,26 @@ async def update_contact(contact_id: int, payload: ContactSchema):
                 "email": payload.email
             }
             found = True
-            updated = current_contacts[i]
+            if not updated:
+                updated = current_contacts[i]
             break
 
-            
-    if not found and not updated:
-        updated = {
-            "id": contact_id,
-            "first_name": payload.first_name,
-            "last_name": payload.last_name,
-            "phone_number": payload.phone_number,
-            "email": payload.email
-        }
+    if not found and updated:
         current_contacts.append(updated)
 
     settings_db["contacts"] = current_contacts
     save_settings(settings_db)
-    return updated
+    return updated or {"status": "success"}
 
 @app.delete("/api/contacts/{contact_id}")
 async def delete_contact(contact_id: int):
     try:
         async with AsyncSessionLocal() as session:
             db_contact = await session.get(Contact, contact_id)
+            if not db_contact:
+                stmt_find = select(Contact).where(Contact.id == contact_id)
+                res_find = await session.execute(stmt_find)
+                db_contact = res_find.scalar_one_or_none()
             if db_contact:
                 await session.delete(db_contact)
                 await session.commit()
@@ -4723,7 +4751,7 @@ async def delete_contact(contact_id: int):
         print(f"[Delete Contact DB Warning]: {e}")
 
     current_contacts = settings_db.get("contacts", [])
-    settings_db["contacts"] = [c for c in current_contacts if c.get("id") != contact_id]
+    settings_db["contacts"] = [c for c in current_contacts if str(c.get("id")) != str(contact_id)]
     save_settings(settings_db)
     return {"status": "success", "message": "Kişi rehberden başarıyla silindi."}
 
@@ -4732,26 +4760,28 @@ async def lookup_contact(phone: Optional[str] = None, email: Optional[str] = Non
     try:
         async with AsyncSessionLocal() as session:
             if phone:
-                stmt = select(Contact).where(Contact.phone_number == phone)
-                result = await session.execute(stmt)
-                contact = result.scalar_one_or_none()
-                if contact:
-                    return {
-                        "found": True,
-                        "name": f"{contact.first_name} {contact.last_name}",
-                        "first_name": contact.first_name,
-                        "last_name": contact.last_name,
-                        "phone_number": contact.phone_number,
-                        "email": contact.email
-                    }
+                phone_norm = normalize_phone_py(phone)
+                stmt = select(Contact)
+                res = await session.execute(stmt)
+                all_c = res.scalars().all()
+                for contact in all_c:
+                    if normalize_phone_py(contact.phone_number) == phone_norm or contact.phone_number == phone:
+                        return {
+                            "found": True,
+                            "name": f"{contact.first_name} {contact.last_name}".strip(),
+                            "first_name": contact.first_name,
+                            "last_name": contact.last_name,
+                            "phone_number": contact.phone_number,
+                            "email": contact.email
+                        }
             if email:
-                stmt = select(Contact).where(Contact.email == email)
+                stmt = select(Contact).where(Contact.email.ilike(email))
                 result = await session.execute(stmt)
                 contact = result.scalar_one_or_none()
                 if contact:
                     return {
                         "found": True,
-                        "name": f"{contact.first_name} {contact.last_name}",
+                        "name": f"{contact.first_name} {contact.last_name}".strip(),
                         "first_name": contact.first_name,
                         "last_name": contact.last_name,
                         "phone_number": contact.phone_number,
@@ -4760,26 +4790,19 @@ async def lookup_contact(phone: Optional[str] = None, email: Optional[str] = Non
     except Exception as e:
         print(f"[Lookup Contact DB Warning]: {e}")
 
-    current_contacts = settings_db.get("contacts", [])
-    for c in current_contacts:
-        if phone and c.get("phone_number") == phone:
-            return {
-                "found": True,
-                "name": f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
-                "first_name": c.get("first_name"),
-                "last_name": c.get("last_name"),
-                "phone_number": c.get("phone_number"),
-                "email": c.get("email")
-            }
-        if email and c.get("email") == email:
-            return {
-                "found": True,
-                "name": f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
-                "first_name": c.get("first_name"),
-                "last_name": c.get("last_name"),
-                "phone_number": c.get("phone_number"),
-                "email": c.get("email")
-            }
+    file_contacts = settings_db.get("contacts", [])
+    if phone:
+        phone_norm = normalize_phone_py(phone)
+        for c in file_contacts:
+            if normalize_phone_py(c.get("phone_number")) == phone_norm or c.get("phone_number") == phone:
+                return {
+                    "found": True,
+                    "name": f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
+                    "first_name": c.get("first_name"),
+                    "last_name": c.get("last_name"),
+                    "phone_number": c.get("phone_number"),
+                    "email": c.get("email")
+                }
     return {"found": False}
 
 # =====================================================================
