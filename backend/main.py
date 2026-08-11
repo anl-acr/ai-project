@@ -4569,6 +4569,8 @@ async def get_wallboard_stats():
 async def get_reports_agents():
     from backend.database.models import SystemUser
     from backend.services.ami_manager import active_channels, registered_endpoints
+    from backend.services.agent_presence import active_agent_status, get_agent_state
+
     async with AsyncSessionLocal() as session:
         stmt = select(SystemUser)
         result = await session.execute(stmt)
@@ -4586,7 +4588,13 @@ async def get_reports_agents():
                     caller_number = ch.get("exten") if ch.get("caller_num") == u.extension else ch.get("caller_num")
                     break
 
-            agent_sess = active_agent_status.get(u.id) or active_agent_status.get(str(u.id)) or {}
+            agent_sess = (
+                active_agent_status.get(u.id) or
+                active_agent_status.get(str(u.id)) or
+                active_agent_status.get(str(u.extension)) or
+                get_agent_state(u.id) or
+                {}
+            )
             is_logged_in = agent_sess.get("is_logged_in", False)
             session_status = agent_sess.get("status", "offline")
 
@@ -4605,7 +4613,7 @@ async def get_reports_agents():
                 else:
                     status = "Müsait"
 
-            agents_state[u.id] = {
+            ag_info = {
                 "id": str(u.id),
                 "name": u.full_name,
                 "role": u.role,
@@ -4616,6 +4624,11 @@ async def get_reports_agents():
                 "caller": caller_number,
                 "duration": 0
             }
+            agents_state[u.id] = ag_info
+            agents_state[str(u.id)] = ag_info
+            if u.extension:
+                agents_state[str(u.extension)] = ag_info
+
         return agents_state
 
 @app.get("/api/system/logs")

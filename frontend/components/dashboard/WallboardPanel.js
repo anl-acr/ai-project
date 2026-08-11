@@ -330,7 +330,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {users.map((u) => {
-                  const state = agentsState[u.id] || { status: "Çevrimdışı", duration: 0 };
+                  const state = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)] || { status: "Çevrimdışı", duration: 0 };
                   
                   let statusBorder = "border-slate-200/70 dark:border-slate-800/80";
                   let dotColor = "bg-slate-400";
@@ -395,7 +395,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                               ? "bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-455 border-orange-100"
                               : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200"
                       }`}>
-                        {state.status.slice(0, 7)}
+                        {state.status}
                       </span>
                     </div>
                   );
