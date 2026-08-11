@@ -75,7 +75,8 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
     if (s === "in_progress") return "Aktif";
     if (s === "blocked") return "Engellendi";
     if (s === "busy") return "Meşgul";
-    if (s === "no answer") return "Cevapsız";
+    if (s === "no_answer" || s === "no answer" || s === "noanswer" || s === "unanswered") return "Yanıtlanmadı";
+    if (s === "cancelled" || s === "cancel") return "İptal Edildi";
     if (s === "failed") return "Başarısız";
     return status.toUpperCase();
   };
