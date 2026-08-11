@@ -1697,8 +1697,8 @@ same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}
 same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
-exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${{CALL_UUID}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}})}})
+exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, Cause: ${{HANGUPCAUSE}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}})}})
 
 ; İç hat (Diğer temsilciler) aramaları için (2XX vb.)
 exten => _2XX,1,NoOp(ACL kontrol ediliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
@@ -4084,21 +4084,59 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
     return {"status": "success"}
 
 @app.get("/api/calls/end")
-async def end_call_endpoint(call_id: str):
+async def end_call_endpoint(
+    call_id: str,
+    dialstatus: Optional[str] = None,
+    hangupcause: Optional[str] = None,
+    status: Optional[str] = None
+):
     async with AsyncSessionLocal() as session:
         db_call = await session.get(Call, call_id)
         if db_call:
-            db_call.status = "completed"
             db_call.end_time = datetime.datetime.utcnow()
-            
-            # Asterisk MixMonitor kaydediyor, bazen dosya diske yazılırken gecikme olabiliyor.
-            # Bu yüzden dosya var mı diye kontrol etmeden doğrudan yolu veriyoruz.
             db_call.recording_path = f"/api/recordings/{call_id}.wav"
 
+            dur_sec = 0
+            if db_call.start_time:
+                dur_sec = (db_call.end_time - db_call.start_time).total_seconds()
+
+            resolved_status = "completed"
+            if status:
+                resolved_status = status.lower()
+            elif dialstatus:
+                ds = dialstatus.upper().strip()
+                if ds == "ANSWER":
+                    resolved_status = "completed"
+                elif ds == "NOANSWER":
+                    resolved_status = "no_answer"
+                elif ds == "BUSY":
+                    resolved_status = "busy"
+                elif ds == "CANCEL":
+                    resolved_status = "cancelled"
+                elif ds in ("CONGESTION", "CHANUNAVAIL", "FAILED"):
+                    resolved_status = "failed"
+                else:
+                    resolved_status = ds.lower()
+            elif hangupcause:
+                cause = str(hangupcause).strip()
+                if cause == "16":
+                    resolved_status = "completed"
+                elif cause == "17":
+                    resolved_status = "busy"
+                elif cause in ("18", "19"):
+                    resolved_status = "no_answer"
+                elif cause in ("21", "34", "38"):
+                    resolved_status = "failed"
+            else:
+                caller = str(db_call.caller_number or "").strip()
+                if len(caller) <= 4 and caller.isdigit() and dur_sec < 30:
+                    resolved_status = "no_answer"
+
+            db_call.status = resolved_status
             await session.commit()
-            print(f"[Asterisk Dialplan] Call ended successfully: {call_id}")
-            add_system_log("ASTERISK", "INFO", f"Arama Sonlandı: ID={call_id}")
-    return {"status": "success"}
+            print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus})")
+            add_system_log("ASTERISK", "INFO", f"Arama Sonlandı: ID={call_id}, Durum={resolved_status}")
+    return {"status": "success", "call_status": resolved_status}
 
 
 # ----------------------------------------------------
@@ -5765,13 +5803,26 @@ async def startup_event():
     except Exception as e:
         print(f"[Database Init] Error creating tables: {e}")
 
-    # 2. Auto-seed tables if empty
+    # 2. Auto-seed tables if empty & cleanup stale calls
     try:
         async with AsyncSessionLocal() as session:
-            stmt = update(Call).where(Call.status == "in_progress").values(status="completed", end_time=datetime.datetime.utcnow())
+            stmt = update(Call).where(Call.status == "in_progress").values(status="no_answer", end_time=datetime.datetime.utcnow())
             await session.execute(stmt)
+
+            # Fix past unanswered outbound calls (< 30s duration) mislabeled as completed
+            stmt_short_outbound = select(Call).where(
+                Call.status == "completed",
+                Call.end_time.isnot(None),
+                Call.start_time.isnot(None)
+            )
+            res_short = await session.execute(stmt_short_outbound)
+            for c in res_short.scalars().all():
+                dur = (c.end_time - c.start_time).total_seconds()
+                caller = str(c.caller_number or "").strip()
+                if len(caller) <= 4 and caller.isdigit() and dur < 30:
+                    c.status = "no_answer"
             await session.commit()
-            print("[Database] Eski askıda kalan aktif aramalar temizlendi.")
+            print("[Database] Eski askıda kalan ve cevaplanmayan dış aramalar güncellendi.")
 
             # Load settings.json as fallback source if exists
             file_settings = {}

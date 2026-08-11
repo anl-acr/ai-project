@@ -338,8 +338,8 @@ same => n,Set(DIAL_NUM=${IF($["${EXTEN:0:1}"="0"]?90${EXTEN:1}:${EXTEN})})
 same => n,Dial(PJSIP/Operator_Trunk/sip:${DIAL_NUM}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
-exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${CALL_UUID})
-same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID})})
+exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${CALL_UUID}, Status: ${DIALSTATUS}, Cause: ${HANGUPCAUSE})
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE})})
 
 exten => _2XX,1,NoOp(ACL kontrol ediliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
 same => n,Set(ACL_RESULT=${CURL(http://127.0.0.1:8000/api/acl/check_subscriber_call?caller=${CALLERID(num)}&callee=${EXTEN})})
