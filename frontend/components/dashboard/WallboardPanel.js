@@ -8,23 +8,14 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   const [breaks, setBreaks] = useState([]);
   
   // Real-time wallboard metrics
-  const [queueCount, setQueueCount] = useState(2);
-  const [aiResolvedCount, setAiResolvedCount] = useState(148);
-  const [activeCallsCount, setActiveCallsCount] = useState(1);
-  const [avgHoldTime, setAvgHoldTime] = useState(14); // seconds
-  const [serviceLevel, setServiceLevel] = useState(94.5); // percentage
+  const [queueCount, setQueueCount] = useState(0);
+  const [aiResolvedCount, setAiResolvedCount] = useState(0);
+  const [activeCallsCount, setActiveCallsCount] = useState(0);
+  const [avgHoldTime, setAvgHoldTime] = useState(0); // seconds
+  const [serviceLevel, setServiceLevel] = useState(100.0); // percentage
 
-  // Agent activity simulation state
   const [agentsState, setAgentsState] = useState({});
-  const [isSimulating, setIsSimulating] = useState(true);
-
-  // Live operational events log feed
-  const [eventLogs, setEventLogs] = useState([
-    { id: 1, time: "23:48:10", type: "info", text: "Dahili 200 (Anıl Acar) aramayı başarıyla sonlandırdı." },
-    { id: 2, time: "23:46:15", type: "system", text: "Yapay zeka asistanı randevu kaydını onayladı." },
-    { id: 3, time: "23:45:00", type: "warning", text: "Kuyrukta bekleme süresi 25 saniyeyi aştı." },
-    { id: 4, time: "23:44:22", type: "call", text: "Yeni çağrı başlatıldı: +90 532 *** 43" }
-  ]);
+  const [eventLogs, setEventLogs] = useState([]);
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -52,34 +43,19 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
         
         if (wbRes.ok) {
           const wbData = await wbRes.json();
-          setQueueCount(wbData.queueCount);
-          setAiResolvedCount(wbData.aiResolvedCount);
-          setActiveCallsCount(wbData.activeCallsCount);
-          setAvgHoldTime(wbData.avgHoldTime);
-          setServiceLevel(wbData.serviceLevel);
+          setQueueCount(wbData.queueCount || 0);
+          setAiResolvedCount(wbData.aiResolvedCount || 0);
+          setActiveCallsCount(wbData.activeCallsCount || 0);
+          setAvgHoldTime(wbData.avgHoldTime || 0);
+          setServiceLevel(wbData.serviceLevel ?? 100.0);
+          if (Array.isArray(wbData.recentLogs) && wbData.recentLogs.length > 0) {
+            setEventLogs(wbData.recentLogs);
+          }
         }
         
         if (agentsRes.ok) {
           const agentsData = await agentsRes.json();
-          // Merge with any existing states to preserve breaks/durations if needed
-          setAgentsState(prev => {
-             const merged = { ...prev };
-             Object.keys(agentsData).forEach(id => {
-                const newAgent = agentsData[id];
-                const oldAgent = merged[id];
-                // Keep break status if offline/break in old, otherwise update
-                if (oldAgent && oldAgent.status === "Molada" && newAgent.status === "Müsait") {
-                   newAgent.status = "Molada";
-                   newAgent.breakType = oldAgent.breakType;
-                   newAgent.breakColor = oldAgent.breakColor;
-                }
-                if (newAgent.status === "Görüşmede" && oldAgent && oldAgent.status === "Görüşmede") {
-                   newAgent.duration = oldAgent.duration + 2; // Keep ticking
-                }
-                merged[id] = { ...oldAgent, ...newAgent };
-             });
-             return merged;
-          });
+          setAgentsState(agentsData);
         }
       } catch (err) {
         console.error("Failed to fetch wallboard data:", err);
@@ -256,20 +232,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
           </div>
         </div>
 
-        {/* Simulator Control Switch */}
-        <div className="flex items-center gap-2.5 shrink-0 bg-slate-50 dark:bg-slate-950 px-3.5 py-2 rounded-2xl border border-slate-200/60 dark:border-slate-800/80">
-          <span className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Canlı Simülatör</span>
-          <button
-            onClick={() => setIsSimulating(!isSimulating)}
-            className={`w-9 h-5 rounded-full p-0.5 transition-all duration-300 focus:outline-none ${
-              isSimulating ? "bg-violet-600" : "bg-slate-300 dark:bg-slate-700"
-            }`}
-          >
-            <div className={`w-4 h-4 bg-white rounded-full shadow transition-all duration-300 transform ${
-              isSimulating ? "translate-x-4" : "translate-x-0"
-            }`} />
-          </button>
-        </div>
       </div>
 
       {/* Main 2-Column Responsive Dashboard Grid (8 cols / 4 cols) */}

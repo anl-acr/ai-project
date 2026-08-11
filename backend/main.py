@@ -4486,35 +4486,83 @@ async def get_system_stats():
 async def get_wallboard_stats():
     from backend.database.models import Call
     from backend.services.ami_manager import active_channels
-    from datetime import datetime, timedelta
-    
+    import datetime
+
+    # 00:00:00 Turkey Local Time (UTC+3) -> UTC 21:00:00 of previous calendar day
+    now_utc = datetime.datetime.utcnow()
+    today_start_utc = (now_utc + datetime.timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=3)
+
     async with AsyncSessionLocal() as session:
-        now = datetime.utcnow()
-        last_24h = now - timedelta(hours=24)
-        
+        # Total calls today
+        total_stmt = select(func.count(Call.id)).where(Call.start_time >= today_start_utc)
+        total_res = await session.execute(total_stmt)
+        total_today_calls = total_res.scalar() or 0
+
+        # AI / Answered Successful Resolutions today
         ai_resolved_stmt = select(func.count(Call.id)).where(
-            Call.start_time >= last_24h,
+            Call.start_time >= today_start_utc,
             Call.status == "completed"
         )
         ai_res = await session.execute(ai_resolved_stmt)
         ai_resolved_count = ai_res.scalar() or 0
-        
-        avg_hold_time = 14
-        service_level = 94.5
-        
-        if ai_resolved_count > 0:
-            avg_hold_time = max(5, 20 - (ai_resolved_count % 10))
-            service_level = min(100.0, 85.0 + (ai_resolved_count % 15))
-            
+
+        # Service Level (percentage of answered calls out of total today calls)
+        if total_today_calls > 0:
+            service_level = (ai_resolved_count / total_today_calls) * 100.0
+        else:
+            service_level = 100.0
+
+        # Average Hold / Duration for completed calls today
+        completed_calls_stmt = select(Call).where(
+            Call.start_time >= today_start_utc,
+            Call.status == "completed"
+        )
+        comp_res = await session.execute(completed_calls_stmt)
+        completed_calls = comp_res.scalars().all()
+
+        if completed_calls:
+            durations = [
+                (c.end_time - c.start_time).total_seconds()
+                for c in completed_calls if c.end_time and c.start_time
+            ]
+            avg_hold_time = round(sum(durations) / len(durations)) if durations else 0
+        else:
+            avg_hold_time = 0
+
+        # Active Calls Count
+        active_calls_stmt = select(func.count(Call.id)).where(Call.status == "in_progress")
+        active_res = await session.execute(active_calls_stmt)
+        in_progress_count = active_res.scalar() or 0
+        active_calls_count = max(len(active_channels), in_progress_count)
+
         queue_count = 0
-        active_calls_count = len(active_channels)
-        
+
+        # Recent Operational Logs
+        recent_logs = []
+        for log in reversed(system_logs[-8:]):
+            t_val = log.get("timestamp")
+            time_str = t_val.strftime("%H:%M:%S") if isinstance(t_val, datetime.datetime) else str(t_val)[-8:] if t_val else ""
+            lvl = str(log.get("level", "info")).lower()
+            typ = "system"
+            msg = str(log.get("message", ""))
+            if "arama" in msg.lower() or "call" in msg.lower():
+                typ = "call"
+            elif lvl in ("warning", "warn", "error"):
+                typ = "warning"
+            recent_logs.append({
+                "id": len(recent_logs) + 1,
+                "time": time_str,
+                "type": typ,
+                "text": msg
+            })
+
         return {
             "queueCount": queue_count,
             "aiResolvedCount": ai_resolved_count,
             "activeCallsCount": active_calls_count,
             "avgHoldTime": avg_hold_time,
-            "serviceLevel": round(service_level, 1)
+            "serviceLevel": round(service_level, 1),
+            "recentLogs": recent_logs
         }
 
 @app.get("/api/reports/agents")
@@ -4525,27 +4573,47 @@ async def get_reports_agents():
         stmt = select(SystemUser)
         result = await session.execute(stmt)
         users = result.scalars().all()
-        
+
         agents_state = {}
         for u in users:
             if not u.extension: continue
-            
+
             is_in_call = False
+            caller_number = None
             for ch in active_channels.values():
                 if ch.get("caller_num") == u.extension or ch.get("exten") == u.extension:
                     is_in_call = True
+                    caller_number = ch.get("exten") if ch.get("caller_num") == u.extension else ch.get("caller_num")
                     break
-            
+
+            agent_sess = active_agent_status.get(u.id) or active_agent_status.get(str(u.id)) or {}
+            is_logged_in = agent_sess.get("is_logged_in", False)
+            session_status = agent_sess.get("status", "offline")
+
             status = "Çevrimdışı"
-            if str(u.extension) in registered_endpoints:
-                status = "Görüşmede" if is_in_call else "Müsait"
-                
+            break_type = None
+            break_color = None
+
+            if is_logged_in or str(u.extension) in registered_endpoints:
+                if is_in_call:
+                    status = "Görüşmede"
+                elif session_status == "break":
+                    status = "Molada"
+                    curr_b = agent_sess.get("current_break") or {}
+                    break_type = curr_b.get("name", "Mola")
+                    break_color = curr_b.get("color", "#f97316")
+                else:
+                    status = "Müsait"
+
             agents_state[u.id] = {
                 "id": str(u.id),
                 "name": u.full_name,
                 "role": u.role,
                 "extension": u.extension,
                 "status": status,
+                "breakType": break_type,
+                "breakColor": break_color,
+                "caller": caller_number,
                 "duration": 0
             }
         return agents_state
