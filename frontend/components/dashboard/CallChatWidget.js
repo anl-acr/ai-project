@@ -39,6 +39,21 @@ export default function CallChatWidget({
   }, [API_BASE]);
 
   useEffect(() => {
+    if (registered && agentExtension) {
+      const notifyBackendOnline = () => {
+        fetch(`${API_BASE}/api/webrtc/register_notify`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ extension: agentExtension, user_id: currentUser?.id })
+        }).catch(err => console.error("WebRTC register notify error:", err));
+      };
+      notifyBackendOnline();
+      const interval = setInterval(notifyBackendOnline, 8000);
+      return () => clearInterval(interval);
+    }
+  }, [registered, agentExtension, currentUser, API_BASE]);
+
+  useEffect(() => {
     let isMounted = true;
     const fetchConfig = async () => {
       setIsLoadingConfig(true);

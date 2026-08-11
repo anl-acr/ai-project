@@ -2421,6 +2421,38 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
     return {"status": "success", "departments": settings_db["departments"]}
 
 
+@app.post("/api/webrtc/register_notify")
+async def webrtc_register_notify(payload: dict):
+    from backend.services.ami_manager import registered_endpoints
+    from backend.services.agent_presence import update_agent_state
+
+    ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
+    user_id_val = payload.get("user_id")
+
+    if ext:
+        registered_endpoints.add(ext)
+        settings = load_settings()
+        matched_user_id = user_id_val or ext
+        for u in settings.get("users", []):
+            if str(u.get("extension")) == ext:
+                matched_user_id = u.get("id")
+                break
+
+        update_agent_state(
+            is_logged_in=True,
+            status="online",
+            current_break=None,
+            user_id=matched_user_id
+        )
+        update_agent_state(
+            is_logged_in=True,
+            status="online",
+            current_break=None,
+            user_id=ext
+        )
+        print(f"[WebRTC Register Notify] Extension {ext} (User ID: {matched_user_id}) registered & online.")
+    return {"status": "success"}
+
 @app.get("/api/agent/status")
 @app.get("/agent/status")
 async def get_agent_status_endpoint():
