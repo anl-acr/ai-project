@@ -4620,11 +4620,13 @@ async def get_reports_agents():
                     caller_number = ch.get("exten") if ch.get("caller_num") == u.extension else ch.get("caller_num")
                     break
 
+            u_id_str = str(u.id)
+            u_ext_str = str(u.extension)
+
             agent_sess = (
                 active_agent_status.get(u.id) or
-                active_agent_status.get(str(u.id)) or
-                active_agent_status.get(str(u.extension)) or
-                get_agent_state(u.id) or
+                active_agent_status.get(u_id_str) or
+                active_agent_status.get(u_ext_str) or
                 {}
             )
             is_logged_in = agent_sess.get("is_logged_in", False)

@@ -12,6 +12,12 @@ def get_agent_state(user_id=None):
         u_str = str(user_id)
         if u_str in active_agent_status:
             return active_agent_status[u_str]
+        return {
+            "is_logged_in": False,
+            "status": "offline",
+            "current_break": None,
+            "user_id": user_id
+        }
     return agent_state
 
 def update_agent_state(is_logged_in: bool, status: str, current_break: dict = None, user_id=None):
