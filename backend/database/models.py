@@ -301,6 +301,11 @@ class PBXQueue(Base):
     estimated_hold_time_interval = Column(Integer, default=60)
     ivr_routes = Column(JSON, default=dict)
     notify_missed_calls = Column(Boolean, default=False)
+    
+    # All Agents Busy Fallback Routing
+    all_busy_routing_enabled = Column(Boolean, default=False)
+    all_busy_destination_type = Column(String, default="")
+    all_busy_destination_target = Column(String, default="")
 
 class AIAgent(Base):
     __tablename__ = "ai_agents"

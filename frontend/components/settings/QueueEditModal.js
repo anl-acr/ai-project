@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded } from "lucide-react";
+import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../../utils/theme";
 
@@ -23,8 +23,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     setError(null);
   }, [isOpen, queueData]);
 
-  
-  // Dummy Data for dropdowns
+  // Dropdown strategies
   const strategies = [
     { value: "ringall", label: "Tümünü Çaldır (Ringall)" },
     { value: "leastrecent", label: "En Son Çağrı Alan (Least Recent)" },
@@ -35,8 +34,12 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   const holdMusicClasses = ["default", "classical", "pop", "custom_holiday"];
   
   const [announcementsList, setAnnouncementsList] = useState([]);
+  const [aiAgentsList, setAiAgentsList] = useState([]);
+  const [callFlowsList, setCallFlowsList] = useState([]);
+  const [searchTargetQuery, setSearchTargetQuery] = useState("");
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
 
-  // State: Tab 1 (General)
+  // State: Form Data
   const [formData, setFormData] = useState({
     extension: "",
     name: "",
@@ -45,7 +48,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     ring_time: 15,
     acw_time: 5,
     
-    // State: Tab 2 (Announcements)
+    // State: Announcements
     join_announcement_enabled: false,
     join_announcement: "",
     periodic_announcement_enabled: false,
@@ -56,7 +59,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     estimated_hold_time_enabled: false,
     estimated_hold_time_interval: 60,
 
-    // State: Tab 4 (IVR Routing)
+    // State: IVR Routing
     ivr_routes: {
       "1": { type: "", target: "" },
       "2": { type: "", target: "" },
@@ -72,13 +75,17 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       "#": { type: "", target: "" }
     },
 
-    // State: Tab 3 (Members & Supervisors)
+    // All Busy Fallback Routing
+    all_busy_routing_enabled: false,
+    all_busy_destination_type: "",
+    all_busy_destination_target: "",
+
     notify_missed_calls: false
   });
 
-  // State for Members (Transfer List)
+  // State for Members & Supervisors
   const [allUsers, setAllUsers] = useState([]);
-  const [queueMembers, setQueueMembers] = useState([]); // { user_id, type: 'dynamic' | 'static' }
+  const [queueMembers, setQueueMembers] = useState([]); // { user_id, type: 'dynamic' | 'static', priority: 1, is_ai: boolean }
   const [supervisors, setSupervisors] = useState([]);
   const [systemRoles, setSystemRoles] = useState([]);
 
@@ -87,9 +94,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       // Fetch users
       const fetchUsers = async () => {
         try {
-          const res = await fetch(`${API_BASE}/api/settings/users`, {
-            headers: { "Authorization": `Bearer ${localStorage.getItem("token")}` }
-          });
+          const res = await fetch(`${API_BASE}/api/settings/users`);
           if (res.ok) {
             const data = await res.json();
             setAllUsers(data || []);
@@ -100,7 +105,37 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       };
       fetchUsers();
 
-      // Fetch roles (if needed) or keep dummy if no API exists
+      // Fetch AI Agents
+      const fetchAiAgents = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/settings/ai-agents`);
+          if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data?.agents || []);
+            setAiAgentsList(list);
+          }
+        } catch (err) {
+          console.error("AI agents fetch error:", err);
+        }
+      };
+      fetchAiAgents();
+
+      // Fetch Call Flows / Workflows
+      const fetchCallFlows = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/settings/call-flow/workflows`);
+          if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data?.workflows || []);
+            setCallFlowsList(list);
+          }
+        } catch (err) {
+          console.error("Call flows fetch error:", err);
+        }
+      };
+      fetchCallFlows();
+
+      // System roles
       setSystemRoles([
         { role_code: "admin", role_name: "Sistem Yöneticisi" },
         { role_code: "supervisor", role_name: "Takım Lideri" },
@@ -110,11 +145,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       // Fetch announcements
       const fetchAnnouncements = async () => {
         try {
-          const res = await fetch(`${API_BASE}/api/settings/announcements`, {
-            headers: {
-              "Authorization": `Bearer ${localStorage.getItem("token")}`
-            }
-          });
+          const res = await fetch(`${API_BASE}/api/settings/announcements`);
           if (res.ok) {
             const data = await res.json();
             setAnnouncementsList(data || []);
@@ -127,10 +158,17 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
       if (queueData) {
         setFormData(prev => ({ ...prev, ...queueData }));
-        setQueueMembers(queueData.queueMembers || []);
+        
+        // Ensure queueMembers have priority attribute
+        const normalizedMembers = (queueData.queueMembers || []).map(qm => ({
+          ...qm,
+          priority: qm.priority || 1,
+          type: qm.type || 'dynamic'
+        }));
+        setQueueMembers(normalizedMembers);
         setSupervisors(queueData.supervisors || []);
       } else {
-        // Reset form for new queue
+        // Reset form
         setFormData({
           extension: "", name: "", strategy: "ringall", max_calls: 0, ring_time: 15, acw_time: 5,
           join_announcement_enabled: false, join_announcement: "",
@@ -144,6 +182,9 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             "7": { type: "", target: "" }, "8": { type: "", target: "" }, "9": { type: "", target: "" },
             "0": { type: "", target: "" }, "*": { type: "", target: "" }, "#": { type: "", target: "" }
           },
+          all_busy_routing_enabled: false,
+          all_busy_destination_type: "",
+          all_busy_destination_target: "",
           notify_missed_calls: false
         });
         setQueueMembers([]);
@@ -151,20 +192,6 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       }
     }
   }, [isOpen, queueData]);
-
-  const fetchUsersAndRoles = async () => {
-    try {
-      const resUsers = await fetch(`${API_BASE}/api/settings/users`);
-      const dataUsers = await resUsers.json();
-      if (dataUsers) setAllUsers(dataUsers);
-
-      const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
-      const dataRoles = await resRoles.json();
-      if (dataRoles) setSystemRoles(dataRoles);
-    } catch (err) {
-      console.error(`Kullanıcılar veya Roller yüklenemedi:`, err);
-    }
-  };
 
   if (!isOpen) return null;
 
@@ -188,17 +215,16 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     const extStr = String(ext).trim();
     const qName = formData.name.trim();
 
-    // Check duplicate extension in allQueues
+    // Check duplicate extension
     const dupExtQueue = (allQueues || []).find(
       q => String(q.extension || q.queue_number || "").trim() === extStr && (!queueData || q.id !== queueData.id)
     );
     if (dupExtQueue) {
-      setError(`Bu kuyruk numarası (${extStr}) zaten '${dupExtQueue.name || 'Kuyruk'}' isimli kuyruk tarafından kullanılıyor.`);
+      setError(`Bu kuyruk numarası (${extStr}) zaten '${dupExtQueue.name || 'Kuyruk'}' tarafından kullanılıyor.`);
       return;
     }
 
-
-    // Check duplicate queue name in allQueues
+    // Check duplicate name
     const dupNameQueue = (allQueues || []).find(
       q => String(q.name || "").trim().toLowerCase() === qName.toLowerCase() && (!queueData || q.id !== queueData.id)
     );
@@ -223,33 +249,37 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     }
   };
 
-
-
   const renderTabs = () => (
-    <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 p-4 pb-0">
+    <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 p-4 pb-0 overflow-x-auto custom-scrollbar">
       <button 
         onClick={() => setActiveTab("general")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'general' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
+        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'general' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
       >
         <Settings size={14} /> Genel
       </button>
       <button 
         onClick={() => setActiveTab("announcements")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'announcements' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
+        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'announcements' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
       >
         <Volume2 size={14} /> Anons & Bekleme
       </button>
       <button 
         onClick={() => setActiveTab("ivr")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'ivr' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
+        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'ivr' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
       >
         <PhoneForwarded size={14} /> IVR (Tuşlama)
       </button>
       <button 
         onClick={() => setActiveTab("members")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 ${activeTab === 'members' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
+        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'members' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
       >
         <Users size={14} /> Üyeler & Yöneticiler
+      </button>
+      <button 
+        onClick={() => setActiveTab("busy_routing")}
+        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'busy_routing' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
+      >
+        <Bot size={14} /> Tüm Agent'lar Meşgul
       </button>
     </div>
   );
@@ -319,42 +349,24 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           )}
         </div>
 
-        {/* Sıra Anonsu */}
+        {/* Periyodik Anons */}
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Sıra Anonsu Okuma</h4>
-              <p className="text-[10px] text-slate-500">Müşteriye sıradaki pozisyonunu bildirir.</p>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Periyodik Anons</h4>
+              <p className="text-[10px] text-slate-500">Bekleme sırasında belirli aralıklarla çalacak anons.</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" name="position_announcement_enabled" checked={formData.position_announcement_enabled} onChange={handleChange} className="sr-only peer" />
+              <input type="checkbox" name="periodic_announcement_enabled" checked={formData.periodic_announcement_enabled} onChange={handleChange} className="sr-only peer" />
               <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
             </label>
           </div>
-          {formData.position_announcement_enabled && (
-            <div className="flex items-center gap-3 mt-2">
-              <input type="number" name="position_announcement_interval" value={formData.position_announcement_interval} onChange={handleChange} className={`w-20 text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-              <span className="text-xs font-bold text-slate-500">saniyede bir tekrarla</span>
-            </div>
-          )}
-        </div>
-
-        {/* Ortalama Bekleme Süresi */}
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Ortalama Bekleme Süresi</h4>
-              <p className="text-[10px] text-slate-500">Müşteriye tahmini bekleme süresini bildirir.</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" name="estimated_hold_time_enabled" checked={formData.estimated_hold_time_enabled} onChange={handleChange} className="sr-only peer" />
-              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
-            </label>
-          </div>
-          {formData.estimated_hold_time_enabled && (
-            <div className="flex items-center gap-3 mt-2">
-              <input type="number" name="estimated_hold_time_interval" value={formData.estimated_hold_time_interval} onChange={handleChange} className={`w-20 text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-              <span className="text-xs font-bold text-slate-500">saniyede bir tekrarla</span>
+          {formData.periodic_announcement_enabled && (
+            <div className="mt-3">
+              <select name="periodic_announcement" value={formData.periodic_announcement} onChange={handleChange} className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}>
+                <option value="">Anons Seçin...</option>
+                {announcementsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
             </div>
           )}
         </div>
@@ -363,13 +375,36 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       <div className="space-y-6">
         {/* Bekleme Müziği */}
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2 mb-1">
-            <Music size={14} className={text} /> Bekleme Müziği Sınıfı
-          </h4>
-          <p className="text-[10px] text-slate-500 mb-3">Müşteri sıradayken çalınacak müzik kategorisi.</p>
-          <select name="hold_music_class" value={formData.hold_music_class} onChange={handleChange} className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all capitalize`}>
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white mb-1">Bekleme Müziği Sınıfı</h4>
+          <p className="text-[10px] text-slate-500 mb-3">Müşteri beklerken çalacak arka plan müziği.</p>
+          <select name="hold_music_class" value={formData.hold_music_class} onChange={handleChange} className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}>
             {holdMusicClasses.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
+        </div>
+
+        {/* Sıra & Bekleme Süresi Anonsları */}
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Sıra Numarası Anonsu</h4>
+              <p className="text-[10px] text-slate-500">Müşteriye sırasını bildir.</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" name="position_announcement_enabled" checked={formData.position_announcement_enabled} onChange={handleChange} className="sr-only peer" />
+              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            </label>
+          </div>
+
+          <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-slate-700/50 pt-3">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Tahmini Bekleme Süresi</h4>
+              <p className="text-[10px] text-slate-500">Tahmini bekleme süresini bildir.</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" name="estimated_hold_time_enabled" checked={formData.estimated_hold_time_enabled} onChange={handleChange} className="sr-only peer" />
+              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            </label>
+          </div>
         </div>
       </div>
     </div>
@@ -381,7 +416,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       ivr_routes: {
         ...prev.ivr_routes,
         [digit]: {
-          ...prev.ivr_routes[digit],
+          ...(prev.ivr_routes?.[digit] || { type: "", target: "" }),
           [field]: value
         }
       }
@@ -389,89 +424,58 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   };
 
   const renderIvrTab = () => {
-    const digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "*", "0", "#"];
-
+    const digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "*", "#"];
     return (
-      <div className="flex flex-col h-[60vh] animate-in fade-in slide-in-from-bottom-2 duration-300">
-        {/* Header toggle */}
-        <div className="p-4 px-6 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between shrink-0">
-          <div>
-            <h4 className="text-xs font-bold text-slate-800 dark:text-white">Periyodik Anons & Yönlendirme (IVR)</h4>
-            <p className="text-[10px] text-slate-500">Müşteriye sıradayken anons okutup tuşlama ile yönlendirin.</p>
-          </div>
-          <label className="relative inline-flex items-center cursor-pointer shrink-0">
-            <input type="checkbox" name="periodic_announcement_enabled" checked={formData.periodic_announcement_enabled} onChange={handleChange} className="sr-only peer" />
-            <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
-          </label>
+      <div className="p-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {digits.map(digit => {
+            const route = formData.ivr_routes?.[digit] || { type: "", target: "" };
+            return (
+              <div key={digit} className="p-3.5 bg-slate-50/50 dark:bg-slate-800/20 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col justify-between space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className={`w-7 h-7 rounded-xl ${lightBg} ${text} font-black text-xs flex items-center justify-center shrink-0`}>
+                    {digit}
+                  </span>
+                  <span className="text-xs font-bold text-slate-800 dark:text-white">Tuşu</span>
+                </div>
+                
+                <div className="space-y-2">
+                  <select 
+                    value={route.type} 
+                    onChange={(e) => handleIvrChange(digit, 'type', e.target.value)}
+                    className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
+                  >
+                    <option value="">İşlem Yok</option>
+                    <option value="user">Dahiliye Aktar</option>
+                    <option value="queue">Kuyruğa Aktar</option>
+                  </select>
+
+                  {route.type === "user" && (
+                    <select 
+                      value={route.target} 
+                      onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
+                      className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
+                    >
+                      <option value="">Dahili Seçin...</option>
+                      {allUsers.map(u => <option key={u.id} value={u.extension}>{u.full_name} ({u.extension})</option>)}
+                    </select>
+                  )}
+
+                  {route.type === "queue" && (
+                    <select 
+                      value={route.target} 
+                      onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
+                      className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
+                    >
+                      <option value="">Kuyruk Seçin...</option>
+                      {(allQueues || []).map(q => <option key={q.id} value={q.extension}>{q.name} ({q.extension})</option>)}
+                    </select>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
-
-        {formData.periodic_announcement_enabled ? (
-          <div className="p-6 overflow-y-auto space-y-6">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Dinletilecek Anons</label>
-              <select name="periodic_announcement" value={formData.periodic_announcement} onChange={handleChange} className={`w-full max-w-sm text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}>
-                <option value="">Anons Seçin...</option>
-                {announcementsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {digits.map(digit => {
-                const route = formData.ivr_routes[digit];
-                return (
-                  <div key={digit} className="flex flex-col gap-3 p-3 bg-slate-50/50 dark:bg-slate-800/20 border border-slate-200 dark:border-slate-700 rounded-xl shadow-sm transition-all hover:border-slate-300 dark:hover:border-slate-600">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-6 h-6 rounded-md ${lightBg} ${text} text-xs font-black flex items-center justify-center shrink-0 shadow-inner`}>
-                        {digit}
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Tuşu İçin İşlem</span>
-                    </div>
-                    <div className="flex-1 space-y-2">
-                      <select 
-                        value={route.type} 
-                        onChange={(e) => handleIvrChange(digit, 'type', e.target.value)}
-                        className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-700 dark:text-slate-300 transition-all`}
-                      >
-                        <option value="">Seçiniz (İşlem Yok)...</option>
-                        <option value="return_queue">Kuyruğa Geri Dön</option>
-                        <option value="extension">Dahili Numaraya Aktar</option>
-                        <option value="queue">Başka Kuyruğa Aktar</option>
-                      </select>
-
-                      {route.type === "extension" && (
-                        <select 
-                          value={route.target} 
-                          onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
-                          className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 ${ring} text-slate-700 dark:text-slate-300 transition-all`}
-                        >
-                          <option value="">Dahili Seçin...</option>
-                          {allUsers.map(u => <option key={u.id} value={u.extension}>{u.full_name} ({u.extension})</option>)}
-                        </select>
-                      )}
-
-                      {route.type === "queue" && (
-                        <select 
-                          value={route.target} 
-                          onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
-                          className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 focus:outline-none focus:ring-1 ${ring} text-slate-700 dark:text-slate-300 transition-all`}
-                        >
-                          <option value="">Kuyruk Seçin...</option>
-                          {(allQueues || []).map(q => <option key={q.id} value={q.extension}>{q.name} ({q.extension})</option>)}
-                        </select>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center p-6 text-slate-400 dark:text-slate-600">
-            <PhoneForwarded size={48} className="mb-4 opacity-50" />
-            <p className="text-sm font-bold">IVR Özelliği Kapalı</p>
-            <p className="text-xs mt-1 text-center max-w-sm">Müşterilerinize beklerken anons dinletmek ve tuşlama ile yönlendirmek için özelliği yukarıdan aktif edebilirsiniz.</p>
-          </div>
-        )}
       </div>
     );
   };
@@ -482,24 +486,56 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   };
 
   const renderMembersTab = () => {
-    // Member lists
-    const unassignedMembers = allUsers.filter(u => !queueMembers.find(qm => qm.user_id === u.id));
-    
+    // Combine Human Users and AI Agents
+    const combinedAvailable = [
+      ...allUsers.map(u => ({ ...u, is_ai: false })),
+      ...aiAgentsList.map(a => ({
+        id: `ai_${a.id}`,
+        ai_id: a.id,
+        full_name: `🤖 ${a.name} (${a.model || 'AI'})`,
+        extension: `AI Agent`,
+        role: "ai_agent",
+        is_ai: true,
+        avatar: "https://cdn-icons-png.flaticon.com/512/4712/4712035.png"
+      }))
+    ];
+
+    // Filter unassigned members
+    const unassignedMembers = combinedAvailable.filter(u => 
+      !queueMembers.find(qm => qm.user_id === u.id || qm.user_id === u.ai_id)
+    );
+
+    const filteredUnassigned = unassignedMembers.filter(u =>
+      !memberSearchQuery || 
+      u.full_name.toLowerCase().includes(memberSearchQuery.toLowerCase()) || 
+      String(u.extension).toLowerCase().includes(memberSearchQuery.toLowerCase())
+    );
+
     // Supervisor lists
     const eligibleSupervisors = allUsers.filter(u => (u.role === "supervisor" || u.role === "admin") && !supervisors.includes(u.id));
     const selectedSupervisors = allUsers.filter(u => supervisors.includes(u.id));
 
     const toggleMember = (user) => {
-      const exists = queueMembers.find(qm => qm.user_id === user.id);
+      const targetId = user.ai_id || user.id;
+      const exists = queueMembers.find(qm => qm.user_id === targetId || qm.user_id === user.id);
       if (exists) {
-        setQueueMembers(prev => prev.filter(qm => qm.user_id !== user.id));
+        setQueueMembers(prev => prev.filter(qm => qm.user_id !== targetId && qm.user_id !== user.id));
       } else {
-        setQueueMembers(prev => [...prev, { user_id: user.id, type: 'dynamic' }]);
+        setQueueMembers(prev => [...prev, { 
+          user_id: targetId, 
+          type: 'dynamic', 
+          is_ai: !!user.is_ai,
+          priority: 1 
+        }]);
       }
     };
 
     const updateMemberType = (userId, newType) => {
       setQueueMembers(prev => prev.map(qm => qm.user_id === userId ? { ...qm, type: newType } : qm));
+    };
+
+    const updateMemberPriority = (userId, newPriority) => {
+      setQueueMembers(prev => prev.map(qm => qm.user_id === userId ? { ...qm, priority: newPriority } : qm));
     };
 
     const toggleSupervisor = (user) => {
@@ -514,13 +550,13 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     return (
       <div className="flex flex-col h-[60vh] animate-in fade-in slide-in-from-bottom-2 duration-300">
         
-        {/* Sub-Tabs for Members vs Supervisors */}
+        {/* Sub-Tabs */}
         <div className="flex p-4 px-6 gap-2 bg-slate-50/50 dark:bg-slate-900/50 border-b border-slate-100 dark:border-slate-800/60 shrink-0">
           <button 
             onClick={() => setMemberView("agents")}
             className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all ${memberView === 'agents' ? `${bg} text-white shadow-sm` : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
           >
-            Kuyruk Temsilcileri
+            Kuyruk Temsilcileri (İnsan & AI)
           </button>
           <button 
             onClick={() => setMemberView("supervisors")}
@@ -531,25 +567,63 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </div>
 
         <div className="grid grid-cols-2 gap-4 flex-1 overflow-hidden p-6 pb-2">
-          {/* Sol: Tüm Kullanıcılar */}
+          {/* Sol: Tüm Kullanıcılar ve AI Temsilcileri */}
           <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
-            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80">
+            <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
               <h4 className="text-xs font-bold text-slate-800 dark:text-white">
-                {memberView === "agents" ? "Sistemdeki Kullanıcılar" : "Yönetici Adayları"}
+                {memberView === "agents" ? "Sistemdeki Kullanıcılar & AI Temsilcileri" : "Yönetici Adayları"}
               </h4>
+
+              {memberView === "agents" && (
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Temsilci ara..."
+                    value={memberSearchQuery}
+                    onChange={(e) => setMemberSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                  />
+                </div>
+              )}
             </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              {(memberView === "agents" ? unassignedMembers : eligibleSupervisors).map(u => (
-                <div key={u.id} onClick={() => memberView === "agents" ? toggleMember(u) : toggleSupervisor(u)} className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700">
-                  <img src={u.avatar || `https://ui-avatars.com/api/?name=${u.full_name}&background=random`} alt="" className="w-8 h-8 rounded-lg bg-slate-200 shrink-0" />
+
+            <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+              {(memberView === "agents" ? filteredUnassigned : eligibleSupervisors).map(u => (
+                <div 
+                  key={u.id} 
+                  onClick={() => memberView === "agents" ? toggleMember(u) : toggleSupervisor(u)} 
+                  className={`flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700 ${
+                    u.is_ai ? "bg-purple-50/60 dark:bg-purple-950/20 border-purple-200/50 dark:border-purple-900/40" : ""
+                  }`}
+                >
+                  {u.is_ai ? (
+                    <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                      <Bot size={18} />
+                    </div>
+                  ) : (
+                    <img src={u.avatar || `https://ui-avatars.com/api/?name=${u.full_name}&background=random`} alt="" className="w-8 h-8 rounded-lg bg-slate-200 shrink-0" />
+                  )}
+
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{u.full_name}</p>
-                    <p className="text-[10px] text-slate-400 truncate">{getRoleLabel(u.role)} • {u.extension}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{u.full_name}</p>
+                      {u.is_ai && (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+                          AI Temsilci
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10px] text-slate-400 truncate">
+                      {u.is_ai ? "Yapay Zeka Temsilcisi" : `${getRoleLabel(u.role)} • Dahili: ${u.extension}`}
+                    </p>
                   </div>
                   <ChevronRight size={14} className="text-slate-300 shrink-0" />
                 </div>
               ))}
-              {(memberView === "agents" ? unassignedMembers : eligibleSupervisors).length === 0 && <div className="p-4 text-center text-xs text-slate-400">Atanabilecek kullanıcı kalmadı.</div>}
+              {(memberView === "agents" ? filteredUnassigned : eligibleSupervisors).length === 0 && (
+                <div className="p-4 text-center text-xs text-slate-400">Atanabilecek üye bulunamadı.</div>
+              )}
             </div>
           </div>
 
@@ -557,38 +631,81 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex justify-between items-center">
               <h4 className="text-xs font-bold text-slate-800 dark:text-white">
-                {memberView === "agents" ? "Kuyruk Üyeleri" : "Kuyruk Yöneticileri"}
+                {memberView === "agents" ? "Kuyruk Üyeleri & Öncelikler" : "Kuyruk Yöneticileri"}
               </h4>
               <span className={`px-2 py-0.5 rounded-lg ${lightBg} ${text} text-[10px] font-bold`}>
                 {memberView === "agents" ? queueMembers.length : supervisors.length} Seçili
               </span>
             </div>
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
-              
+
+            <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
               {memberView === "agents" && queueMembers.map(qm => {
-                const u = allUsers.find(x => x.id === qm.user_id);
-                if(!u) return null;
+                // Find in allUsers or aiAgentsList
+                const user = allUsers.find(x => x.id === qm.user_id);
+                const ai = aiAgentsList.find(x => x.id === qm.user_id);
+                const name = user ? user.full_name : (ai ? `🤖 ${ai.name}` : `Üye #${qm.user_id}`);
+                const isAi = !!ai || !!qm.is_ai;
+
                 return (
-                  <div key={u.id} className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm transition-all group">
-                    <img src={u.avatar || `https://ui-avatars.com/api/?name=${u.full_name}&background=random`} alt="" className="w-8 h-8 rounded-lg bg-slate-200 shrink-0 cursor-pointer" onClick={() => toggleMember(u)} title="Çıkar" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">{u.full_name}</p>
-                      <select 
-                        value={qm.type} 
-                        onChange={(e) => updateMemberType(qm.user_id, e.target.value)}
-                        className={`mt-1 w-full text-[10px] px-1.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 focus:outline-none focus:ring-1 ${ring} text-slate-600 dark:text-slate-300`}
-                      >
-                        <option value="dynamic">Dinamik (Login olduğunda çağrı alır)</option>
-                        <option value="static">Statik (Her zaman çağrı alır)</option>
-                      </select>
+                  <div key={qm.user_id} className={`flex flex-col p-2.5 rounded-xl border shadow-sm transition-all group ${
+                    isAi 
+                      ? "bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800/40" 
+                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        {isAi ? (
+                          <div className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
+                            <Bot size={16} />
+                          </div>
+                        ) : (
+                          <img src={user?.avatar || `https://ui-avatars.com/api/?name=${name}&background=random`} alt="" className="w-7 h-7 rounded-lg bg-slate-200 shrink-0" />
+                        )}
+
+                        <div className="min-w-0">
+                          <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{name}</p>
+                          <span className="text-[10px] text-slate-400">
+                            {isAi ? "Yapay Zeka Temsilcisi" : `Dahili: ${user?.extension || '-'}`}
+                          </span>
+                        </div>
+                      </div>
+
+                      <button onClick={() => toggleMember({ id: qm.user_id, ai_id: qm.user_id, is_ai: isAi })} className="w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 text-slate-300 flex items-center justify-center transition-all shrink-0">
+                        <X size={13} />
+                      </button>
                     </div>
-                    <button onClick={() => toggleMember(u)} className="w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 text-slate-300 flex items-center justify-center transition-all shrink-0">
-                      <X size={12} />
-                    </button>
+
+                    {/* Type & Priority Controls */}
+                    <div className="grid grid-cols-2 gap-2 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800/60">
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 mb-0.5">Üye Tipi</label>
+                        <select 
+                          value={qm.type || 'dynamic'} 
+                          onChange={(e) => updateMemberType(qm.user_id, e.target.value)}
+                          className="w-full text-[10px] px-1.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-700 dark:text-slate-300 focus:outline-none"
+                        >
+                          <option value="dynamic">Dinamik</option>
+                          <option value="static">Statik</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-[9px] font-bold text-slate-400 mb-0.5">Öncelik Puanı</label>
+                        <select 
+                          value={qm.priority || 1} 
+                          onChange={(e) => updateMemberPriority(qm.user_id, parseInt(e.target.value))}
+                          className="w-full text-[10px] px-1.5 py-1 rounded-md border border-emerald-200 dark:border-emerald-800/40 bg-emerald-50 dark:bg-emerald-950/40 font-bold text-emerald-700 dark:text-emerald-400 focus:outline-none"
+                        >
+                          <option value={1}>⭐ Öncelik 1 (Yüksek)</option>
+                          <option value={2}>🔹 Öncelik 2 (Orta)</option>
+                          <option value={3}>🔸 Öncelik 3 (Düşük)</option>
+                        </select>
+                      </div>
+                    </div>
                   </div>
                 );
               })}
-              
+
               {memberView === "supervisors" && selectedSupervisors.map(u => (
                 <div key={u.id} className="flex items-center gap-2 p-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm transition-all group">
                   <img src={u.avatar || `https://ui-avatars.com/api/?name=${u.full_name}&background=random`} alt="" className="w-8 h-8 rounded-lg bg-slate-200 shrink-0 cursor-pointer" onClick={() => toggleSupervisor(u)} title="Çıkar" />
@@ -630,6 +747,134 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     );
   };
 
+  const renderBusyRoutingTab = () => {
+    // Target options generator
+    let targets = [];
+    const type = formData.all_busy_destination_type;
+
+    if (type === "user") {
+      targets = allUsers.map(u => ({ id: String(u.extension || u.id), label: `${u.full_name} (Dahili: ${u.extension})` }));
+    } else if (type === "queue") {
+      targets = (allQueues || []).filter(q => !queueData || q.id !== queueData.id).map(q => ({ id: String(q.extension), label: `${q.name} (${q.extension})` }));
+    } else if (type === "call_flow") {
+      targets = (callFlowsList || []).map(cf => ({ id: String(cf.id), label: cf.name || `Akış #${cf.id}` }));
+    } else if (type === "ai_agent") {
+      targets = (aiAgentsList || []).map(a => ({ id: String(a.id), label: `🤖 ${a.name} (${a.model || 'AI'})` }));
+    } else if (type === "announcement") {
+      targets = (announcementsList || []).map(a => ({ id: String(a.id), label: a.name }));
+    }
+
+    const filteredTargets = targets.filter(t => 
+      !searchTargetQuery || t.label.toLowerCase().includes(searchTargetQuery.toLowerCase()) || t.id.toLowerCase().includes(searchTargetQuery.toLowerCase())
+    );
+
+    return (
+      <div className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
+        {/* Switch Header */}
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
+          <div>
+            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <Bot size={16} className={text} />
+              Tüm Agent'lar Meşgul İse Düşüş (Fallback) Yönlendirmesi
+            </h4>
+            <p className="text-[10px] text-slate-500 mt-0.5">Kuyruktaki tüm temsilciler meşgule düştüğünde çağrıyı otomatik olarak seçilen hedefe aktarın.</p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input 
+              type="checkbox" 
+              name="all_busy_routing_enabled" 
+              checked={formData.all_busy_routing_enabled || false} 
+              onChange={handleChange} 
+              className="sr-only peer" 
+            />
+            <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+          </label>
+        </div>
+
+        {formData.all_busy_routing_enabled && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
+            {/* 1. Açılır Liste: Hedef Türü */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                1. Hedef Tipi Seçin
+              </label>
+              <select
+                name="all_busy_destination_type"
+                value={formData.all_busy_destination_type || ""}
+                onChange={(e) => {
+                  handleChange(e);
+                  setFormData(prev => ({ ...prev, all_busy_destination_target: "" }));
+                }}
+                className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              >
+                <option value="">Hedef Tipi Seçiniz...</option>
+                <option value="user">Kullanıcı / Dahili</option>
+                <option value="queue">Başka Bir Kuyruk</option>
+                <option value="call_flow">Arama Akışı (Call Flow)</option>
+                <option value="ai_agent">Yapay Zeka (AI) Temsilcisi</option>
+                <option value="mobile_transfer">Mobil Numaraya Transfer (GSM)</option>
+                <option value="announcement">Anons Çal</option>
+                <option value="voicemail">Sesli Mesaj</option>
+                <option value="hangup">Çağrıyı Kapat</option>
+              </select>
+            </div>
+
+            {/* 2. Açılır Liste (Arama Kutusuna Sahip Spesifik Hedef Seçici) */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                2. Spesifik Hedef Seçin (Aramalı)
+              </label>
+              
+              {["hangup"].includes(type) ? (
+                <div className="p-2.5 bg-slate-100 dark:bg-slate-800/40 text-slate-600 dark:text-slate-400 text-xs rounded-xl border border-slate-200 dark:border-slate-700">
+                  Çağrı meşgule düştüğünde otomatik olarak kapatılacaktır.
+                </div>
+              ) : type === "mobile_transfer" ? (
+                <input
+                  type="text"
+                  name="all_busy_destination_target"
+                  placeholder="GSM Cep Telefonu Numarası Girin (Örn: 05321234567)"
+                  value={formData.all_busy_destination_target || ""}
+                  onChange={handleChange}
+                  className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+                />
+              ) : (
+                <div className="space-y-2">
+                  {/* Search Bar inside target selector */}
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-3 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="Listede hızlı ara..."
+                      value={searchTargetQuery}
+                      onChange={(e) => setSearchTargetQuery(e.target.value)}
+                      className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <select
+                    name="all_busy_destination_target"
+                    value={formData.all_busy_destination_target || ""}
+                    onChange={handleChange}
+                    size={Math.min(6, Math.max(3, filteredTargets.length + 1))}
+                    className={`w-full text-xs p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all custom-scrollbar`}
+                  >
+                    <option value="">-- Hedef Seçiniz --</option>
+                    {filteredTargets.map(t => (
+                      <option key={t.id} value={t.id} className="py-1 px-2 hover:bg-indigo-50 dark:hover:bg-indigo-950">
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return createPortal(
     <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-all duration-300">
       <div className="w-full max-w-4xl h-[85vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -641,7 +886,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
               <PhoneCall size={18} className={text} />
               {queueData ? "Kuyruk Düzenle" : "Yeni Kuyruk Ekle"}
             </h2>
-            <p className="text-xs text-slate-500 font-medium">ACD kuyruk konfigürasyonu ve üye atamaları</p>
+            <p className="text-xs text-slate-500 font-medium">ACD kuyruk konfigürasyonu, üye atamaları ve meşgule düşüş kuralları</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
             <X size={18} />
@@ -666,7 +911,6 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         )}
 
         {/* Tabs */}
-
         <div className="bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
           {renderTabs()}
         </div>
@@ -677,17 +921,27 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           {activeTab === "announcements" && renderAnnouncementsTab()}
           {activeTab === "ivr" && renderIvrTab()}
           {activeTab === "members" && renderMembersTab()}
+          {activeTab === "busy_routing" && renderBusyRoutingTab()}
         </div>
 
-        {/* Footer */}
-        <div className="p-4 px-6 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-900/50 flex justify-end gap-3 shrink-0">
-          <button onClick={onClose} className="px-5 py-2.5 text-xs font-bold text-slate-600 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 rounded-xl transition-all shadow-sm">
+        {/* Footer Actions */}
+        <div className="p-4 px-6 border-t border-slate-100 dark:border-slate-800/60 flex items-center justify-end gap-3 shrink-0 bg-slate-50/50 dark:bg-slate-900/50">
+          <button 
+            type="button" 
+            onClick={onClose} 
+            className="px-5 py-2.5 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
+          >
             Vazgeç
           </button>
-          <button onClick={handleSave} className={`px-5 py-2.5 text-xs font-bold text-white ${bg} ${hover} rounded-xl shadow-sm transition-all flex items-center gap-2`}>
-            <Check size={14} /> {queueData ? "Değişiklikleri Kaydet" : "Kuyruğu Oluştur"}
+          <button 
+            type="button" 
+            onClick={handleSave} 
+            className={`px-6 py-2.5 rounded-xl text-xs font-bold text-white shadow-lg shadow-indigo-500/20 ${bg} ${hover} transition-all flex items-center gap-2`}
+          >
+            <Check size={14} /> Kaydet
           </button>
         </div>
+
       </div>
     </div>,
     document.body
