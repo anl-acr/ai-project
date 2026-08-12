@@ -62,6 +62,10 @@
   - `GET /api/agent/stats` dynamically computes today's call counts (inbound, outbound, missed) and total break times (in minutes, with per-break breakdown e.g. Yemek Molası, İhtiyaç Molası) starting strictly from 00:00:00 local time (Turkey UTC+3 / UTC 21:00:00 of previous calendar day).
   - Every night at 00:00:00 local time, `today_start_utc` advances automatically, resetting performance counters to 0 for the new day.
   - Break sessions are tracked in PostgreSQL `agent_break_logs` table (`AgentBreakLog` model) via `POST /api/agent/status`, recording start times, end times, and duration in seconds.
+- **Web sngrep & PCAP Downloader Architecture**:
+  - `SipTrapper` engine (`backend/services/sip_trapper.py`) captures UDP/TCP SIP frames on ports 5060, 5061, 8089 (WebRTC), parses headers (Method, Status, Call-ID, From, To, User-Agent, SDP), and groups packets chronologically into call sessions.
+  - PCAP generator (`SipTrapper.generate_pcap_bytes`) formats raw PCAP Ethernet/IP/UDP headers on-the-fly, serving binary Wireshark and `sngrep` compatible `.pcap` files via `GET /api/sip-debugger/calls/{call_id}/pcap`.
+  - Frontend component `<SipDebuggerPanel />` renders a live `sngrep`-style visual ladder flow diagram, raw header inspector, and one-click `.pcap` download. Registered under `SYSTEM_FEATURES` (`sip_debugger`) in `RoleSettings.js`.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.

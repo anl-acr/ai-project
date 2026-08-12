@@ -43,7 +43,8 @@ const SYSTEM_FEATURES = [
   { id: "backup_restore", name: "Yedekleme ve Geri Yükleme", icon: HardDrive, type: "crud_partial", color: "blue" },
   { id: "recording_retention", name: "Ses Kayıt ve Saklama Süresi Yönetimi", icon: Server, type: "crud_partial", color: "rose" },
   { id: "security", name: "Güvenlik Kalkanı", icon: Shield, type: "crud_partial", color: "cyan" },
-  { id: "api_budgets", name: "API Bütçe ve Tüketim Takibi", icon: HardDrive, type: "crud_partial", color: "emerald" }
+  { id: "api_budgets", name: "API Bütçe ve Tüketim Takibi", icon: HardDrive, type: "crud_partial", color: "emerald" },
+  { id: "sip_debugger", name: "SIP Trafik Yakalayıcı (sngrep)", icon: Terminal, type: "access", color: "indigo" }
 ];
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {

@@ -48,7 +48,8 @@ import {
   MicOff,
   Crown,
   ToggleRight,
-  ToggleLeft
+  ToggleLeft,
+  Terminal
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
@@ -96,6 +97,7 @@ import SpeedDialsPanel from "../components/settings/SpeedDialsPanel";
 import ConferencesPanel from "../components/settings/ConferencesPanel";
 import EventLogsPanel from "../components/settings/EventLogsPanel";
 import SecurityPanel from "../components/security/SecurityPanel";
+import SipDebuggerPanel from "../components/dashboard/SipDebuggerPanel";
 import Login from "../components/auth/Login";
 import TenantSwitcher from "../components/TenantSwitcher";
 
@@ -1694,6 +1696,18 @@ export default function Home() {
               </button>
 
               <button
+                onClick={() => setActiveTab("sip-debugger")}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "sip-debugger"
+                    ? "bg-indigo-50 dark:bg-indigo-955/20 text-indigo-600 dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Terminal size={16} className={activeTab === "sip-debugger" ? "text-indigo-500" : ""} />
+                <span>SIP Trafik (sngrep)</span>
+              </button>
+
+              <button
                 onClick={() => setActiveTab("security")}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "security"
@@ -1873,7 +1887,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           {activeTab === "call-center" && (
             <AgentPanel 
               backendHost={backendHost} 
@@ -1888,6 +1902,10 @@ export default function Home() {
 
           {activeTab === "security" && (
             <SecurityPanel backendHost={backendHost} />
+          )}
+
+          {activeTab === "sip-debugger" && (
+            <SipDebuggerPanel backendHost={backendHost} />
           )}
 
           {activeTab === "users" && (

@@ -53,6 +53,9 @@ def get_user_info(request: Request):
 
 app = FastAPI(title="AI PBX & Omnichannel Backend API")
 
+from backend.routers import sip_debugger
+app.include_router(sip_debugger.router)
+
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
@@ -859,6 +862,8 @@ def load_settings():
                     new_perms.append("ai_agents:access")
                 if "ai_whisper:access" not in new_perms:
                     new_perms.append("ai_whisper:access")
+                if "sip_debugger:access" not in new_perms:
+                    new_perms.append("sip_debugger:access")
             
             # Auto assign omnichannel to admin, supervisor, and agent if missing
             if r.get("role_code") in ["admin", "supervisor", "agent"]:
