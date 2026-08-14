@@ -6701,20 +6701,18 @@ async def handle_whatsapp_webhook(request: Request):
                         messages = value.get("messages", [])
                         contacts = value.get("contacts", [])
                         
-                        if messages and contacts:
+                        if messages:
                             msg = messages[0]
-                            contact = contacts[0]
-                            
-                            sender_phone = contact.get("wa_id")
-                            sender_name = contact.get("profile", {}).get("name", sender_phone)
+                            sender_phone = msg.get("from") or (contacts[0].get("wa_id") if contacts else "Unknown")
+                            sender_name = (contacts[0].get("profile", {}).get("name") if contacts else sender_phone) or sender_phone
                             
                             if msg.get("type") == "text":
                                 text_body = msg.get("text", {}).get("body", "")
-                                sender_info = f"{sender_name} ({sender_phone})" if sender_name != sender_phone else sender_phone
+                                print(f"[WhatsApp Inbound] Received message from {sender_phone} ({sender_name}): '{text_body}'")
                                 asyncio.create_task(
                                     handle_inbound_chat_message(
                                         channel="whatsapp",
-                                        sender_info=sender_phone,
+                                        sender_info=str(sender_phone),
                                         text=text_body
                                     )
                                 )
