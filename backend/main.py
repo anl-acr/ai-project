@@ -6677,7 +6677,9 @@ import asyncio
 from backend.services.chat_service import handle_inbound_chat_message
 
 @app.get("/api/webhooks/whatsapp")
+@app.get("/api/webhooks/whatsapp/")
 @app.get("/api/webhook/whatsapp")
+@app.get("/api/webhook/whatsapp/")
 async def verify_whatsapp_webhook(request: Request):
     """
     Meta Graph API Webhook Verification Endpoint
@@ -6700,7 +6702,9 @@ async def verify_whatsapp_webhook(request: Request):
 
 
 @app.post("/api/webhooks/whatsapp")
+@app.post("/api/webhooks/whatsapp/")
 @app.post("/api/webhook/whatsapp")
+@app.post("/api/webhook/whatsapp/")
 async def receive_whatsapp_webhook(request: Request):
     """
     Handles incoming messages from WhatsApp (Meta Cloud API).
