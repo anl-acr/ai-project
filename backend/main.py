@@ -6676,10 +6676,10 @@ import asyncio
 
 from backend.services.chat_service import handle_inbound_chat_message
 
-@app.get("/api/webhooks/whatsapp")
-@app.get("/api/webhooks/whatsapp/")
-@app.get("/api/webhook/whatsapp")
-@app.get("/api/webhook/whatsapp/")
+@app.api_route("/api/webhooks/whatsapp", methods=["GET", "POST", "HEAD"])
+@app.api_route("/api/webhooks/whatsapp/", methods=["GET", "POST", "HEAD"])
+@app.api_route("/api/webhook/whatsapp", methods=["GET", "POST", "HEAD"])
+@app.api_route("/api/webhook/whatsapp/", methods=["GET", "POST", "HEAD"])
 async def verify_whatsapp_webhook(request: Request):
     """
     Meta Graph API Webhook Verification Endpoint
@@ -6694,7 +6694,16 @@ async def verify_whatsapp_webhook(request: Request):
         if challenge_vals:
             challenge = challenge_vals[0]
 
-    print(f"[WhatsApp Webhook Verify] Incoming GET request params={params}, query='{request.url.query}', challenge='{challenge}'")
+    print(f"[WhatsApp Webhook Verify] Incoming {request.method} request params={params}, query='{request.url.query}', challenge='{challenge}'")
+
+    # If it's an incoming message POST payload (has body json with object=whatsapp_business_account)
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            if body.get("object") == "whatsapp_business_account":
+                return await receive_whatsapp_webhook(request)
+        except Exception:
+            pass
 
     body = str(challenge) if challenge else "OK"
     return Response(content=body, media_type="text/plain", status_code=200)
