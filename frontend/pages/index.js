@@ -631,29 +631,40 @@ export default function Home() {
 
     const syncAgentPresence = async () => {
       try {
-        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
         const resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`);
-        const status = await resStatus.json();
-        if (status.is_logged_in && status.user_id) {
-          const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
-          const users = await resUsers.json();
-          const curr = users.find(u => u.id === status.user_id);
-          if (curr && curr.avatar) {
-            setAgentAvatar(curr.avatar);
-            localStorage.setItem("agent_avatar", curr.avatar);
+        if (resStatus.ok) {
+          const status = await resStatus.json();
+          if (status && status.is_logged_in && status.user_id) {
+            const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+            if (resUsers.ok) {
+              const users = await resUsers.json();
+              if (Array.isArray(users)) {
+                const curr = users.find(u => u.id === status.user_id);
+                if (curr && curr.avatar) {
+                  setAgentAvatar(curr.avatar);
+                  localStorage.setItem("agent_avatar", curr.avatar);
+                }
+              }
+            }
           }
         }
-        
-        setIsAuthChecking(false);
-
       } catch (e) {
         console.error("Agent presence sync error:", e);
+      } finally {
+        setIsAuthChecking(false);
       }
     };
 
+    // Safety fallback: unblock loading spinner within 1.5 seconds maximum
+    const fallbackTimer = setTimeout(() => {
+      setIsAuthChecking(false);
+    }, 1500);
 
     checkRolePermissions();
     syncAgentPresence();
+
+    return () => clearTimeout(fallbackTimer);
   }, []);
 
   const handleLogin = async (username, password, rememberMe = true) => {
