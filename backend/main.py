@@ -6693,6 +6693,8 @@ async def handle_whatsapp_webhook(request: Request):
 
     if request.method == "POST":
         try:
+            raw_body = await request.body()
+            print(f"[WhatsApp Webhook POST] Incoming raw payload: {raw_body.decode('utf-8', errors='ignore')}")
             body = await request.json()
             if body.get("object") == "whatsapp_business_account":
                 for entry in body.get("entry", []):
@@ -6706,16 +6708,25 @@ async def handle_whatsapp_webhook(request: Request):
                             sender_phone = msg.get("from") or (contacts[0].get("wa_id") if contacts else "Unknown")
                             sender_name = (contacts[0].get("profile", {}).get("name") if contacts else sender_phone) or sender_phone
                             
-                            if msg.get("type") == "text":
+                            text_body = ""
+                            msg_type = msg.get("type")
+                            if msg_type == "text":
                                 text_body = msg.get("text", {}).get("body", "")
-                                print(f"[WhatsApp Inbound] Received message from {sender_phone} ({sender_name}): '{text_body}'")
-                                asyncio.create_task(
-                                    handle_inbound_chat_message(
-                                        channel="whatsapp",
-                                        sender_info=str(sender_phone),
-                                        text=text_body
-                                    )
+                            elif msg_type == "interactive":
+                                text_body = msg.get("interactive", {}).get("button_reply", {}).get("title") or msg.get("interactive", {}).get("list_reply", {}).get("title") or "Etkileşimli Yanıt"
+                            elif msg_type == "button":
+                                text_body = msg.get("button", {}).get("text", "") or "Buton Yanıtı"
+                            else:
+                                text_body = f"[{msg_type.upper() if msg_type else 'MEDYA'} MESAJI]"
+
+                            print(f"[WhatsApp Inbound] Processing message from {sender_phone} ({sender_name}): '{text_body}'")
+                            asyncio.create_task(
+                                handle_inbound_chat_message(
+                                    channel="whatsapp",
+                                    sender_info=str(sender_phone),
+                                    text=text_body
                                 )
+                            )
         except Exception as e:
             print(f"WhatsApp webhook parse error: {e}")
         return Response(content='{"status":"success"}', media_type="application/json", status_code=200)
