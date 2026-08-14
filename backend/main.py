@@ -6687,7 +6687,6 @@ async def verify_whatsapp_webhook(request: Request):
     params = dict(request.query_params)
     challenge = params.get("hub.challenge") or params.get("hub_challenge") or params.get("challenge")
 
-    # Fallback: parse raw query string if starlette query_params misses dots
     if not challenge and "challenge" in str(request.url.query):
         import urllib.parse
         parsed = urllib.parse.parse_qs(str(request.url.query))
@@ -6695,12 +6694,10 @@ async def verify_whatsapp_webhook(request: Request):
         if challenge_vals:
             challenge = challenge_vals[0]
 
-    print(f"[WhatsApp Webhook Verify] Incoming request params={params}, query='{request.url.query}', challenge='{challenge}'")
+    print(f"[WhatsApp Webhook Verify] Incoming GET request params={params}, query='{request.url.query}', challenge='{challenge}'")
 
-    if challenge:
-        return Response(content=str(challenge), media_type="text/plain", status_code=200)
-
-    return HTTPException(status_code=403, detail="Verification failed")
+    body = str(challenge) if challenge else "OK"
+    return Response(content=body, media_type="text/plain", status_code=200)
 
 
 @app.post("/api/webhooks/whatsapp")
