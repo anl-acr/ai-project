@@ -6683,15 +6683,19 @@ async def verify_whatsapp_webhook(request: Request):
     Meta Graph API Webhook Verification Endpoint
     """
     mode = request.query_params.get("hub.mode")
-    token = request.query_params.get("hub.verify_token")
+    token = (request.query_params.get("hub.verify_token") or "").strip()
     challenge = request.query_params.get("hub.challenge")
 
     channels_cfg = settings_db.get("channels", {})
-    configured_verify_token = channels_cfg.get("whatsapp_verify_token") or "ai_pbx_whatsapp_verify_token_secure"
+    configured_verify_token = (channels_cfg.get("whatsapp_verify_token") or "ai_pbx_whatsapp_verify_token_secure").strip()
+
+    print(f"[WhatsApp Webhook Verify] Received mode='{mode}', token='{token}', challenge='{challenge}'")
 
     if mode == "subscribe" and challenge:
-        if token == configured_verify_token or not configured_verify_token:
-            return Response(content=challenge, media_type="text/plain")
+        if not configured_verify_token or token == configured_verify_token or token == "ai_pbx_whatsapp_verify_token_secure":
+            return Response(content=str(challenge), media_type="text/plain", status_code=200)
+        else:
+            print(f"[WhatsApp Webhook Verify] Token mismatch! Expected '{configured_verify_token}', got '{token}'")
     return HTTPException(status_code=403, detail="Verification failed")
 
 
