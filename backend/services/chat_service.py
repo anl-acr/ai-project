@@ -467,6 +467,12 @@ Karşı tarafın kanal türüne (örn: mail ise biraz daha resmi/eposta formatı
                 }
             })
             
+            # Dispatch to external channel if applicable (e.g. WhatsApp)
+            if channel.lower() == "whatsapp":
+                import asyncio
+                from backend.services.whatsapp_service import send_whatsapp_message
+                asyncio.create_task(send_whatsapp_message(sender_info, ai_reply_text))
+
             return ai_reply_text
 
     return None

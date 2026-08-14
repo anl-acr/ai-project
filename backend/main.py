@@ -12,7 +12,7 @@ load_dotenv(os.path.join(BASE_DIR, '.env'))
 import shutil
 import socket
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -157,6 +157,8 @@ class PBXSettingsSchema(BaseModel):
 
 class ChannelSettingsSchema(BaseModel):
     whatsapp_token: Optional[str] = None
+    whatsapp_phone_number_id: Optional[str] = None
+    whatsapp_verify_token: Optional[str] = None
     telegram_token: Optional[str] = None
     instagram_token: Optional[str] = None
     facebook_token: Optional[str] = None
@@ -458,6 +460,8 @@ DEFAULT_SETTINGS = {
     },
     "channels": {
         "whatsapp_token": "",
+        "whatsapp_phone_number_id": "",
+        "whatsapp_verify_token": "ai_pbx_whatsapp_verify_token_secure",
         "telegram_token": "",
         "instagram_token": "",
         "facebook_token": ""
@@ -1817,6 +1821,7 @@ async def get_channel_settings():
 @app.post("/settings/channels")
 async def save_channel_settings(payload: ChannelSettingsSchema):
     settings_db["channels"] = payload.model_dump()
+    save_settings(settings_db)
     return {"status": "success", "message": "Kanal entegrasyon ayarları kaydedildi."}
 
 @app.get("/api/settings/smart-callback")
@@ -5388,6 +5393,11 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         import asyncio
         from backend.services.call_analyzer import analyze_chat_session
         asyncio.create_task(analyze_chat_session(session_id))
+
+        # Trigger outbound channel message if chat channel is WhatsApp
+        if chat.channel.lower() == "whatsapp":
+            from backend.services.whatsapp_service import send_whatsapp_message
+            asyncio.create_task(send_whatsapp_message(chat.sender_info, payload.text))
         
         return {"status": "success", "message": "Mesaj gönderildi."}
 
@@ -6667,6 +6677,7 @@ import asyncio
 from backend.services.chat_service import handle_inbound_chat_message
 
 @app.get("/api/webhooks/whatsapp")
+@app.get("/api/webhook/whatsapp")
 async def verify_whatsapp_webhook(request: Request):
     """
     Meta Graph API Webhook Verification Endpoint
@@ -6675,13 +6686,17 @@ async def verify_whatsapp_webhook(request: Request):
     token = request.query_params.get("hub.verify_token")
     challenge = request.query_params.get("hub.challenge")
 
-    # Basit dogrulama
+    channels_cfg = settings_db.get("channels", {})
+    configured_verify_token = channels_cfg.get("whatsapp_verify_token") or "ai_pbx_whatsapp_verify_token_secure"
+
     if mode == "subscribe" and challenge:
-        return Response(content=challenge, media_type="text/plain")
+        if token == configured_verify_token or not configured_verify_token:
+            return Response(content=challenge, media_type="text/plain")
     return HTTPException(status_code=403, detail="Verification failed")
 
 
 @app.post("/api/webhooks/whatsapp")
+@app.post("/api/webhook/whatsapp")
 async def receive_whatsapp_webhook(request: Request):
     """
     Handles incoming messages from WhatsApp (Meta Cloud API).
@@ -6704,11 +6719,11 @@ async def receive_whatsapp_webhook(request: Request):
                         
                         if msg.get("type") == "text":
                             text_body = msg.get("text", {}).get("body", "")
-                            sender_info = f"{sender_name} ({sender_phone})"
+                            sender_info = f"{sender_name} ({sender_phone})" if sender_name != sender_phone else sender_phone
                             asyncio.create_task(
                                 handle_inbound_chat_message(
                                     channel="whatsapp",
-                                    sender_info=sender_info,
+                                    sender_info=sender_phone,
                                     text=text_body
                                 )
                             )

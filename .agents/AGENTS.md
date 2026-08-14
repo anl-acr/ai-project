@@ -66,6 +66,10 @@
   - `SipTrapper` engine (`backend/services/sip_trapper.py`) captures UDP/TCP SIP frames on ports 5060, 5061, 8089 (WebRTC), parses headers (Method, Status, Call-ID, From, To, User-Agent, SDP), and groups packets chronologically into call sessions.
   - PCAP generator (`SipTrapper.generate_pcap_bytes`) formats raw PCAP Ethernet/IP/UDP headers on-the-fly, serving binary Wireshark and `sngrep` compatible `.pcap` files via `GET /api/sip-debugger/calls/{call_id}/pcap`.
   - Frontend component `<SipDebuggerPanel />` renders a live `sngrep`-style visual ladder flow diagram, raw header inspector, and one-click `.pcap` download. Registered under `SYSTEM_FEATURES` (`sip_debugger`) in `RoleSettings.js`.
+- **WhatsApp Meta Business Cloud API Architecture**:
+  - Webhook verification: `GET /api/webhooks/whatsapp` & `/api/webhook/whatsapp` validates `hub.verify_token` against `whatsapp_verify_token` (default: `ai_pbx_whatsapp_verify_token_secure`).
+  - Inbound messages: `POST /api/webhooks/whatsapp` parses Meta Cloud API payloads and routes messages to `handle_inbound_chat_message`.
+  - Outbound messaging: `send_whatsapp_message()` (`backend/services/whatsapp_service.py`) dispatches messages via `POST https://graph.facebook.com/v18.0/{phone_number_id}/messages` using `whatsapp_token`. It is triggered automatically when AI or human representative replies in a WhatsApp channel session.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
