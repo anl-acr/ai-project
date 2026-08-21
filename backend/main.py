@@ -6144,11 +6144,13 @@ async def startup_event():
     
     # 1. Ensure all tables are created in PostgreSQL
     try:
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        async def init_db():
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+        await asyncio.wait_for(init_db(), timeout=2.0)
         print("[Database Init] Veritabanı tabloları kontrol edildi / oluşturuldu.")
     except Exception as e:
-        print(f"[Database Init] Error creating tables: {e}")
+        print(f"[Database Init] Error creating tables / timeout: {e}")
 
     # 2. Auto-seed tables if empty & cleanup stale calls
     try:
@@ -7086,10 +7088,12 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             
         header_user_id = request.headers.get("X-User-ID") or request.headers.get("x-user-id") or request.query_params.get("user_id")
         user_id = header_user_id or (user_info.get("user_id") or user_info.get("id") if user_info else None)
+        if str(user_id) == "admin":
+            user_id = 1
         
         # Search user by ID, extension, username, or email
         current_user = None
-        if user_id and str(user_id) != "admin":
+        if user_id:
             try:
                 if str(user_id).isdigit():
                     uid = int(user_id)
@@ -7110,7 +7114,7 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
                 print(f"[WebRTC Config User Resolution Error]: {ex_usr}")
                 
         # Fallback to settings.json if DB didn't find the user
-        if not current_user and user_id and str(user_id) != "admin":
+        if not current_user and user_id:
             for u in settings_db.get("users", []):
                 if str(u.get("id")) == str(user_id) or str(u.get("extension")) == str(user_id) or u.get("email") == str(user_id):
                     current_user = u
@@ -7126,9 +7130,12 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
                 pass
                 
         agent_ext = current_user.get("extension", "1000") if current_user else "1000"
-        sip_password = current_user.get("sip_password") or current_user.get("password") or "1234" if current_user else "1234"
+        if agent_ext == "1000":
+            sip_password = "1234"
+        else:
+            sip_password = current_user.get("sip_password") or current_user.get("password") or "1234" if current_user else "1234"
         
-        # Dynamically compute WebSocket URL and resolved viaHost IP
+        # Dynamically compute WebSocket URL and resolved viaHost IPv4
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
         client_ip = request.client.host if request.client else "127.0.0.1"
         scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
@@ -7137,11 +7144,15 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         else:
             wss_url = f"ws://{req_host}:8088/ws"
             
-        import socket
+        import socket, re
+        via_ip = "78.189.210.15"
         try:
-            via_ip = socket.gethostbyname(req_host)
+            resolved = socket.gethostbyname(req_host)
+            if resolved and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", resolved):
+                via_ip = resolved
         except Exception:
-            via_ip = client_ip if client_ip != "127.0.0.1" else "78.189.210.15"
+            if client_ip and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", client_ip):
+                via_ip = client_ip
 
         return {
             "asteriskWssUrl": wss_url,
