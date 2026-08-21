@@ -98,13 +98,86 @@ async def stream_elevenlabs_tts_to_asterisk(text: str, voice_id: str, stability:
                         await write_queue.put(frame)
                         del pcm_8k_buffer[:320]
                         
-            if len(pcm_8k_buffer) > 0:
-                frame = bytes(pcm_8k_buffer) + b'\x00' * (320 - len(pcm_8k_buffer))
-                await write_queue.put(frame)
+            if pcm_8k_buffer:
+                await write_queue.put(bytes(pcm_8k_buffer))
                 
             print(f"[ElevenLabs Stream Finish] '{text[:30]}...' canlı yayını tamamlandı.")
     except Exception as e:
         print(f"[ElevenLabs Stream Exception] {e}")
+
+async def execute_async_tool_and_feed_context(tool_name: str, args_dict: dict, call_id: str, gemini_ws: any, tenant_id: str = "tenant-default"):
+    """Executes background tools asynchronously (appointments, CRM query, webhooks) and feeds results back to Gemini Live."""
+    try:
+        tool_result = ""
+        print(f"[Async Tool Engine] Executing '{tool_name}' with args: {args_dict}")
+        
+        if tool_name in ["randevu_olustur", "book_appointment", "create_appointment"]:
+            date_val = args_dict.get("date") or args_dict.get("tarih") or datetime.now().strftime("%Y-%m-%d")
+            time_val = args_dict.get("time") or args_dict.get("saat") or "14:00"
+            customer_val = args_dict.get("customer_name") or args_dict.get("isim") or "Müşteri"
+            
+            from backend.database.db import AsyncSessionLocal
+            from backend.database.models import Appointment
+            
+            async with AsyncSessionLocal() as session:
+                new_app = Appointment(
+                    tenant_id=tenant_id,
+                    customer_name=str(customer_val),
+                    appointment_date=str(date_val),
+                    appointment_time=str(time_val),
+                    status="approved",
+                    note=f"Gemini Live AI Ajan Randevusu (Call ID: {call_id})"
+                )
+                session.add(new_app)
+                await session.commit()
+            tool_result = f"Randevu Başarıyla Kaydedildi! Tarih: {date_val}, Saat: {time_val}, İsim: {customer_val}."
+            
+        elif tool_name in ["musteri_sorgula", "fetch_crm_contact"]:
+            phone_val = args_dict.get("phone") or args_dict.get("telefon") or ""
+            from backend.database.db import AsyncSessionLocal
+            from backend.database.models import Contact
+            from sqlalchemy import select
+            
+            async with AsyncSessionLocal() as session:
+                res = await session.execute(select(Contact).where(Contact.phone == phone_val))
+                contact = res.scalars().first()
+                if contact:
+                    tool_result = f"Müşteri Bulundu: {contact.full_name}, Firma: {contact.company}, E-Posta: {contact.email}"
+                else:
+                    tool_result = f"Telefon numarası ({phone_val}) için kayıt bulunamadı."
+                    
+        elif tool_name in ["webhook_tetikle", "trigger_webhook"]:
+            url = args_dict.get("url")
+            if url:
+                import httpx
+                async with httpx.AsyncClient(timeout=5) as client:
+                    resp = await client.post(url, json={"call_id": call_id, "args": args_dict})
+                    tool_result = f"Webhook Başarılı. Yanıt: {resp.text[:100]}"
+            else:
+                tool_result = "Webhook URL belirtilmedi."
+        else:
+            tool_result = f"İşlem '{tool_name}' başarıyla yürütüldü."
+            
+        print(f"[Async Tool Engine] Tool '{tool_name}' executed. Result: {tool_result}")
+        
+        tool_injection_msg = {
+            "clientContent": {
+                "turns": [
+                    {
+                        "role": "user",
+                        "parts": [
+                            {
+                                "text": f"[SYSTEM TOOL RESULT - {tool_name.upper()}]: {tool_result}. Lütfen bu bilgiyi müşteriye doğal ses tonunla bildir."
+                            }
+                        ]
+                    }
+                ],
+                "turnComplete": True
+            }
+        }
+        await gemini_ws.send(json.dumps(tool_injection_msg))
+    except Exception as te:
+        print(f"[Async Tool Engine Error]: {te}")
 
 async def query_non_gemini_llm(llm_provider: str, model_name: str, system_prompt: str, user_text: str, settings_data: dict) -> str:
     """Queries OpenAI, Groq, or Anthropic REST APIs directly for non-Gemini LLM providers."""
@@ -744,13 +817,14 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         except Exception as e:
             print(f"[Custom API] Hata: {e}")
             
-        system_instruction += "\n\n--- OPERASYONEL EYLEM SİSTEM TALİMATLARI ---\n"
+        system_instruction += "\n\n--- OPERASYONEL EYLEM VE ARAÇ SİSTEM TALİMATLARI ---\n"
         system_instruction += "Sen canlı sesli bir müşteri temsilcisisin. Tüm döküman, ürün ve model sorularını sana sağlanan Bilgi Bankasından doğrudan Türkçe konuşarak yanıtla.\n"
-        system_instruction += "Görüşme sırasında aşağıdaki durumlar gerçekleştiğinde cümlenin sonuna ilgili EYLEM KODUNU ekle:\n"
+        system_instruction += "Görüşme sırasında aşağıdaki durumlar gerçekleştiğinde cümlenin sonuna ilgili EYLEM VEYA ARAÇ KODUNU ekle:\n"
         system_instruction += "1. Görüşmeyi sonlandırmak / kapatmak için (müşteri vedalaştığında veya işlemler bittiğinde): Cümlenin sonuna '[ACTION: HANGUP]' yaz.\n"
         system_instruction += "2. Canlı temsilciye transfer etmek için (müşteri temsilci istediğinde): Cümlenin sonuna '[ACTION: TRANSFER]' yaz.\n"
         system_instruction += "3. Küfür/hakaret durumunda: Cümlenin sonuna '[ACTION: ABUSE]' yaz.\n"
-        system_instruction += "Bu eylem kodlarını sesli okuma, sadece metne ekle.\n"
+        system_instruction += "4. Randevu kaydı, müşteri sorgulama veya webhook çalıştırmak için: Cümlenin sonuna '[ACTION: TOOL_CALL name=\"randevu_olustur\" date=\"YYYY-MM-DD\" time=\"HH:MM\" customer_name=\"...\"]' yaz.\n"
+        system_instruction += "Bu eylem ve araç kodlarını sesli okuma, sadece metne ekle.\n"
         print(f"Sistem talimatlari derlendi: {len(system_instruction)} karakter.")
 
         # Flexible voice resolution for Gemini voices (Puck, Charon, Kore, Fenrir, Aoede)
@@ -1139,6 +1213,18 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                 call_state["should_hangup"] = True
                                 clean_ai_text = clean_ai_text.replace("[ACTION: ABUSE]", "").strip()
                                 asyncio.create_task(auto_blacklist_call(call_id, "Yapay Zeka Suistimal Tespiti"))
+                            if "[ACTION: TOOL_CALL" in clean_ai_text or "[TOOL:" in clean_ai_text:
+                                print("[Action Marker] Async Tool execution requested via [ACTION: TOOL_CALL]")
+                                try:
+                                    import re
+                                    match = re.search(r"name=['\"]([^'\"]+)['\"]", clean_ai_text)
+                                    t_name = match.group(1) if match else "randevu_olustur"
+                                    kv_dict = dict(re.findall(r"(\w+)=['\"]([^'\"]+)['\"]", clean_ai_text))
+                                    asyncio.create_task(execute_async_tool_and_feed_context(tool_name=t_name, args_dict=kv_dict, call_id=call_id, gemini_ws=gemini_ws))
+                                    clean_ai_text = re.sub(r"\[ACTION: TOOL_CALL[^\]]*\]", "", clean_ai_text).strip()
+                                    clean_ai_text = re.sub(r"\[TOOL:[^\]]*\]", "", clean_ai_text).strip()
+                                except Exception as parse_err:
+                                    print(f"[Tool Call Parse Warning]: {parse_err}")
 
                             await write_db_transcript(call_id, "ai", clean_ai_text)
                             if is_elevenlabs_tts and elevenlabs_api_key:
