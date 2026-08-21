@@ -2533,14 +2533,15 @@ async def webrtc_unregister_notify(payload: dict):
         settings = load_settings()
         matched_user_id = user_id_val or ext
         for u in settings.get("users", []):
-            if str(u.get("extension")) == ext or str(u.get("id")) == str(user_id_val):
+            if str(u.get("extension")) == ext or str(u.get("id")) == str(user_id_val) or str(u.get("extension")) == str(user_id_val):
                 matched_user_id = u.get("id")
                 registered_endpoints.discard(str(u.get("extension")))
                 registered_endpoints.discard(str(u.get("id")))
-                break
 
-        update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=matched_user_id)
         update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=ext)
+        if matched_user_id:
+            update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=matched_user_id)
+
         print(f"[WebRTC Unregister Notify] Extension {ext} (User ID: {matched_user_id}) unregistered & offline.")
     return {"status": "success"}
 
@@ -6363,14 +6364,18 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                     raw_users.append(u)
 
     # Attach live SIP WebRTC registration status and IP address to each user object
+    from backend.services.agent_presence import get_agent_state
     for u in raw_users:
         ext = str(u.get("extension") or "")
         uid = str(u.get("id") or "")
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
-        is_reg = ext in registered_endpoints or uid in registered_endpoints or u.get("is_online", False)
+        st_ext = get_agent_state(ext)
+        st_uid = get_agent_state(uid)
+        presence_online = (st_ext and st_ext.get("is_logged_in", False)) or (st_uid and st_uid.get("is_logged_in", False))
+        is_reg = (ext in registered_endpoints or uid in registered_endpoints) and presence_online
         u["is_registered"] = is_reg
         u["sip_status"] = "online" if is_reg else "offline"
-        u["ip_address"] = reg_ip or u.get("last_ip") or ""
+        u["ip_address"] = reg_ip if is_reg else ""
 
     return raw_users
 

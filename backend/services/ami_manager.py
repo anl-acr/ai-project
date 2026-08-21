@@ -72,18 +72,22 @@ async def get_ami_manager() -> Manager:
             await asyncio.wait_for(manager_instance.connect(), timeout=1.5)
             print("[AMI] Connected successfully!")
             
-            # Fetch initial SIP registration states
+            # Fetch initial SIP registration states (only active registered contacts)
             try:
-                res = await manager_instance.send_action({"Action": "PJSIPShowEndpoints"})
+                res = await manager_instance.send_action({"Action": "PJSIPShowContacts"})
                 if res and hasattr(res, 'responses'):
                     for r in res.responses:
-                        if r.get('Event') == 'EndpointList':
-                            obj = r.get('ObjectName')
-                            status = r.get('DeviceState')
-                            if obj and status and status != 'Unavailable':
-                                registered_endpoints.add(obj)
+                        if r.get('Event') == 'ContactList':
+                            aor = r.get('AOR') or r.get('ObjectName')
+                            status = r.get('Status')
+                            uri = r.get('URI') or r.get('ViaAddress') or ""
+                            import re
+                            ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
+                            extracted_ip = ip_match.group(0) if ip_match else ""
+                            if aor and status in ["Reachable", "Created", "Registered"]:
+                                registered_endpoints.add(aor, extracted_ip)
             except Exception as ex:
-                print(f"[AMI] Error fetching initial endpoints: {ex}")
+                print(f"[AMI] Error fetching initial contacts: {ex}")
         except Exception as e:
             print(f"[AMI] Connection error: {e}")
             manager_instance = None
