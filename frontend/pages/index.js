@@ -928,6 +928,21 @@ export default function Home() {
     setProfileDropdownOpen(false);
     try {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const targetUserId = currentUser?.id || currentUser?.extension || localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+
+      if (targetUserId) {
+        await fetch(`${protocol}//${backendHost}/api/webrtc/unregister_notify`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            user_id: targetUserId,
+            extension: currentUser?.extension || targetUserId
+          })
+        }).catch(() => {});
+      }
+
       const res = await fetch(`${protocol}//${backendHost}/api/agent/status`, {
         method: "POST",
         headers: {
@@ -937,7 +952,7 @@ export default function Home() {
           is_logged_in: false,
           status: "offline",
           current_break: null,
-          user_id: null
+          user_id: targetUserId
         })
       });
       if (res.ok) {
@@ -951,6 +966,10 @@ export default function Home() {
       }
     } catch (e) {
       console.error("Logout error:", e);
+      localStorage.removeItem("is_logged_in");
+      localStorage.removeItem("current_user_id");
+      sessionStorage.removeItem("is_logged_in");
+      sessionStorage.removeItem("current_user_id");
       window.location.reload();
     }
   };

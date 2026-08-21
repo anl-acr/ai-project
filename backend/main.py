@@ -2517,6 +2517,33 @@ async def webrtc_register_notify(request: Request, payload: dict):
         print(f"[WebRTC Register Notify] Extension {ext} (User ID: {matched_user_id}) registered & online from IP {client_ip}.")
     return {"status": "success", "ip": client_ip}
 
+@app.post("/api/webrtc/unregister_notify")
+async def webrtc_unregister_notify(payload: dict):
+    from backend.services.ami_manager import registered_endpoints
+    from backend.services.agent_presence import update_agent_state
+
+    ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
+    user_id_val = payload.get("user_id")
+
+    if ext:
+        registered_endpoints.discard(ext)
+        if user_id_val:
+            registered_endpoints.discard(str(user_id_val))
+
+        settings = load_settings()
+        matched_user_id = user_id_val or ext
+        for u in settings.get("users", []):
+            if str(u.get("extension")) == ext or str(u.get("id")) == str(user_id_val):
+                matched_user_id = u.get("id")
+                registered_endpoints.discard(str(u.get("extension")))
+                registered_endpoints.discard(str(u.get("id")))
+                break
+
+        update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=matched_user_id)
+        update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=ext)
+        print(f"[WebRTC Unregister Notify] Extension {ext} (User ID: {matched_user_id}) unregistered & offline.")
+    return {"status": "success"}
+
 @app.get("/api/agent/status")
 @app.get("/agent/status")
 async def get_agent_status_endpoint():
