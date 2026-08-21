@@ -952,23 +952,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                               ? "bg-emerald-400 group-hover:bg-emerald-500 shadow-emerald-400/50"
                               : "bg-rose-500 group-hover:bg-rose-600 shadow-rose-500/50"
                           }`}
-                          title={
-                            (u.is_registered || u.sip_status === "online" || u.is_online)
-                              ? `Web Phone Bağlı (Çevrimiçi)${u.ip_address ? ` - IP: ${u.ip_address}` : ""}`
-                              : "Web Phone Bağlı Değil (Çevrimdışı)"
-                          }
                         >
                           {(u.is_registered || u.sip_status === "online" || u.is_online) && (
                             <span className="animate-ping absolute inset-0 rounded-full bg-emerald-400 opacity-75"></span>
                           )}
                         </div>
                         {(u.is_registered || u.sip_status === "online" || u.is_online) ? (
-                          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-lg whitespace-nowrap shadow-sm border border-emerald-200/60 dark:border-emerald-800/60 z-50 pointer-events-none">
-                            Web Phone Bağlı {u.ip_address ? `(${u.ip_address})` : ""}
+                          <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 opacity-0 group-hover:opacity-100 transition-all duration-200 bg-emerald-50/95 dark:bg-emerald-950/95 backdrop-blur-md px-2.5 py-1 rounded-xl whitespace-nowrap shadow-lg border border-emerald-200/80 dark:border-emerald-800/80 z-[100] pointer-events-none flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                            <span>Web Phone Bağlı</span>
+                            {u.ip_address && (
+                              <span className="text-emerald-600/90 dark:text-emerald-400/90 font-mono text-[9px] bg-emerald-100/70 dark:bg-emerald-900/70 px-1 py-0.2 rounded font-normal">({u.ip_address})</span>
+                            )}
                           </span>
                         ) : (
-                          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-extrabold text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded whitespace-nowrap shadow-sm border border-rose-200/50 dark:border-rose-800/50 z-50 pointer-events-none">
-                            Çevrimdışı
+                          <span className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 text-[10px] font-bold text-rose-600 dark:text-rose-400 opacity-0 group-hover:opacity-100 transition-all duration-200 bg-rose-50/95 dark:bg-rose-950/95 backdrop-blur-md px-2.5 py-1 rounded-xl whitespace-nowrap shadow-lg border border-rose-200/80 dark:border-rose-800/80 z-[100] pointer-events-none flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
+                            <span>Web Phone Bağlı Değil</span>
                           </span>
                         )}
                       </div>
