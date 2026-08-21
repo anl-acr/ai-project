@@ -70,15 +70,11 @@ export default function CallChatWidget({
   useEffect(() => {
     let isMounted = true;
     const fetchConfig = async () => {
-      if (currentUser?.role === 'admin') {
-        if (isMounted) setIsLoadingConfig(false);
-        return;
-      }
       setIsLoadingConfig(true);
       try {
         let headers = { "Content-Type": "application/json" };
         const savedUserId = typeof window !== "undefined" ? (localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")) : "";
-        const targetUserId = currentUser?.id || currentUser?.extension || savedUserId;
+        const targetUserId = currentUser?.id || currentUser?.extension || savedUserId || "admin";
         if (targetUserId) {
           headers["X-User-ID"] = targetUserId.toString();
         }

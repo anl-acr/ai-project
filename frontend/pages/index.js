@@ -3132,8 +3132,8 @@ export default function Home() {
           </div>
         )}
 
-        {/* Floating Unified Representative Call & Chat Console Widget (For all logged-in non-admin representative users) */}
-        {isLoggedIn && currentUser?.role !== 'admin' && (
+        {/* Floating Unified Call & Chat Console WebPhone Widget */}
+        {isLoggedIn && (
           <CallChatWidget 
             onActiveCall={(callId) => setActiveCallId(callId)}
             backendHost={backendHost}
