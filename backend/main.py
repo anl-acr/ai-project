@@ -6155,6 +6155,7 @@ async def startup_event():
         async with AsyncSessionLocal() as session:
             stmt = update(Call).where(Call.status == "in_progress").values(status="no_answer", end_time=datetime.datetime.utcnow())
             await session.execute(stmt)
+            await session.commit()
 
             # Fix past unanswered outbound calls mislabeled as completed
             try:
