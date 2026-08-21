@@ -350,32 +350,31 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
               </button>
             </div>
 
-            <div className="flex px-6 pt-4 border-b border-slate-100 dark:border-slate-800">
-              <button
-                type="button"
-                className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 ${
-                  activeTab === "upload" 
-                    ? `border-${bg.split('-')[1] || 'primary'}-500 ${text}` 
-                    : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                }`}
-                onClick={() => setActiveTab("upload")}
-              >
-                Dosya Yükle
-              </button>
-              <button
-                type="button"
-                className={`pb-3 px-4 text-xs font-bold transition-all border-b-2 ${
-                  activeTab === "tts" 
-                    ? `border-${bg.split('-')[1] || 'primary'}-500 ${text}` 
-                    : "border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
-                }`}
-                onClick={() => setActiveTab("tts")}
-              >
-                Metinden Sese (TTS)
-              </button>
-            </div>
+            {/* Main Body with Left Sidebar Navigation */}
+            <div className="flex flex-1 overflow-hidden">
+              {/* Left Sidebar */}
+              <div className="w-48 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-3 shrink-0 overflow-y-auto">
+                <nav className="space-y-1">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("upload")}
+                    className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'upload' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                  >
+                    <Volume2 size={15} /> Dosya Yükle
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab("tts")}
+                    className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'tts' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                  >
+                    <FileAudio size={15} /> Metinden Sese (TTS)
+                  </button>
+                </nav>
+              </div>
 
-            <form onSubmit={activeTab === "upload" ? handleUpload : handleTTSUpload} className="p-6 space-y-6">
+              {/* Right Content */}
+              <div className="flex-1 overflow-y-auto">
+                <form onSubmit={activeTab === "upload" ? handleUpload : handleTTSUpload} className="p-6 space-y-5">
               
               <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex items-start gap-3">
                 <Info size={16} className="text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
@@ -484,7 +483,9 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
             </form>
           </div>
-        </div>,
+        </div>
+      </div>
+    </div>,
         document.body
       )}
 

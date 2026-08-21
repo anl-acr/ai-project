@@ -289,38 +289,45 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     return [];
   };
 
-  const renderTabs = () => (
-    <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 p-4 pb-0 overflow-x-auto custom-scrollbar">
-      <button 
-        onClick={() => setActiveTab("general")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'general' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
-      >
-        <Settings size={14} /> Genel
-      </button>
-      <button 
-        onClick={() => setActiveTab("announcements")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'announcements' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
-      >
-        <Volume2 size={14} /> Anons & Bekleme
-      </button>
-      <button 
-        onClick={() => setActiveTab("ivr")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'ivr' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
-      >
-        <Volume2 size={14} /> Periyodik Anons
-      </button>
-      <button 
-        onClick={() => setActiveTab("members")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'members' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
-      >
-        <Users size={14} /> Üyeler & Yöneticiler
-      </button>
-      <button 
-        onClick={() => setActiveTab("busy_routing")}
-        className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'busy_routing' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
-      >
-        <Bot size={14} /> Tüm Agent'lar Meşgul
-      </button>
+  const renderSidebarTabs = () => (
+    <div className="w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto">
+      <nav className="space-y-1">
+        <button 
+          type="button"
+          onClick={() => setActiveTab("general")}
+          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'general' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <Settings size={16} /> Genel
+        </button>
+        <button 
+          type="button"
+          onClick={() => setActiveTab("announcements")}
+          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'announcements' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <Volume2 size={16} /> Anons & Bekleme
+        </button>
+        <button 
+          type="button"
+          onClick={() => setActiveTab("ivr")}
+          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'ivr' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <PhoneForwarded size={16} /> Periyodik Anons
+        </button>
+        <button 
+          type="button"
+          onClick={() => setActiveTab("members")}
+          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'members' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <Users size={16} /> Üyeler & Yöneticiler
+        </button>
+        <button 
+          type="button"
+          onClick={() => setActiveTab("busy_routing")}
+          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'busy_routing' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <Bot size={16} /> Tüm Agent'lar Meşgul
+        </button>
+      </nav>
     </div>
   );
 
@@ -1075,18 +1082,19 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           </div>
         )}
 
-        {/* Tabs */}
-        <div className="bg-slate-50/50 dark:bg-slate-900/50 shrink-0">
-          {renderTabs()}
-        </div>
+        {/* Main Body with Left Sidebar Navigation */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Left Sidebar Tabs */}
+          {renderSidebarTabs()}
 
-        {/* Content */}
-        <div className="flex-1 overflow-hidden bg-white dark:bg-slate-900">
-          {activeTab === "general" && renderGeneralTab()}
-          {activeTab === "announcements" && renderAnnouncementsTab()}
-          {activeTab === "ivr" && renderIvrTab()}
-          {activeTab === "members" && renderMembersTab()}
-          {activeTab === "busy_routing" && renderBusyRoutingTab()}
+          {/* Right Content Area */}
+          <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-900">
+            {activeTab === "general" && renderGeneralTab()}
+            {activeTab === "announcements" && renderAnnouncementsTab()}
+            {activeTab === "ivr" && renderIvrTab()}
+            {activeTab === "members" && renderMembersTab()}
+            {activeTab === "busy_routing" && renderBusyRoutingTab()}
+          </div>
         </div>
 
         {/* Footer Actions */}
