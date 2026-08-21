@@ -75,7 +75,11 @@
   - `get_user_info` extracts `X-Tenant-ID` or `Tenant-ID` header / query param (`tenant_id`).
   - Helper functions `is_default_tenant(tenant_id)` and `is_global_tenant(tenant_id)` ensure seamless data preservation for "Ana Müşteri" (`tenant-default` / `default`) while strictly isolating newly created tenants (e.g. `tenant-nolto`).
   - DDL migrations (`ALTER TABLE tbl ADD COLUMN IF NOT EXISTS tenant_id VARCHAR DEFAULT 'tenant-default';`) executed on PostgreSQL startup across all 15 tables (`system_users`, `pbx_queues`, `trunks`, `calls`, `transcripts`, `appointments`, `chat_sessions`, `chat_messages`, `contacts`, `canned_responses`, `blacklist_items`, `block_words`, `system_roles`, `document_chunks`, `rules`).
-  - Frontend components use `_app.js` global fetch interceptor to append `X-Tenant-ID` automatically and `key={activeTenantId}` in `index.js` for instant component remounting on tenant switch.
+- **Gemini Live Async Tool Execution Engine Architecture**:
+  - `execute_async_tool_and_feed_context` (`backend/audiosocket_server.py`) handles real-time background tool calls (appointment creation, CRM lookup, webhooks) during active Gemini Live WebSocket audio streams without incurring 1007 protocol crashes.
+  - When AI emits `[ACTION: TOOL_CALL name="..." ...]` markers, arguments are extracted via regex, executed asynchronously against PostgreSQL or external REST APIs, and injected back into Gemini Live stream context as `[SYSTEM TOOL RESULT]` user turns for immediate natural speech reporting.
+- **Unified Modal Left Sidebar Navigation Architecture**:
+  - Modal dialogs with multi-tab configurations (`QueueEditModal.js`, `UserSettings.js`, `AnnouncementsPanel.js`) follow a unified left sidebar navigation tab layout (`w-64` / `w-48` navigation bar on the left, responsive content area on the right).
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
