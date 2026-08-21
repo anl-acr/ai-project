@@ -8,6 +8,8 @@ import {
   MessageSquare, 
   Phone, 
   Clock,
+  Key,
+  Lock,
   Sliders, 
   Smartphone, 
   Sparkles, 
@@ -56,6 +58,7 @@ import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
 import { useTheme, setThemeColor } from "../utils/theme";
 import { getBackendHost } from "../utils/apiHost";
 import { getTurkishSlugForTab, getTabFromTurkishSlug } from "../utils/slugHelper";
+import useClickOutside from "../utils/useClickOutside";
 
 
 
@@ -210,7 +213,18 @@ export default function Home() {
     const originalFetch = window.fetch;
     window.fetch = async function() {
       const url = arguments[0];
-      const options = arguments[1] || {};
+      let options = arguments[1] || {};
+      
+      if (typeof url === "string" && url.includes("/api/")) {
+        const activeTenantId = localStorage.getItem("active_tenant_id") || "tenant-default";
+        const currentUserId = localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id") || "";
+        
+        const headers = new Headers(options.headers || {});
+        if (!headers.has("X-Tenant-ID")) headers.set("X-Tenant-ID", activeTenantId);
+        if (!headers.has("X-User-ID")) headers.set("X-User-ID", currentUserId);
+        options.headers = headers;
+        arguments[1] = options;
+      }
       
       const response = await originalFetch.apply(this, arguments);
       
@@ -325,8 +339,26 @@ export default function Home() {
     });
   };
 
+  // Active Tenant state
+  const [activeTenantId, setActiveTenantId] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("active_tenant_id") || "tenant-default";
+    }
+    return "tenant-default";
+  });
+
+  useEffect(() => {
+    const handleTenantChange = (e) => {
+      const newTenantId = e.detail?.id || (typeof window !== "undefined" ? localStorage.getItem("active_tenant_id") : null) || "tenant-default";
+      setActiveTenantId(newTenantId);
+    };
+    window.addEventListener("tenantChanged", handleTenantChange);
+    return () => window.removeEventListener("tenantChanged", handleTenantChange);
+  }, []);
+
   // Profile and ringtone preferences states
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const profileDropdownRef = useClickOutside(() => setProfileDropdownOpen(false));
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [systemUsers, setSystemUsers] = useState([]);
   const [agentAvatar, setAgentAvatar] = useState("https://api.dicebear.com/7.x/avataaars/svg?seed=Felix");
@@ -351,6 +383,60 @@ export default function Home() {
   const [selectedSpeaker, setSelectedSpeaker] = useState("");
   const [selectedRingtoneSpeaker, setSelectedRingtoneSpeaker] = useState("");
 
+  // Security settings states
+  const [autoLogoutEnabled, setAutoLogoutEnabled] = useState(false);
+  const [autoLogoutDuration, setAutoLogoutDuration] = useState(1); // 1, 2, 3 (Hours)
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [passwordExpiryEnabled, setPasswordExpiryEnabled] = useState(false);
+  const [passwordExpiryMonths, setPasswordExpiryMonths] = useState(3); // 1, 3, 6, 12 (Months)
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordStatusMsg, setPasswordStatusMsg] = useState(null);
+  
+  // Mandatory password renewal modal states
+  const [mandatoryCurrentPassword, setMandatoryCurrentPassword] = useState("");
+  const [mandatoryNewPassword, setMandatoryNewPassword] = useState("");
+  const [mandatoryConfirmPassword, setMandatoryConfirmPassword] = useState("");
+  const [mandatoryErrorMsg, setMandatoryErrorMsg] = useState("");
+  
+  // Apply error modal state
+  const [showApplyErrorModal, setShowApplyErrorModal] = useState(false);
+
+  // Application Custom Notification Modal state
+  const [notificationModal, setNotificationModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "success" // 'success' | 'error' | 'warning' | 'info'
+  });
+
+  const showNotification = (message, type = "success", title = "") => {
+    setNotificationModal({
+      isOpen: true,
+      title: title || (type === "success" ? "İşlem Başarılı" : type === "error" ? "Sistem Uyarısı" : "Sistem Bildirimi"),
+      message,
+      type
+    });
+  };
+
+  const lastActivityRef = React.useRef(typeof Date !== "undefined" ? Date.now() : 0);
+
+  // Check if current user password has expired
+  const isPasswordExpired = React.useMemo(() => {
+    if (!currentUser || !currentUser.password_expiry_enabled) return false;
+    if (!currentUser.password_last_updated) return true; // Enabled but never set -> expired
+    const lastUpdated = new Date(currentUser.password_last_updated);
+    const months = currentUser.password_expiry_months || 3;
+    const now = new Date();
+    
+    const diffTime = Math.abs(now.getTime() - lastUpdated.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    const allowedDays = months * 30; // 30 days per month
+    
+    return diffDays >= allowedDays;
+  }, [currentUser]);
+
   useEffect(() => {
     if (settingsModalOpen && currentUser) {
       setGsmNumber(currentUser.gsm_number || "");
@@ -369,8 +455,73 @@ export default function Home() {
       setFwdNoAnswerType(currentUser.forwarding_no_answer?.type || "internal");
       setFwdNoAnswerTarget(currentUser.forwarding_no_answer?.target || "");
       setFwdNoAnswerTimeout(currentUser.forwarding_no_answer?.timeout || 30);
+
+      setAutoLogoutEnabled(currentUser.auto_logout_enabled ?? (localStorage.getItem("auto_logout_enabled") === "true"));
+      setAutoLogoutDuration(currentUser.auto_logout_duration ?? parseInt(localStorage.getItem("auto_logout_duration") || "1"));
+      setTwoFactorEnabled(currentUser.two_factor_enabled ?? (localStorage.getItem("two_factor_enabled") === "true"));
+      setPasswordExpiryEnabled(currentUser.password_expiry_enabled ?? (localStorage.getItem("password_expiry_enabled") === "true"));
+      setPasswordExpiryMonths(currentUser.password_expiry_months ?? parseInt(localStorage.getItem("password_expiry_months") || "3"));
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordStatusMsg(null);
     }
   }, [settingsModalOpen, currentUser]);
+
+  // Activity monitoring for auto logout
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const resetActivity = () => {
+      lastActivityRef.current = Date.now();
+    };
+
+    window.addEventListener("mousemove", resetActivity);
+    window.addEventListener("keydown", resetActivity);
+    window.addEventListener("click", resetActivity);
+    window.addEventListener("scroll", resetActivity);
+    window.addEventListener("touchstart", resetActivity);
+
+    return () => {
+      window.removeEventListener("mousemove", resetActivity);
+      window.removeEventListener("keydown", resetActivity);
+      window.removeEventListener("click", resetActivity);
+      window.removeEventListener("scroll", resetActivity);
+      window.removeEventListener("touchstart", resetActivity);
+    };
+  }, []);
+
+  // Auto logout timer check
+  useEffect(() => {
+    if (!isLoggedIn || !autoLogoutEnabled) return;
+
+    const checkInterval = setInterval(() => {
+      const now = Date.now();
+      const elapsedMinutes = (now - lastActivityRef.current) / (1000 * 60);
+      const allowedMinutes = autoLogoutDuration * 60; // 1, 2, 3 hours -> 60, 120, 180 mins
+
+      if (elapsedMinutes >= allowedMinutes) {
+        console.warn(`[SECURITY] Oturum zaman aşımına uğradı (${allowedMinutes} dakika hareketsizlik). Oturum kapatılıyor.`);
+        showNotification(`Güvenliğiniz amacıyla ${autoLogoutDuration} saat boyunca işlem yapılmadığı için oturumunuz otomatik kapatıldı. Lütfen tekrar giriş yapın.`, "warning", "Oturum Zaman Aşımı");
+        handleLogout();
+      }
+    }, 10000);
+
+    return () => clearInterval(checkInterval);
+  }, [isLoggedIn, autoLogoutEnabled, autoLogoutDuration]);
+
+  // Restrict admin-only tabs for non-admin users
+  useEffect(() => {
+    if (currentUser && currentUser.role !== "admin") {
+      const adminOnlyTabs = [
+        "settings", "system-status", "event-logs", "sip-debugger", "security", "tenant-management"
+      ];
+      if (adminOnlyTabs.includes(activeTab)) {
+        console.warn(`[SECURITY] User role '${currentUser.role}' is not authorized to access '${activeTab}'. Redirecting to call-center.`);
+        setActiveTab("call-center");
+      }
+    }
+  }, [currentUser, activeTab]);
 
   // Load audio device settings from localStorage on mount
   useEffect(() => {
@@ -438,69 +589,73 @@ export default function Home() {
           setHasTrunksPermission(true);
           setHasConferencesPermission(true);
           setHasSpeedDialPermission(true);
+        } else if (savedUserId) {
+          currentUserData = { id: savedUserId, role: 'user', full_name: 'Kullanıcı', extension: savedUserId };
+          setCurrentUser(currentUserData);
         }
       } else {
         setIsLoggedIn(false);
       }
 
-      // UNBLOCK THE UI IMMEDIATELY! Don't wait for backend to respond.
-      setIsAuthChecking(false);
-
-      // 2. Try fetching from backend asynchronously
+      // 2. Fetch users and role permissions from backend
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-      // Added AbortController to prevent infinite hang
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
-      
-      let resStatus;
+      let usersData = [];
       try {
-        resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`, { signal: controller.signal });
-      } catch(err) {
-        console.warn("Backend is not responding or timed out. Continuing with local state.");
-        return; // Stop further backend checks
-      } finally {
-        clearTimeout(timeoutId);
+        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+        if (resUsers.ok) {
+          usersData = await resUsers.json();
+          if (Array.isArray(usersData)) setSystemUsers(usersData);
+        }
+      } catch (err) {
+        console.warn("Users data fetch warning:", err);
       }
 
-      const statusData = await resStatus.json();
-      const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
-      const usersData = await resUsers.json();
-      if (usersData) setSystemUsers(usersData);
-
-      // 3. If not admin, find user from fetched data
-      if (savedAuth && (localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id')) !== 'admin') {
+      // 3. Resolve exact current user profile and role
+      if (savedAuth) {
         const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
-        if (savedUserId) {
-          currentUserData = usersData.find(u => u.id === parseInt(savedUserId) || u.extension === savedUserId);
-          if (currentUserData) {
-            setIsLoggedIn(true);
-            setCurrentUser(currentUserData);
-          } else {
-            setIsLoggedIn(false);
+        if (savedUserId === 'admin') {
+          currentUserData = SUPER_ADMIN;
+        } else if (savedUserId && usersData.length > 0) {
+          const found = usersData.find(u => u.id === parseInt(savedUserId) || u.extension === savedUserId || u.username === savedUserId || u.email === savedUserId);
+          if (found) {
+            currentUserData = found;
           }
+        }
+        
+        if (currentUserData) {
+          setIsLoggedIn(true);
+          setCurrentUser(currentUserData);
         }
       }
 
-      // Only set default permissions if needed
       if (!currentUserData) {
-        setHasOmnichannelPermission(false);
-        setHasContactsPermission(false);
-        setHasBlacklistPermission(false);
-        setHasMobileTransferPermission(false);
-        setHasReportsPermission(false);
-        setHasUsersPermission(false);
-        setHasAnnouncementsPermission(false);
-        setHasQueuesPermission(false);
-        setHasAutoprovisionPermission(false);
-        setHasOutboundRulesPermission(false);
-        setHasInboundRulesPermission(false);
-        setHasCallPickupPermission(false);
-        setHasSubscriberGroupsPermission(false);
-        setHasTrunksPermission(false);
-        setHasConferencesPermission(false);
-        setHasSpeedDialPermission(false);
-        setIsAuthChecking(false);
-        return;
+        if (savedAuth) {
+          currentUserData = SUPER_ADMIN;
+          setCurrentUser(SUPER_ADMIN);
+        } else {
+          setIsLoggedIn(false);
+          setIsAuthChecking(false);
+          return;
+        }
+      }
+
+      if (currentUserData.role === 'admin') {
+        setHasOmnichannelPermission(true);
+        setHasContactsPermission(true);
+        setHasBlacklistPermission(true);
+        setHasMobileTransferPermission(true);
+        setHasReportsPermission(true);
+        setHasUsersPermission(true);
+        setHasAnnouncementsPermission(true);
+        setHasQueuesPermission(true);
+        setHasAutoprovisionPermission(true);
+        setHasOutboundRulesPermission(true);
+        setHasInboundRulesPermission(true);
+        setHasCallPickupPermission(true);
+        setHasSubscriberGroupsPermission(true);
+        setHasTrunksPermission(true);
+        setHasConferencesPermission(true);
+        setHasSpeedDialPermission(true);
       }
 
       if (currentUserData.avatar) {
@@ -669,24 +824,11 @@ export default function Home() {
 
   const handleLogin = async (username, password, rememberMe = true) => {
     setLoginError("");
-    if (username === "admin" && password === "admin") { // Mock admin login
-      if (rememberMe) {
-        localStorage.setItem("is_logged_in", "true");
-        localStorage.setItem("current_user_id", "admin");
-      } else {
-        sessionStorage.setItem("is_logged_in", "true");
-        sessionStorage.setItem("current_user_id", "admin");
-      }
-      setCurrentUser(SUPER_ADMIN);
-      setIsLoggedIn(true);
-      checkRolePermissions();
-      return { success: true };
-    }
-
     let usersToSearch = systemUsers;
     if (!usersToSearch || usersToSearch.length === 0) {
       try {
-        const resUsers = await fetch(`${backendHost}/api/settings/users`);
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
         if (resUsers.ok) {
           usersToSearch = await resUsers.json();
           setSystemUsers(usersToSearch);
@@ -694,6 +836,24 @@ export default function Home() {
       } catch (err) {
         console.error("Login user fetch error:", err);
       }
+    }
+
+    const adminUserFromDb = (usersToSearch || []).find(u => u.role === 'admin' || u.username === 'admin' || u.id === 1);
+    const validAdminPassword = adminUserFromDb?.password || SUPER_ADMIN.password || "admin";
+
+    if (username === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
+      if (rememberMe) {
+        localStorage.setItem("is_logged_in", "true");
+        localStorage.setItem("current_user_id", "admin");
+      } else {
+        sessionStorage.setItem("is_logged_in", "true");
+        sessionStorage.setItem("current_user_id", "admin");
+      }
+      const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
+      setCurrentUser(activeAdminUser);
+      setIsLoggedIn(true);
+      checkRolePermissions();
+      return { success: true };
     }
 
     const foundUser = (usersToSearch || []).find(u => 
@@ -1650,7 +1810,8 @@ export default function Home() {
           </div>
           )}
 
-          {/* Group 5: Yönetim & Ayarlar */}
+          {/* Group 5: Yönetim & Ayarlar (Sadece Superadmin / Sistem Yöneticisi) */}
+          {currentUser?.role === 'admin' && (
           <div className="flex flex-col gap-1">
             <button
               onClick={() => toggleCategory("system")}
@@ -1731,6 +1892,7 @@ export default function Home() {
               </button>
             </div>
           </div>
+          )}
         </nav>
 
         {/* Footer info */} 
@@ -1756,7 +1918,7 @@ export default function Home() {
         {!isEditingCallFlow && (
         <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-8 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
           <div className="flex items-center gap-4">
-            <TenantSwitcher backendHost={backendHost} />
+            <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
             <span className="text-slate-400 dark:text-slate-500 font-bold text-xs tracking-wider">AKTİF İŞLEMLER</span>
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
@@ -1793,9 +1955,14 @@ export default function Home() {
                    applyStatus === 'error' ? 'Uygulanamadı' : 'Uygula'}
                 </button>
                 {applyStatus === 'error' && (
-                  <div className="group flex items-center justify-center cursor-help" title={applyError}>
-                    <AlertTriangle size={20} className="text-rose-500 animate-pulse" />
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowApplyErrorModal(true)}
+                    className="p-1 rounded-xl bg-rose-100/80 dark:bg-rose-955/40 text-rose-500 hover:bg-rose-200 dark:hover:bg-rose-900/60 transition-all cursor-pointer flex items-center justify-center border border-rose-200 dark:border-rose-900/50 shadow-sm"
+                    title="Hata detayını görüntülemek için tıklayın"
+                  >
+                    <AlertTriangle size={18} className="animate-pulse text-rose-600 dark:text-rose-400" />
+                  </button>
                 )}
               </div>
             )}
@@ -1809,7 +1976,7 @@ export default function Home() {
             </button>
 
             {/* Profile Dropdown */}
-            <div className="relative">
+            <div ref={profileDropdownRef} className="relative">
               <button
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                 className="flex items-center gap-2.5 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group"
@@ -1898,7 +2065,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           {activeTab === "call-center" && (
             <AgentPanel 
               backendHost={backendHost} 
@@ -2416,6 +2583,237 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* Security Selection */}
+              <div className={`space-y-4 max-h-[60vh] overflow-y-auto ${activeModalTab === "security" ? "block" : "hidden"}`}>
+                <div className="space-y-4 pr-1">
+
+                  {/* Section 1: Oturum Süresi & Ekran Kapanma */}
+                  <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-violet-100/70 dark:bg-violet-950/40 text-violet-600 dark:text-violet-400 rounded-xl">
+                          <Clock size={16} />
+                        </div>
+                        <div>
+                          <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                            Arayüz Oturum Süresi & Ekran Kapatma
+                          </h5>
+                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                            Belirtilen süre boyunca işlem yapılmadığında oturum otomatik olarak sonlandırılır.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setAutoLogoutEnabled(!autoLogoutEnabled)}
+                        className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
+                          autoLogoutEnabled ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
+                        }`}
+                        title={autoLogoutEnabled ? "Otomatik kapanma aktif" : "Otomatik kapanma kapalı"}
+                      >
+                        <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                      </button>
+                    </div>
+
+                    {/* Duration Options (1-2-3 Saat) when enabled */}
+                    {autoLogoutEnabled && (
+                      <div className="space-y-2 pt-2 border-t border-slate-200/50 dark:border-slate-800/80 animate-in fade-in duration-200">
+                        <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest block">
+                          Hareketsiz Kalma Süresi Seçin
+                        </label>
+                        <div className="grid grid-cols-3 gap-2.5">
+                          {[
+                            { label: "1 Saat", value: 1, desc: "60 dakika sonra" },
+                            { label: "2 Saat", value: 2, desc: "120 dakika sonra" },
+                            { label: "3 Saat", value: 3, desc: "180 dakika sonra" }
+                          ].map((opt) => {
+                            const isSelected = autoLogoutDuration === opt.value;
+                            return (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => setAutoLogoutDuration(opt.value)}
+                                className={`p-3 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                                  isSelected
+                                    ? `border-violet-500 bg-violet-50/80 dark:bg-violet-950/30 ${text} ring-2 ring-violet-500/20`
+                                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between w-full mb-1">
+                                  <span className="text-xs font-black">{opt.label}</span>
+                                  {isSelected && <CheckCircle size={14} className="text-violet-500 shrink-0" />}
+                                </div>
+                                <span className="text-[8.5px] opacity-75 font-medium">{opt.desc}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Section 2: Şifre Geçerlilik Süresi (Zorunlu Değişim) */}
+                  <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-amber-100/70 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 rounded-xl">
+                          <Lock size={16} />
+                        </div>
+                        <div>
+                          <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                            Şifre Geçerlilik Süresi
+                          </h5>
+                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                            Şifrenin belirli periyotlarla otomatik olarak yenilenmesini zorunlu kılar.
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => setPasswordExpiryEnabled(!passwordExpiryEnabled)}
+                        className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
+                          passwordExpiryEnabled ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
+                        }`}
+                        title={passwordExpiryEnabled ? "Şifre geçerlilik süresi aktif" : "Şifre geçerlilik süresi pasif (Süresiz)"}
+                      >
+                        <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                      </button>
+                    </div>
+
+                    {/* Duration Options (1 - 3 - 6 - 12 Ay) when enabled */}
+                    {passwordExpiryEnabled && (
+                      <div className="space-y-2 pt-2 border-t border-slate-200/50 dark:border-slate-800/80 animate-in fade-in duration-200">
+                        <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest block">
+                          Yenileme Periyodu Seçin
+                        </label>
+                        <div className="grid grid-cols-4 gap-2">
+                          {[
+                            { label: "1 Ay", value: 1, desc: "30 günde bir" },
+                            { label: "3 Ay", value: 3, desc: "90 günde bir" },
+                            { label: "6 Ay", value: 6, desc: "180 günde bir" },
+                            { label: "12 Ay", value: 12, desc: "365 günde bir" }
+                          ].map((opt) => {
+                            const isSelected = passwordExpiryMonths === opt.value;
+                            return (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => setPasswordExpiryMonths(opt.value)}
+                                className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between ${
+                                  isSelected
+                                    ? `border-violet-500 bg-violet-50/80 dark:bg-violet-950/30 ${text} ring-2 ring-violet-500/20`
+                                    : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:border-slate-300 dark:hover:border-slate-700"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between w-full mb-0.5">
+                                  <span className="text-xs font-black">{opt.label}</span>
+                                  {isSelected && <CheckCircle size={13} className="text-violet-500 shrink-0" />}
+                                </div>
+                                <span className="text-[8px] opacity-75 font-medium">{opt.desc}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Section 2: Şifre Değiştirme */}
+                  <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                    <div className="flex items-center gap-2.5 mb-1">
+                      <div className="p-2 bg-emerald-100/70 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-xl">
+                        <Key size={16} />
+                      </div>
+                      <div>
+                        <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                          Şifre Değiştirme
+                        </h5>
+                        <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                          Kullanıcı hesabınızın giriş şifresini güncelleyin.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                      <div>
+                        <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest block mb-1">Mevcut Şifre</label>
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          value={currentPassword}
+                          onChange={(e) => setCurrentPassword(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest block mb-1">Yeni Şifre</label>
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          value={newPassword}
+                          onChange={(e) => setNewPassword(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest block mb-1">Yeni Şifre (Tekrar)</label>
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
+                        />
+                      </div>
+                    </div>
+
+                    {passwordStatusMsg && (
+                      <div className={`p-2.5 rounded-xl text-xs font-semibold flex items-center gap-2 ${
+                        passwordStatusMsg.type === "success" 
+                          ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-900/50" 
+                          : "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/50"
+                      }`}>
+                        {passwordStatusMsg.type === "success" ? <CheckCircle size={14} /> : <AlertTriangle size={14} />}
+                        <span>{passwordStatusMsg.text}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Section 3: Giriş Güvenliği & 2FA */}
+                  <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div className="p-2 bg-blue-100/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl">
+                          <ShieldCheck size={16} />
+                        </div>
+                        <div>
+                          <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                            İki Faktörlü Doğrulama (2FA)
+                          </h5>
+                          <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
+                            Girişlerde SMS / e-posta onay kodu isteyerek hesabınızı koruyun.
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
+                        className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
+                          twoFactorEnabled ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
+                        }`}
+                        title={twoFactorEnabled ? "2FA aktif" : "2FA pasif"}
+                      >
+                        <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
               {/* Modal Footer */}
               <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
                 <button
@@ -2436,6 +2834,30 @@ export default function Home() {
                     localStorage.setItem("selected_speaker", selectedSpeaker);
                     localStorage.setItem("selected_ringtone_speaker", selectedRingtoneSpeaker);
                     
+                    localStorage.setItem("auto_logout_enabled", autoLogoutEnabled ? "true" : "false");
+                    localStorage.setItem("auto_logout_duration", autoLogoutDuration.toString());
+                    localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
+                    localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
+                    localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
+
+                    let passwordPayload = {};
+                    if (newPassword || confirmPassword) {
+                      if (newPassword !== confirmPassword) {
+                        setPasswordStatusMsg({ type: "error", text: "Yeni şifreler eşleşmiyor!" });
+                        setActiveModalTab("security");
+                        return;
+                      }
+                      if (newPassword.length < 4) {
+                        setPasswordStatusMsg({ type: "error", text: "Yeni şifre en az 4 karakter olmalıdır." });
+                        setActiveModalTab("security");
+                        return;
+                      }
+                      passwordPayload = {
+                        current_password: currentPassword,
+                        new_password: newPassword
+                      };
+                    }
+
                     if (currentUser) {
                       try {
                         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
@@ -2449,21 +2871,44 @@ export default function Home() {
                             theme_color: tempThemeColor,
                             forwarding_always: fwdAlwaysTarget ? { active: fwdAlwaysActive, type: fwdAlwaysType, target: fwdAlwaysTarget } : null,
                             forwarding_busy: fwdBusyTarget ? { active: fwdBusyActive, type: fwdBusyType, target: fwdBusyTarget } : null,
-                            forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null
+                            forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null,
+                            auto_logout_enabled: autoLogoutEnabled,
+                            auto_logout_duration: autoLogoutDuration,
+                            two_factor_enabled: twoFactorEnabled,
+                            password_expiry_enabled: passwordExpiryEnabled,
+                            password_expiry_months: passwordExpiryMonths,
+                            ...passwordPayload
                           })
                         });
                         if (res.ok) {
                           const data = await res.json();
                           setCurrentUser(data.user);
+                          if (newPassword) {
+                            SUPER_ADMIN.password = newPassword;
+                            showNotification("Şifreniz başarılı olarak güncellenmiştir.", "success", "Şifre Güncellendi");
+                            setCurrentPassword("");
+                            setNewPassword("");
+                            setConfirmPassword("");
+                            setPasswordStatusMsg({ type: "success", text: "Şifreniz başarılı olarak güncellenmiştir." });
+                          }
                           // Force update the UI theme color if they changed it
                           if (data.user.theme_color) {
                             const safeColor = getSafeThemeColor(data.user.theme_color);
                             document.documentElement.style.setProperty("--color-primary", safeColor);
                             localStorage.setItem("theme_primary_color", safeColor);
                           }
+                        } else {
+                          const errData = await res.json();
+                          if (errData.detail) {
+                            showNotification(errData.detail, "error", "Şifre Güncellenemedi");
+                            setPasswordStatusMsg({ type: "error", text: errData.detail });
+                            setActiveModalTab("security");
+                            return;
+                          }
                         }
                       } catch (err) {
                         console.error("Failed to save profile on backend:", err);
+                        showNotification("Ayarlar kaydedilirken sunucu hatası oluştu.", "error", "Bağlantı Hatası");
                       }
                     }
                     
@@ -2480,12 +2925,221 @@ export default function Home() {
           </div>
         )}
 
-        {/* Floating Unified Representative Call & Chat Console Widget */}
-        <CallChatWidget 
-          onActiveCall={(callId) => setActiveCallId(callId)}
-          backendHost={backendHost}
-          currentUser={currentUser}
-        />
+        {/* Mandatory Password Expiry Renewal Modal */}
+        {isLoggedIn && isPasswordExpired && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[9999] flex items-center justify-center p-4">
+            <div className="w-full max-w-md p-6 bg-white dark:bg-slate-900 border border-amber-500/40 dark:border-amber-500/40 rounded-3xl shadow-2xl space-y-5 animate-in zoom-in-95 duration-200">
+              
+              {/* Header */}
+              <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="p-2.5 bg-amber-500/10 text-amber-500 rounded-2xl shrink-0">
+                  <ShieldAlert size={22} className="animate-pulse" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-850 dark:text-white uppercase tracking-wider">
+                    Şifre Kullanım Süreniz Doldu
+                  </h4>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-400 font-medium">
+                    Güvenlik politikamız gereği şifreniz <b>{currentUser?.password_expiry_months || 3} ayda bir</b> yenilenmelidir.
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 dark:text-slate-300 font-medium leading-relaxed">
+                Sisteme ve arayüz paneline erişmeye devam edebilmek için lütfen mevcut şifrenizi doğrulayarak yeni bir şifre belirleyin.
+              </p>
+
+              {/* Form Inputs */}
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest block mb-1">Mevcut Şifre</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={mandatoryCurrentPassword}
+                    onChange={(e) => setMandatoryCurrentPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest block mb-1">Yeni Şifre</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={mandatoryNewPassword}
+                    onChange={(e) => setMandatoryNewPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest block mb-1">Yeni Şifre (Tekrar)</label>
+                  <input
+                    type="password"
+                    placeholder="••••••••"
+                    value={mandatoryConfirmPassword}
+                    onChange={(e) => setMandatoryConfirmPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              {mandatoryErrorMsg && (
+                <div className="p-2.5 rounded-xl text-xs font-semibold bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-900/50 flex items-center gap-2">
+                  <AlertTriangle size={14} className="shrink-0" />
+                  <span>{mandatoryErrorMsg}</span>
+                </div>
+              )}
+
+              {/* Action Button */}
+              <button
+                type="button"
+                onClick={async () => {
+                  setMandatoryErrorMsg("");
+                  if (!mandatoryNewPassword || !mandatoryConfirmPassword) {
+                    setMandatoryErrorMsg("Lütfen tüm alanları doldurun.");
+                    return;
+                  }
+                  if (mandatoryNewPassword !== mandatoryConfirmPassword) {
+                    setMandatoryErrorMsg("Yeni şifreler birbiriyle eşleşmiyor.");
+                    return;
+                  }
+                  if (mandatoryNewPassword.length < 4) {
+                    setMandatoryErrorMsg("Yeni şifre en az 4 karakter olmalıdır.");
+                    return;
+                  }
+
+                  try {
+                    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+                    const res = await fetch(`${protocol}//${backendHost}/api/agent/profile/${currentUser.id}`, {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({
+                        avatar: currentUser.avatar || agentAvatar,
+                        current_password: mandatoryCurrentPassword,
+                        new_password: mandatoryNewPassword
+                      })
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      setCurrentUser(data.user);
+                      setMandatoryCurrentPassword("");
+                      setMandatoryNewPassword("");
+                      setMandatoryConfirmPassword("");
+                    } else {
+                      const errData = await res.json();
+                      setMandatoryErrorMsg(errData.detail || "Şifre güncellenemedi. Lütfen mevcut şifrenizi kontrol edin.");
+                    }
+                  } catch (err) {
+                    setMandatoryErrorMsg("Sunucuya bağlanılamadı. Lütfen tekrar deneyin.");
+                  }
+                }}
+                className={`w-full py-3 rounded-xl text-xs font-extrabold text-white transition-all uppercase tracking-wider flex items-center justify-center gap-2 ${bg} ${hover} shadow-lg shadow-amber-500/10`}
+              >
+                <Check size={14} />
+                <span>Şifremi Güncelle ve Devam Et</span>
+              </button>
+
+            </div>
+          </div>
+        )}
+
+        {/* Apply Error Detail Modal */}
+        {showApplyErrorModal && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <div className="w-full max-w-md p-6 bg-white dark:bg-slate-900 border border-rose-200 dark:border-rose-900/50 rounded-3xl shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+              <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div className="p-2.5 bg-rose-100 dark:bg-rose-955/40 text-rose-600 dark:text-rose-400 rounded-2xl shrink-0">
+                  <AlertTriangle size={22} />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-sm text-slate-850 dark:text-white uppercase tracking-wider">
+                    Sistem Ayarları Uygulanamadı
+                  </h4>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">
+                    Asterisk ve PJSIP yapılandırma senkronizasyonunda hata oluştu.
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 rounded-xl space-y-1">
+                <label className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest block">Hata Detayı</label>
+                <div className="text-xs font-mono text-rose-600 dark:text-rose-400 break-words whitespace-pre-wrap">
+                  {applyError || "Bilinmeyen bir sunucu hatası oluştu."}
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowApplyErrorModal(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 text-xs font-extrabold uppercase tracking-wider hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                >
+                  Kapat
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowApplyErrorModal(false);
+                    handleApplyChanges();
+                  }}
+                  className={`flex-1 py-2.5 rounded-xl text-xs font-extrabold text-white uppercase tracking-wider flex items-center justify-center gap-2 ${bg} ${hover} transition-all shadow-md`}
+                >
+                  <Layers size={14} />
+                  <span>Tekrar Dene</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Custom Application System Notification Modal */}
+        {notificationModal.isOpen && (
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4">
+            <div className="w-full max-w-sm p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl space-y-5 animate-in zoom-in-95 duration-150 text-center flex flex-col items-center">
+              
+              {/* Type Badge Icon */}
+              <div className={`p-4 rounded-2xl shrink-0 ${
+                notificationModal.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/50' :
+                notificationModal.type === 'error' ? 'bg-rose-50 dark:bg-rose-955/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50' :
+                'bg-amber-50 dark:bg-amber-955/40 text-amber-600 dark:text-amber-400 border border-amber-100 dark:border-amber-900/50'
+              }`}>
+                {notificationModal.type === 'success' && <CheckCircle size={32} className="animate-pulse" />}
+                {notificationModal.type === 'error' && <AlertTriangle size={32} className="animate-pulse" />}
+                {notificationModal.type === 'warning' && <ShieldAlert size={32} className="animate-pulse" />}
+              </div>
+
+              {/* Title & Message */}
+              <div className="space-y-1.5">
+                <h4 className="font-extrabold text-base text-slate-850 dark:text-white tracking-tight">
+                  {notificationModal.title || (notificationModal.type === 'success' ? 'İşlem Başarılı' : 'Sistem Uyarısı')}
+                </h4>
+                <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold leading-relaxed">
+                  {notificationModal.message}
+                </p>
+              </div>
+
+              {/* Action Button */}
+              <button
+                type="button"
+                onClick={() => setNotificationModal({ ...notificationModal, isOpen: false })}
+                className={`w-full py-2.5 rounded-xl text-xs font-extrabold text-white uppercase tracking-wider transition-all shadow-md cursor-pointer ${
+                  notificationModal.type === 'error' ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-500/20' : `${bg} ${hover}`
+                }`}
+              >
+                Tamam
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Floating Unified Representative Call & Chat Console Widget (Only for non-admin representative users) */}
+        {currentUser?.role !== 'admin' && (
+          <CallChatWidget 
+            onActiveCall={(callId) => setActiveCallId(callId)}
+            backendHost={backendHost}
+            currentUser={currentUser}
+          />
+        )}
       </main>
     </div>
   );

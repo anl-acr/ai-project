@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
-import { getApiBaseUrl } from "../../utils/apiHost";
+import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { createPortal } from "react-dom";
 
 export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
@@ -32,12 +32,15 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
   useEffect(() => {
     fetchAnnouncements();
+    const handleTenantChange = () => fetchAnnouncements();
+    window.addEventListener("tenantChanged", handleTenantChange);
+    return () => window.removeEventListener("tenantChanged", handleTenantChange);
   }, []);
 
   const fetchAnnouncements = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/settings/announcements`);
+      const res = await tenantFetch(`${API_BASE}/api/settings/announcements`);
       if (res.ok) {
         const data = await res.json();
         setAnnouncements(data || []);
@@ -66,7 +69,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       formData.append("type", annType);
       formData.append("file", selectedFile);
       
-      const res = await fetch(`${API_BASE}/api/settings/announcements`, {
+      const res = await tenantFetch(`${API_BASE}/api/settings/announcements`, {
         method: "POST",
         body: formData
       });
@@ -89,7 +92,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
     setIsGenerating(true);
     try {
-      const res = await fetch(`${API_BASE}/api/settings/announcements/tts`, {
+      const res = await tenantFetch(`${API_BASE}/api/settings/announcements/tts`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"

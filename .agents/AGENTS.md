@@ -70,6 +70,11 @@
   - Webhook verification: `GET /api/webhooks/whatsapp` & `/api/webhook/whatsapp` validates `hub.verify_token` against `whatsapp_verify_token` (default: `ai_pbx_whatsapp_verify_token_secure`).
   - Inbound messages: `POST /api/webhooks/whatsapp` parses Meta Cloud API payloads and routes messages to `handle_inbound_chat_message`.
   - Outbound messaging: `send_whatsapp_message()` (`backend/services/whatsapp_service.py`) dispatches messages via `POST https://graph.facebook.com/v18.0/{phone_number_id}/messages` using `whatsapp_token`. It is triggered automatically when AI or human representative replies in a WhatsApp channel session.
+- **Strict Multi-Tenant Isolation Architecture**:
+  - `get_user_info` extracts `X-Tenant-ID` or `Tenant-ID` header / query param (`tenant_id`).
+  - Helper functions `is_default_tenant(tenant_id)` and `is_global_tenant(tenant_id)` ensure seamless data preservation for "Ana Müşteri" (`tenant-default` / `default`) while strictly isolating newly created tenants (e.g. `tenant-nolto`).
+  - DDL migrations (`ALTER TABLE tbl ADD COLUMN IF NOT EXISTS tenant_id VARCHAR DEFAULT 'tenant-default';`) executed on PostgreSQL startup across all 15 tables (`system_users`, `pbx_queues`, `trunks`, `calls`, `transcripts`, `appointments`, `chat_sessions`, `chat_messages`, `contacts`, `canned_responses`, `blacklist_items`, `block_words`, `system_roles`, `document_chunks`, `rules`).
+  - Frontend components use `_app.js` global fetch interceptor to append `X-Tenant-ID` automatically and `key={activeTenantId}` in `index.js` for instant component remounting on tenant switch.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.

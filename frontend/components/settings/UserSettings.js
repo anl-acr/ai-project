@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import SearchableSelect from "../ui/SearchableSelect";
 
-import { getApiBaseUrl } from "../../utils/apiHost";
+import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
+import useClickOutside from "../../utils/useClickOutside";
+
+const DEFAULT_TENANT_LIST = [
+  { id: "tenant-default", name: "Ana Müşteri (Varsayılan)" },
+  { id: "tenant-test-teknoloji", name: "Test Teknoloji" },
+  { id: "tenant-nolto", name: "Nolto" }
+];
 
 const PRESET_AVATARS = [
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
@@ -25,7 +32,10 @@ const ANNOUNCEMENTS = [
 
 export default function UserSettings({ backendHost = "localhost:8000", currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const isAdmin = currentUser?.role === "admin";
   const [users, setUsers] = useState([]);
+  const [tenants, setTenants] = useState(DEFAULT_TENANT_LIST);
+  const [userTenantId, setUserTenantId] = useState("tenant-default");
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState(null);
@@ -56,7 +66,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     outboundRule: "Giden Kuralı",
     pickupGroup: "Çağrı Toplama Grubu",
     location: "Lokasyon",
-    department: "Departman"
+    department: "Departman",
+    tenant: "Müşteri / Tenant"
   };
 
   const [visibleColumns, setVisibleColumns] = useState(() => {
@@ -81,10 +92,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       outboundRule: true,
       pickupGroup: true,
       location: true,
-      department: true
+      department: true,
+      tenant: true
     };
   });
   const [isColumnSelectOpen, setIsColumnSelectOpen] = useState(false);
+  const columnSelectRef = useClickOutside(() => setIsColumnSelectOpen(false));
 
   const handleToggleColumn = (key) => {
     setVisibleColumns(prev => {
@@ -160,11 +173,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const safeFetch = async (path, options = {}) => {
     const apiBase = getApiBaseUrl(backendHost);
     const url = path.startsWith("http") ? path : `${apiBase}${path}`;
-    return await fetch(url, options);
+    return await tenantFetch(url, options);
   };
 
   useEffect(() => {
     fetchAllData();
+    const handleTenantChange = () => {
+      fetchAllData();
+    };
+    window.addEventListener("tenantChanged", handleTenantChange);
+    return () => window.removeEventListener("tenantChanged", handleTenantChange);
   }, [backendHost]);
 
   const fetchAllData = async () => {
@@ -179,6 +197,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       } catch (e) {
         console.error("Users fetch error:", e);
       }
+
+      try {
+        const resTenants = await safeFetch(`/api/settings/tenants`);
+        if (resTenants.ok) {
+          const dataTenants = await resTenants.json();
+          if (Array.isArray(dataTenants) && dataTenants.length > 0) {
+            setTenants(dataTenants);
+          }
+        }
+      } catch (e) {}
 
       try {
         const resRoles = await safeFetch(`/api/settings/roles`);
@@ -408,6 +436,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const resetForm = () => {
     setEditingUser(null);
     setActiveTab("login_sip");
+    setUserTenantId(typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default");
     setFullName("");
     setEmail("");
     setExtension("");
@@ -443,6 +472,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const openEditModal = (u) => {
     resetForm();
     setEditingUser(u);
+    setUserTenantId(u.tenant_id || "tenant-default");
     setFullName(u.full_name || "");
     setEmail(u.email || "");
     setExtension(u.extension || "");
@@ -556,6 +586,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       avatar,
       role,
       is_active: isActive,
+      tenant_id: userTenantId,
       password,
       sip_password: sipPassword,
       outbound_caller_id: outboundCallerId.trim(),
@@ -772,7 +803,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             <Download size={16} />
           </button>
 
-          <div className="relative">
+          <div ref={columnSelectRef} className="relative">
             <button
               onClick={() => setIsColumnSelectOpen(!isColumnSelectOpen)}
               className={`p-2 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border ${isColumnSelectOpen ? 'bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-slate-200 dark:border-slate-700' : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border-transparent hover:border-slate-200 dark:hover:border-slate-700'}`}
@@ -783,17 +814,20 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             {isColumnSelectOpen && (
               <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 shadow-xl z-30 flex flex-col gap-2 animate-in fade-in zoom-in-95 duration-150">
                 <h4 className="font-bold text-[9px] text-slate-400 dark:text-slate-555 uppercase tracking-wider mb-1 px-1">Görünür Sütunlar</h4>
-                {Object.keys(columnLabels).map((key) => (
-                  <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-350 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-slate-800/50 p-1.5 rounded-lg transition-colors">
-                    <input 
-                      type="checkbox"
-                      checked={visibleColumns[key]}
-                      onChange={() => handleToggleColumn(key)}
-                      className="rounded border-slate-300 text-primary focus:ring-primary/50"
-                    />
-                    <span>{columnLabels[key]}</span>
-                  </label>
-                ))}
+                {Object.keys(columnLabels).map((key) => {
+                  if (key === "tenant" && !isAdmin) return null;
+                  return (
+                    <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-350 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-slate-800/50 p-1.5 rounded-lg transition-colors">
+                      <input 
+                        type="checkbox"
+                        checked={visibleColumns[key] !== false}
+                        onChange={() => handleToggleColumn(key)}
+                        className="rounded border-slate-300 text-primary focus:ring-primary/50"
+                      />
+                      <span>{columnLabels[key]}</span>
+                    </label>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -856,6 +890,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
               {visibleColumns.pickupGroup && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Çağrı Toplama Grubu</div>}
               {visibleColumns.location && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Lokasyon</div>}
               {visibleColumns.department && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Departman</div>}
+              {visibleColumns.tenant !== false && isAdmin && <div className="min-w-0 truncate" style={{ flex: '2 2 0%' }}>Müşteri / Tenant</div>}
             </div>
             <div className="w-24 text-right shrink-0">İşlem</div>
           </div>
@@ -997,6 +1032,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                       <span className="truncate">{departments.find(d => String(d.id) === String(u.department_id))?.name || "-"}</span>
                     </div>
                   )}
+
+                  {visibleColumns.tenant !== false && isAdmin && (
+                    <div className="min-w-0 text-[10px] truncate" style={{ flex: '2 2 0%' }}>
+                      <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg font-extrabold bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 border border-purple-200/60 dark:border-purple-900/50 truncate max-w-[130px]" title={tenants.find(t => t.id === u.tenant_id || t.code === u.tenant_id)?.name || u.tenant_name || (u.tenant_id === "tenant-nolto" ? "Nolto" : "Ana Müşteri")}>
+                        <Building2 size={11} className="shrink-0" />
+                        <span className="truncate">{tenants.find(t => t.id === u.tenant_id || t.code === u.tenant_id)?.name || u.tenant_name || (u.tenant_id === "tenant-nolto" ? "Nolto" : "Ana Müşteri")}</span>
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Right Side: Actions */}
@@ -1074,6 +1118,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             <ImageIcon size={16} />
                             Avatar Seçimi
                         </button>
+                        {isAdmin && (
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab("tenant_select")}
+                                className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'tenant_select' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                            >
+                                <Building2 size={16} />
+                                Müşteri / Tenant
+                            </button>
+                        )}
                     </nav>
                 </div>
 
@@ -1352,6 +1406,46 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Seçili Görünüm</span>
                                     <div className="w-24 h-24 rounded-full border-4 border-white dark:border-slate-800 shadow-lg bg-slate-100 dark:bg-slate-950 overflow-hidden">
                                         <img src={avatar} alt="Seçili Avatar" className="w-full h-full object-cover" />
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB 5: MÜŞTERİ / TENANT (ADMIN ONLY) */}
+                        {activeTab === "tenant_select" && isAdmin && (
+                            <div className="space-y-6 animate-in fade-in duration-300">
+                                <div className="border-b border-slate-100 dark:border-slate-800 pb-3">
+                                    <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                        Müşteri / Tenant Ataması
+                                    </h4>
+                                    <p className="text-xs text-slate-400 mt-1">
+                                        Bu kullanıcının sistem içinde ait olduğu Müşteri / Tenant tanımını güncelleyin.
+                                    </p>
+                                </div>
+
+                                <div className="p-5 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800 space-y-4">
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-800 dark:text-white mb-2">
+                                            Bağlı Olduğu Müşteri / Tenant
+                                        </label>
+                                        <select
+                                            value={userTenantId}
+                                            onChange={(e) => setUserTenantId(e.target.value)}
+                                            className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ring-purple-500"
+                                        >
+                                            {tenants.map((t) => (
+                                                <option key={t.id} value={t.id}>
+                                                    {t.name} ({t.id})
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+
+                                    <div className="p-3 bg-purple-50/60 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900/40 rounded-xl flex items-start gap-2.5">
+                                        <Building2 size={16} className="text-purple-600 dark:text-purple-400 shrink-0 mt-0.5" />
+                                        <p className="text-[11px] text-purple-700 dark:text-purple-300 font-medium leading-relaxed">
+                                            Kullanıcıyı farklı bir tenant'a aktardığınızda, kullanıcı yalnızca o tenant'a ait dahili hatları, çağrı verilerini ve müşteri panelini görüntüleyebilecektir.
+                                        </p>
                                     </div>
                                 </div>
                             </div>

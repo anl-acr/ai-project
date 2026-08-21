@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
-import { getApiBaseUrl } from "../../utils/apiHost";
+import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 
 export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
@@ -156,7 +156,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   ];
 
   const fetchProviders = () => {
-    fetch(`${API_BASE}/api/settings/ai-providers`)
+    tenantFetch(`${API_BASE}/api/settings/ai-providers`)
       .then((res) => res.json())
       .then((data) => {
         if (data) setProviders(data);
@@ -165,7 +165,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   };
 
   const fetchElevenLabsVoices = () => {
-    fetch(`${API_BASE}/api/settings/ai-providers/elevenlabs-voices`)
+    tenantFetch(`${API_BASE}/api/settings/ai-providers/elevenlabs-voices`)
       .then((res) => res.json())
       .then((data) => {
         if (data && data.voices) setElevenlabsVoiceList(data.voices);
@@ -175,7 +175,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
 
   const fetchAgents = () => {
     setLoading(true);
-    fetch(`${API_BASE}/api/settings/ai-agents`)
+    tenantFetch(`${API_BASE}/api/settings/ai-agents`)
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) setAgents(data);
@@ -188,6 +188,13 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     fetchAgents();
     fetchProviders();
     fetchElevenLabsVoices();
+    const handleTenantChange = () => {
+      fetchAgents();
+      fetchProviders();
+      fetchElevenLabsVoices();
+    };
+    window.addEventListener("tenantChanged", handleTenantChange);
+    return () => window.removeEventListener("tenantChanged", handleTenantChange);
   }, []);
 
   const handleCreateNewAgent = () => {

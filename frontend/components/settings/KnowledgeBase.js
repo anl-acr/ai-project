@@ -54,7 +54,10 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
 
   // Fetch indexed sources list
   const fetchSources = () => {
-    fetch(`${API_BASE}/api/rag/sources`)
+    const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+    fetch(`${API_BASE}/api/rag/sources?tenant_id=${activeTenantId}`, {
+      headers: { "X-Tenant-ID": activeTenantId }
+    })
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) setSources(data);
@@ -64,7 +67,10 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
 
   // Fetch tuning parameters
   const fetchParams = () => {
-    fetch(`${API_BASE}/api/settings/rag`)
+    const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+    fetch(`${API_BASE}/api/settings/rag?tenant_id=${activeTenantId}`, {
+      headers: { "X-Tenant-ID": activeTenantId }
+    })
       .then((res) => res.json())
       .then((data) => {
         if (data) setRagParams(data);
@@ -75,6 +81,20 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
   useEffect(() => {
     fetchSources();
     fetchParams();
+
+    const handleTenantChange = () => {
+      fetchSources();
+      fetchParams();
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("tenantChanged", handleTenantChange);
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("tenantChanged", handleTenantChange);
+      }
+    };
   }, []);
 
   // Handle URL crawling submit

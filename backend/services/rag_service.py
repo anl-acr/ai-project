@@ -62,9 +62,9 @@ def split_text_into_chunks(text: str, chunk_size: int = 800, overlap: int = 100)
         start += chunk_size - overlap
     return chunks
 
-async def index_pdf_file(file_path: str, filename: str):
+async def index_pdf_file(file_path: str, filename: str, tenant_id: str = "tenant-default"):
     """Parses a PDF, chunks it, generates embeddings, and saves to local PostgreSQL."""
-    print(f"[RAG] PDF Indeksleniyor: {filename}")
+    print(f"[RAG] PDF Indeksleniyor: {filename} (Tenant: {tenant_id})")
     reader = PdfReader(file_path)
     full_text = ""
     for page in reader.pages:
@@ -88,15 +88,16 @@ async def index_pdf_file(file_path: str, filename: str):
             chunk_record = DocumentChunk(
                 filename=filename,
                 content=chunk,
-                embedding=embedding
+                embedding=embedding,
+                tenant_id=tenant_id
             )
             session.add(chunk_record)
         await session.commit()
     print(f"[RAG] PDF basariyla indekslendi! Toplam chunk: {len(chunks)}")
 
-async def index_website_url(url: str):
+async def index_website_url(url: str, tenant_id: str = "tenant-default"):
     """Crawls a website, extracts text, chunks it, embeds, and saves to local PostgreSQL."""
-    print(f"[RAG] Web sitesi taranıyor: {url}")
+    print(f"[RAG] Web sitesi taranıyor: {url} (Tenant: {tenant_id})")
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
     }
@@ -131,15 +132,16 @@ async def index_website_url(url: str):
             chunk_record = DocumentChunk(
                 filename=url,
                 content=chunk,
-                embedding=embedding
+                embedding=embedding,
+                tenant_id=tenant_id
             )
             session.add(chunk_record)
         await session.commit()
     print(f"[RAG] Web sitesi indekslendi! Toplam chunk: {len(chunks)}")
 
-async def index_manual_text(title: str, text: str):
+async def index_manual_text(title: str, text: str, tenant_id: str = "tenant-default"):
     """Chunks manual text input, generates embeddings, and saves to local PostgreSQL."""
-    print(f"[RAG] Manuel metin indeksleniyor: {title}")
+    print(f"[RAG] Manuel metin indeksleniyor: {title} (Tenant: {tenant_id})")
     settings = get_rag_settings()
     chunks = split_text_into_chunks(
         text,
@@ -156,7 +158,8 @@ async def index_manual_text(title: str, text: str):
             chunk_record = DocumentChunk(
                 filename=f"Manuel: {title}",
                 content=chunk,
-                embedding=embedding
+                embedding=embedding,
+                tenant_id=tenant_id
             )
             session.add(chunk_record)
         await session.commit()

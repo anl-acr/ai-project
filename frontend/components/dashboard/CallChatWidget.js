@@ -70,6 +70,10 @@ export default function CallChatWidget({
   useEffect(() => {
     let isMounted = true;
     const fetchConfig = async () => {
+      if (currentUser?.role === 'admin') {
+        if (isMounted) setIsLoadingConfig(false);
+        return;
+      }
       setIsLoadingConfig(true);
       try {
         let headers = { "Content-Type": "application/json" };

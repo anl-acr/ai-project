@@ -278,13 +278,22 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return `${yyyy}-${mm}-${dd}`;
   };
 
+  const getNinetyDaysAgoString = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 90);
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
   const [calls, setCalls] = useState([]);
   const [users, setUsers] = useState([]);
   const [selectedCall, setSelectedCall] = useState(null);
   const [transcripts, setTranscripts] = useState([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isColumnSelectOpen, setIsColumnSelectOpen] = useState(false);
-  const [filterStartDate, setFilterStartDate] = useState(getTodayDateString());
+  const [filterStartDate, setFilterStartDate] = useState(getNinetyDaysAgoString());
   const [filterEndDate, setFilterEndDate] = useState(getTodayDateString());
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterDirection, setFilterDirection] = useState("All");
@@ -479,15 +488,27 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   useEffect(() => {
+    const handleTenantChange = () => {
+      fetchCalls(true);
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("tenantChanged", handleTenantChange);
+    }
+
     const interval = setInterval(() => {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
       const params = new URLSearchParams();
+      params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (filterCallId) params.append("call_id", filterCallId);
 
-      fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`)
+      fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`, {
+        headers: { "X-Tenant-ID": activeTenantId }
+      })
         .then((res) => res.json())
         .then((data) => {
           if (Array.isArray(data)) {
@@ -496,7 +517,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         })
         .catch((err) => console.error("Silently polling calls failed:", err));
     }, 3000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("tenantChanged", handleTenantChange);
+      }
+    };
   }, [backendHost, filterStartDate, filterEndDate, filterCallerNumber, filterCallId]);
 
   // Sync selectedCall notes and topic in ReportsPanel
@@ -516,9 +542,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setNotesSaved(false);
     try {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
       const res = await fetch(`${protocol}//${backendHost}/api/calls/${selectedCall.id}/notes`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { 
+          "Content-Type": "application/json",
+          "X-Tenant-ID": activeTenantId
+        },
         body: JSON.stringify({ topic: reportTopic, notes: reportNotes })
       });
       if (res.ok) {
@@ -546,21 +576,27 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const fetchCalls = (showSpinner = true) => {
     if (showSpinner) setIsLoading(true);
     const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
     
     // Construct query parameters for database side querying
     const params = new URLSearchParams();
+    params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
     if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
     if (filterCallId) params.append("call_id", filterCallId);
 
-    fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`)
+    fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`, {
+      headers: { "X-Tenant-ID": activeTenantId }
+    })
       .then((res) => res.json())
       .then((data) => {
         if (Array.isArray(data)) {
           setCalls(data);
           if (data.length > 0 && !selectedCall) {
             handleSelectCall(data[0]);
+          } else if (data.length === 0) {
+            setSelectedCall(null);
           }
         }
         if (showSpinner) setIsLoading(false);
