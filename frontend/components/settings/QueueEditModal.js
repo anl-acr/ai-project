@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../../utils/theme";
+import { tenantFetch } from "../../utils/apiHost";
 
 export default function QueueEditModal({ isOpen, onClose, onSave, queueData = null, allQueues = [], API_BASE }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -94,10 +95,11 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       // Fetch users
       const fetchUsers = async () => {
         try {
-          const res = await fetch(`${API_BASE}/api/settings/users`);
+          const res = await tenantFetch(`${API_BASE}/api/settings/users`);
           if (res.ok) {
             const data = await res.json();
-            setAllUsers(data || []);
+            const list = Array.isArray(data) ? data : (data?.users || []);
+            setAllUsers(list);
           }
         } catch (err) {
           console.error("Users fetch error:", err);
@@ -108,7 +110,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       // Fetch AI Agents
       const fetchAiAgents = async () => {
         try {
-          const res = await fetch(`${API_BASE}/api/settings/ai-agents`);
+          const res = await tenantFetch(`${API_BASE}/api/settings/ai-agents`);
           if (res.ok) {
             const data = await res.json();
             const list = Array.isArray(data) ? data : (data?.agents || []);
@@ -123,7 +125,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       // Fetch Call Flows / Workflows
       const fetchCallFlows = async () => {
         try {
-          const res = await fetch(`${API_BASE}/api/settings/call-flow/workflows`);
+          const res = await tenantFetch(`${API_BASE}/api/settings/call-flow/workflows`);
           if (res.ok) {
             const data = await res.json();
             const list = Array.isArray(data) ? data : (data?.workflows || []);
@@ -145,10 +147,11 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       // Fetch announcements
       const fetchAnnouncements = async () => {
         try {
-          const res = await fetch(`${API_BASE}/api/settings/announcements`);
+          const res = await tenantFetch(`${API_BASE}/api/settings/announcements`);
           if (res.ok) {
             const data = await res.json();
-            setAnnouncementsList(data || []);
+            const list = Array.isArray(data) ? data : (data?.announcements || []);
+            setAnnouncementsList(list);
           }
         } catch (err) {
           console.error("Announcements fetch error:", err);
@@ -343,7 +346,11 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             <div className="mt-3">
               <select name="join_announcement" value={formData.join_announcement} onChange={handleChange} className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}>
                 <option value="">Anons Seçin...</option>
-                {announcementsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {announcementsList.map(a => {
+                  const val = a.id || a.filename || a.name;
+                  const label = a.name || a.original_filename || a.filename || String(a.id);
+                  return <option key={a.id || a.filename || a.name} value={val}>{label}</option>;
+                })}
               </select>
             </div>
           )}
@@ -425,7 +432,11 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Periyodik Anons Ses Kaydı</label>
               <select name="periodic_announcement" value={formData.periodic_announcement} onChange={handleChange} className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}>
                 <option value="">Anons Seçin...</option>
-                {announcementsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {announcementsList.map(a => {
+                  const val = a.id || a.filename || a.name;
+                  const label = a.name || a.original_filename || a.filename || String(a.id);
+                  return <option key={a.id || a.filename || a.name} value={val}>{label}</option>;
+                })}
               </select>
             </div>
           )}
@@ -782,7 +793,10 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     } else if (type === "ai_agent") {
       targets = (aiAgentsList || []).map(a => ({ id: String(a.id), label: `🤖 ${a.name} (${a.model || 'AI'})` }));
     } else if (type === "announcement") {
-      targets = (announcementsList || []).map(a => ({ id: String(a.id), label: a.name }));
+      targets = (announcementsList || []).map(a => ({
+        id: String(a.id || a.filename || a.name),
+        label: a.name || a.original_filename || a.filename || String(a.id)
+      }));
     }
 
     const filteredTargets = targets.filter(t => 
