@@ -73,7 +73,7 @@ export default function CallChatWidget({
       const savedUserId = typeof window !== "undefined" ? (localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")) : "";
       const isSuperAdmin = currentUser?.username === "admin" || currentUser?.id === "admin" || savedUserId === "admin";
       
-      if (isSuperAdmin || currentUser?.role === 'admin') {
+      if (isSuperAdmin) {
         if (isMounted) setIsLoadingConfig(false);
         return;
       }
