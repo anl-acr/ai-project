@@ -35,7 +35,7 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
 
   // Lock tenant for non-admin users based on currentUser.tenant_id or tenant_name
   useEffect(() => {
-    if (currentUser && !isAdmin) {
+    if (currentUser && !isSuperAdmin) {
       const userTenantId = currentUser.tenant_id || "tenant-default";
       const matched = tenants.find(t => t.id === userTenantId || t.code === userTenantId) || {
         id: userTenantId,
@@ -47,7 +47,7 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
         localStorage.setItem("active_tenant_id", matched.id);
       }
     }
-  }, [currentUser, isAdmin, tenants]);
+  }, [currentUser, isSuperAdmin, tenants]);
 
   const fetchTenants = async () => {
     try {
