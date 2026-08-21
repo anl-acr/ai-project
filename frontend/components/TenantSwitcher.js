@@ -17,8 +17,9 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
 
   const savedUserId = typeof window !== "undefined" ? (localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")) : "";
   const isSuperAdmin = currentUser?.username === "admin" || currentUser?.id === "admin" || savedUserId === "admin";
+  const isAdmin = isSuperAdmin;
 
-  if (!isSuperAdmin) {
+  if (!isAdmin) {
     return null;
   }
 
