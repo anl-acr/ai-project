@@ -307,6 +307,12 @@ class PBXQueue(Base):
     all_busy_destination_type = Column(String, default="")
     all_busy_destination_target = Column(String, default="")
 
+    # Max Wait Time Fallback Routing
+    max_wait_time_enabled = Column(Boolean, default=False)
+    max_wait_time = Column(Integer, default=120)
+    max_wait_destination_type = Column(String, default="")
+    max_wait_destination_target = Column(String, default="")
+
 class AIAgent(Base):
     __tablename__ = "ai_agents"
     id = Column(String, primary_key=True, index=True) # UUID or string ID

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield } from "lucide-react";
+import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../../utils/theme";
 import { tenantFetch } from "../../utils/apiHost";
@@ -59,6 +59,12 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     position_announcement_interval: 60,
     estimated_hold_time_enabled: false,
     estimated_hold_time_interval: 60,
+
+    // Max Wait Time Fallback Routing
+    max_wait_time_enabled: false,
+    max_wait_time: 120,
+    max_wait_destination_type: "",
+    max_wait_destination_target: "",
 
     // State: IVR Routing
     ivr_routes: {
@@ -264,6 +270,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     return found ? String(found.id) : valStr;
   };
 
+  const getMaxWaitTargets = () => {
+    const type = formData.max_wait_destination_type;
+    if (type === "user") {
+      return allUsers.map(u => ({ id: String(u.extension || u.id), label: `${u.full_name} (Dahili: ${u.extension})` }));
+    } else if (type === "queue") {
+      return (allQueues || []).filter(q => !queueData || q.id !== queueData.id).map(q => ({ id: String(q.extension), label: `${q.name} (${q.extension})` }));
+    } else if (type === "call_flow") {
+      return (callFlowsList || []).map(cf => ({ id: String(cf.id), label: cf.name || `Akış #${cf.id}` }));
+    } else if (type === "ai_agent") {
+      return (aiAgentsList || []).map(a => ({ id: String(a.id), label: `🤖 ${a.name} (${a.model || 'AI'})` }));
+    } else if (type === "announcement") {
+      return (announcementsList || []).map(a => ({
+        id: String(a.id || a.filename || a.name),
+        label: a.name || a.original_filename || a.filename || String(a.id)
+      }));
+    }
+    return [];
+  };
+
   const renderTabs = () => (
     <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 p-4 pb-0 overflow-x-auto custom-scrollbar">
       <button 
@@ -370,6 +395,87 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   <option key={a.id || a.filename || a.name} value={a.id}>{a.name || a.original_filename || a.filename}</option>
                 ))}
               </select>
+            </div>
+          )}
+        </div>
+
+        {/* Maksimum Bekleme Süresi & Yönlendirme */}
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                <Clock size={14} className={text} /> Maksimum Bekleme Süresi (Timeout)
+              </h4>
+              <p className="text-[10px] text-slate-500">Müşteri maksimum bekleme süresini aştığında yapılacak yönlendirmeyi ayarlayın.</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input 
+                type="checkbox" 
+                name="max_wait_time_enabled" 
+                checked={formData.max_wait_time_enabled || false} 
+                onChange={handleChange} 
+                className="sr-only peer" 
+              />
+              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            </label>
+          </div>
+
+          {formData.max_wait_time_enabled && (
+            <div className="mt-3 pt-3 border-t border-slate-200/50 dark:border-slate-700/50 space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Maksimum Bekleme Süresi (Saniye)
+                </label>
+                <input 
+                  type="number" 
+                  name="max_wait_time" 
+                  value={formData.max_wait_time || 120} 
+                  onChange={handleChange} 
+                  placeholder="Örn: 120"
+                  className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  1. Hedef Tipi Seçin
+                </label>
+                <select
+                  name="max_wait_destination_type"
+                  value={formData.max_wait_destination_type || ""}
+                  onChange={(e) => {
+                    handleChange(e);
+                    setFormData(prev => ({ ...prev, max_wait_destination_target: "" }));
+                  }}
+                  className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                >
+                  <option value="">İşlem Yok (Kapat)</option>
+                  <option value="user">👤 Dahiliye Aktar</option>
+                  <option value="queue">👥 Başka Kuyruğa Aktar</option>
+                  <option value="call_flow">🔀 Çağrı Akışına Aktar</option>
+                  <option value="ai_agent">🤖 AI Temsilciye Aktar</option>
+                  <option value="announcement">🔊 Anons Çal / Kapat</option>
+                </select>
+              </div>
+
+              {formData.max_wait_destination_type && (
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    2. Hedef Seçin
+                  </label>
+                  <select
+                    name="max_wait_destination_target"
+                    value={formData.max_wait_destination_target || ""}
+                    onChange={handleChange}
+                    className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                  >
+                    <option value="">Seçiniz...</option>
+                    {getMaxWaitTargets().map(t => (
+                      <option key={t.id} value={t.id}>{t.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
           )}
         </div>
