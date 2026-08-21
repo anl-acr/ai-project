@@ -177,16 +177,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   };
 
   useEffect(() => {
-    fetchAllData();
+    fetchAllData(true);
     const handleTenantChange = () => {
-      fetchAllData();
+      fetchAllData(true);
     };
-    window.addEventListener("tenantChanged", handleTenantChange);
-    return () => window.removeEventListener("tenantChanged", handleTenantChange);
+    if (typeof window !== "undefined") {
+      window.addEventListener("tenantChanged", handleTenantChange);
+    }
+    const interval = setInterval(() => {
+      fetchAllData(false);
+    }, 3000);
+    return () => {
+      clearInterval(interval);
+      if (typeof window !== "undefined") {
+        window.removeEventListener("tenantChanged", handleTenantChange);
+      }
+    };
   }, [backendHost]);
 
-  const fetchAllData = async () => {
-    setLoading(true);
+  const fetchAllData = async (showSpinner = true) => {
+    if (showSpinner) setLoading(true);
     try {
       try {
         const resUsers = await safeFetch(`/api/settings/users`);
@@ -936,13 +946,24 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                   {visibleColumns.status && (
                     <div className="w-10 flex items-center justify-center shrink-0 min-w-0">
                       <div className="relative group flex items-center justify-center cursor-pointer">
-                        <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm transition-all duration-300 ${checkIsUserActive(u) ? "bg-emerald-400 group-hover:bg-emerald-500" : "bg-rose-400 group-hover:bg-rose-500"}`} title={checkIsUserActive(u) ? "Aktif Kullanıcı" : "Pasif Kullanıcı"} />
-                        {!checkIsUserActive(u) && (
-                          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-bold text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded whitespace-nowrap">
-                            Pasif
+                        <div
+                          className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm transition-all duration-300 ${
+                            (u.is_registered || u.sip_status === "online" || u.is_online)
+                              ? "bg-emerald-400 group-hover:bg-emerald-500 shadow-emerald-400/50"
+                              : "bg-rose-500 group-hover:bg-rose-600 shadow-rose-500/50"
+                          }`}
+                          title={
+                            (u.is_registered || u.sip_status === "online" || u.is_online)
+                              ? "Web Phone Bağlı (Çevrimiçi)"
+                              : "Web Phone Bağlı Değil (Çevrimdışı)"
+                          }
+                        />
+                        {!(u.is_registered || u.sip_status === "online" || u.is_online) && (
+                          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-extrabold text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded whitespace-nowrap shadow-sm border border-rose-200/50 dark:border-rose-800/50">
+                            Çevrimdışı
                           </span>
                         )}
-                        {checkIsUserActive(u) && u.sessions?.length > 0 && (
+                        {(u.is_registered || u.sip_status === "online" || u.is_online) && (
                           <span className="absolute -top-1 -right-1 flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>

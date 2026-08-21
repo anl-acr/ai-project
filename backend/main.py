@@ -6157,20 +6157,7 @@ async def startup_event():
             await session.execute(stmt)
             await session.commit()
 
-            # Fix past unanswered outbound calls mislabeled as completed
-            try:
-                from sqlalchemy import func
-                stmt_short = update(Call).where(
-                    Call.status == "completed",
-                    Call.end_time.isnot(None),
-                    Call.start_time.isnot(None),
-                    func.length(Call.caller_number) <= 4,
-                    (func.extract('epoch', Call.end_time) - func.extract('epoch', Call.start_time)) < 30
-                ).values(status="no_answer")
-                await session.execute(stmt_short)
-                await session.commit()
-            except Exception as e_clean:
-                print(f"[Cleanup info]: {e_clean}")
+            pass
 
             # Load settings.json as fallback source if exists
             file_settings = {}
@@ -6301,34 +6288,48 @@ async def startup_event():
 async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
     
+    from backend.services.ami_manager import registered_endpoints
+
+    raw_users = []
     if target_tenant in ["all", "global"]:
         try:
             result = await db.execute(select(SystemUser).order_by(SystemUser.id))
             users = result.scalars().all()
             if users:
-                return [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
+                raw_users = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
         except Exception as e:
             print(f"[Get All Users DB Error]: {e}")
-        return settings_db.get("users", [])
+        if not raw_users:
+            raw_users = settings_db.get("users", [])
+    else:
+        try:
+            if target_tenant == "tenant-default":
+                stmt = select(SystemUser).where(or_(SystemUser.tenant_id == "tenant-default", SystemUser.tenant_id.is_(None))).order_by(SystemUser.id)
+            else:
+                stmt = select(SystemUser).where(SystemUser.tenant_id == target_tenant).order_by(SystemUser.id)
+            result = await db.execute(stmt)
+            users = result.scalars().all()
+            if users:
+                raw_users = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
+        except Exception as e:
+            print(f"[Get Users DB Error]: {e}")
 
-    try:
-        if target_tenant == "tenant-default":
-            stmt = select(SystemUser).where(or_(SystemUser.tenant_id == "tenant-default", SystemUser.tenant_id.is_(None))).order_by(SystemUser.id)
-        else:
-            stmt = select(SystemUser).where(SystemUser.tenant_id == target_tenant).order_by(SystemUser.id)
-        result = await db.execute(stmt)
-        users = result.scalars().all()
-        return [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in users]
-    except Exception as e:
-        print(f"[Get Users DB Error]: {e}")
+        if not raw_users:
+            all_disk_users = settings_db.get("users", [])
+            for u in all_disk_users:
+                u_tenant = u.get("tenant_id") or "tenant-default"
+                if u_tenant == target_tenant:
+                    raw_users.append(u)
 
-    all_disk_users = settings_db.get("users", [])
-    out = []
-    for u in all_disk_users:
-        u_tenant = u.get("tenant_id") or "tenant-default"
-        if u_tenant == target_tenant:
-            out.append(u)
-    return out
+    # Attach live SIP WebRTC registration status to each user object
+    for u in raw_users:
+        ext = str(u.get("extension") or "")
+        uid = str(u.get("id") or "")
+        is_reg = ext in registered_endpoints or uid in registered_endpoints
+        u["is_registered"] = is_reg
+        u["sip_status"] = "online" if is_reg else "offline"
+
+    return raw_users
 
 
 @app.post("/api/settings/users")
