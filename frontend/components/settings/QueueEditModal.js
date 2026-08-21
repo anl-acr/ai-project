@@ -379,13 +379,16 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   );
 
   const renderAnnouncementsTab = () => (
-    <div className="grid grid-cols-2 gap-8 p-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
+      {/* Sol Kolon: Karşılama & Müzik Ayarları */}
       <div className="space-y-6">
         {/* Giriş Anonsu */}
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Giriş Anonsu</h4>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                <Volume2 size={14} className={text} /> Giriş Anonsu
+              </h4>
               <p className="text-[10px] text-slate-500">Kuyruğa çağrı girdiğinde çalınacak anons.</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -399,7 +402,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 name="join_announcement" 
                 value={resolveAnnouncementVal(formData.join_announcement)} 
                 onChange={handleChange} 
-                className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+                className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
               >
                 <option value="">Anons Seçin...</option>
                 {formData.join_announcement && !announcementsList.some(a => String(a.id) === String(formData.join_announcement) || String(a.name) === String(formData.join_announcement) || String(a.filename) === String(formData.join_announcement)) && (
@@ -412,23 +415,32 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             </div>
           )}
         </div>
-      </div>
 
-      <div className="space-y-6">
         {/* Bekleme Müziği */}
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-          <h4 className="text-xs font-bold text-slate-800 dark:text-white mb-1">Bekleme Müziği Sınıfı</h4>
-          <p className="text-[10px] text-slate-500 mb-3">Müşteri beklerken çalacak arka plan müziği.</p>
-          <select name="hold_music_class" value={formData.hold_music_class} onChange={handleChange} className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}>
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white mb-1 flex items-center gap-1.5">
+            <Music size={14} className={text} /> Bekleme Müziği Sınıfı
+          </h4>
+          <p className="text-[10px] text-slate-500 mb-3">Müşteri beklerken çalacak arka plan müzik sınıfı.</p>
+          <select name="hold_music_class" value={formData.hold_music_class} onChange={handleChange} className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}>
             {holdMusicClasses.map(m => <option key={m} value={m}>{m}</option>)}
           </select>
         </div>
+      </div>
 
-        {/* Sıra & Bekleme Süresi Anonsları */}
+      {/* Sağ Kolon: Otomatik Bilgilendirme Anonsları */}
+      <div className="space-y-6">
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="border-b border-slate-200/60 dark:border-slate-700/60 pb-3">
+            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+              <PhoneCall size={14} className={text} /> Otomatik Bekleme Bilgilendirmeleri
+            </h4>
+            <p className="text-[10px] text-slate-500 mt-0.5">Çağrı sırasındaki otomatik durum anonslarını yönetin.</p>
+          </div>
+
+          <div className="flex items-center justify-between pt-1">
             <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Sıra Numarası Anonsu</h4>
+              <h5 className="text-xs font-bold text-slate-800 dark:text-white">Sıra Numarası Anonsu</h5>
               <p className="text-[10px] text-slate-500">Müşteriye sırasını bildir.</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -439,7 +451,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
           <div className="flex items-center justify-between border-t border-slate-200/50 dark:border-slate-700/50 pt-3">
             <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Tahmini Bekleme Süresi</h4>
+              <h5 className="text-xs font-bold text-slate-800 dark:text-white">Tahmini Bekleme Süresi</h5>
               <p className="text-[10px] text-slate-500">Tahmini bekleme süresini bildir.</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer shrink-0">
