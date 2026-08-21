@@ -56,8 +56,7 @@ async def get_ami_manager() -> Manager:
                 secret=AMI_SECRET,
                 loop=asyncio.get_event_loop()
             )
-            register_event_handlers(manager_instance)
-            await manager_instance.connect()
+            await asyncio.wait_for(manager_instance.connect(), timeout=1.5)
             print("[AMI] Connected successfully!")
             
             # Fetch initial SIP registration states
