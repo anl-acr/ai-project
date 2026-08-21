@@ -17,6 +17,10 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
 
   const isAdmin = currentUser?.role === "admin";
 
+  if (currentUser && !isAdmin) {
+    return null;
+  }
+
   useEffect(() => {
     const savedTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
     if (savedTenantId === "all") {

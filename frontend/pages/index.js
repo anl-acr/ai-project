@@ -1918,8 +1918,12 @@ export default function Home() {
         {!isEditingCallFlow && (
         <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-8 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
           <div className="flex items-center gap-4">
-            <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
-            <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
+            {currentUser?.role === "admin" && (
+              <>
+                <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
+                <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
+              </>
+            )}
             <span className="text-slate-400 dark:text-slate-500 font-bold text-xs tracking-wider">AKTİF İŞLEMLER</span>
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
             {activeCallId ? (
