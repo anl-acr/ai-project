@@ -469,6 +469,22 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setShowModal(true);
   };
 
+  const checkIsUserActive = (userItem) => {
+    if (!userItem) return false;
+    const act = userItem.is_active;
+    const st = userItem.status;
+    if (act === false || act === "false" || act === 0) return false;
+    if (st === "pasif" || st === "passive" || st === "inactive" || st === "offline") {
+      if (act !== true && act !== "true" && act !== 1) return false;
+    }
+    if (typeof act === "string") {
+      const lower = act.trim().toLowerCase();
+      if (lower === "false" || lower === "pasif" || lower === "passive" || lower === "0") return false;
+      if (lower === "true" || lower === "aktif" || lower === "active" || lower === "1") return true;
+    }
+    return act === true || act === 1 || (act !== false && act !== 0 && act !== "false");
+  };
+
   const openEditModal = (u) => {
     resetForm();
     setEditingUser(u);
@@ -478,7 +494,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setExtension(u.extension || "");
     setAvatar(u.avatar || PRESET_AVATARS[0]);
     setRole(u.role || "agent");
-    setIsActive(u.is_active !== undefined ? u.is_active : true);
+    setIsActive(checkIsUserActive(u));
     setPassword(u.password || "");
     
     setSipPassword(u.sip_password || "");
@@ -653,15 +669,29 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
   };
 
-  const toggleUserActive = (userItem) => {
+  const toggleUserActive = async (userItem) => {
+    const currentActive = checkIsUserActive(userItem);
+    const newActiveState = !currentActive;
     const updated = users.map((u) => {
       if (u.id === userItem.id) {
-        return { ...u, is_active: !u.is_active };
+        return { ...u, is_active: newActiveState, status: newActiveState ? "active" : "pasif" };
       }
       return u;
     });
     setUsers(updated);
-    handleSaveAll(updated);
+    try {
+      await safeFetch(`/api/settings/users/${userItem.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...userItem,
+          is_active: newActiveState,
+          status: newActiveState ? "active" : "pasif"
+        })
+      });
+    } catch (e) {
+      console.error("User status update error:", e);
+    }
   };
 
   const filteredUsers = users.filter((u) => {
@@ -899,20 +929,20 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
             <div
               key={u.id}
               className={`p-4 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center gap-3 transition-all duration-200 hover:scale-[1.005] w-full ${
-                !u.is_active ? "opacity-60" : ""
+                !checkIsUserActive(u) ? "opacity-60" : ""
               }`}
             >
               <div className="flex items-center gap-4 flex-1 min-w-0">
                   {visibleColumns.status && (
                     <div className="w-10 flex items-center justify-center shrink-0 min-w-0">
                       <div className="relative group flex items-center justify-center cursor-pointer">
-                        <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm transition-all duration-300 ${u.is_active ? "bg-emerald-400 group-hover:bg-emerald-500" : "bg-rose-400 group-hover:bg-rose-500"}`} title={u.is_active ? "Aktif Kullanıcı" : "Pasif Kullanıcı"} />
-                        {!u.is_active && (
+                        <div className={`w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 shadow-sm transition-all duration-300 ${checkIsUserActive(u) ? "bg-emerald-400 group-hover:bg-emerald-500" : "bg-rose-400 group-hover:bg-rose-500"}`} title={checkIsUserActive(u) ? "Aktif Kullanıcı" : "Pasif Kullanıcı"} />
+                        {!checkIsUserActive(u) && (
                           <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-bold text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded whitespace-nowrap">
                             Pasif
                           </span>
                         )}
-                        {u.is_active && u.sessions?.length > 0 && (
+                        {checkIsUserActive(u) && u.sessions?.length > 0 && (
                           <span className="absolute -top-1 -right-1 flex h-2 w-2">
                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                             <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
