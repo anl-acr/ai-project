@@ -1918,7 +1918,7 @@ export default function Home() {
         {!isEditingCallFlow && (
         <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-8 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
           <div className="flex items-center gap-4">
-            {currentUser?.role === "admin" && (
+            {((currentUser?.username === "admin" || currentUser?.id === "admin") || (typeof window !== "undefined" && (localStorage.getItem("current_user_id") === "admin" || sessionStorage.getItem("current_user_id") === "admin"))) && (
               <>
                 <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
                 <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>

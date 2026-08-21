@@ -15,9 +15,10 @@ export default function TenantSwitcher({ backendHost, currentUser }) {
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useClickOutside(() => setIsOpen(false));
 
-  const isAdmin = currentUser?.role === "admin";
+  const savedUserId = typeof window !== "undefined" ? (localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")) : "";
+  const isSuperAdmin = currentUser?.username === "admin" || currentUser?.id === "admin" || savedUserId === "admin";
 
-  if (currentUser && !isAdmin) {
+  if (!isSuperAdmin) {
     return null;
   }
 
