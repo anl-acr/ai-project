@@ -2478,21 +2478,29 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
 
 
 @app.post("/api/webrtc/register_notify")
-async def webrtc_register_notify(payload: dict):
+async def webrtc_register_notify(request: Request, payload: dict):
     from backend.services.ami_manager import registered_endpoints
     from backend.services.agent_presence import update_agent_state
 
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
 
+    # Extract client IP from headers or connection
+    x_forwarded = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
+    x_real = request.headers.get("x-real-ip") or request.headers.get("X-Real-IP")
+    client_ip = x_forwarded.split(",")[0].strip() if x_forwarded else (x_real.strip() if x_real else (request.client.host if request.client else "127.0.0.1"))
+
     if ext:
-        registered_endpoints.add(ext)
+        registered_endpoints.add(ext, client_ip)
         settings = load_settings()
         matched_user_id = user_id_val or ext
         for u in settings.get("users", []):
             if str(u.get("extension")) == ext:
                 matched_user_id = u.get("id")
                 break
+
+        if matched_user_id:
+            registered_endpoints.add(str(matched_user_id), client_ip)
 
         update_agent_state(
             is_logged_in=True,
@@ -2506,8 +2514,8 @@ async def webrtc_register_notify(payload: dict):
             current_break=None,
             user_id=ext
         )
-        print(f"[WebRTC Register Notify] Extension {ext} (User ID: {matched_user_id}) registered & online.")
-    return {"status": "success"}
+        print(f"[WebRTC Register Notify] Extension {ext} (User ID: {matched_user_id}) registered & online from IP {client_ip}.")
+    return {"status": "success", "ip": client_ip}
 
 @app.get("/api/agent/status")
 @app.get("/agent/status")
@@ -6153,7 +6161,7 @@ async def startup_event():
         print(f"[Database Init] Error creating tables / timeout: {e}")
 
     # 2. Auto-seed tables if empty & cleanup stale calls
-    try:
+    async def seed_db_tables():
         async with AsyncSessionLocal() as session:
             stmt = update(Call).where(Call.status == "in_progress").values(status="no_answer", end_time=datetime.datetime.utcnow())
             await session.execute(stmt)
@@ -6269,9 +6277,13 @@ async def startup_event():
 
             # Start background tasks
             asyncio.create_task(recording_cleanup_task())
+
+    try:
+        await asyncio.wait_for(seed_db_tables(), timeout=1.0)
     except Exception as e:
-        print(f"[Database] Temizlik/Seeding sırasında hata oluştu: {e}")
-        print(f"[Database] Temizlik/QA seeding sırasında hata oluştu: {e}")
+        print(f"[Database Init/Seeding Timeout or Error]: {e}")
+        global settings_db
+        settings_db.update(load_settings())
         
     asyncio.create_task(start_ami_listener())
 
@@ -6323,13 +6335,15 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 if u_tenant == target_tenant:
                     raw_users.append(u)
 
-    # Attach live SIP WebRTC registration status to each user object
+    # Attach live SIP WebRTC registration status and IP address to each user object
     for u in raw_users:
         ext = str(u.get("extension") or "")
         uid = str(u.get("id") or "")
-        is_reg = ext in registered_endpoints or uid in registered_endpoints
+        reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
+        is_reg = ext in registered_endpoints or uid in registered_endpoints or u.get("is_online", False)
         u["is_registered"] = is_reg
         u["sip_status"] = "online" if is_reg else "offline"
+        u["ip_address"] = reg_ip or u.get("last_ip") or ""
 
     return raw_users
 

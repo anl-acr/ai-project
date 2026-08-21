@@ -11,8 +11,17 @@ AMI_SECRET = os.getenv("AMI_SECRET", "backend_secure_key_99")
 active_channels = {}
 # Registry to map Call UUID (call_id) -> Asterisk's internal Uniqueid (asterisk_id)
 call_id_to_asterisk_id = {}
-# Registry to track SIP registered endpoints
-registered_endpoints = set()
+class RegisteredEndpointsDict(dict):
+    def add(self, key, ip=""):
+        self[str(key)] = str(ip or "")
+
+    def discard(self, key):
+        self.pop(str(key), None)
+
+    def get_ip(self, key):
+        return self.get(str(key), "")
+
+registered_endpoints = RegisteredEndpointsDict()
 manager_instance = None
 
 def register_event_handlers(manager: Manager):
@@ -33,12 +42,16 @@ def register_event_handlers(manager: Manager):
 
     @manager.register_event('ContactStatus')
     def handle_contact_status(m, event):
+        import re
         aor = event.get('AOR')
         status = event.get('ContactStatus')
+        uri = event.get('URI') or event.get('Contact') or event.get('ViaAddress') or ""
+        ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
+        extracted_ip = ip_match.group(0) if ip_match else ""
         if aor:
             if status in ["Reachable", "Created", "Registered"]:
-                registered_endpoints.add(aor)
-                print(f"[AMI] Endpoint Kaydedildi: {aor}")
+                registered_endpoints.add(aor, extracted_ip)
+                print(f"[AMI] Endpoint Kaydedildi: {aor} (IP: {extracted_ip})")
             elif status in ["Removed", "Unreachable", "Unknown"]:
                 registered_endpoints.discard(aor)
                 print(f"[AMI] Endpoint Koptu: {aor}")

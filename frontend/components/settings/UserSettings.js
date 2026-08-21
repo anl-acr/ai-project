@@ -954,7 +954,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                           }`}
                           title={
                             (u.is_registered || u.sip_status === "online" || u.is_online)
-                              ? "Web Phone Bağlı (Çevrimiçi)"
+                              ? `Web Phone Bağlı (Çevrimiçi)${u.ip_address ? ` - IP: ${u.ip_address}` : ""}`
                               : "Web Phone Bağlı Değil (Çevrimdışı)"
                           }
                         >
@@ -962,8 +962,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             <span className="animate-ping absolute inset-0 rounded-full bg-emerald-400 opacity-75"></span>
                           )}
                         </div>
-                        {!(u.is_registered || u.sip_status === "online" || u.is_online) && (
-                          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-extrabold text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded whitespace-nowrap shadow-sm border border-rose-200/50 dark:border-rose-800/50">
+                        {(u.is_registered || u.sip_status === "online" || u.is_online) ? (
+                          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-bold text-emerald-600 dark:text-emerald-400 opacity-0 group-hover:opacity-100 transition-opacity bg-emerald-50 dark:bg-emerald-950/80 px-2 py-0.5 rounded-lg whitespace-nowrap shadow-sm border border-emerald-200/60 dark:border-emerald-800/60 z-50 pointer-events-none">
+                            Web Phone Bağlı {u.ip_address ? `(${u.ip_address})` : ""}
+                          </span>
+                        ) : (
+                          <span className="absolute -bottom-6 left-1/2 -translate-x-1/2 text-[9px] font-extrabold text-rose-500 opacity-0 group-hover:opacity-100 transition-opacity bg-rose-50 dark:bg-rose-900/30 px-1.5 py-0.5 rounded whitespace-nowrap shadow-sm border border-rose-200/50 dark:border-rose-800/50 z-50 pointer-events-none">
                             Çevrimdışı
                           </span>
                         )}
