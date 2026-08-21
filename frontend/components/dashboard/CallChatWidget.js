@@ -77,10 +77,10 @@ export default function CallChatWidget({
       setIsLoadingConfig(true);
       try {
         let headers = { "Content-Type": "application/json" };
-        if (currentUser && currentUser.id) {
-          headers["X-User-ID"] = currentUser.id.toString();
-        } else if (currentUser && currentUser.role === 'admin') {
-          headers["X-User-ID"] = "admin";
+        const savedUserId = typeof window !== "undefined" ? (localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")) : "";
+        const targetUserId = currentUser?.id || currentUser?.extension || savedUserId;
+        if (targetUserId) {
+          headers["X-User-ID"] = targetUserId.toString();
         }
 
         const res = await fetch(`${API_BASE}/api/webrtc/config`, { headers });
