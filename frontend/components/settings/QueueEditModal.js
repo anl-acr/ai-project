@@ -308,6 +308,13 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </button>
         <button 
           type="button"
+          onClick={() => setActiveTab("max_wait_time")}
+          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'max_wait_time' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <Clock size={16} /> Maksimum Bekleme Süresi
+        </button>
+        <button 
+          type="button"
           onClick={() => setActiveTab("ivr")}
           className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'ivr' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
@@ -405,87 +412,6 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             </div>
           )}
         </div>
-
-        {/* Maksimum Bekleme Süresi & Yönlendirme */}
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 space-y-3">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                <Clock size={14} className={text} /> Maksimum Bekleme Süresi (Timeout)
-              </h4>
-              <p className="text-[10px] text-slate-500">Müşteri maksimum bekleme süresini aştığında yapılacak yönlendirmeyi ayarlayın.</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input 
-                type="checkbox" 
-                name="max_wait_time_enabled" 
-                checked={formData.max_wait_time_enabled || false} 
-                onChange={handleChange} 
-                className="sr-only peer" 
-              />
-              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
-            </label>
-          </div>
-
-          {formData.max_wait_time_enabled && (
-            <div className="mt-3 pt-3 border-t border-slate-200/50 dark:border-slate-700/50 space-y-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  Maksimum Bekleme Süresi (Saniye)
-                </label>
-                <input 
-                  type="number" 
-                  name="max_wait_time" 
-                  value={formData.max_wait_time || 120} 
-                  onChange={handleChange} 
-                  placeholder="Örn: 120"
-                  className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
-                />
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                  1. Hedef Tipi Seçin
-                </label>
-                <select
-                  name="max_wait_destination_type"
-                  value={formData.max_wait_destination_type || ""}
-                  onChange={(e) => {
-                    handleChange(e);
-                    setFormData(prev => ({ ...prev, max_wait_destination_target: "" }));
-                  }}
-                  className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
-                >
-                  <option value="">İşlem Yok (Kapat)</option>
-                  <option value="user">👤 Dahiliye Aktar</option>
-                  <option value="queue">👥 Başka Kuyruğa Aktar</option>
-                  <option value="call_flow">🔀 Çağrı Akışına Aktar</option>
-                  <option value="ai_agent">🤖 AI Temsilciye Aktar</option>
-                  <option value="announcement">🔊 Anons Çal / Kapat</option>
-                </select>
-              </div>
-
-              {formData.max_wait_destination_type && (
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    2. Hedef Seçin
-                  </label>
-                  <select
-                    name="max_wait_destination_target"
-                    value={formData.max_wait_destination_target || ""}
-                    onChange={handleChange}
-                    className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
-                  >
-                    <option value="">Seçiniz...</option>
-                    {getMaxWaitTargets().map(t => (
-                      <option key={t.id} value={t.id}>{t.label}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
       </div>
 
       <div className="space-y-6">
@@ -523,6 +449,95 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           </div>
         </div>
       </div>
+    </div>
+  );
+
+  const renderMaxWaitTimeTab = () => (
+    <div className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
+      {/* Switch Header */}
+      <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
+        <div>
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Clock size={16} className={text} />
+            Maksimum Bekleme Süresi & Düşüş (Timeout) Yönlendirmesi
+          </h4>
+          <p className="text-[10px] text-slate-500 mt-0.5">Müşteri kuyrukta belirlenen maksimum bekleme süresini aştığında otomatik olarak seçilen hedefe aktarılır.</p>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+          <input 
+            type="checkbox" 
+            name="max_wait_time_enabled" 
+            checked={formData.max_wait_time_enabled || false} 
+            onChange={handleChange} 
+            className="sr-only peer" 
+          />
+          <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+        </label>
+      </div>
+
+      {formData.max_wait_time_enabled && (
+        <div className="space-y-6 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+              Maksimum Bekleme Süresi (Saniye)
+            </label>
+            <input 
+              type="number" 
+              name="max_wait_time" 
+              value={formData.max_wait_time || 120} 
+              onChange={handleChange} 
+              placeholder="Örn: 120"
+              className={`w-full max-w-xs text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-semibold`}
+            />
+            <p className="text-[10px] text-slate-500 mt-1">Çağrının kuyrukta bekletileceği maksimum süre. Süre dolduğunda aşağıdaki hedef çalışır.</p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+            {/* 1. Hedef Türü */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                1. Hedef Tipi Seçin
+              </label>
+              <select
+                name="max_wait_destination_type"
+                value={formData.max_wait_destination_type || ""}
+                onChange={(e) => {
+                  handleChange(e);
+                  setFormData(prev => ({ ...prev, max_wait_destination_target: "" }));
+                }}
+                className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+              >
+                <option value="">İşlem Yok (Kapat)</option>
+                <option value="user">👤 Dahiliye Aktar</option>
+                <option value="queue">👥 Başka Kuyruğa Aktar</option>
+                <option value="call_flow">🔀 Çağrı Akışına Aktar</option>
+                <option value="ai_agent">🤖 AI Temsilciye Aktar</option>
+                <option value="announcement">🔊 Anons Çal / Kapat</option>
+              </select>
+            </div>
+
+            {/* 2. Hedef Seçin */}
+            {formData.max_wait_destination_type && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">
+                  2. Hedef Seçin
+                </label>
+                <select
+                  name="max_wait_destination_target"
+                  value={formData.max_wait_destination_target || ""}
+                  onChange={handleChange}
+                  className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+                >
+                  <option value="">Seçiniz...</option>
+                  {getMaxWaitTargets().map(t => (
+                    <option key={t.id} value={t.id}>{t.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1091,6 +1106,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-900">
             {activeTab === "general" && renderGeneralTab()}
             {activeTab === "announcements" && renderAnnouncementsTab()}
+            {activeTab === "max_wait_time" && renderMaxWaitTimeTab()}
             {activeTab === "ivr" && renderIvrTab()}
             {activeTab === "members" && renderMembersTab()}
             {activeTab === "busy_routing" && renderBusyRoutingTab()}
