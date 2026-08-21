@@ -267,7 +267,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         onClick={() => setActiveTab("ivr")}
         className={`px-4 py-3 text-xs font-bold border-b-2 transition-all flex items-center gap-2 shrink-0 ${activeTab === 'ivr' ? 'border-primary text-primary dark:text-blue-400' : 'border-transparent text-slate-500 hover:text-slate-800 dark:hover:text-slate-300'}`}
       >
-        <PhoneForwarded size={14} /> IVR (Tuşlama)
+        <Volume2 size={14} /> Periyodik Anons
       </button>
       <button 
         onClick={() => setActiveTab("members")}
@@ -348,28 +348,6 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             </div>
           )}
         </div>
-
-        {/* Periyodik Anons */}
-        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h4 className="text-xs font-bold text-slate-800 dark:text-white">Periyodik Anons</h4>
-              <p className="text-[10px] text-slate-500">Bekleme sırasında belirli aralıklarla çalacak anons.</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input type="checkbox" name="periodic_announcement_enabled" checked={formData.periodic_announcement_enabled} onChange={handleChange} className="sr-only peer" />
-              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
-            </label>
-          </div>
-          {formData.periodic_announcement_enabled && (
-            <div className="mt-3">
-              <select name="periodic_announcement" value={formData.periodic_announcement} onChange={handleChange} className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}>
-                <option value="">Anons Seçin...</option>
-                {announcementsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-          )}
-        </div>
       </div>
 
       <div className="space-y-6">
@@ -426,55 +404,98 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   const renderIvrTab = () => {
     const digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "*", "#"];
     return (
-      <div className="p-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {digits.map(digit => {
-            const route = formData.ivr_routes?.[digit] || { type: "", target: "" };
-            return (
-              <div key={digit} className="p-3.5 bg-slate-50/50 dark:bg-slate-800/20 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col justify-between space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className={`w-7 h-7 rounded-xl ${lightBg} ${text} font-black text-xs flex items-center justify-center shrink-0`}>
-                    {digit}
-                  </span>
-                  <span className="text-xs font-bold text-slate-800 dark:text-white">Tuşu</span>
-                </div>
-                
-                <div className="space-y-2">
-                  <select 
-                    value={route.type} 
-                    onChange={(e) => handleIvrChange(digit, 'type', e.target.value)}
-                    className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
-                  >
-                    <option value="">İşlem Yok</option>
-                    <option value="user">Dahiliye Aktar</option>
-                    <option value="queue">Kuyruğa Aktar</option>
-                  </select>
+      <div className="p-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh] space-y-6">
+        {/* Periyodik Anons Aç/Kapat & Ses Kaydı Seçimi */}
+        <div className="p-5 bg-slate-50/70 dark:bg-slate-800/30 rounded-2xl border border-slate-200/80 dark:border-slate-800 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <Volume2 size={15} className={text} /> Periyodik Anons Ayarları
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">Bekleme sırasında belirli aralıklarla çalacak anonsu açın ve ses kaydını seçin.</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input type="checkbox" name="periodic_announcement_enabled" checked={formData.periodic_announcement_enabled} onChange={handleChange} className="sr-only peer" />
+              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            </label>
+          </div>
+          
+          {formData.periodic_announcement_enabled && (
+            <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60">
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Periyodik Anons Ses Kaydı</label>
+              <select name="periodic_announcement" value={formData.periodic_announcement} onChange={handleChange} className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}>
+                <option value="">Anons Seçin...</option>
+                {announcementsList.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
 
-                  {route.type === "user" && (
+        {/* Anons Sırasında Tuşlama Yönlendirmeleri */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                <PhoneForwarded size={15} className={text} /> Anons Sırasında IVR Tuşlama Seçenekleri
+              </h4>
+              <p className="text-[11px] text-slate-500 mt-0.5">Müşteri periyodik anons dinlerken bir tuşa basarsa yapılacak yönlendirmeyi belirleyin.</p>
+            </div>
+            {!formData.periodic_announcement_enabled && (
+              <span className="text-[10px] text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 px-2.5 py-1 rounded-lg font-semibold border border-amber-200/80 dark:border-amber-800/80">
+                Tuşlamaları seçmek için yukarıdan Periyodik Anons'u açın
+              </span>
+            )}
+          </div>
+
+          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 transition-all duration-300 ${!formData.periodic_announcement_enabled ? 'opacity-40 pointer-events-none filter blur-[0.3px]' : ''}`}>
+            {digits.map(digit => {
+              const route = formData.ivr_routes?.[digit] || { type: "", target: "" };
+              return (
+                <div key={digit} className="p-3.5 bg-slate-50/50 dark:bg-slate-800/20 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex flex-col justify-between space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <span className={`w-7 h-7 rounded-xl ${lightBg} ${text} font-black text-xs flex items-center justify-center shrink-0`}>
+                      {digit}
+                    </span>
+                    <span className="text-xs font-bold text-slate-800 dark:text-white">Tuşu</span>
+                  </div>
+                  
+                  <div className="space-y-2">
                     <select 
-                      value={route.target} 
-                      onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
+                      value={route.type} 
+                      onChange={(e) => handleIvrChange(digit, 'type', e.target.value)}
                       className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
                     >
-                      <option value="">Dahili Seçin...</option>
-                      {allUsers.map(u => <option key={u.id} value={u.extension}>{u.full_name} ({u.extension})</option>)}
+                      <option value="">İşlem Yok</option>
+                      <option value="user">Dahiliye Aktar</option>
+                      <option value="queue">Kuyruğa Aktar</option>
                     </select>
-                  )}
 
-                  {route.type === "queue" && (
-                    <select 
-                      value={route.target} 
-                      onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
-                      className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
-                    >
-                      <option value="">Kuyruk Seçin...</option>
-                      {(allQueues || []).map(q => <option key={q.id} value={q.extension}>{q.name} ({q.extension})</option>)}
-                    </select>
-                  )}
+                    {route.type === "user" && (
+                      <select 
+                        value={route.target} 
+                        onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
+                        className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
+                      >
+                        <option value="">Dahili Seçin...</option>
+                        {allUsers.map(u => <option key={u.id} value={u.extension}>{u.full_name} ({u.extension})</option>)}
+                      </select>
+                    )}
+
+                    {route.type === "queue" && (
+                      <select 
+                        value={route.target} 
+                        onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
+                        className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
+                      >
+                        <option value="">Kuyruk Seçin...</option>
+                        {(allQueues || []).map(q => <option key={q.id} value={q.extension}>{q.name} ({q.extension})</option>)}
+                      </select>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
     );
