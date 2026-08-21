@@ -3006,9 +3006,7 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
     all_announcements = settings_db.get("announcements", [])
     if is_global_tenant(target_tenant):
         return all_announcements
-    if is_default_tenant(target_tenant):
-        return [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in ["tenant-default", "default"]]
-    return [a for a in all_announcements if a.get("tenant_id") == target_tenant]
+    return [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
 
 @app.post("/api/settings/announcements")
 async def create_announcement(

@@ -252,6 +252,18 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     }
   };
 
+  const resolveAnnouncementVal = (val) => {
+    if (!val) return "";
+    const valStr = String(val).trim();
+    const found = (announcementsList || []).find(a => 
+      String(a.id) === valStr || 
+      String(a.filename) === valStr || 
+      String(a.name) === valStr || 
+      String(a.original_filename) === valStr
+    );
+    return found ? String(found.id) : valStr;
+  };
+
   const renderTabs = () => (
     <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 p-4 pb-0 overflow-x-auto custom-scrollbar">
       <button 
@@ -344,13 +356,19 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           </div>
           {formData.join_announcement_enabled && (
             <div className="mt-3">
-              <select name="join_announcement" value={formData.join_announcement} onChange={handleChange} className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}>
+              <select 
+                name="join_announcement" 
+                value={resolveAnnouncementVal(formData.join_announcement)} 
+                onChange={handleChange} 
+                className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+              >
                 <option value="">Anons Seçin...</option>
-                {announcementsList.map(a => {
-                  const val = a.id || a.filename || a.name;
-                  const label = a.name || a.original_filename || a.filename || String(a.id);
-                  return <option key={a.id || a.filename || a.name} value={val}>{label}</option>;
-                })}
+                {formData.join_announcement && !announcementsList.some(a => String(a.id) === String(formData.join_announcement) || String(a.name) === String(formData.join_announcement) || String(a.filename) === String(formData.join_announcement)) && (
+                  <option value={formData.join_announcement}>{formData.join_announcement} (Kayıtlı Anons)</option>
+                )}
+                {announcementsList.map(a => (
+                  <option key={a.id || a.filename || a.name} value={a.id}>{a.name || a.original_filename || a.filename}</option>
+                ))}
               </select>
             </div>
           )}
@@ -430,13 +448,19 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           {formData.periodic_announcement_enabled && (
             <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800/60">
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Periyodik Anons Ses Kaydı</label>
-              <select name="periodic_announcement" value={formData.periodic_announcement} onChange={handleChange} className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}>
+              <select 
+                name="periodic_announcement" 
+                value={resolveAnnouncementVal(formData.periodic_announcement)} 
+                onChange={handleChange} 
+                className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+              >
                 <option value="">Anons Seçin...</option>
-                {announcementsList.map(a => {
-                  const val = a.id || a.filename || a.name;
-                  const label = a.name || a.original_filename || a.filename || String(a.id);
-                  return <option key={a.id || a.filename || a.name} value={val}>{label}</option>;
-                })}
+                {formData.periodic_announcement && !announcementsList.some(a => String(a.id) === String(formData.periodic_announcement) || String(a.name) === String(formData.periodic_announcement) || String(a.filename) === String(formData.periodic_announcement)) && (
+                  <option value={formData.periodic_announcement}>{formData.periodic_announcement} (Kayıtlı Anons)</option>
+                )}
+                {announcementsList.map(a => (
+                  <option key={a.id || a.filename || a.name} value={a.id}>{a.name || a.original_filename || a.filename}</option>
+                ))}
               </select>
             </div>
           )}
