@@ -821,7 +821,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         system_instruction += "Sen canlı sesli bir müşteri temsilcisisin. Tüm döküman, ürün ve model sorularını sana sağlanan Bilgi Bankasından doğrudan Türkçe konuşarak yanıtla.\n"
         system_instruction += "Görüşme sırasında aşağıdaki durumlar gerçekleştiğinde cümlenin sonuna ilgili EYLEM VEYA ARAÇ KODUNU ekle:\n"
         system_instruction += "1. Görüşmeyi sonlandırmak / kapatmak için (müşteri vedalaştığında veya işlemler bittiğinde): Cümlenin sonuna '[ACTION: HANGUP]' yaz.\n"
-        system_instruction += "2. Canlı temsilciye transfer etmek için (müşteri temsilci istediğinde): Cümlenin sonuna '[ACTION: TRANSFER]' yaz.\n"
+        system_instruction += "2. Canlı temsilciye veya belirli bir dahiliye transfer etmek için (müşteri temsilci veya kişiyi istediğinde): Cümlenin sonuna '[ACTION: TRANSFER]' veya hedef dahili için '[ACTION: TRANSFER:1000]' yaz.\n"
         system_instruction += "3. Küfür/hakaret durumunda: Cümlenin sonuna '[ACTION: ABUSE]' yaz.\n"
         system_instruction += "4. Randevu kaydı, müşteri sorgulama veya webhook çalıştırmak için: Cümlenin sonuna '[ACTION: TOOL_CALL name=\"randevu_olustur\" date=\"YYYY-MM-DD\" time=\"HH:MM\" customer_name=\"...\"]' yaz.\n"
         system_instruction += "Bu eylem ve araç kodlarını sesli okuma, sadece metne ekle.\n"
@@ -1203,11 +1203,15 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                 print("[Action Marker] Call hangup requested via [ACTION: HANGUP]")
                                 call_state["should_hangup"] = True
                                 clean_ai_text = clean_ai_text.replace("[ACTION: HANGUP]", "").strip()
-                            if "[ACTION: TRANSFER]" in clean_ai_text:
-                                print("[Action Marker] Call transfer requested via [ACTION: TRANSFER]")
-                                clean_ai_text = clean_ai_text.replace("[ACTION: TRANSFER]", "").strip()
+                            import re
+                            transfer_match = re.search(r"\[ACTION:\s*TRANSFER(?::(\w+))?\]", clean_ai_text)
+                            if transfer_match or "[ACTION: TRANSFER]" in clean_ai_text:
+                                target_ext = transfer_match.group(1) if (transfer_match and transfer_match.group(1)) else "transfer_to_human"
+                                print(f"[Action Marker] Call transfer requested to target extension: {target_ext}")
+                                clean_ai_text = re.sub(r"\[ACTION:\s*TRANSFER(?::\w+)?\]", "", clean_ai_text).strip()
                                 from backend.services.ami_manager import redirect_call_to_human
-                                asyncio.create_task(redirect_call_to_human(call_id))
+                                ctx = "webrtc_agents" if target_ext != "transfer_to_human" else "default"
+                                asyncio.create_task(redirect_call_to_human(call_id, extension=target_ext, context=ctx))
                             if "[ACTION: ABUSE]" in clean_ai_text:
                                 print("[Action Marker] Abuse shield requested via [ACTION: ABUSE]")
                                 call_state["should_hangup"] = True

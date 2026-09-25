@@ -48,6 +48,7 @@
   - Dialplan dynamically constructs 36-char RFC 4122 compliant UUIDs via MD5 fallback for `AudioSocket`.
   - Dialplan sync command: `python3 backend/scripts/sync_asterisk.py` (zero external python dependencies).
   - PJSIP trunk settings are saved in PostgreSQL / `settings.json` and generated in `/etc/asterisk/pjsip_custom.conf`.
+  - **PJSIP Dynamic NAT & External IP Configuration Rule**: NAT settings (`enabled`, `extern_ip`, `local_nets`) managed via `GET/POST /api/settings/nat` dynamically inject `external_media_address`, `external_signaling_address`, and `local_net` entries into all PJSIP transports (`[transport-udp]`, `[transport-tcp]`, `[transport-ws]`, `[transport-wss]`) in `pjsip_custom.conf`. This ensures SIP trunks behind NAT/WAN register and initiate calls with the server's public IP address instead of unreachable internal local IPs.
   - **WebRTC SIP.js Contact Rewriting Rule**: PJSIP WebRTC endpoints MUST set `rewrite_contact=no`. If set to `yes`, Asterisk rewrites the `Contact` header in `SIP/2.0 200 OK` to the server's public IP, causing SIP.js (`No Contact header pointing to us`) to reject `200 OK` and abort registration. In SIP.js options, `contactURI: uri` must be explicitly defined so SIP.js sends the exact domain URI in the Contact header instead of RFC 5737 dummy IPs (`192.0.2.x`). In SIP.js 0.20.1 options, `viaHost: IP` MUST be a valid IPv4 address (resolved via `/api/webrtc/config` backend endpoint); if passed a string domain name, `SIP.Utils.isIP` fails and SIP.js defaults back to dummy `192.0.2.x` IPs.
   - **WebRTC WebSocket 200 OK Interceptor**: To bypass SIP.js's strict client-side Contact matching drops, `ua.transport.onMessage` intercepts Asterisk's incoming `SIP/2.0 200 OK` REGISTER response directly over WebSocket and sets `setRegistered(true)`, guaranteeing instant online state in UI.
   - **Outbound Trunk Dialplan & CallerID Rule**: WebRTC outbound calls in `webrtc_agents` context MUST set `CALLERID(num)=908503607390` and `CALLERID(name)=908503607390` and route via `Operator_Trunk` (`PJSIP/Operator_Trunk/sip:90507...`) to avoid `Everyone is busy/congested` rejection errors from SIP operators like Ikon Telekom.
@@ -57,6 +58,9 @@
   - `index_website_url` uses `verify=False` and standard User-Agent header to handle self-signed or expired SSL certificates.
   - Gemini Multimodal Live API WebSocket (`responseModalities: ["AUDIO"]`) does not support function calling (`tools` array with `functionDeclarations`) during live audio streams. Declaring `tools` causes `1007 (invalid frame payload data)` protocol crashes whenever Gemini attempts binary tool execution.
   - Resolution: Knowledge Base (RAG) chunks are dynamically injected directly into Gemini's `systemInstruction` at call initialization (`get_all_knowledge_base_context()`), and operational actions (hangup, transfer, abuse) are handled cleanly via STT text markers (`[ACTION: HANGUP]`, `[ACTION: TRANSFER]`), completely eliminating WebSocket 1007 crashes.
+- **AI Agent Visual Scenario & Prompt Compiler Architecture**:
+  - Visual node-based scenario workflow designer (`<AIAgentScenarioEditor />`) allows configuring AI Agent dialogue trees, opening greetings, intent branching, KVKK consent, form data capture, transfer targets, and hangup farewells.
+  - Saved scenario JSON flows (`scenario_flow`) are fetched/saved via `GET/POST /api/settings/ai-agents/{agent_id}/scenario` and automatically compiled by `compile_agent_scenario_to_instruction()` into structured natural language instructions (`compiled_scenario_instruction`) injected directly into Gemini system prompts during live AudioSocket calls.
 - **AI Voice Audio Cutoff (Barge-in Echo Suppression)**:
   - Low-amplitude background noise/echo (`avg_amplitude < 150`) is suppressed while `model_is_speaking` is True to prevent Gemini's server-side VAD from false-triggering `interrupted: true` and cutting off the AI's voice mid-sentence.
 - **Agent Daily Performance Stats & Reset Rule**:
@@ -78,8 +82,15 @@
 - **Gemini Live Async Tool Execution Engine Architecture**:
   - `execute_async_tool_and_feed_context` (`backend/audiosocket_server.py`) handles real-time background tool calls (appointment creation, CRM lookup, webhooks) during active Gemini Live WebSocket audio streams without incurring 1007 protocol crashes.
   - When AI emits `[ACTION: TOOL_CALL name="..." ...]` markers, arguments are extracted via regex, executed asynchronously against PostgreSQL or external REST APIs, and injected back into Gemini Live stream context as `[SYSTEM TOOL RESULT]` user turns for immediate natural speech reporting.
-- **Unified Modal Left Sidebar Navigation Architecture**:
-  - Modal dialogs with multi-tab configurations (`QueueEditModal.js`, `UserSettings.js`, `AnnouncementsPanel.js`) follow a unified left sidebar navigation tab layout (`w-64` / `w-48` navigation bar on the left, responsive content area on the right).
+- **AI Agent Dynamic Name-based Extension Transfer Architecture**:
+  - Visual node `directory_lookup` ("İsimle Dahili / Personel Transferi") in `<AIAgentScenarioEditor />` enables dynamic name-to-extension routing.
+  - Active system user directory (`system_users` / `SystemUser` SQLAlchemy model & `settings.json`) is dynamically loaded in `compile_system_prompt()` in `backend/services/prompt_manager.py` and injected into Gemini Live system instructions with name-extension maps.
+  - Action tags `[ACTION: TRANSFER:1000]` or `[ACTION: TRANSFER:ext]` are parsed via regex in `backend/audiosocket_server.py` and executed via Asterisk AMI `redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents")`.
+  - Dialplan pattern `exten => _[1-9]X.` in `backend/main.py` handles internal routing to 3-digit and 4-digit extensions (1000, 1001, 2000, etc.) upon AMI Redirect.
+- **AI Scenario Assistant Popup Modal & NLP Generator Architecture**:
+  - `<AIAgentScenarioEditor />` includes a dedicated AI Scenario Assistant Modal (`isAiModalOpen`) featuring a spacious multi-line textarea and preset buttons for natural language scenario design.
+  - Backend endpoint `POST /api/settings/ai-agents/generate-scenario` processes Turkish natural language prompts via Gemini API or semantic regex fallback parser (`parse_scenario_semantically()`), mapping sentences, intent branches (`eğer/ise`), directory lookups, forms, numbers (`1000/2000`), and hangups directly into structured visual nodes and connection lines.
+  - Process reloads incorporate 2-second timeouts on Asterisk/Docker subprocess calls (`timeout=2.0`) to avoid server startup blocking on local environments.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.

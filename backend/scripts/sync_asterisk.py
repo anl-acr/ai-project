@@ -129,12 +129,29 @@ stunaddr=stun.l.google.com:19302
         import json
         settings_json_path = os.path.join(BASE_DIR, "settings.json")
         users_list = []
+        nat_cfg = {}
         if os.path.exists(settings_json_path):
             with open(settings_json_path, "r", encoding="utf-8") as sf:
                 sdata = json.load(sf)
                 users_list = sdata.get("users", [])
+                nat_cfg = sdata.get("nat", {})
 
-        pjsip_custom_content = """; ==========================================
+        nat_enabled = nat_cfg.get("enabled", False)
+        extern_ip = (nat_cfg.get("extern_ip") or "").strip()
+        local_nets = nat_cfg.get("local_nets", [])
+        if isinstance(local_nets, str):
+            local_nets = [net.strip() for net in local_nets.split(",") if net.strip()]
+
+        nat_lines = ""
+        if extern_ip:
+            nat_lines += f"external_media_address={extern_ip}\nexternal_signaling_address={extern_ip}\n"
+        if nat_enabled and local_nets:
+            for net in local_nets:
+                net_clean = str(net).strip()
+                if net_clean:
+                    nat_lines += f"local_net={net_clean}\n"
+
+        pjsip_custom_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE DAHILI AYARLARI
 ; ==========================================
 
@@ -142,30 +159,22 @@ stunaddr=stun.l.google.com:19302
 type=transport
 protocol=udp
 bind=0.0.0.0
-external_media_address=78.189.210.15
-external_signaling_address=78.189.210.15
-
+{nat_lines}
 [transport-tcp]
 type=transport
 protocol=tcp
 bind=0.0.0.0
-external_media_address=78.189.210.15
-external_signaling_address=78.189.210.15
-
+{nat_lines}
 [transport-ws]
 type=transport
 protocol=ws
 bind=0.0.0.0:8088
-external_media_address=78.189.210.15
-external_signaling_address=78.189.210.15
-
+{nat_lines}
 [transport-wss]
 type=transport
 protocol=wss
 bind=0.0.0.0:8089
-external_media_address=78.189.210.15
-external_signaling_address=78.189.210.15
-
+{nat_lines}
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
 type=endpoint

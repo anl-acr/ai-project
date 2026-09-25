@@ -88,7 +88,44 @@ async def compile_system_prompt(agent: dict = None) -> str:
                 if routings:
                     prompt += "\nÖzel Yönlendirme Kuralları:\n"
                     prompt += "\n".join(routings) + "\n"
-                    
+
+        # Inject active system users directory for dynamic name-based extension transfer
+        try:
+            from backend.main import load_settings
+            user_list = []
+            try:
+                from backend.database.models import SystemUser
+                stmt = select(SystemUser).where(SystemUser.is_active == True)
+                res = await session.execute(stmt)
+                db_users = res.scalars().all()
+                if db_users:
+                    for u in db_users:
+                        user_list.append({"full_name": u.full_name, "extension": u.extension, "role": u.role})
+            except Exception:
+                pass
+            
+            if not user_list:
+                s_data = load_settings()
+                for u in s_data.get("users", []):
+                    if u.get("is_active", True):
+                        user_list.append({"full_name": u.get("full_name"), "extension": u.get("extension"), "role": u.get("role")})
+
+            if user_list:
+                dir_prompt = "\n\n--- SİSTEM DAHİLİ VE PERSONEL REHBERİ (İSİMLE TRANSFER) ---\n"
+                dir_prompt += "Arayan kişi sistemdeki bir yöneticinin, temsilcinin veya personelin adını/soyadını söyleyerek aktarılmak isterse (Örn: 'Anıl Acar ile görüşmek istiyorum', 'Ahmet Bey'e bağlar mısın'), aşağıdaki rehberden kişinin dahili numarasını bularak aktar:\n\n"
+                for u in user_list:
+                    fname = u.get("full_name")
+                    ext = u.get("extension")
+                    role = u.get("role", "temsilci")
+                    if fname and ext:
+                        dir_prompt += f"• {fname} -> Dahili: {ext} (Görev: {role})\n"
+                dir_prompt += "\nTALİMAT: Müşteri yukarıdaki kişilerden birini talep ettiğinde:\n"
+                dir_prompt += "1. 'Sizi [Kullanıcı Adı] kişisine yönlendiriyorum, lütfen ayrılmayınız.' cümlesini kur.\n"
+                dir_prompt += "2. Cümlenin sonuna hemen transfer eylemini ekle: '[ACTION: TRANSFER:<DAHILI_NO>]' (örn: '[ACTION: TRANSFER:1000]').\n"
+                prompt += dir_prompt
+        except Exception as u_err:
+            print(f"[Prompt Manager] Dahili rehber yükleme hatası: {u_err}")
+
     except Exception as e:
         print(f"[Prompt Manager] Kural derleme hatasi: {e}. Varsayilan prompt kullaniliyor.")
         

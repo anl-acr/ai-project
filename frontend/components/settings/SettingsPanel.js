@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2 } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network } from "lucide-react";
 import PBXSettings from "./PBXSettings";
+import NATSettings from "./NATSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
 import ChannelSettings from "./ChannelSettings";
 import BreakDefinitions from "./BreakDefinitions";
@@ -189,6 +190,17 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           >
             <Server size={14} className={activeSubTab === "pbx" ? "text-primary" : ""} />
             <span>Santral Entegrasyonu</span>
+          </button>
+          <button
+            onClick={() => setActiveSubTab("nat")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "nat"
+                ? "bg-rose-50/50 dark:bg-rose-950/20 text-primary dark:text-rose-450 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <Network size={14} className={activeSubTab === "nat" ? "text-primary" : ""} />
+            <span>NAT ve Dış IP Ayarları</span>
           </button>
           <button
             onClick={() => setActiveSubTab("qa")}
@@ -459,6 +471,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         {/* Right Side Settings Panel Area */}
         <div className="flex-1 min-w-0 w-full flex flex-col gap-6 animate-in fade-in slide-in-from-right-4 duration-300">
           {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
+          {activeSubTab === "nat" && <NATSettings backendHost={backendHost} />}
           {activeSubTab === "numbering-plan" && <NumberingPlanPanel backendHost={backendHost} />}
           {activeSubTab === "smart-callback" && <SmartCallbackSettings backendHost={backendHost} />}
           {activeSubTab === "lang-detect" && <LanguageDetectionSettings backendHost={backendHost} />}

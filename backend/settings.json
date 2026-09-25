@@ -19,6 +19,36 @@
             "max_agents": 20,
             "max_trunks": 20,
             "tenant_num_id": 109
+        },
+        {
+            "id": "tenant-nolto",
+            "tenant_num_id": 110,
+            "name": "Nolto",
+            "code": "nolto",
+            "status": "active",
+            "created_at": "2026-08-21T09:24:05.148144",
+            "license_expires_at": "",
+            "license_key": "AIDA-6A85-B2A4-2026",
+            "plan_tier": "trial",
+            "max_agents": 20,
+            "max_rag_docs": 100,
+            "max_scenarios": 20,
+            "max_users": 50,
+            "max_announcements": 20,
+            "max_queues": 10,
+            "max_inbound_rules": 25,
+            "max_outbound_rules": 25,
+            "max_pickup_groups": 10,
+            "max_subscriber_groups": 10,
+            "max_phonebook_contacts": 500,
+            "max_trunks": 5,
+            "max_conference_rooms": 5,
+            "max_speed_dials": 50,
+            "max_blacklist_entries": 100,
+            "max_locations": 5,
+            "max_departments": 10,
+            "max_call_flows": 10,
+            "max_dialers": 5
         }
     ],
     "pbx": {
@@ -60,8 +90,6 @@
     },
     "channels": {
         "whatsapp_token": "",
-        "whatsapp_phone_number_id": "",
-        "whatsapp_verify_token": "ai_pbx_whatsapp_verify_token_secure",
         "telegram_token": "",
         "instagram_token": "",
         "facebook_token": ""
@@ -123,7 +151,107 @@
             "elevenlabs_similarity": 0.75,
             "elevenlabs_style": 0.0,
             "llm_provider": "openai",
-            "tts_provider": "elevenlabs"
+            "tts_provider": "elevenlabs",
+            "scenario_flow": {
+                "nodes": [
+                    {
+                        "id": "node-1",
+                        "type": "greeting",
+                        "x": 60,
+                        "y": 160,
+                        "title": "1. Açılış & Karşılama",
+                        "data": {
+                            "text": "Merhaba! Şirketimizin avantajlı satış ve ürün danışmanlık hattına hoş geldiniz!",
+                            "tone": "friendly"
+                        }
+                    },
+                    {
+                        "id": "node-2",
+                        "type": "intent_branch",
+                        "x": 380,
+                        "y": 160,
+                        "title": "2. Müşteri Niyeti & Dallanma",
+                        "data": {
+                            "intents": [
+                                {
+                                    "key": "sales",
+                                    "label": "Satış & Ürün Talebi",
+                                    "targetNode": ""
+                                },
+                                {
+                                    "key": "other",
+                                    "label": "Diğer / İnsan Temsilci",
+                                    "targetNode": ""
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        "id": "node-2_sales_dialogue",
+                        "type": "dialogue",
+                        "x": 720,
+                        "y": 60,
+                        "title": "Satış Teklifi Sunumu",
+                        "data": {
+                            "script": "Bu aya özel %20 indirimli Kurumsal Bulut Santral paketimizi sunmak isterim."
+                        }
+                    },
+                    {
+                        "id": "node-2_sales_transfer",
+                        "type": "transfer",
+                        "x": 1060,
+                        "y": 60,
+                        "title": "Satış Kuyruğuna Transfer",
+                        "data": {
+                            "target_type": "queue",
+                            "target": "2000",
+                            "target_name": "2000 - Satış Kuyruğu",
+                            "announcement": "Sizi uzman satış temsilcimize aktarıyorum."
+                        }
+                    },
+                    {
+                        "id": "node-2_hangup",
+                        "type": "hangup",
+                        "x": 720,
+                        "y": 240,
+                        "title": "Kapanış & Teşekkür",
+                        "data": {
+                            "farewell": "Zaman ayırdığınız için teşekkür ederiz. İyi günler dileriz!"
+                        }
+                    }
+                ],
+                "connections": [
+                    {
+                        "id": "c-node-1-node-2",
+                        "fromNode": "node-1",
+                        "fromPort": "out",
+                        "toNode": "node-2",
+                        "toPort": "in"
+                    },
+                    {
+                        "id": "c-b-sales1",
+                        "fromNode": "node-2",
+                        "fromPort": "sales",
+                        "toNode": "node-2_sales_dialogue",
+                        "toPort": "in"
+                    },
+                    {
+                        "id": "c-b-sales2",
+                        "fromNode": "node-2_sales_dialogue",
+                        "fromPort": "out",
+                        "toNode": "node-2_sales_transfer",
+                        "toPort": "in"
+                    },
+                    {
+                        "id": "c-b-other",
+                        "fromNode": "node-2",
+                        "fromPort": "other",
+                        "toNode": "node-2_hangup",
+                        "toPort": "in"
+                    }
+                ]
+            },
+            "compiled_scenario_instruction": "=== AI TEMSİLCİ SENARYO VE DAVRANIŞ AKIŞ KURALLARI ===\n• KARŞILAMA VE AÇILIŞ: Görüşme başladığında doğrudan şu cümle ile başla: 'Merhaba! Şirketimizin avantajlı satış ve ürün danışmanlık hattına hoş geldiniz!'\n\n• KONUŞMA REHBERİ VE CEVAP ŞABLONLARI:\n  - [Satış Teklifi Sunumu]: Bu aya özel %20 indirimli Kurumsal Bulut Santral paketimizi sunmak isterim.\n\n• MÜŞTERİ NİYETİNE GÖRE DALLANMA VE YÖNLENDİRME:\n  - Eğer Satış & Ürün Talebi: Bu senaryo adımına uygun rehberliği takip et.\n  - Eğer Diğer / İnsan Temsilci: Bu senaryo adımına uygun rehberliği takip et.\n\n• ARAMA TRANSFERİ: Müşteri temsilciye bağlanmak istediğinde veya çözülemeyen bir konuda önce 'Sizi uzman satış temsilcimize aktarıyorum.' de ve hemen '[ACTION: TRANSFER:2000]' tetikle. Transfer Hedefi: 2000\n\n• ÇAĞRI KAPATMA: Görüşme tamamlandığında 'Zaman ayırdığınız için teşekkür ederiz. İyi günler dileriz!' de ve hemen '[ACTION: HANGUP]' tetikle."
         },
         {
             "id": "agent-support",
@@ -551,6 +679,7 @@
     "users": [
         {
             "id": 1,
+            "tenant_id": "tenant-default",
             "full_name": "ANIL ACAR",
             "email": "anl.acr@gmail.com",
             "extension": "1000",
@@ -582,16 +711,17 @@
         },
         {
             "id": 2,
+            "tenant_id": "tenant-default",
             "full_name": "Murat BATTAL",
             "email": "m@test.com",
             "extension": "1001",
             "avatar": "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
-            "role": "admin",
+            "role": "agent",
             "is_active": true,
             "gsm_number": null,
             "mobile_transfer_enabled": false,
             "theme_color": "rose",
-            "password": null,
+            "password": "",
             "sip_password": "!3#DF)WXOD!FOdWa",
             "outbound_caller_id": "",
             "forwarding_always": null,
@@ -609,6 +739,7 @@
         },
         {
             "id": 3,
+            "tenant_id": "tenant-default",
             "full_name": "Cihan Köprülü",
             "email": "cihank@testteknoloji.com.tr",
             "extension": "1002",
@@ -641,105 +772,105 @@
             "role_code": "admin",
             "name": "Admin",
             "permissions": [
-                "announcements:delete",
-                "channels:read",
-                "recording_retention:write",
-                "ai_agents:access",
-                "universal_api:delete",
-                "logs:access",
-                "conferences:delete",
-                "voice_biometrics:write",
-                "canned_responses:delete",
-                "autoprovision:read",
-                "channels:write",
-                "dialer:access",
-                "call_flow:access",
-                "trunks:read",
-                "acd_queues:delete",
-                "roles:read",
-                "contacts:read",
-                "voice_biometrics:delete",
-                "qa:delete",
-                "inbound_rules:read",
-                "inbound_rules:write",
-                "announcements:read",
-                "roi_settings:delete",
-                "canned_responses:read",
-                "pbx:read",
-                "wallboard:access",
-                "speed_dials:read",
-                "api_budgets:write",
-                "call_panel:listen_records",
-                "ai_whisper:access",
-                "canned_responses:write",
-                "roles:delete",
-                "trunks:write",
-                "breaks:write",
-                "qa:read",
-                "breaks:delete",
-                "contacts:write",
-                "inbound_rules:delete",
-                "call_pickup_groups:write",
-                "breaks:read",
-                "ai_agents:delete",
-                "announcements:write",
-                "autoprovision_templates:read",
-                "autoprovision:write",
-                "users:read",
-                "transcripts:access",
-                "api_budgets:read",
-                "call_pickup_groups:read",
-                "blacklist:read",
-                "ai_agents:read",
-                "contacts:delete",
                 "security:write",
-                "pbx:write",
-                "ssl:read",
-                "backup_restore:write",
-                "storage:access",
-                "call_pickup_groups:delete",
-                "acd_queues:read",
-                "blacklist:delete",
-                "call_panel:listen_records:access",
-                "blacklist:write",
-                "recording_retention:delete",
-                "roles:write",
-                "mobile_transfer:write",
-                "subscriber_groups:read",
-                "reports:access",
-                "subscriber_groups:delete",
+                "blacklist:read",
                 "speed_dials:delete",
-                "speed_dials:write",
-                "recording_retention:read",
-                "ssl:write",
-                "outbound_rules:write",
-                "ai_agents:write",
-                "roi_settings:read",
-                "outbound_rules:delete",
-                "backup_restore:read",
-                "roi_settings:write",
-                "autoprovision_templates:delete",
-                "conferences:write",
-                "users:delete",
-                "voice_biometrics:read",
-                "security:read",
+                "inbound_rules:read",
                 "pbx:delete",
-                "universal_api:write",
-                "conferences:read",
-                "omnichannel:access",
-                "autoprovision_templates:write",
-                "outbound_rules:read",
-                "mobile_transfer:read",
-                "sip_debugger:access",
-                "acd_queues:write",
+                "mobile_transfer:write",
+                "outbound_rules:delete",
+                "contacts:write",
+                "call_flow:access",
+                "qa:read",
+                "announcements:read",
+                "ssl:write",
+                "channels:write",
+                "announcements:delete",
+                "voice_biometrics:write",
+                "subscriber_groups:delete",
+                "call_panel:listen_records",
+                "backup_restore:write",
+                "blacklist:delete",
                 "call_panel:access",
+                "ai_agents:access",
+                "breaks:read",
+                "subscriber_groups:read",
+                "api_budgets:read",
+                "canned_responses:delete",
+                "blacklist:write",
+                "breaks:delete",
+                "breaks:write",
+                "call_panel:listen_records:access",
+                "inbound_rules:delete",
+                "announcements:write",
+                "security:read",
+                "roi_settings:write",
+                "wallboard:access",
+                "channels:read",
+                "acd_queues:read",
+                "mobile_transfer:read",
+                "ai_agents:read",
+                "call_pickup_groups:write",
+                "speed_dials:read",
+                "autoprovision:read",
+                "backup_restore:read",
+                "security:delete",
+                "api_budgets:write",
+                "omnichannel:access",
+                "conferences:write",
+                "call_pickup_groups:read",
+                "autoprovision_templates:read",
+                "outbound_rules:write",
+                "dialer:access",
+                "autoprovision:write",
+                "roles:write",
+                "recording_retention:read",
                 "trunks:delete",
+                "canned_responses:read",
+                "transcripts:access",
+                "recording_retention:delete",
+                "acd_queues:write",
+                "speed_dials:write",
+                "canned_responses:write",
+                "roles:read",
+                "users:read",
+                "ssl:read",
+                "trunks:write",
+                "ai_agents:write",
+                "users:delete",
+                "storage:access",
+                "logs:access",
+                "roi_settings:delete",
                 "subscriber_groups:write",
-                "users:write",
+                "roi_settings:read",
+                "call_pickup_groups:delete",
                 "qa:write",
-                "universal_api:read",
+                "voice_biometrics:read",
+                "inbound_rules:write",
+                "universal_api:delete",
+                "voice_biometrics:delete",
+                "ai_agents:delete",
+                "conferences:read",
+                "roles:delete",
+                "pbx:read",
+                "sip_debugger:access",
+                "ai_whisper:access",
+                "autoprovision_templates:delete",
+                "acd_queues:delete",
+                "universal_api:write",
+                "pbx:write",
+                "outbound_rules:read",
                 "autoprovision:delete",
-                "security:delete"
+                "users:write",
+                "qa:delete",
+                "conferences:delete",
+                "recording_retention:write",
+                "contacts:read",
+                "autoprovision_templates:write",
+                "reports:access",
+                "trunks:read",
+                "universal_api:read",
+                "contacts:delete"
             ],
             "allowed_breaks": [
                 1783110216802,
@@ -844,11 +975,21 @@
             "recording_enabled": true
         }
     ],
+    "nat": {
+        "enabled": false,
+        "extern_ip": "78.189.210.15",
+        "local_nets": [
+            "192.168.0.0/16",
+            "10.0.0.0/8",
+            "172.16.0.0/12",
+            "127.0.0.1/32"
+        ]
+    },
     "queues": [
         {
             "extension": "2000",
             "name": "test",
-            "strategy": "ringall",
+            "strategy": "random",
             "max_calls": 0,
             "ring_time": 15,
             "acw_time": 5,
@@ -861,6 +1002,10 @@
             "position_announcement_interval": 60,
             "estimated_hold_time_enabled": false,
             "estimated_hold_time_interval": 60,
+            "max_wait_time_enabled": false,
+            "max_wait_time": 120,
+            "max_wait_destination_type": "",
+            "max_wait_destination_target": "",
             "ivr_routes": {
                 "0": {
                     "type": "",
@@ -911,16 +1056,28 @@
                     "target": ""
                 }
             },
+            "all_busy_routing_enabled": false,
+            "all_busy_destination_type": "",
+            "all_busy_destination_target": "",
             "notify_missed_calls": false,
             "id": 1,
             "queueMembers": [
                 {
                     "user_id": 1,
-                    "type": "dynamic"
+                    "type": "dynamic",
+                    "priority": 1
                 }
             ],
             "supervisors": [
                 2
+            ],
+            "members_count": 1,
+            "members_list": [
+                "ANIL ACAR"
+            ],
+            "supervisors_count": 1,
+            "supervisors_list": [
+                "Murat BATTAL"
             ]
         }
     ],
@@ -998,18 +1155,44 @@
     ],
     "contacts": [
         {
-            "id": 1785146464579,
+            "id": 1,
+            "first_name": "Ahmet",
+            "last_name": "Yilmaz",
+            "phone_number": "+905551112233",
+            "email": "ahmet@mail.com",
+            "voiceprint": null
+        },
+        {
+            "id": 4,
             "first_name": "ANIL",
             "last_name": "ACAR",
             "phone_number": "05071796372",
-            "email": "anila@testteknoloji.com.tr"
+            "email": "anila@testteknoloji.com.tr",
+            "voiceprint": null
         },
         {
-            "id": 1785146519733,
+            "id": 2,
+            "first_name": "Anıl",
+            "last_name": "ACAR",
+            "phone_number": "05321112233",
+            "email": "anil.acar@example.com",
+            "voiceprint": "AES256:71bf5049cc9dac1b1d3a4c63cff066694f6306c3c93c84cfe48d02770875bdc6"
+        },
+        {
+            "id": 3,
+            "first_name": "Anıl",
+            "last_name": "ACAR",
+            "phone_number": "05321112299",
+            "email": "fake.anil@example.com",
+            "voiceprint": "AES256:2e9099e5224ae72c746e0050ecd13b99634d23764be39e4768e799e8329214dc"
+        },
+        {
+            "id": 5,
             "first_name": "test ",
             "last_name": "test 2",
             "phone_number": "05385554433",
-            "email": null
+            "email": null,
+            "voiceprint": null
         }
     ],
     "blacklist": [
@@ -2184,6 +2367,134 @@
                     ]
                 }
             }
+        },
+        "tenant-nolto": {
+            "ai_providers": {
+                "google_api_key": "",
+                "openai_api_key": "",
+                "anthropic_api_key": "",
+                "groq_api_key": "",
+                "elevenlabs_api_key": ""
+            },
+            "api_budgets": {
+                "openai": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "anthropic": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "groq": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "google": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                },
+                "elevenlabs": {
+                    "loaded_credit": 0.0,
+                    "spent_credit": 0.0
+                }
+            },
+            "pbx": {
+                "ami_host": "127.0.0.1",
+                "ami_port": 5038,
+                "ami_user": "ai_backend_user",
+                "ami_secret": "backend_secure_key_99",
+                "webrtc_wss_url": "wss://127.0.0.1:8089/ws",
+                "nas_mount_path": "/mnt/nas/ai-recordings",
+                "auto_language_detection": false,
+                "auto_emotion_management": false,
+                "auto_whisper_enabled": true,
+                "numbering_plan": {
+                    "extension_range": {
+                        "start": 1000,
+                        "end": 1999
+                    },
+                    "queue_range": {
+                        "start": 2000,
+                        "end": 2999
+                    },
+                    "conference_range": {
+                        "start": 3000,
+                        "end": 3999
+                    },
+                    "speed_dial_range": {
+                        "start": 4000,
+                        "end": 4999
+                    },
+                    "call_flow_range": {
+                        "start": 5000,
+                        "end": 5999
+                    },
+                    "call_pickup": {
+                        "group": "*8",
+                        "directed": "*8XXXX"
+                    }
+                }
+            },
+            "smart_callback": {
+                "enabled": true,
+                "max_wait_seconds": 60,
+                "max_retries": 3,
+                "priority_level": "high",
+                "outbound_trunk_id": 1,
+                "queue_threshold": 3
+            },
+            "call_flow": {
+                "trunk_id": 1,
+                "time_schedule": {
+                    "enabled": true,
+                    "start_time": "09:00",
+                    "end_time": "18:00",
+                    "days": [
+                        "monday",
+                        "tuesday",
+                        "wednesday",
+                        "thursday",
+                        "friday"
+                    ]
+                },
+                "business_hours_destination": {
+                    "type": "ivr",
+                    "target": "main_menu"
+                },
+                "out_of_hours_destination": {
+                    "type": "ai",
+                    "target": "Out_Of_Hours_AI"
+                },
+                "ivr_menu": {
+                    "announcement_text": "Lütfen ulaşmak istediğiniz birimi tuşlayınız. Satış için bir, Teknik Destek için iki, Yapay Zeka asistanına bağlanmak için dokuza basınız.",
+                    "options": [
+                        {
+                            "key": "1",
+                            "action_type": "extension",
+                            "target": "200",
+                            "label": "Satış Dahilisi"
+                        },
+                        {
+                            "key": "2",
+                            "action_type": "queue",
+                            "target": "support_queue",
+                            "label": "Destek Kuyruğu"
+                        },
+                        {
+                            "key": "9",
+                            "action_type": "ai",
+                            "target": "Sales_AI",
+                            "label": "AI Asistanı"
+                        }
+                    ]
+                }
+            }
         }
-    }
+    },
+    "block_words": [
+        {
+            "id": 2,
+            "word": "dolandırıcı"
+        }
+    ]
 }

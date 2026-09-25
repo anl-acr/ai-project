@@ -55,7 +55,8 @@ export const SUBTAB_TURKISH_SLUGS = {
   "roles": "rol-ve-yetkiler",
   "tenants": "musteri-lisanslari",
   "ai_providers": "yapay-zeka-saglayicilari",
-  "api_budgets": "api-butceleri"
+  "api_budgets": "api-butceleri",
+  "nat": "nat-ayarlari"
 };
 
 const SLUG_TO_SUBTAB = Object.fromEntries(

@@ -163,6 +163,11 @@ class PBXSettingsSchema(BaseModel):
     force_srtp: Optional[bool] = False
     numbering_plan: Optional[NumberingPlanSchema] = None
 
+class NATSettingsSchema(BaseModel):
+    enabled: Optional[bool] = False
+    extern_ip: Optional[str] = ""
+    local_nets: Optional[List[str]] = ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.1/32"]
+
 class ChannelSettingsSchema(BaseModel):
     whatsapp_token: Optional[str] = None
     whatsapp_phone_number_id: Optional[str] = None
@@ -755,7 +760,12 @@ DEFAULT_SETTINGS = {
     "call_pickup_groups": [],
     "subscriber_groups": [],
     "speed_dials": [],
-    "conferences": []
+    "conferences": [],
+    "nat": {
+        "enabled": False,
+        "extern_ip": "",
+        "local_nets": ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.1/32"]
+    }
 }
 
 def load_settings():
@@ -1162,6 +1172,40 @@ async def save_pbx_settings(payload: PBXSettingsSchema):
     os.environ["AMI_SECRET"] = payload.ami_secret
     return {"status": "success", "message": "Santral ayarları başarıyla kaydedildi."}
 
+@app.get("/api/settings/nat")
+@app.get("/settings/nat")
+async def get_nat_settings():
+    if "nat" not in settings_db:
+        settings_db["nat"] = DEFAULT_SETTINGS["nat"].copy()
+    return settings_db["nat"]
+
+@app.post("/api/settings/nat")
+@app.post("/settings/nat")
+async def save_nat_settings(payload: NATSettingsSchema, background_tasks: BackgroundTasks):
+    settings_db["nat"] = payload.model_dump()
+    save_settings(settings_db)
+    regenerate_pjsip_custom_conf(background_tasks)
+    return {"status": "success", "message": "NAT ve Dış IP ayarları başarıyla kaydedildi ve Asterisk'e uygulandı."}
+
+@app.get("/api/system/public-ip")
+@app.get("/system/public-ip")
+async def get_public_ip():
+    import urllib.request
+    try:
+        req = urllib.request.Request("https://api.ipify.org?format=json", headers={"User-Agent": "AIDA-PBX/1.0"})
+        with urllib.request.urlopen(req, timeout=3.0) as response:
+            import json
+            data = json.loads(response.read().decode("utf-8"))
+            return {"status": "success", "ip": data.get("ip")}
+    except Exception as e:
+        try:
+            req = urllib.request.Request("https://ip.icanhazip.com", headers={"User-Agent": "AIDA-PBX/1.0"})
+            with urllib.request.urlopen(req, timeout=3.0) as response:
+                ip_str = response.read().decode("utf-8").strip()
+                return {"status": "success", "ip": ip_str}
+        except Exception as e2:
+            return {"status": "error", "message": f"Dış IP adresi tespit edilemedi: {e2}", "ip": None}
+
 @app.post("/api/settings/ssl")
 async def upload_ssl_certificates(
     cert: UploadFile = File(...),
@@ -1194,8 +1238,8 @@ def run_pjsip_reload():
     # Trigger Asterisk PJSIP & Dialplan Reload command dynamically
     try:
         import subprocess
-        res = subprocess.run(["asterisk", "-rx", "pjsip reload"], capture_output=True, text=True)
-        subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True)
+        res = subprocess.run(["asterisk", "-rx", "pjsip reload"], capture_output=True, text=True, timeout=2.0)
+        subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=2.0)
         if res.returncode == 0:
             print("[Asterisk Config] PJSIP ve Dialplan başarıyla yenilendi (host).")
             return
@@ -1204,8 +1248,8 @@ def run_pjsip_reload():
 
     try:
         import subprocess
-        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "pjsip reload"], check=True, capture_output=True)
-        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True)
+        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "pjsip reload"], check=True, capture_output=True, timeout=2.0)
+        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True, timeout=2.0)
         print("[Asterisk Config] PJSIP & Dialplan configurations reloaded successfully in Asterisk container.")
     except Exception as e:
         print(f"[Asterisk Config] Failed to reload PJSIP in Asterisk: {e}")
@@ -1213,7 +1257,7 @@ def run_pjsip_reload():
 def run_queue_reload():
     try:
         import subprocess
-        res = subprocess.run(["asterisk", "-rx", "queue reload all"], capture_output=True, text=True)
+        res = subprocess.run(["asterisk", "-rx", "queue reload all"], capture_output=True, text=True, timeout=2.0)
         if res.returncode == 0:
             print("[Asterisk Config] Queue reloaded successfully via host Asterisk.")
             return
@@ -1222,7 +1266,7 @@ def run_queue_reload():
 
     try:
         import subprocess
-        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "queue reload all"], check=True, capture_output=True)
+        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "queue reload all"], check=True, capture_output=True, timeout=2.0)
         print("[Asterisk Config] Queue configurations reloaded successfully in Asterisk container.")
     except Exception as e:
         print(f"[Asterisk Config] Failed to reload queues in Asterisk: {e}")
@@ -1230,7 +1274,7 @@ def run_queue_reload():
 def run_dialplan_reload():
     try:
         import subprocess
-        res = subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True)
+        res = subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=2.0)
         if res.returncode == 0:
             print("[Asterisk Config] Dialplan reloaded successfully via host Asterisk.")
             return
@@ -1239,7 +1283,7 @@ def run_dialplan_reload():
 
     try:
         import subprocess
-        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True)
+        subprocess.run(["docker", "exec", "ai_pbx_asterisk", "asterisk", "-rx", "dialplan reload"], check=True, capture_output=True, timeout=2.0)
         print("[Asterisk Config] Dialplan configurations reloaded successfully in Asterisk container.")
     except Exception as e:
         print(f"[Asterisk Config] Failed to reload dialplan in Asterisk: {e}")
@@ -1268,37 +1312,46 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
     if not trunks_list:
         trunks_list = settings_db.get("trunks", [])
 
-    conf_content = """; ==========================================
-; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK AYARLARI
+    nat_cfg = settings_db.get("nat", {})
+    nat_enabled = nat_cfg.get("enabled", False)
+    extern_ip = (nat_cfg.get("extern_ip") or "").strip()
+    local_nets = nat_cfg.get("local_nets", [])
+    if isinstance(local_nets, str):
+        local_nets = [net.strip() for net in local_nets.split(",") if net.strip()]
+
+    nat_lines = ""
+    if extern_ip:
+        nat_lines += f"external_media_address={extern_ip}\nexternal_signaling_address={extern_ip}\n"
+    if nat_enabled and local_nets:
+        for net in local_nets:
+            net_clean = str(net).strip()
+            if net_clean:
+                nat_lines += f"local_net={net_clean}\n"
+
+    conf_content = f"""; ==========================================
+; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE TRANSPORT AYARLARI
 ; ==========================================
 
 [transport-udp]
 type=transport
 protocol=udp
 bind=0.0.0.0
-external_media_address=78.189.210.15
-external_signaling_address=78.189.210.15
-
+{nat_lines}
 [transport-tcp]
 type=transport
 protocol=tcp
 bind=0.0.0.0
-external_media_address=78.189.210.15
-external_signaling_address=78.189.210.15
-
+{nat_lines}
 [transport-ws]
 type=transport
 protocol=ws
 bind=0.0.0.0:8088
-external_media_address=78.189.210.15
-external_signaling_address=78.189.210.15
-
+{nat_lines}
 [transport-wss]
 type=transport
 protocol=wss
 bind=0.0.0.0:8089
-external_media_address=78.189.210.15
-external_signaling_address=78.189.210.15
+{nat_lines}
 
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
@@ -1720,15 +1773,15 @@ same => n,Hangup()
 exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, Cause: ${{HANGUPCAUSE}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}})}})
 
-; İç hat (Diğer temsilciler) aramaları için (2XX vb.)
-exten => _2XX,1,NoOp(ACL kontrol ediliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+; İç hat (Diğer temsilciler & Dahililer) aramaları için (1000, 1001, 200 vb.)
+exten => _[1-9]X.,1,NoOp(ACL kontrol ediliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
 same => n,GotoIf($["${{ACL_RESULT}}" = "ALLOW"]?allow:deny)
 same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Playback(ss-noservice)
 same => n,Hangup()
 same => n(allow),NoOp(ACL ONAYLANDI: Arama baslatiliyor)
-same => n,Dial(PJSIP/${{EXTEN}})
+same => n,Dial(PJSIP/${{EXTEN}},30,tT)
 same => n,Hangup()
 
 [mobile_transfer_context]
@@ -3746,6 +3799,376 @@ async def delete_ai_agent(agent_id: str):
     settings_db["ai_agents"] = filtered
     save_settings(settings_db)
     return {"status": "success", "message": "Yapay zeka temsilcisi silindi."}
+
+def compile_agent_scenario_to_instruction(scenario_flow: dict) -> str:
+    """Compiles node-based scenario workflow into structured instructions for Gemini Live / STT agent."""
+    if not scenario_flow or not isinstance(scenario_flow, dict):
+        return ""
+    nodes = scenario_flow.get("nodes", [])
+    if not nodes:
+        return ""
+    compiled_parts = ["=== AI TEMSİLCİ SENARYO VE DAVRANIŞ AKIŞ KURALLARI ==="]
+    greeting_nodes = [n for n in nodes if n.get("type") == "greeting"]
+    if greeting_nodes:
+        g_text = greeting_nodes[0].get("data", {}).get("text", "")
+        if g_text:
+            compiled_parts.append(f"• KARŞILAMA VE AÇILIŞ: Görüşme başladığında doğrudan şu cümle ile başla: '{g_text}'")
+    dialogue_nodes = [n for n in nodes if n.get("type") == "dialogue"]
+    if dialogue_nodes:
+        compiled_parts.append("\n• KONUŞMA REHBERİ VE CEVAP ŞABLONLARI:")
+        for idx, dn in enumerate(dialogue_nodes, 1):
+            title = dn.get("title", f"Adım {idx}")
+            script = dn.get("data", {}).get("script", "")
+            if script:
+                compiled_parts.append(f"  - [{title}]: {script}")
+    intent_nodes = [n for n in nodes if n.get("type") == "intent_branch"]
+    if intent_nodes:
+        compiled_parts.append("\n• MÜŞTERİ NİYETİNE GÖRE DALLANMA VE YÖNLENDİRME:")
+        for in_node in intent_nodes:
+            intents = in_node.get("data", {}).get("intents", [])
+            for intent in intents:
+                lbl = intent.get("label", "")
+                if lbl:
+                    compiled_parts.append(f"  - Eğer {lbl}: Bu senaryo adımına uygun rehberliği takip et.")
+    dir_nodes = [n for n in nodes if n.get("type") == "directory_lookup"]
+    for dn in dir_nodes:
+        announcement = dn.get("data", {}).get("announcement", "Sizi aradığınız kişiye yönlendiriyorum, lütfen hatta kalınız.")
+        fallback = dn.get("data", {}).get("fallback_target", "1000")
+        compiled_parts.append("\n• İSİMLE DAHİLİ VE PERSONEL REHBERİ TRANSFERİ (AKTİF):")
+        compiled_parts.append("  - Arayan kişi belirli bir temsilcinin, kullanıcının veya personelin adını/soyadını söylediğinde (Örn: 'Anıl Acar ile görüşmek istiyorum', 'Ahmet Bey'e bağlar mısın'):")
+        compiled_parts.append("    1. Sistem Dahili Rehberindeki ismi eşleştir.")
+        compiled_parts.append(f"    2. Müşteriye kibarca '{announcement}' de.")
+        compiled_parts.append("    3. Hemen '[ACTION: TRANSFER:<DAHILI_NO>]' eylemini tetikle (örn: '[ACTION: TRANSFER:1000]').")
+        compiled_parts.append(f"    4. Eğer aranan kişi rehberde bulunamazsa '{fallback}' dahili numarasına aktar ('[ACTION: TRANSFER:{fallback}]').")
+    transfer_nodes = [n for n in nodes if n.get("type") == "transfer"]
+    for tn in transfer_nodes:
+        target = tn.get("data", {}).get("target", "200")
+        announcement = tn.get("data", {}).get("announcement", "Aktarılıyor...")
+        compiled_parts.append(f"\n• ARAMA TRANSFERİ: Müşteri temsilciye bağlanmak istediğinde veya çözülemeyen bir konuda önce '{announcement}' de ve hemen '[ACTION: TRANSFER:{target}]' tetikle. Transfer Hedefi: {target}")
+    hangup_nodes = [n for n in nodes if n.get("type") == "hangup"]
+    for hn in hangup_nodes:
+        farewell = hn.get("data", {}).get("farewell", "İyi günler dileriz.")
+        compiled_parts.append(f"\n• ÇAĞRI KAPATMA: Görüşme tamamlandığında '{farewell}' de ve hemen '[ACTION: HANGUP]' tetikle.")
+    return "\n".join(compiled_parts)
+
+@app.get("/api/settings/ai-agents/{agent_id}/scenario")
+async def get_ai_agent_scenario(agent_id: str):
+    agents = settings_db.get("ai_agents", [])
+    agent = next((a for a in agents if str(a.get("id")) == str(agent_id)), None)
+    if not agent:
+        raise HTTPException(status_code=404, detail="AI Temsilcisi bulunamadı.")
+    return agent.get("scenario_flow", {"nodes": [], "connections": []})
+
+@app.post("/api/settings/ai-agents/{agent_id}/scenario")
+async def save_ai_agent_scenario(agent_id: str, payload: dict):
+    agents = settings_db.get("ai_agents", [])
+    found_idx = None
+    for idx, a in enumerate(agents):
+        if str(a.get("id")) == str(agent_id):
+            found_idx = idx
+            break
+    if found_idx is None:
+        raise HTTPException(status_code=404, detail="AI Temsilcisi bulunamadı.")
+    agents[found_idx]["scenario_flow"] = payload
+    compiled_inst = compile_agent_scenario_to_instruction(payload)
+    if compiled_inst:
+        agents[found_idx]["compiled_scenario_instruction"] = compiled_inst
+    settings_db["ai_agents"] = agents
+    save_settings(settings_db)
+    return {"status": "success", "message": "Senaryo ve davranış akışı başarıyla kaydedildi ve yayınlandı."}
+
+def parse_scenario_semantically(user_prompt: str) -> dict:
+    """Parses natural Turkish prompt into exact flowchart nodes and connections."""
+    import re
+    text = user_prompt.strip()
+    if not text:
+        return {"nodes": [], "connections": []}
+
+    # Split into lines or numbered items or clauses
+    raw_lines = [l.strip() for l in re.split(r'\n+|\d+[\.\)]|•|-', text) if l.strip()]
+    if not raw_lines:
+        raw_lines = [l.strip() for l in text.split('.') if l.strip()]
+
+    nodes = []
+    connections = []
+    
+    current_x = 60
+    current_step = 1
+    last_node_id = None
+
+    # Step 1: Greeting Node (extract from first line)
+    first_line = raw_lines[0] if raw_lines else text
+    greeting_text = first_line
+    if len(greeting_text) > 120:
+        greeting_text = greeting_text[:117] + "..."
+
+    g_id = f"node-{current_step}"
+    nodes.append({
+        "id": g_id,
+        "type": "greeting",
+        "x": current_x,
+        "y": 160,
+        "title": f"{current_step}. Açılış & Karşılama",
+        "data": { "text": greeting_text, "tone": "friendly" }
+    })
+    last_node_id = g_id
+    current_step += 1
+    current_x += 340
+
+    remaining_lines = raw_lines[1:] if len(raw_lines) > 1 else []
+    full_lower = text.lower()
+
+    # Check for KVKK
+    if any(k in full_lower for k in ["kvkk", "onay", "izin", "aydınlatma"]):
+        kvkk_line = next((l for l in remaining_lines if any(k in l.lower() for k in ["kvkk", "onay", "izin"])), "Devam etmeden önce kişisel verilerinizin işlenmesine onay veriyor musunuz?")
+        k_id = f"node-{current_step}"
+        nodes.append({
+            "id": k_id,
+            "type": "kvkk",
+            "x": current_x,
+            "y": 160,
+            "title": f"{current_step}. KVKK & Onay Kontrolü",
+            "data": { "consent_text": kvkk_line }
+        })
+        connections.append({
+            "id": f"c-{last_node_id}-{k_id}",
+            "fromNode": last_node_id,
+            "fromPort": "out",
+            "toNode": k_id,
+            "toPort": "in"
+        })
+        last_node_id = k_id
+        current_step += 1
+        current_x += 340
+        remaining_lines = [l for l in remaining_lines if not any(k in l.lower() for k in ["kvkk", "onay", "izin"])]
+
+    # Check for Branching / Condition
+    branch_triggers = ["eğer", "ise", "derse", "seçerse", "istediğinde", "isterse", "tercih", "veya", "ya da"]
+    has_branch = any(any(bt in line.lower() for bt in branch_triggers) for line in remaining_lines) or ("satış" in full_lower and "destek" in full_lower)
+
+    if has_branch:
+        b_id = f"node-{current_step}"
+        intents = []
+        branch_lines = [l for l in remaining_lines if any(bt in l.lower() for bt in branch_triggers) or any(k in l.lower() for k in ["satış", "destek", "iade", "rehber", "temsilci", "bilgi"])]
+        
+        if not branch_lines:
+            branch_lines = ["Satış / Ürün Talebi", "Teknik Destek / Arıza", "Diğer / İnsan Temsilci"]
+
+        for idx, bl in enumerate(branch_lines[:4]):
+            key = f"intent_{idx+1}"
+            label = bl
+            if len(label) > 35:
+                label = label[:32] + "..."
+            intents.append({"key": key, "label": label, "targetNode": ""})
+
+        nodes.append({
+            "id": b_id,
+            "type": "intent_branch",
+            "x": current_x,
+            "y": 160,
+            "title": f"{current_step}. Müşteri Niyeti & Dallanma",
+            "data": { "intents": intents }
+        })
+        connections.append({
+            "id": f"c-{last_node_id}-{b_id}",
+            "fromNode": last_node_id,
+            "fromPort": "out",
+            "toNode": b_id,
+            "toPort": "in"
+        })
+        
+        branch_x = current_x + 340
+        branch_y = 60
+
+        for idx, intent in enumerate(intents):
+            ikey = intent["key"]
+            ilabel = intent["label"].lower()
+            target_id = f"node-{current_step}_{ikey}"
+
+            if any(k in ilabel for k in ["rehber", "isim", "personel"]):
+                nodes.append({
+                    "id": target_id,
+                    "type": "directory_lookup",
+                    "x": branch_x,
+                    "y": branch_y,
+                    "title": "İsimle Personel Aktarımı",
+                    "data": { "announcement": "Aradığınız personeli rehberden sorgulayıp aktarıyorum.", "fallback_target": "1000", "fallback_name": "1000 - ANIL ACAR" }
+                })
+            elif any(k in ilabel for k in ["form", "kayıt", "arıza"]):
+                fields = ["Ad Soyad", "Telefon"]
+                if "tarih" in ilabel or "saat" in ilabel: fields.extend(["Tarih", "Saat"])
+                if "sipariş" in ilabel: fields.append("Sipariş No")
+                nodes.append({
+                    "id": target_id,
+                    "type": "form_capture",
+                    "x": branch_x,
+                    "y": branch_y,
+                    "title": "Bilgi & Form Kaydı",
+                    "data": { "fields": fields }
+                })
+            elif any(k in ilabel for k in ["kapat", "sonlandır", "hayır", "vazgeç"]):
+                nodes.append({
+                    "id": target_id,
+                    "type": "hangup",
+                    "x": branch_x,
+                    "y": branch_y,
+                    "title": "Görüşme Kapatma",
+                    "data": { "farewell": "Zaman ayırdığınız için teşekkür ederiz. İyi günler dileriz!" }
+                })
+            elif any(k in ilabel for k in ["aktar", "bağla", "temsilci", "kuyruk", "satış", "destek"]):
+                num_match = re.search(r'\b(1\d{3}|2\d{3}|3\d{3}|4\d{3})\b', ilabel)
+                target_num = num_match.group(1) if num_match else ("2000" if "satış" in ilabel else "1000")
+                nodes.append({
+                    "id": target_id,
+                    "type": "transfer",
+                    "x": branch_x,
+                    "y": branch_y,
+                    "title": "Temsilciye Aktarım",
+                    "data": { "target_type": "queue" if target_num.startswith("2") else "extension", "target": target_num, "target_name": f"{target_num} - Temsilci/Kuyruk", "announcement": "Sizi ilgili birime bağlıyorum." }
+                })
+            else:
+                nodes.append({
+                    "id": target_id,
+                    "type": "dialogue",
+                    "x": branch_x,
+                    "y": branch_y,
+                    "title": "Diyalog Adımı",
+                    "data": { "script": intent["label"] }
+                })
+
+            connections.append({
+                "id": f"c-b-{ikey}",
+                "fromNode": b_id,
+                "fromPort": ikey,
+                "toNode": target_id,
+                "toPort": "in"
+            })
+
+            branch_y += 180
+
+    else:
+        for line in remaining_lines:
+            line_lower = line.lower()
+            if not line: continue
+
+            step_id = f"node-{current_step}"
+
+            if any(k in line_lower for k in ["rehber", "isim", "personel", "dahili rehber"]):
+                nodes.append({
+                    "id": step_id,
+                    "type": "directory_lookup",
+                    "x": current_x,
+                    "y": 160,
+                    "title": f"{current_step}. İsimle Dahili Aktarımı",
+                    "data": { "announcement": line, "fallback_target": "1000", "fallback_name": "1000 - ANIL ACAR" }
+                })
+            elif any(k in line_lower for k in ["form", "kayıt", "bilgi al", "arıza"]):
+                fields = ["Ad Soyad", "Telefon"]
+                if "tarih" in line_lower: fields.append("Tarih")
+                if "saat" in line_lower: fields.append("Saat")
+                if "sipariş" in line_lower: fields.append("Sipariş No")
+                nodes.append({
+                    "id": step_id,
+                    "type": "form_capture",
+                    "x": current_x,
+                    "y": 160,
+                    "title": f"{current_step}. Veri & Form Toplama",
+                    "data": { "fields": fields }
+                })
+            elif any(k in line_lower for k in ["aktar", "bağla", "yönlendir", "kuyruk", "temsilci"]):
+                num_match = re.search(r'\b(1\d{3}|2\d{3}|3\d{3}|4\d{3})\b', line)
+                target_num = num_match.group(1) if num_match else "2000"
+                nodes.append({
+                    "id": step_id,
+                    "type": "transfer",
+                    "x": current_x,
+                    "y": 160,
+                    "title": f"{current_step}. Temsilciye Aktarım",
+                    "data": { "target_type": "queue" if target_num.startswith("2") else "extension", "target": target_num, "target_name": f"{target_num} - Birim/Kuyruk", "announcement": line }
+                })
+            elif any(k in line_lower for k in ["kapat", "sonlandır", "vedalaş"]):
+                nodes.append({
+                    "id": step_id,
+                    "type": "hangup",
+                    "x": current_x,
+                    "y": 160,
+                    "title": f"{current_step}. Çağrı Kapatma",
+                    "data": { "farewell": line }
+                })
+            else:
+                nodes.append({
+                    "id": step_id,
+                    "type": "dialogue",
+                    "x": current_x,
+                    "y": 160,
+                    "title": f"{current_step}. Diyalog Adımı",
+                    "data": { "script": line }
+                })
+
+            connections.append({
+                "id": f"c-{last_node_id}-{step_id}",
+                "fromNode": last_node_id,
+                "fromPort": "out",
+                "toNode": step_id,
+                "toPort": "in"
+            })
+            last_node_id = step_id
+            current_step += 1
+            current_x += 340
+
+    return { "nodes": nodes, "connections": connections }
+
+@app.post("/api/settings/ai-agents/generate-scenario")
+async def generate_scenario_from_prompt(payload: dict):
+    user_prompt = payload.get("prompt", "").strip()
+    if not user_prompt:
+        raise HTTPException(status_code=400, detail="Senaryo metni boş olamaz.")
+
+    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    system_inst = """Sen bir AI Çağrı Merkezi ve IVR Senaryo Mimarısın. Kullanıcının Türkçe olarak tanımladığı telefon görüşmesi akışını analiz edip aşağıdaki JSON yapısında düğümler (nodes) ve bağlantılar (connections) oluşturacaksın.
+
+Düğüm Türleri (type):
+- 'greeting': Karşılama ve açılış cümlesi. data: { text: "...", tone: "friendly" }
+- 'kvkk': KVKK rızası. data: { consent_text: "..." }
+- 'dialogue': Bilgi verme/konuşma adımı. data: { script: "..." }
+- 'intent_branch': Niyet/Koşul dallanması. data: { intents: [{ key: "k1", label: "...", targetNode: "" }] }
+- 'form_capture': Form/Veri toplama. data: { fields: ["Field1", "Field2"] }
+- 'directory_lookup': İsimle dahili rehber sorgulama. data: { announcement: "...", fallback_target: "1000" }
+- 'transfer': Aktarım. data: { target_type: "queue"|"extension"|"custom", target: "2000", target_name: "2000 - Kuyruk", announcement: "..." }
+- 'hangup': Kapatma. data: { farewell: "..." }
+
+Lütfen YALNIZCA geçerli bir JSON objesi döndür:
+{
+  "nodes": [
+    { "id": "node-1", "type": "greeting", "x": 60, "y": 160, "title": "1. Karşılama", "data": { ... } }
+  ],
+  "connections": [
+    { "id": "c-node-1-node-2", "fromNode": "node-1", "fromPort": "out", "toNode": "node-2", "toPort": "in" }
+  ]
+}
+"""
+    if gemini_key:
+        try:
+            import urllib.request
+            import json
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
+            req_data = {
+                "contents": [
+                    {"role": "user", "parts": [{"text": system_inst + "\n\nKullanıcı İsteği:\n" + user_prompt}]}
+                ],
+                "generationConfig": { "response_mime_type": "application/json" }
+            }
+            req = urllib.request.Request(url, data=json.dumps(req_data).encode("utf-8"), headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                result = json.loads(resp.read().decode("utf-8"))
+                text_content = result["candidates"][0]["content"]["parts"][0]["text"]
+                parsed_json = json.loads(text_content)
+                if isinstance(parsed_json, dict) and "nodes" in parsed_json and len(parsed_json["nodes"]) > 0:
+                    return parsed_json
+        except Exception as e_gemini:
+            print(f"[Gemini Scenario Gen Error]: {e_gemini}")
+
+    return parse_scenario_semantically(user_prompt)
 
 # ==========================================
 # TENANT MANAGEMENT & CLONING ENDPOINTS
@@ -6305,7 +6728,7 @@ async def startup_event():
             asyncio.create_task(recording_cleanup_task())
 
     try:
-        await asyncio.wait_for(seed_db_tables(), timeout=1.0)
+        await asyncio.wait_for(seed_db_tables(), timeout=5.0)
     except Exception as e:
         print(f"[Database Init/Seeding Timeout or Error]: {e}")
         global settings_db

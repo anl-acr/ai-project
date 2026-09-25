@@ -326,6 +326,7 @@ class AIAgent(Base):
     system_instruction = Column(Text, nullable=False)
     status = Column(String, default="active")
     transfer_target = Column(String, nullable=False)
+    scenario_flow = Column(JSON, nullable=True)
 
 class BreakType(Base):
     __tablename__ = "break_types"

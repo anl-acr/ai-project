@@ -19,16 +19,19 @@ import {
   Pause,
   RefreshCw,
   AlertTriangle,
-  X
+  X,
+  GitBranch
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
+import AIAgentScenarioEditor from "./AIAgentScenarioEditor";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 
 export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
   const [activeTab, setActiveTab] = useState("agents"); // agents, api
-  const [viewMode, setViewMode] = useState("list"); // list, edit
+  const [viewMode, setViewMode] = useState("list"); // list, edit, scenario
+  const [selectedAgentForScenario, setSelectedAgentForScenario] = useState(null);
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
@@ -429,6 +432,19 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     );
   });
 
+  if (viewMode === "scenario") {
+    return (
+      <AIAgentScenarioEditor
+        agent={selectedAgentForScenario}
+        backendHost={backendHost}
+        onBack={() => {
+          setViewMode("list");
+          setSelectedAgentForScenario(null);
+        }}
+      />
+    );
+  }
+
   if (viewMode === "list") {
     return (
       <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full">
@@ -557,6 +573,16 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
                 {/* Right Side: Actions */}
                 <div className="flex items-center gap-4 justify-between sm:justify-end border-t sm:border-t-0 pt-2.5 sm:pt-0 border-slate-100 dark:border-slate-800/60">
                   <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedAgentForScenario(agent);
+                        setViewMode("scenario");
+                      }}
+                      className="p-1.5 text-slate-450 hover:text-purple-600 dark:hover:text-purple-400 rounded-lg border border-slate-100 dark:border-slate-800 hover:border-purple-200 dark:hover:border-purple-900/50"
+                      title="Senaryo & Davranış Akış Editörü"
+                    >
+                      <GitBranch size={12} />
+                    </button>
                     <button
                       onClick={() => handleEditAgent(agent)}
                       className="p-1.5 text-slate-450 hover:text-primary dark:hover:text-white rounded-lg border border-slate-100 dark:border-slate-800 hover:border-slate-200"
