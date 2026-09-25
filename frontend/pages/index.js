@@ -560,8 +560,8 @@ export default function Home() {
   const backendHost = getBackendHost();
 
 
-  const checkRolePermissions = async () => {
-    let currentUserData = null;
+  const checkRolePermissions = async (providedUser = null) => {
+    let currentUserData = providedUser || null;
     try {
       // 1. Synchronous storage check FIRST
       const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
@@ -589,7 +589,7 @@ export default function Home() {
           setHasConferencesPermission(true);
           setHasSpeedDialPermission(true);
         }
-      } else {
+      } else if (!providedUser) {
         setIsLoggedIn(false);
       }
 
@@ -597,7 +597,7 @@ export default function Home() {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
       let usersData = [];
       try {
-        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
         if (resUsers.ok) {
           usersData = await resUsers.json();
           if (Array.isArray(usersData)) setSystemUsers(usersData);
@@ -609,12 +609,13 @@ export default function Home() {
       // 3. Resolve exact current user profile and role
       if (savedAuth && savedUserId) {
         if (savedUserId === 'admin') {
-          currentUserData = SUPER_ADMIN;
-        } else if (usersData.length > 0) {
+          const adminUserFromDb = Array.isArray(usersData) ? usersData.find(u => u.role === 'admin' || u.username === 'admin' || u.id === 1) : null;
+          currentUserData = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
+        } else if (Array.isArray(usersData) && usersData.length > 0) {
           const found = usersData.find(u => String(u.id) === String(savedUserId) || String(u.extension) === String(savedUserId) || u.email === savedUserId || u.username === savedUserId);
           if (found) {
             currentUserData = found;
-          } else {
+          } else if (!providedUser) {
             // Invalid / Ghost user ID in localStorage! Clean stale state cleanly.
             localStorage.removeItem('is_logged_in');
             localStorage.removeItem('current_user_id');
@@ -626,14 +627,16 @@ export default function Home() {
             return;
           }
         }
-        
-        if (currentUserData) {
-          setIsLoggedIn(true);
-          setCurrentUser(currentUserData);
-        }
       }
 
-      if (!currentUserData) {
+      if (providedUser) {
+        currentUserData = providedUser;
+      }
+
+      if (currentUserData) {
+        setIsLoggedIn(true);
+        setCurrentUser(currentUserData);
+      } else {
         setIsLoggedIn(false);
         setIsAuthChecking(false);
         return;
@@ -670,7 +673,7 @@ export default function Home() {
       
       const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
       const rolesData = await resRoles.json();
-      const currentRole = rolesData.find(r => r.role_code === currentUserData.role);
+      const currentRole = Array.isArray(rolesData) ? rolesData.find(r => r.role_code === currentUserData.role) : null;
       
       const hasPerm = (prefix) => {
         return currentRole && currentRole.permissions && currentRole.permissions.some(p => p.startsWith(prefix + ':'));
@@ -752,7 +755,7 @@ export default function Home() {
     } catch (e) {
       console.error("Role permission check failed:", e);
       
-      // Even if fetch fails, if we already loaded Admin from localStorage, we are good to go!
+      // Even if fetch fails, if we already loaded Admin or providedUser, we are good to go!
       if (currentUserData && currentUserData.role === 'admin') {
         setHasOmnichannelPermission(true);
         setHasContactsPermission(true);
@@ -791,11 +794,11 @@ export default function Home() {
         if (resStatus.ok) {
           const status = await resStatus.json();
           if (status && status.is_logged_in && status.user_id) {
-            const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+            const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
             if (resUsers.ok) {
               const users = await resUsers.json();
               if (Array.isArray(users)) {
-                const curr = users.find(u => u.id === status.user_id);
+                const curr = users.find(u => String(u.id) === String(status.user_id));
                 if (curr && curr.avatar) {
                   setAgentAvatar(curr.avatar);
                   localStorage.setItem("agent_avatar", curr.avatar);
@@ -828,7 +831,7 @@ export default function Home() {
     if (!usersToSearch || usersToSearch.length === 0) {
       try {
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
+        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
         if (resUsers.ok) {
           usersToSearch = await resUsers.json();
           setSystemUsers(usersToSearch);
@@ -852,7 +855,7 @@ export default function Home() {
       const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
       setCurrentUser(activeAdminUser);
       setIsLoggedIn(true);
-      checkRolePermissions();
+      checkRolePermissions(activeAdminUser);
       return { success: true };
     }
 
@@ -874,7 +877,7 @@ export default function Home() {
       }
       setCurrentUser(foundUser);
       setIsLoggedIn(true);
-      checkRolePermissions();
+      checkRolePermissions(foundUser);
       return { success: true };
     } else {
       setLoginError("Geçersiz kullanıcı adı veya şifre.");
@@ -894,7 +897,7 @@ export default function Home() {
       }
       setCurrentUser(foundUser);
       setIsLoggedIn(true);
-      checkRolePermissions();
+      checkRolePermissions(foundUser);
     }
   };
 
