@@ -565,14 +565,13 @@ export default function Home() {
     try {
       // 1. Synchronous storage check FIRST
       const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
-      if (savedAuth) {
-        setIsLoggedIn(true);
-        const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+      const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+
+      if (savedAuth && savedUserId) {
         if (savedUserId === 'admin') {
           currentUserData = SUPER_ADMIN;
-          setCurrentUser(currentUserData);
+          setCurrentUser(SUPER_ADMIN);
           
-          // Immediately give admin full permissions so dashboard doesn't flash empty
           setHasOmnichannelPermission(true);
           setHasContactsPermission(true);
           setHasBlacklistPermission(true);
@@ -589,9 +588,6 @@ export default function Home() {
           setHasTrunksPermission(true);
           setHasConferencesPermission(true);
           setHasSpeedDialPermission(true);
-        } else if (savedUserId) {
-          currentUserData = { id: savedUserId, role: 'user', full_name: 'Kullanıcı', extension: savedUserId };
-          setCurrentUser(currentUserData);
         }
       } else {
         setIsLoggedIn(false);
@@ -611,14 +607,23 @@ export default function Home() {
       }
 
       // 3. Resolve exact current user profile and role
-      if (savedAuth) {
-        const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+      if (savedAuth && savedUserId) {
         if (savedUserId === 'admin') {
           currentUserData = SUPER_ADMIN;
-        } else if (savedUserId && usersData.length > 0) {
-          const found = usersData.find(u => u.id === parseInt(savedUserId) || u.extension === savedUserId || u.username === savedUserId || u.email === savedUserId);
+        } else if (usersData.length > 0) {
+          const found = usersData.find(u => String(u.id) === String(savedUserId) || String(u.extension) === String(savedUserId) || u.email === savedUserId || u.username === savedUserId);
           if (found) {
             currentUserData = found;
+          } else {
+            // Invalid / Ghost user ID in localStorage! Clean stale state cleanly.
+            localStorage.removeItem('is_logged_in');
+            localStorage.removeItem('current_user_id');
+            sessionStorage.removeItem('is_logged_in');
+            sessionStorage.removeItem('current_user_id');
+            setIsLoggedIn(false);
+            setCurrentUser(null);
+            setIsAuthChecking(false);
+            return;
           }
         }
         
@@ -629,14 +634,9 @@ export default function Home() {
       }
 
       if (!currentUserData) {
-        if (savedAuth) {
-          currentUserData = SUPER_ADMIN;
-          setCurrentUser(SUPER_ADMIN);
-        } else {
-          setIsLoggedIn(false);
-          setIsAuthChecking(false);
-          return;
-        }
+        setIsLoggedIn(false);
+        setIsAuthChecking(false);
+        return;
       }
 
       if (currentUserData.role === 'admin') {
@@ -927,7 +927,7 @@ export default function Home() {
   const handleLogout = async () => {
     setProfileDropdownOpen(false);
     try {
-      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
       const targetUserId = currentUser?.id || currentUser?.extension || localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
 
       if (targetUserId) {
@@ -941,36 +941,33 @@ export default function Home() {
             extension: currentUser?.extension || targetUserId
           })
         }).catch(() => {});
-      }
 
-      const res = await fetch(`${protocol}//${backendHost}/api/agent/status`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          is_logged_in: false,
-          status: "offline",
-          current_break: null,
-          user_id: targetUserId
-        })
-      });
-      if (res.ok) {
-        localStorage.removeItem("is_logged_in");
-        localStorage.removeItem("current_user_id");
-        sessionStorage.removeItem("is_logged_in");
-        sessionStorage.removeItem("current_user_id");
-        setCurrentUser(null);
-        setIsLoggedIn(false);
-        window.location.reload();
+        await fetch(`${protocol}//${backendHost}/api/agent/status`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            is_logged_in: false,
+            status: "offline",
+            current_break: null,
+            user_id: targetUserId
+          })
+        }).catch(() => {});
       }
     } catch (e) {
       console.error("Logout error:", e);
+    } finally {
       localStorage.removeItem("is_logged_in");
       localStorage.removeItem("current_user_id");
+      localStorage.removeItem("agent_avatar");
       sessionStorage.removeItem("is_logged_in");
       sessionStorage.removeItem("current_user_id");
-      window.location.reload();
+      setCurrentUser(null);
+      setIsLoggedIn(false);
+      if (typeof window !== "undefined") {
+        window.location.href = "/";
+      }
     }
   };
 
