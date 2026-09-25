@@ -6599,15 +6599,31 @@ async def startup_event():
     from backend.database.models import Call, SystemUser, SystemRole, SystemSetting, QAQuestion
     from backend.services.ami_manager import start_ami_listener
     
-    # 1. Ensure all tables are created in PostgreSQL
+    # 1. Ensure all tables and columns are created in PostgreSQL
     try:
+        from sqlalchemy import text
         async def init_db():
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-        await asyncio.wait_for(init_db(), timeout=2.0)
-        print("[Database Init] Veritabanı tabloları kontrol edildi / oluşturuldu.")
+                cols_to_add = [
+                    "all_busy_routing_enabled BOOLEAN DEFAULT FALSE",
+                    "all_busy_destination_type VARCHAR DEFAULT ''",
+                    "all_busy_destination_target VARCHAR DEFAULT ''",
+                    "max_wait_time_enabled BOOLEAN DEFAULT FALSE",
+                    "max_wait_time INTEGER DEFAULT 120",
+                    "max_wait_destination_type VARCHAR DEFAULT ''",
+                    "max_wait_destination_target VARCHAR DEFAULT ''",
+                    "notify_missed_calls BOOLEAN DEFAULT FALSE"
+                ]
+                for col_def in cols_to_add:
+                    try:
+                        await conn.execute(text(f"ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS {col_def};"))
+                    except Exception:
+                        pass
+        await asyncio.wait_for(init_db(), timeout=4.0)
+        print("[Database Init] Veritabanı tabloları ve pbx_queues sütunları kontrol edildi / oluşturuldu.")
     except Exception as e:
-        print(f"[Database Init] Error creating tables / timeout: {e}")
+        print(f"[Database Init] Error creating tables/columns: {e}")
 
     # 2. Auto-seed tables if empty & cleanup stale calls
     async def seed_db_tables():

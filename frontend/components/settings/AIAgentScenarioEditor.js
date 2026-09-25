@@ -388,14 +388,14 @@ export default function AIAgentScenarioEditor({ agent, backendHost = "localhost:
   };
 
   useEffect(() => {
-    // Fetch Users & Extensions
-    fetch(`${API_BASE}/api/settings/users`)
+    // Fetch Real System Users & Extensions
+    fetch(`${API_BASE}/api/settings/users?tenant_id=all`)
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setSystemUsers(data); })
       .catch(err => console.error("Users fetch error:", err));
 
-    // Fetch ACD Queues
-    fetch(`${API_BASE}/api/settings/queues`)
+    // Fetch Real ACD Queues
+    fetch(`${API_BASE}/api/settings/queues?tenant_id=all`)
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setSystemQueues(data); })
       .catch(err => console.error("Queues fetch error:", err));
