@@ -133,17 +133,30 @@ export default function Home() {
 
   // Sync activeTab state changes to browser URL query string with Turkish Slugs (?tab=...)
   useEffect(() => {
-    if (typeof window !== "undefined" && activeTab) {
+    if (typeof window !== "undefined" && isLoggedIn && activeTab) {
       const turkishSlug = getTurkishSlugForTab(activeTab);
       const currentUrlParams = new URLSearchParams(window.location.search);
       const currentTabInUrl = currentUrlParams.get("tab");
-      if (currentTabInUrl !== turkishSlug) {
+      const currentPath = window.location.pathname;
+      const basePath = (currentPath === "/login" || currentPath === "/Login") ? "/" : currentPath;
+      if (currentTabInUrl !== turkishSlug || currentPath === "/login" || currentPath === "/Login") {
         currentUrlParams.set("tab", turkishSlug);
-        const newUrl = `${window.location.pathname}?${currentUrlParams.toString()}`;
+        const newUrl = `${basePath}?${currentUrlParams.toString()}`;
         window.history.replaceState({ tab: turkishSlug }, "", newUrl);
       }
     }
-  }, [activeTab]);
+  }, [activeTab, isLoggedIn]);
+
+  // Ensure /login URL when user is on login screen
+  useEffect(() => {
+    if (typeof window !== "undefined" && !isAuthChecking && !isLoggedIn) {
+      const currentPath = window.location.pathname;
+      const currentSearch = window.location.search;
+      if ((currentPath !== "/login" && currentPath !== "/Login") || currentSearch) {
+        window.history.replaceState(null, "", "/login");
+      }
+    }
+  }, [isAuthChecking, isLoggedIn]);
 
   // Support browser Back/Forward popstate navigation
   useEffect(() => {
@@ -969,7 +982,7 @@ export default function Home() {
       setCurrentUser(null);
       setIsLoggedIn(false);
       if (typeof window !== "undefined") {
-        window.location.href = "/";
+        window.location.href = "/login";
       }
     }
   };

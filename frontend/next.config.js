@@ -1,6 +1,15 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  async redirects() {
+    return [
+      {
+        source: '/Login',
+        destination: '/login',
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {
@@ -11,8 +20,6 @@ const nextConfig = {
         source: '/uploads/:path*',
         destination: 'http://127.0.0.1:8000/uploads/:path*',
       },
-
-
     ];
   },
 };

@@ -197,7 +197,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
         {/* Footer info */}
         <div className="text-center mt-8 opacity-60">
           <p className="text-[10px] text-slate-500 font-medium tracking-wide">
-            &copy; {new Date().getFullYear()} ANTIGRAVITY SYSTEMS.
+            &copy; {new Date().getFullYear()} AİDA. Tüm hakları saklıdır.
           </p>
         </div>
       </div>
