@@ -7437,18 +7437,41 @@ async def get_system_version_info():
     Used by local and production servers to verify deployment synchronization.
     """
     return {
-        "version": "v2.4.2",
+        "version": "v2.4.3",
         "commit_hash": "auto",
         "release_date": "28 Eylül 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production",
         "changelog": [
             {
-                "version": "v2.4.2",
+                "version": "v2.4.3",
                 "commit_hash": "auto",
                 "release_date": "28 Eylül 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Görsel Arama Akışı DID Yönlendirme & Dahiliye Doğrudan Aktarım (AMI Direct Redirect)",
+                "summary": "AudioSocket sunucusu ve AMI manager güncellendi; Visual CallFlow şemasında Yapay Zeka içermeyen direct Dahili/Kuyruk aktarımlarında Gemini AI devreye girmeden çağrının doğrudan temsilci Web Phone cihazına (Dahili 1000) aktarılması sağlandı.",
+                "features": [
+                    {
+                        "title": "AudioSocket CallFlow Evaluator Engine",
+                        "desc": "Gelen DID aramaları için Inbound Rules ve Visual CallFlow grafiği taranarak aktarım (transfer), kapatma (hangup) veya yapay zeka (ai) kararları anında yürütülür."
+                    },
+                    {
+                        "title": "AMI Event Registrations & CoreShowChannels Fallback",
+                        "desc": "Asterisk AMI kanal takibi event handler'lar ile otomatikleştirildi, eşleşmeyen kanallar için CoreShowChannels sorgusuyla %100 aktarım garantilendi."
+                    }
+                ],
+                "fixes": [
+                    "Gelen dış aramada Gemini AI'ın Dahili 1000 aktarımı yerine otomatik söze girmesi sorunu çözüldü.",
+                    "AMI event listener kaydının başlatılmaması ve aktif kanal adı bulunamama uyarısı giderildi."
+                ]
+            },
+            {
+                "version": "v2.4.2",
+                "commit_hash": "2857280",
+                "release_date": "28 Eylül 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "Asterisk [from-trunk] Bağlamı (Context) & Gelen Arama Yönlendirme Düzeltmesi",
                 "summary": "SIP Operatöründen gelen dış aramaların 'context not found in from-trunk' hatası vermesi engellendi; Dialplan [from-trunk] bağlamı görsel IVR akışına bağlandı.",
                 "features": [

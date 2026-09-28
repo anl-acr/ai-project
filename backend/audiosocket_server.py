@@ -285,61 +285,86 @@ async def get_call_did(call_id: str) -> str:
         print(f"Error querying call DID from DB: {e}")
     return "s"
 
-def get_ai_agent_for_did(did: str) -> dict:
-    """Finds the AI Agent configured for the dialed DID via Inbound Rules -> Call Flow."""
+def evaluate_call_flow_action(did: str) -> dict:
+    """
+    Evaluates Inbound Rules and Visual CallFlow workflows for the given DID.
+    Returns a dictionary describing the route action:
+      - {"action": "transfer", "target": "1000", "context": "webrtc_agents"}
+      - {"action": "hangup"}
+      - {"action": "ai", "agent": ai_agent_dict, "agent_id": "..."}
+    """
     if not did:
         did = "s"
     
     settings = load_settings()
+    inbound_rules = settings.get("inbound_rules", [])
     
     # 1. Match Inbound Rule
     matched_rule = None
-    inbound_rules = settings.get("inbound_rules", [])
-    
-    # Try match
     for rule in inbound_rules:
         match_mode = rule.get("did_match_mode", "all")
         if match_mode == "all":
             matched_rule = rule
-            # Keep looking for a more specific match if any
         elif match_mode == "specific":
             patterns = rule.get("did_patterns", [])
             for p in patterns:
-                if p and (p == did or did in p or p.strip('0') == did.strip('0')):
+                if p and (p == did or did in p or p.strip('0') == did.strip('0') or p.endswith(did) or did.endswith(p)):
                     matched_rule = rule
                     break
             if matched_rule and match_mode == "specific":
                 break
 
     if not matched_rule:
-        return None
+        ai_agents = settings.get("ai_agents", [])
+        active_agent = next((a for a in ai_agents if a.get("status") != "disabled"), ai_agents[0] if ai_agents else None)
+        return {"action": "ai", "agent": active_agent, "agent_id": active_agent.get("id") if active_agent else None}
 
-    # 2. Match Call Flow
     dest_type = matched_rule.get("destination_type")
     dest_id = matched_rule.get("destination_id")
-    
-    if dest_type != "call_flow" or not dest_id:
-        return None
-        
-    # Find workflow
-    workflows = settings.get("workflows", [])
-    workflow = next((w for w in workflows if w.get("id") == dest_id), None)
-    if not workflow:
-        return None
-        
-    # 3. Extract AI Agent ID from Workflow nodes
-    agent_id = None
-    for node in workflow.get("nodes", []):
-        if node.get("type") == "ai_agent":
-            agent_id = node.get("value")
-            break
-            
-    if not agent_id:
-        return None
-        
-    # 4. Return AI Agent
+
+    # 2. Direct destination types
+    if dest_type in ["extension", "user", "agent", "human"]:
+        return {"action": "transfer", "target": str(dest_id or "1000"), "context": "webrtc_agents"}
+    elif dest_type == "queue":
+        return {"action": "transfer", "target": str(dest_id or "2000"), "context": "webrtc_agents"}
+    elif dest_type == "hangup":
+        return {"action": "hangup"}
+    elif dest_type in ["ai", "ai_agent"]:
+        ai_agents = settings.get("ai_agents", [])
+        agent = next((a for a in ai_agents if a.get("id") == dest_id), None)
+        return {"action": "ai", "agent": agent, "agent_id": dest_id}
+
+    # 3. Visual CallFlow (Workflow)
+    if dest_type == "call_flow":
+        workflows = settings.get("workflows", [])
+        workflow = next((w for w in workflows if w.get("id") == dest_id), None)
+        if not workflow:
+            ai_agents = settings.get("ai_agents", [])
+            return {"action": "ai", "agent": ai_agents[0] if ai_agents else None}
+
+        nodes = workflow.get("nodes", [])
+        for node in nodes:
+            ntype = str(node.get("type", "")).lower()
+            if ntype in ["transfer", "extension", "user", "queue", "agent_transfer"]:
+                val = node.get("value") or node.get("target") or (node.get("data", {}).get("target") if isinstance(node.get("data"), dict) else None)
+                if val:
+                    return {"action": "transfer", "target": str(val), "context": "webrtc_agents"}
+            elif ntype in ["ai", "ai_agent"]:
+                val = node.get("value") or node.get("agent_id") or (node.get("data", {}).get("agent_id") if isinstance(node.get("data"), dict) else None)
+                if val:
+                    ai_agents = settings.get("ai_agents", [])
+                    agent = next((a for a in ai_agents if a.get("id") == val), None)
+                    return {"action": "ai", "agent": agent, "agent_id": val}
+            elif ntype == "hangup":
+                return {"action": "hangup"}
+
     ai_agents = settings.get("ai_agents", [])
-    return next((a for a in ai_agents if a.get("id") == agent_id), None)
+    return {"action": "ai", "agent": ai_agents[0] if ai_agents else None}
+
+def get_ai_agent_for_did(did: str) -> dict:
+    """Finds the AI Agent configured for the dialed DID via Inbound Rules -> Call Flow."""
+    eval_res = evaluate_call_flow_action(did)
+    return eval_res.get("agent")
 
 def resample_8k_to_16k(data: bytes) -> bytes:
     """Resamples 8kHz mono 16-bit PCM to 16kHz mono 16-bit PCM (simple sample doubling)."""
@@ -654,10 +679,36 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         # 2. Wait for Asterisk connection
         
 
-        # Get dynamic AI Agent based on dialed DID (Wait 200ms to ensure dialplan API request is fully processed)
+        # Get dynamic Call Flow Action based on dialed DID (Wait 200ms to ensure dialplan API request is fully processed)
         await asyncio.sleep(0.2)
         did = await get_call_did(call_id)
-        ai_agent = get_ai_agent_for_did(did)
+        call_eval = evaluate_call_flow_action(did)
+        
+        route_action = call_eval.get("action")
+        print(f"[Call Flow Route] DID: {did} -> Action: {route_action}, Target/Agent: {call_eval.get('target') or call_eval.get('agent_id')}")
+
+        if route_action == "transfer":
+            target_ext = call_eval.get("target", "1000")
+            print(f"[Call Flow Route] DID: {did} -> Direct Transfer to Extension: {target_ext}")
+            from backend.services.ami_manager import redirect_call_to_human
+            await asyncio.sleep(0.3)
+            success = await redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents")
+            if not success:
+                await asyncio.sleep(0.5)
+                await redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents")
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        elif route_action == "hangup":
+            print(f"[Call Flow Route] DID: {did} -> Call Hangup Requested")
+            from backend.services.ami_manager import hangup_call
+            await hangup_call(call_id)
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        ai_agent = call_eval.get("agent")
         if ai_agent:
             print(f"Arama DID: {did} -> Secilen AI Agent: {ai_agent.get('name')} ({ai_agent.get('id')})")
         else:

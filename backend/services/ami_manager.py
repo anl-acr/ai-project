@@ -70,7 +70,8 @@ async def get_ami_manager() -> Manager:
                 loop=asyncio.get_event_loop()
             )
             await asyncio.wait_for(manager_instance.connect(), timeout=1.5)
-            print("[AMI] Connected successfully!")
+            register_event_handlers(manager_instance)
+            print("[AMI] Connected successfully and event handlers registered!")
             
             # Fetch initial SIP registration states (only active registered contacts)
             try:
@@ -105,6 +106,30 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
 
     ast_id = call_id_to_asterisk_id.get(call_id, call_id)
     channel_name = active_channels.get(ast_id)
+    
+    if not channel_name:
+        for k, v in list(active_channels.items()):
+            if k in ast_id or ast_id in k or k in call_id or call_id in k:
+                channel_name = v
+                break
+                
+    if not channel_name:
+        try:
+            res = await manager.send_action({"Action": "CoreShowChannels"})
+            if res and hasattr(res, 'responses'):
+                for r in res.responses:
+                    ch = r.get('Channel')
+                    uid = r.get('Uniqueid')
+                    if ch and uid:
+                        active_channels[uid] = ch
+                        if uid == ast_id or uid in ast_id or ast_id in uid:
+                            channel_name = ch
+            if not channel_name and active_channels:
+                if len(active_channels) == 1:
+                    channel_name = list(active_channels.values())[0]
+        except Exception as ex:
+            print(f"[AMI] CoreShowChannels error: {ex}")
+
     if not channel_name:
         print(f"[AMI] Hata: UniqueID {call_id} (Asterisk ID: {ast_id}) için aktif kanal adi bulunamadi.")
         return False
@@ -115,7 +140,7 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
     action = {
         'Action': 'Redirect',
         'Channel': channel_name,
-        'Exten': extension,
+        'Exten': str(extension),
         'Context': context,
         'Priority': '1'
     }
