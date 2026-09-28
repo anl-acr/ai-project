@@ -1847,7 +1847,7 @@ async def add_or_update_trunk(payload: TrunkSettingsSchema, background_tasks: Ba
     
     return {"status": "success", "message": "SIP Trunk başarıyla kaydedildi.", "trunk": data}
 
-@app.delete("/api/settings/trunks/{trunk_id}")
+@app.delete("/api/v1_old/settings/trunks/{trunk_id}")
 async def delete_trunk(trunk_id: int, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info)):
     settings_db["trunks"] = [t for t in settings_db["trunks"] if t["id"] != trunk_id]
     save_settings(settings_db)
@@ -7393,9 +7393,18 @@ async def new_delete_trunk(trunk_id: int, user_info: dict = Depends(get_user_inf
         out = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in all_trunks]
 
         settings_db["needs_apply"] = True
-        settings_db["trunks"] = out
+        settings_db["trunks"] = [x for x in out if str(x.get("id")) != str(trunk_id)]
+        try:
+            save_settings(settings_db)
+        except Exception:
+            pass
 
-        return {"status": "success", "trunks": out}
+        try:
+            regenerate_pjsip_custom_conf()
+        except Exception as e_ast:
+            print(f"[Trunk Delete Config Regeneration Warning]: {e_ast}")
+
+        return {"status": "success", "message": "SIP Trunk başarıyla silindi.", "trunks": settings_db["trunks"]}
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"SIP Trunk silinirken hata oluştu: {str(e)}")
