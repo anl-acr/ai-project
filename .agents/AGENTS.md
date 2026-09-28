@@ -96,7 +96,10 @@
   - **Telegram Bot API**: Inbound messages handled via `POST /api/webhooks/telegram`. Outbound messages dispatched via `backend/services/telegram_service.py` (`send_telegram_message`).
   - **Meta Direct (Instagram & Facebook Messenger)**: Webhook endpoints `GET/POST /api/webhooks/meta`, `/api/webhooks/instagram`, `/api/webhooks/facebook`. Outbound messages dispatched via `backend/services/meta_service.py` (`send_meta_message`) using Meta Graph API `v18.0`.
   - **E-Posta (SMTP & IMAP Polling)**: Outbound emails sent via `backend/services/email_service.py` (`send_email_message` - SMTP SSL/TLS). Background poller worker `poll_imap_inbox()` fetches unread emails every 30 seconds and feeds incoming messages into `handle_inbound_chat_message`.
-  - **Gemini Multi-Channel Context & Tone Adapters**: AI auto-replies in `backend/services/chat_service.py` dynamically adjust tone (formal email format vs friendly social media format with emojis) based on channel type.
+- **System Versioning & Deployment Verification Architecture (v2.4.1)**:
+  - Central version registry endpoint `GET /api/settings/version` (and `/api/version`) returns current version code (`v2.4.1`), build Git commit hash (`44442fa`), release date, and detailed version changelog history.
+  - System Settings includes a dedicated visual panel `<ChangelogPanel />` under **Sistem Ayarları > Sistem Versiyonu & Günlük** (`?subtab=sistem-versiyonu`).
+  - Features a one-click **Versiyon Kodu Kopyala** button (`v2.4.1 - 44442fa`) allowing quick comparison between local and remote production server deployments.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
