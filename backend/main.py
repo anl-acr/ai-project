@@ -1708,6 +1708,15 @@ def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks
 ; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
 ; ==========================================
 
+[from-trunk]
+include => default
+
+[from-pstn]
+include => default
+
+[from-sip]
+include => default
+
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
@@ -7428,18 +7437,36 @@ async def get_system_version_info():
     Used by local and production servers to verify deployment synchronization.
     """
     return {
-        "version": "v2.4.1",
-        "commit_hash": "55906cc",
+        "version": "v2.4.2",
+        "commit_hash": "auto",
         "release_date": "28 Eylül 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production",
         "changelog": [
             {
-                "version": "v2.4.1",
-                "commit_hash": "55906cc",
+                "version": "v2.4.2",
+                "commit_hash": "auto",
                 "release_date": "28 Eylül 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Asterisk [from-trunk] Bağlamı (Context) & Gelen Arama Yönlendirme Düzeltmesi",
+                "summary": "SIP Operatöründen gelen dış aramaların 'context not found in from-trunk' hatası vermesi engellendi; Dialplan [from-trunk] bağlamı görsel IVR akışına bağlandı.",
+                "features": [
+                    {
+                        "title": "Asterisk [from-trunk] Dialplan Entegrasyonu",
+                        "desc": "PJSIP dış hatlarından gelen çağrılar [from-trunk] bağlamında yakalanarak görsel IVR akış şemasına yönlendirildi."
+                    }
+                ],
+                "fixes": [
+                    "Asterisk 'extension not found in context from-trunk' hatası giderildi."
+                ]
+            },
+            {
+                "version": "v2.4.1",
+                "commit_hash": "55906cc",
+                "release_date": "28 Eylül 2026",
+                "badge": "Stabil",
+                "badge_type": "minor",
                 "title": "SIP Trunk Silme & Çakışan Rota Düzeltmesi",
                 "summary": "Mükerrer delete uç noktaları temizlenerek veritabanı, JSON saklama ve Asterisk PJSIP konfigürasyonları tam senkronize edildi.",
                 "features": [

@@ -294,6 +294,15 @@ remove_existing=yes
 ; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
 ; ==========================================
 
+[from-trunk]
+include => default
+
+[from-pstn]
+include => default
+
+[from-sip]
+include => default
+
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
