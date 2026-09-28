@@ -363,14 +363,50 @@ same => n,Hangup()
 exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${CALL_UUID}, Status: ${DIALSTATUS}, Cause: ${HANGUPCAUSE})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE})})
 
-exten => _2XX,1,NoOp(ACL kontrol ediliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
+; İç hat (Diğer temsilciler & Dahililer) aramaları için (1000, 1001, 200 vb.)
+exten => _[1-9]X.,1,NoOp(ACL kontrol ediliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
 same => n,Set(ACL_RESULT=${CURL(http://127.0.0.1:8000/api/acl/check_subscriber_call?caller=${CALLERID(num)}&callee=${EXTEN})})
 same => n,GotoIf($["${ACL_RESULT}" = "ALLOW"]?allow:deny)
 same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Playback(ss-noservice)
 same => n,Hangup()
-same => n(allow),NoOp(ACL ONAYLANDI: Arama baslatiliyor)
-same => n,Dial(PJSIP/${EXTEN})
+same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
+
+; 1. Ön Yönlendirme Kontrolü (Offline / Koşulsuz Yönlendirme)
+same => n,Set(FWD_PRE=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_forwarding?extension=${EXTEN}&dialstatus=BEFORE_DIAL)})
+same => n,Set(FWD_STATUS=${CUT(FWD_PRE,:,1)})
+same => n,Set(FWD_TARGET=${CUT(FWD_PRE,:,2)})
+same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:dial_pjsip)
+
+; 2. PJSIP Dahili Arama (30 saniye)
+same => n(dial_pjsip),NoOp(PJSIP Dahiliye Arama Yapiliyor: PJSIP/${EXTEN})
+same => n,Dial(PJSIP/${EXTEN},30,tT)
+same => n,NoOp(PJSIP Arama Sonucu: ${DIALSTATUS})
+same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call)
+
+; 3. Sonrası Yönlendirme Kontrolü (Meşgul / Cevapsız / Ulaşılamıyor Yönlendirmesi)
+same => n,Set(FWD_POST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_forwarding?extension=${EXTEN}&dialstatus=${DIALSTATUS})})
+same => n,Set(FWD_STATUS=${CUT(FWD_POST,:,1)})
+same => n,Set(FWD_TARGET=${CUT(FWD_POST,:,2)})
+same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:end_call)
+
+; 4. Yönlendirme Uygulama Bağlamı
+same => n(forward_call),NoOp(Yonlendirme Aktif! Hedef: ${FWD_TARGET})
+same => n,Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
+same => n,Set(RAW_NUM=${IF($["${FWD_TARGET:0:1}"="0"]?90${FWD_TARGET:1}:${FWD_TARGET})})
+same => n,Set(CLEAN_TARGET=${IF($["${RAW_NUM:0:2}"="90"]?${RAW_NUM}:90${RAW_NUM})})
+same => n,GotoIf($[${LEN(${FWD_TARGET})} < 6]?dial_internal_fwd:dial_external_fwd)
+
+same => n(dial_internal_fwd),NoOp(Ic Dahili Yonlendirme: PJSIP/${FWD_TARGET})
+same => n,Dial(PJSIP/${FWD_TARGET},30,tT)
+same => n,Hangup()
+
+same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Yonlendirme: PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060,60,r)
+same => n,Hangup()
+
+same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${DIALSTATUS})
 same => n,Hangup()
 
 [mobile_transfer_context]

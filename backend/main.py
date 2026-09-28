@@ -1793,8 +1793,43 @@ same => n,GotoIf($["${{ACL_RESULT}}" = "ALLOW"]?allow:deny)
 same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Playback(ss-noservice)
 same => n,Hangup()
-same => n(allow),NoOp(ACL ONAYLANDI: Arama baslatiliyor)
+same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
+
+; 1. Ön Yönlendirme Kontrolü (Offline / Koşulsuz Yönlendirme)
+same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL)}})
+same => n,Set(FWD_STATUS=${{CUT(FWD_PRE,:,1)}})
+same => n,Set(FWD_TARGET=${{CUT(FWD_PRE,:,2)}})
+same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
+
+; 2. PJSIP Dahili Arama (30 saniye)
+same => n(dial_pjsip),NoOp(PJSIP Dahiliye Arama Yapiliyor: PJSIP/${{EXTEN}})
 same => n,Dial(PJSIP/${{EXTEN}},30,tT)
+same => n,NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
+same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
+
+; 3. Sonrası Yönlendirme Kontrolü (Meşgul / Cevapsız / Ulaşılamıyor Yönlendirmesi)
+same => n,Set(FWD_POST=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=${{DIALSTATUS}})}})
+same => n,Set(FWD_STATUS=${{CUT(FWD_POST,:,1)}})
+same => n,Set(FWD_TARGET=${{CUT(FWD_POST,:,2)}})
+same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
+
+; 4. Yönlendirme Uygulama Bağlamı
+same => n(forward_call),NoOp(Yonlendirme Aktif! Hedef: ${{FWD_TARGET}})
+same => n,Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
+same => n,Set(RAW_NUM=${{IF($["${{FWD_TARGET:0:1}}"="0"]?90${{FWD_TARGET:1}}:${{FWD_TARGET}})}})
+same => n,Set(CLEAN_TARGET=${{IF($["${{RAW_NUM:0:2}}"="90"]?${{RAW_NUM}}:90${{RAW_NUM}})}})
+same => n,GotoIf($[${{LEN(${{FWD_TARGET}})}} < 6]?dial_internal_fwd:dial_external_fwd)
+
+same => n(dial_internal_fwd),NoOp(Ic Dahili Yonlendirme: PJSIP/${{FWD_TARGET}})
+same => n,Dial(PJSIP/${{FWD_TARGET}},30,tT)
+same => n,Hangup()
+
+same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Yonlendirme: PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060,60,r)
+same => n,Hangup()
+
+same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${{DIALSTATUS}})
 same => n,Hangup()
 
 [mobile_transfer_context]
@@ -3534,6 +3569,91 @@ async def check_subscriber_call(caller: str, callee: str):
             return Response(content="ALLOW", media_type="text/plain")
             
     return Response(content="DENY", media_type="text/plain")
+
+@app.get("/api/subscriber/resolve_forwarding")
+async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFORE_DIAL", db: AsyncSession = Depends(get_db)):
+    """
+    Checks if extension has call forwarding or mobile transfer enabled.
+    Returns 'ALLOW:target_number' if forwarding should occur, or 'DENY:NONE' if no forwarding.
+    """
+    try:
+        ext_str = str(extension).strip()
+        
+        stmt = select(SystemUser).where(or_(SystemUser.extension == ext_str, SystemUser.username == ext_str))
+        res = await db.execute(stmt)
+        user = res.scalars().first()
+        
+        user_dict = None
+        if user:
+            user_dict = {c.name: getattr(user, c.name) for c in user.__table__.columns}
+        else:
+            all_users = settings_db.get("users", [])
+            for u in all_users:
+                if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str:
+                    user_dict = u
+                    break
+
+        if not user_dict:
+            return Response(content="DENY:NONE", media_type="text/plain")
+
+        from backend.services.ami_manager import registered_endpoints
+        is_registered = (ext_str in registered_endpoints)
+
+        def extract_target(f_obj):
+            if not f_obj:
+                return None
+            if isinstance(f_obj, dict):
+                if f_obj.get("enabled") or f_obj.get("active"):
+                    return f_obj.get("target") or f_obj.get("number") or f_obj.get("destination")
+                return None
+            if isinstance(f_obj, str) and f_obj.strip():
+                return f_obj.strip()
+            return None
+
+        # 1. Check forwarding_always
+        f_always = extract_target(user_dict.get("forwarding_always"))
+        if f_always:
+            print(f"[Forwarding Resolver] Extension {ext_str} -> Always Forwarding to: {f_always}")
+            return Response(content=f"ALLOW:{f_always}", media_type="text/plain")
+
+        # 2. Check mobile_transfer_enabled & gsm_number
+        mobile_enabled = bool(user_dict.get("mobile_transfer_enabled", False))
+        gsm_num = str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or "").strip()
+
+        # 3. Offline / failed dial status checks
+        is_offline_or_failed = (not is_registered) or dialstatus in ["CHANUNAVAIL", "CONGESTION", "BUSY", "NOANSWER", "UNREACHABLE"]
+        
+        if is_offline_or_failed:
+            if dialstatus == "BUSY":
+                f_busy = extract_target(user_dict.get("forwarding_busy"))
+                if f_busy:
+                    print(f"[Forwarding Resolver] Extension {ext_str} (BUSY) -> Forwarding to: {f_busy}")
+                    return Response(content=f"ALLOW:{f_busy}", media_type="text/plain")
+
+            if dialstatus == "NOANSWER":
+                f_noans = extract_target(user_dict.get("forwarding_no_answer"))
+                if f_noans:
+                    print(f"[Forwarding Resolver] Extension {ext_str} (NOANSWER) -> Forwarding to: {f_noans}")
+                    return Response(content=f"ALLOW:{f_noans}", media_type="text/plain")
+
+            if mobile_enabled and gsm_num:
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE/FAILED) -> Mobile Transfer to GSM: {gsm_num}")
+                return Response(content=f"ALLOW:{gsm_num}", media_type="text/plain")
+
+            f_busy = extract_target(user_dict.get("forwarding_busy"))
+            if f_busy:
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Fallback Busy Forwarding to: {f_busy}")
+                return Response(content=f"ALLOW:{f_busy}", media_type="text/plain")
+
+            f_noans = extract_target(user_dict.get("forwarding_no_answer"))
+            if f_noans:
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Fallback NoAnswer Forwarding to: {f_noans}")
+                return Response(content=f"ALLOW:{f_noans}", media_type="text/plain")
+
+    except Exception as e:
+        print(f"[Resolve Forwarding Error]: {e}")
+
+    return Response(content="DENY:NONE", media_type="text/plain")
 
 # --- Speed Dials ---
 @app.get("/api/settings/speed_dials")
@@ -7440,18 +7560,40 @@ async def get_system_version_info():
     Used by local and production servers to verify deployment synchronization.
     """
     return {
-        "version": "v2.4.4",
+        "version": "v2.4.5",
         "commit_hash": "auto",
         "release_date": "28 Eylül 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production",
         "changelog": [
             {
-                "version": "v2.4.4",
+                "version": "v2.4.5",
                 "commit_hash": "auto",
                 "release_date": "28 Eylül 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Dahili Çağrı Yönlendirme (Call Forwarding) & Çevrimdışı Mobil Aktarım Entegrasyonu",
+                "summary": "Asterisk dialplan webrtc_agents bağlamı ve /api/subscriber/resolve_forwarding servisi güncellendi; Dahili (1000) SIP kaydı olmasa (offline/unreachable) veya cevapsız/meşgul olsa dahi tanımlı Cep Telefonuna (GSM / Mobil Aktarım) veya Yönlendirme numarasına otomatik aktarılması sağlandı.",
+                "features": [
+                    {
+                        "title": "Dinamik Subscriber Forwarding Resolver Engine",
+                        "desc": "/api/subscriber/resolve_forwarding servisi kullanıcının forwarding_always, forwarding_busy, forwarding_no_answer ve mobile_transfer_enabled durumlarını anlık taranarak otomatik telefon numarasına yönlendirir."
+                    },
+                    {
+                        "title": "Dialplan Ön & Sonrası Yönlendirme Kontrolü (Pre & Post Dial Forwarding)",
+                        "desc": "Dahiliye arama yapılmadan önce SIP registration durumu kontrol edilerek offline kullanıcılarda anında GSM hatlarına yönlendirme yapılır."
+                    }
+                ],
+                "fixes": [
+                    "SIP kaydı kapalı olan dahililerde (1000) yönlendirme olmasına rağmen çağrının düşmesi/kapanması sorunu çözüldü."
+                ]
+            },
+            {
+                "version": "v2.4.4",
+                "commit_hash": "c4b0cdc",
+                "release_date": "28 Eylül 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "Asterisk 's' Uzantısı Dinamik DID Çözümleme & Gelen Arama Kayıt Düzeltmesi",
                 "summary": "SIP Operatöründen gelen çağrılarda Asterisk dialplan 's' uzantısında PJSIP To başlığı ve kanal adı üzerinden gerçek DID (REAL_DID) çözümlendi; AudioSocket fallback ile DID 's' gelse dahi görsel arama akışı Dahili 1000 aktarımına bağlandı.",
                 "features": [
