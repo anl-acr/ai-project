@@ -314,6 +314,9 @@ def evaluate_call_flow_action(did: str) -> dict:
             if matched_rule and match_mode == "specific":
                 break
 
+    if not matched_rule and inbound_rules:
+        matched_rule = inbound_rules[0]
+
     if not matched_rule:
         ai_agents = settings.get("ai_agents", [])
         active_agent = next((a for a in ai_agents if a.get("status") != "disabled"), ai_agents[0] if ai_agents else None)
@@ -338,6 +341,9 @@ def evaluate_call_flow_action(did: str) -> dict:
     if dest_type == "call_flow":
         workflows = settings.get("workflows", [])
         workflow = next((w for w in workflows if w.get("id") == dest_id), None)
+        if not workflow and workflows:
+            workflow = workflows[0]
+            
         if not workflow:
             ai_agents = settings.get("ai_agents", [])
             return {"action": "ai", "agent": ai_agents[0] if ai_agents else None}

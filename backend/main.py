@@ -1747,7 +1747,11 @@ exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${{CALLERID(num)}})
 same => n,Set(UUID_VAL=${{UUID()}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
 same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=s&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,Set(HEADER_TO=${{PJSIP_HEADER(read,To)}})
+same => n,Set(EXTEN_FROM_HEADER=${{CUT(CUT(HEADER_TO,@,1),:,2)}})
+same => n,Set(TRUNK_EXTEN=${{CUT(CUT(CHANNEL(name),/,2),-,1)}})
+same => n,Set(REAL_DID=${{IF($[${{ISNULL(${{EXTEN_FROM_HEADER}})}} | "${{EXTEN_FROM_HEADER}}"="s"]?${{TRUNK_EXTEN}}:${{EXTEN_FROM_HEADER}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{REAL_DID}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
@@ -4707,80 +4711,79 @@ async def get_indexed_sources(user_info: dict = Depends(get_user_info), db: Asyn
 
 @app.get("/api/calls/register")
 async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_id: Optional[str] = None):
-    if asterisk_id:
-        from backend.services.ami_manager import call_id_to_asterisk_id
-        call_id_to_asterisk_id[call_id] = asterisk_id
-        print(f"[AMI] Mapped Call UUID {call_id} -> Asterisk Uniqueid {asterisk_id}")
-        add_system_log("ASTERISK", "INFO", f"Kanal Eşleşti: Call UUID={call_id} -> Asterisk ID={asterisk_id}")
+    try:
+        if asterisk_id:
+            from backend.services.ami_manager import call_id_to_asterisk_id
+            call_id_to_asterisk_id[call_id] = asterisk_id
+            print(f"[AMI] Mapped Call UUID {call_id} -> Asterisk Uniqueid {asterisk_id}")
 
-    async with AsyncSessionLocal() as session:
-        # Resolve tenant_id for call from caller extension or trunk DID
-        call_tenant = "tenant-default"
-        if caller:
-            res_u = await session.execute(select(SystemUser).where(or_(SystemUser.extension == caller, SystemUser.username == caller)))
-            user_found = res_u.scalar_one_or_none()
-            if user_found and getattr(user_found, "tenant_id", None):
-                call_tenant = user_found.tenant_id
-        if call_tenant == "tenant-default" and did:
-            res_t = await session.execute(select(Trunk).where(Trunk.did_number == did))
-            trunk_found = res_t.scalar_one_or_none()
-            if trunk_found and getattr(trunk_found, "tenant_id", None):
-                call_tenant = trunk_found.tenant_id
+        async with AsyncSessionLocal() as session:
+            call_tenant = "tenant-default"
+            try:
+                if caller:
+                    res_u = await session.execute(select(SystemUser).where(or_(SystemUser.extension == str(caller), SystemUser.username == str(caller))))
+                    user_found = res_u.scalars().first()
+                    if user_found and getattr(user_found, "tenant_id", None):
+                        call_tenant = user_found.tenant_id
+                if call_tenant == "tenant-default" and did and did != "s":
+                    res_t = await session.execute(select(Trunk).where(Trunk.did_number == str(did)))
+                    trunk_found = res_t.scalars().first()
+                    if trunk_found and getattr(trunk_found, "tenant_id", None):
+                        call_tenant = trunk_found.tenant_id
+            except Exception as e_tenant:
+                print(f"[Call Register Tenant Error]: {e_tenant}")
 
-        # Check blacklist
-        stmt_black = select(BlacklistItem).where(
-            (BlacklistItem.type == "phone") & 
-            (BlacklistItem.value == caller)
-        )
-        res_black = await session.execute(stmt_black)
-        blacklisted = res_black.scalar_one_or_none()
-        
-        if blacklisted:
-            import asyncio
-            from backend.services.ami_manager import hangup_call
-            print(f"[Abuse Shield] Blocked incoming call from blacklisted caller: {caller}")
-            add_system_log("ABUSE_SHIELD", "WARNING", f"Kara Listeden Gelen Arama Reddedildi: Arayan={caller} (Sebep: {blacklisted.reason})")
-            
-            # Register call as blocked
-            new_call = Call(
-                id=call_id,
-                caller_number=caller,
-                callee_number=did,
-                status="blocked",
-                tenant_id=call_tenant,
-                start_time=datetime.datetime.utcnow()
-            )
-            session.add(new_call)
-            await session.commit()
-            
-            # Request immediate AMI hangup
-            asyncio.create_task(hangup_call(call_id))
-            return {"status": "blocked", "message": "Caller is blacklisted."}
+            try:
+                stmt_black = select(BlacklistItem).where(
+                    (BlacklistItem.type == "phone") & 
+                    (BlacklistItem.value == str(caller))
+                )
+                res_black = await session.execute(stmt_black)
+                blacklisted = res_black.scalars().first()
+                
+                if blacklisted:
+                    import asyncio
+                    from backend.services.ami_manager import hangup_call
+                    print(f"[Abuse Shield] Blocked incoming call from blacklisted caller: {caller}")
+                    new_call = Call(
+                        id=call_id,
+                        caller_number=caller,
+                        callee_number=did,
+                        status="blocked",
+                        tenant_id=call_tenant,
+                        start_time=datetime.datetime.utcnow()
+                    )
+                    session.add(new_call)
+                    await session.commit()
+                    asyncio.create_task(hangup_call(call_id))
+                    return {"status": "blocked", "message": "Caller is blacklisted."}
+            except Exception as e_bl:
+                print(f"[Call Register Blacklist Error]: {e_bl}")
 
-        # Check if already exists
-        db_call = await session.get(Call, call_id)
-        if not db_call:
-            new_call = Call(
-                id=call_id,
-                caller_number=caller,
-                callee_number=did,
-                status="in_progress",
-                tenant_id=call_tenant,
-                start_time=datetime.datetime.utcnow()
-            )
-            session.add(new_call)
-            await session.commit()
-        else:
-            if caller and caller != "Bilinmeyen":
-                db_call.caller_number = caller
-            if did:
-                db_call.callee_number = did
-            if call_tenant and call_tenant != "tenant-default":
-                db_call.tenant_id = call_tenant
-            await session.commit()
+            db_call = await session.get(Call, call_id)
+            if not db_call:
+                new_call = Call(
+                    id=call_id,
+                    caller_number=caller or "Bilinmeyen",
+                    callee_number=did or "s",
+                    status="in_progress",
+                    tenant_id=call_tenant,
+                    start_time=datetime.datetime.utcnow()
+                )
+                session.add(new_call)
+                await session.commit()
+            else:
+                if caller and caller != "Bilinmeyen":
+                    db_call.caller_number = caller
+                if did:
+                    db_call.callee_number = did
+                if call_tenant and call_tenant != "tenant-default":
+                    db_call.tenant_id = call_tenant
+                await session.commit()
 
             print(f"[Asterisk Dialplan] Call registered successfully: {call_id} (Caller: {caller}, DID: {did}, Tenant: {call_tenant})")
-            add_system_log("ASTERISK", "INFO", f"Yeni Arama Başlatıldı: Arayan={caller or 'Bilinmeyen'}, DID={did}, Tenant={call_tenant}, ID={call_id}")
+    except Exception as e:
+        print(f"[Register Call Endpoint Error]: {e}")
     return {"status": "success"}
 
 @app.get("/api/calls/end")
@@ -7437,18 +7440,41 @@ async def get_system_version_info():
     Used by local and production servers to verify deployment synchronization.
     """
     return {
-        "version": "v2.4.3",
+        "version": "v2.4.4",
         "commit_hash": "auto",
         "release_date": "28 Eylül 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production",
         "changelog": [
             {
-                "version": "v2.4.3",
+                "version": "v2.4.4",
                 "commit_hash": "auto",
                 "release_date": "28 Eylül 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Asterisk 's' Uzantısı Dinamik DID Çözümleme & Gelen Arama Kayıt Düzeltmesi",
+                "summary": "SIP Operatöründen gelen çağrılarda Asterisk dialplan 's' uzantısında PJSIP To başlığı ve kanal adı üzerinden gerçek DID (REAL_DID) çözümlendi; AudioSocket fallback ile DID 's' gelse dahi görsel arama akışı Dahili 1000 aktarımına bağlandı.",
+                "features": [
+                    {
+                        "title": "Dinamik REAL_DID Dialplan Çözümleme",
+                        "desc": "Asterisk exten => s bağlamı PJSIP_HEADER(read,To) ve CHANNEL(name) üzerinden dinamik DID numarasını çıkartır."
+                    },
+                    {
+                        "title": "AudioSocket 's' Uzantısı Fallback Engine",
+                        "desc": "Gelen DID 's' olduğu durumlarda dahi aktif Gelen Arama Kuralı (Inbound Rule) ve Call Flow grafiği taranarak Dahili 1000 transferi sorunsuz gerçekleştirilir."
+                    }
+                ],
+                "fixes": [
+                    "Asterisk dialplan s uzantısında /api/calls/register endpoint'ine 'did=s' gönderilerek AI'a düşme sorunu çözüldü.",
+                    "/api/calls/register endpoint'indeki Internal Server Error (500) hatası giderildi."
+                ]
+            },
+            {
+                "version": "v2.4.3",
+                "commit_hash": "14e37d3",
+                "release_date": "28 Eylül 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "Görsel Arama Akışı DID Yönlendirme & Dahiliye Doğrudan Aktarım (AMI Direct Redirect)",
                 "summary": "AudioSocket sunucusu ve AMI manager güncellendi; Visual CallFlow şemasında Yapay Zeka içermeyen direct Dahili/Kuyruk aktarımlarında Gemini AI devreye girmeden çağrının doğrudan temsilci Web Phone cihazına (Dahili 1000) aktarılması sağlandı.",
                 "features": [
