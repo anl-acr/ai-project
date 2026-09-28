@@ -118,6 +118,10 @@ export default function Home() {
   const router = useRouter();
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+  const [loginError, setLoginError] = useState("");
 
   // Read URL query tab parameter on initial page mount or popstate
   useEffect(() => {
@@ -200,10 +204,6 @@ export default function Home() {
   const [hasTrunksPermission, setHasTrunksPermission] = useState(false);
   const [hasConferencesPermission, setHasConferencesPermission] = useState(false);
   const [hasSpeedDialPermission, setHasSpeedDialPermission] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [isAuthChecking, setIsAuthChecking] = useState(true);
-  const [loginError, setLoginError] = useState("");
   const [gsmNumber, setGsmNumber] = useState("");
   const [mobileTransferEnabled, setMobileTransferEnabled] = useState(false);
   const [tempThemeColor, setTempThemeColor] = useState("99, 102, 241");
