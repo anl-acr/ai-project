@@ -46,7 +46,11 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
   const [nodes, setNodes] = useState([]);
   const [connections, setConnections] = useState([]);
   const [trunkId, setTrunkId] = useState(1);
+  const [trunks, setTrunks] = useState([]);
   const [aiAgents, setAiAgents] = useState([]);
+  const [systemUsers, setSystemUsers] = useState([]);
+  const [queues, setQueues] = useState([]);
+  const [announcements, setAnnouncements] = useState([]);
   
   // DID List Editor local states
   const [newDidInput, setNewDidInput] = useState("");
@@ -121,6 +125,30 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
         if (Array.isArray(data)) setAiAgents(data);
       })
       .catch((err) => console.error("[CallFlow] AI Agents load error:", err));
+
+    // Fetch System Users (Extensions)
+    fetch(`${API_BASE}/api/settings/users?tenant_id=all`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setSystemUsers(data);
+      })
+      .catch((err) => console.error("[CallFlow] System users load error:", err));
+
+    // Fetch Queues
+    fetch(`${API_BASE}/api/settings/queues?tenant_id=all`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setQueues(data);
+      })
+      .catch((err) => console.error("[CallFlow] Queues load error:", err));
+
+    // Fetch Announcements
+    fetch(`${API_BASE}/api/settings/announcements`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setAnnouncements(data);
+      })
+      .catch((err) => console.error("[CallFlow] Announcements load error:", err));
   }, []);
 
   // Reset local state when selected node changes
@@ -582,7 +610,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
         title: "Menü", 
         options: ["1", "2", "timeout"] 
       },
-      transfer: { title: "Transfer", value: "110201" },
+      transfer: { title: "Transfer", value: "1000" },
       did: { title: "DID", value: "x.", extra_fields: { did_numbers: ["x."], is_wildcard: true } },
       timerule: { 
         title: "Senaryo", 
@@ -1283,21 +1311,45 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         </div>
                       )}
 
-                      {node.type === "transfer" && (
-                        <div className="flex flex-col gap-1 w-full text-left">
-                          <div className="flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded p-1.5">
-                            <ArrowRight size={10} className="text-primary" />
-                            <span className="text-[9px] font-extrabold text-slate-600 dark:text-slate-350 truncate">
-                              {node.extra_fields?.transfer_type === "kuyruk" ? "Kuyruk" : "Dahili"}: {node.value || "Belirlenmedi"}
-                            </span>
-                          </div>
-                          {node.extra_fields?.play_announcement && (
-                            <div className="text-[8px] font-bold text-primary dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100/40 rounded px-1.5 py-0.5 text-center truncate italic">
-                              {node.extra_fields?.announcement_type === "tts" ? "Anons (TTS)" : "Anons (Ses Dosyası)"}
+                      {node.type === "transfer" && (() => {
+                        const currentType = node.extra_fields?.transfer_type || "dahili";
+                        const isQueue = currentType === "kuyruk";
+                        const isExternal = currentType === "external";
+
+                        const matchedUser = currentType === "dahili" && systemUsers.find((u) => String(u.extension || u.id) === String(node.value));
+                        const matchedQueue = isQueue && queues.find((q) => String(q.extension || q.id) === String(node.value));
+                        const matchedTrunk = isExternal && trunks.find((t) => String(t.id) === String(node.extra_fields?.trunk_id));
+
+                        let label = "Dahili";
+                        if (isQueue) label = "Kuyruk";
+                        if (isExternal) label = "Harici";
+
+                        let displayVal = node.value || "Belirlenmedi";
+                        if (matchedUser) {
+                          displayVal = `${matchedUser.extension || matchedUser.id} - ${matchedUser.full_name || matchedUser.username || ''}`;
+                        } else if (matchedQueue) {
+                          displayVal = `${matchedQueue.extension || matchedQueue.id} - ${matchedQueue.name || ''}`;
+                        } else if (isExternal) {
+                          const tName = matchedTrunk ? (matchedTrunk.name || `Trunk #${matchedTrunk.id}`) : "Dış Hat";
+                          displayVal = `${node.value || 'Numara Yok'} (${tName})`;
+                        }
+
+                        return (
+                          <div className="flex flex-col gap-1 w-full text-left">
+                            <div className="flex items-center gap-1.5 bg-slate-50/50 dark:bg-slate-950/30 border border-slate-100/60 dark:border-slate-850 rounded p-1.5">
+                              <ArrowRight size={10} className="text-primary shrink-0" />
+                              <span className="text-[9px] font-extrabold text-slate-600 dark:text-slate-350 truncate" title={`${label}: ${displayVal}`}>
+                                {label}: {displayVal}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      )}
+                            {node.extra_fields?.play_announcement && (
+                              <div className="text-[8px] font-bold text-primary dark:text-indigo-400 bg-indigo-50/40 dark:bg-indigo-950/20 border border-indigo-100/40 rounded px-1.5 py-0.5 text-center truncate italic">
+                                {node.extra_fields?.announcement_type === "tts" ? "Anons (TTS)" : "Anons (Ses Dosyası)"}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {node.type === "tts" && (
                         <div className="text-[9px] font-semibold text-primary dark:text-rose-400 border border-rose-50 dark:border-slate-800/60 rounded bg-rose-50/25 dark:bg-slate-950/40 p-2 leading-relaxed overflow-hidden h-[90px] text-justify select-text whitespace-normal break-words italic">
@@ -1689,12 +1741,9 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
               {/* Play Node parameter */}
               {node.type === "play" && (() => {
-                const mockAnnouncements = [
-                  { id: "karsilama_anonsu.wav", name: "Karşılama Anonsu" },
-                  { id: "mesgul_anonsu.wav", name: "Tüm Temsilciler Meşgul Anonsu" },
-                  { id: "bekletme_anonsu.wav", name: "Sırada Bekletme Anonsu" },
-                  { id: "anket_anonsu.wav", name: "Memnuniyet Anketi Anonsu" }
-                ];
+                const announcementsList = announcements.length > 0
+                  ? announcements.map((a) => ({ id: a.filename || a.id, name: a.name || a.title || a.filename || "Anons" }))
+                  : [{ id: "default_announcement.wav", name: "Varsayılan Anons" }];
 
                 const announcementType = node.extra_fields?.announcement_type || "recorded";
 
@@ -1719,7 +1768,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 onClick={() => {
                                   handleUpdateNodeExtraField("announcement_type", t.id);
                                   // Reset main node value
-                                  const defVal = t.id === "recorded" ? mockAnnouncements[0].id : "";
+                                  const defVal = t.id === "recorded" ? announcementsList[0].id : "";
                                   handleUpdateNodeField("value", defVal);
                                 }}
                                 className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
@@ -1756,7 +1805,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
                           >
                             <option value="">-- Anons Dosyası Seçin --</option>
-                            {mockAnnouncements.map((a) => (
+                            {announcementsList.map((a) => (
                               <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
                             ))}
                           </select>
@@ -1769,12 +1818,9 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
               {/* Menu Node parameter */}
               {node.type === "menu" && (() => {
-                const mockAnnouncements = [
-                  { id: "karsilama_anonsu.wav", name: "Karşılama Anonsu" },
-                  { id: "mesgul_anonsu.wav", name: "Tüm Temsilciler Meşgul Anonsu" },
-                  { id: "bekletme_anonsu.wav", name: "Sırada Bekletme Anonsu" },
-                  { id: "anket_anonsu.wav", name: "Memnuniyet Anketi Anonsu" }
-                ];
+                const announcementsList = announcements.length > 0
+                  ? announcements.map((a) => ({ id: a.filename || a.id, name: a.name || a.title || a.filename || "Anons" }))
+                  : [{ id: "default_announcement.wav", name: "Varsayılan Anons" }];
 
                 const announcementType = node.extra_fields?.announcement_type || "recorded";
                 const allKeys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "*", "#", "timeout", "error"];
@@ -1803,7 +1849,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 onClick={() => {
                                   handleUpdateNodeExtraField("announcement_type", t.id);
                                   // Reset main node value
-                                  const defVal = t.id === "recorded" ? mockAnnouncements[0].id : "";
+                                  const defVal = t.id === "recorded" ? announcementsList[0].id : "";
                                   handleUpdateNodeField("value", defVal);
                                 }}
                                 className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
@@ -1840,7 +1886,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                             className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
                           >
                             <option value="">-- Anons Dosyası Seçin --</option>
-                            {mockAnnouncements.map((a) => (
+                            {announcementsList.map((a) => (
                               <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
                             ))}
                           </select>
@@ -1917,34 +1963,49 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
 
               {/* Transfer Node parameter */}
               {node.type === "transfer" && (() => {
-                const mockExtensions = [
-                  { id: "1001", name: "1001 - Ahmet Yılmaz (Satış)" },
-                  { id: "1002", name: "1002 - Mehmet Kaya (Destek)" },
-                  { id: "1003", name: "1003 - Ayşe Demir (Muhasebe)" },
-                  { id: "1004", name: "1004 - Fatma Çelik (Yönetim)" }
-                ];
-                const mockQueues = [
-                  { id: "8001", name: "8001 - Satış Kuyruğu" },
-                  { id: "8002", name: "8002 - Müşteri Hizmetleri" },
-                  { id: "8003", name: "8003 - Teknik Destek" }
-                ];
-                const mockAnnouncements = [
-                  { id: "karsilama_anonsu.wav", name: "Karşılama Anonsu" },
-                  { id: "mesgul_anonsu.wav", name: "Tüm Temsilciler Meşgul Anonsu" },
-                  { id: "bekletme_anonsu.wav", name: "Sırada Bekletme Anonsu" },
-                  { id: "anket_anonsu.wav", name: "Memnuniyet Anketi Anonsu" }
-                ];
+                const extensionsList = systemUsers.length > 0
+                  ? systemUsers.map((u) => ({
+                      id: String(u.extension || u.id),
+                      name: `${u.extension || u.id} - ${u.full_name || u.username || 'Abone'}`
+                    }))
+                  : [{ id: "1000", name: "1000 - ANIL ACAR" }];
+
+                const queuesList = queues.length > 0
+                  ? queues.map((q) => ({
+                      id: String(q.extension || q.id),
+                      name: `${q.extension || q.id} - ${q.name || 'Kuyruk'}`
+                    }))
+                  : [{ id: "2000", name: "2000 - PBX Kuyruğu" }];
+
+                const trunksList = trunks.length > 0
+                  ? trunks.map((t) => ({
+                      id: String(t.id),
+                      name: t.name || `Trunk #${t.id}`,
+                      username: t.username || t.host || ""
+                    }))
+                  : [{ id: "1", name: "Operator_Trunk (İkon Telekom)", username: "908503607390" }];
+
+                const announcementsList = announcements.length > 0
+                  ? announcements.map((a) => ({
+                      id: a.filename || a.id,
+                      name: a.name || a.title || a.filename || "Anons"
+                    }))
+                  : [{ id: "default_announcement.wav", name: "Varsayılan Anons" }];
 
                 const currentType = node.extra_fields?.transfer_type || "dahili";
                 const playAnnouncement = node.extra_fields?.play_announcement || false;
                 const announcementType = node.extra_fields?.announcement_type || "tts";
+
+                const activeList = currentType === "dahili" ? extensionsList : queuesList;
+                const isMatch = activeList.some((item) => String(item.id) === String(node.value));
+                const selectedValue = isMatch ? String(node.value) : (activeList[0]?.id || "");
 
                 return (
                   <div className="flex flex-col gap-4 text-left">
                     
                     {/* Destination Selection Section */}
                     <div className="flex flex-col gap-3 p-3 bg-slate-50 dark:bg-slate-950/40 border border-slate-150 dark:border-slate-800/80 rounded-2xl">
-                      <div className="text-[10px] text-slate-450 dark:text-slate-550 font-bold uppercase tracking-wider">Transfer Hedefi</div>
+                      <div className="text-[10px] text-slate-450 dark:text-slate-555 font-bold uppercase tracking-wider">Transfer Hedefi</div>
                       
                       {/* Transfer Target Type Select */}
                       <div className="flex flex-col gap-1">
@@ -1952,7 +2013,8 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         <div className="flex gap-2">
                           {[
                             { id: "dahili", label: "Dahili Abone" },
-                            { id: "kuyruk", label: "Kuyruk" }
+                            { id: "kuyruk", label: "Kuyruk" },
+                            { id: "external", label: "Harici Numara" }
                           ].map((t) => {
                             const active = currentType === t.id;
                             return (
@@ -1962,8 +2024,16 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 onClick={() => {
                                   handleUpdateNodeExtraField("transfer_type", t.id);
                                   // Auto set default value based on choice
-                                  const defVal = t.id === "dahili" ? mockExtensions[0].id : mockQueues[0].id;
-                                  handleUpdateNodeField("value", defVal);
+                                  if (t.id === "dahili") {
+                                    handleUpdateNodeField("value", extensionsList[0]?.id || "1000");
+                                  } else if (t.id === "kuyruk") {
+                                    handleUpdateNodeField("value", queuesList[0]?.id || "2000");
+                                  } else {
+                                    handleUpdateNodeField("value", "");
+                                    if (!node.extra_fields?.trunk_id && trunksList.length > 0) {
+                                      handleUpdateNodeExtraField("trunk_id", trunksList[0].id);
+                                    }
+                                  }
                                 }}
                                 className={`flex-1 py-1.5 rounded-lg border text-center text-xs font-bold transition cursor-pointer ${
                                   active
@@ -1978,26 +2048,58 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                         </div>
                       </div>
 
-                      {/* Dropdown for specific destination */}
-                      <div className="flex flex-col gap-1">
-                        <span className="text-[9px] text-slate-400 font-bold">
-                          {currentType === "dahili" ? "Abone Seçin" : "Kuyruk Seçin"}
-                        </span>
-                        <select
-                          value={node.value}
-                          onChange={(e) => handleUpdateNodeField("value", e.target.value)}
-                          className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
-                        >
-                          {currentType === "dahili" 
-                            ? mockExtensions.map((e) => (
-                                <option key={e.id} value={e.id}>{e.name}</option>
-                              ))
-                            : mockQueues.map((q) => (
-                                <option key={q.id} value={q.id}>{q.name}</option>
-                              ))
-                          }
-                        </select>
-                      </div>
+                      {/* Controls for specific destination */}
+                      {currentType === "external" ? (
+                        <div className="flex flex-col gap-3">
+                          {/* External Phone Number Input */}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[9px] text-slate-400 font-bold">Harici Telefon Numarası</span>
+                            <input
+                              type="text"
+                              value={node.value || ""}
+                              onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                              placeholder="Örn: 05321234567 veya 02129998877"
+                              className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold font-mono text-slate-850 dark:text-white focus:outline-none"
+                            />
+                          </div>
+
+                          {/* Outbound Trunk Selector */}
+                          <div className="flex flex-col gap-1">
+                            <span className="text-[9px] text-slate-400 font-bold">Çıkış Trunk (Dış Hat) Seçin</span>
+                            <select
+                              value={node.extra_fields?.trunk_id || (trunksList[0]?.id || "")}
+                              onChange={(e) => handleUpdateNodeExtraField("trunk_id", e.target.value)}
+                              className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                            >
+                              {trunksList.map((tr) => (
+                                <option key={tr.id} value={tr.id}>
+                                  {tr.name} {tr.username ? `(${tr.username})` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[9px] text-slate-400 font-bold">
+                            {currentType === "dahili" ? "Abone Seçin" : "Kuyruk Seçin"}
+                          </span>
+                          <select
+                            value={selectedValue}
+                            onChange={(e) => handleUpdateNodeField("value", e.target.value)}
+                            className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
+                          >
+                            {currentType === "dahili" 
+                              ? extensionsList.map((e) => (
+                                  <option key={e.id} value={e.id}>{e.name}</option>
+                                ))
+                              : queuesList.map((q) => (
+                                  <option key={q.id} value={q.id}>{q.name}</option>
+                                ))
+                            }
+                          </select>
+                        </div>
+                      )}
                     </div>
 
                     {/* Play Announcement Before Transfer Section */}
@@ -2073,7 +2175,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                 className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-850 dark:text-white focus:outline-none"
                               >
                                 <option value="">-- Anons Dosyası Seçin --</option>
-                                {mockAnnouncements.map((a) => (
+                                {announcementsList.map((a) => (
                                   <option key={a.id} value={a.id}>{a.name} ({a.id})</option>
                                 ))}
                               </select>

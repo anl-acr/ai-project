@@ -11,7 +11,13 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
     whatsapp_verify_token: "ai_pbx_whatsapp_verify_token_secure",
     telegram_token: "",
     instagram_token: "",
-    facebook_token: ""
+    facebook_token: "",
+    email_smtp_host: "smtp.gmail.com",
+    email_smtp_port: "587",
+    email_smtp_user: "",
+    email_smtp_pass: "",
+    email_imap_host: "imap.gmail.com",
+    email_imap_port: "993"
   });
   
   const [success, setSuccess] = useState(false);
@@ -143,6 +149,13 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
               className={`pb-2 transition ${activeTab === "meta" ? "text-pink-600 dark:text-pink-400 border-b-2 border-pink-500 dark:border-pink-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
             >
               Instagram & FB
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("email")}
+              className={`pb-2 transition ${activeTab === "email" ? "text-emerald-600 dark:text-emerald-400 border-b-2 border-emerald-500 dark:border-emerald-400" : "text-slate-400 dark:text-slate-500 hover:text-slate-800 dark:hover:text-white"}`}
+            >
+              E-Posta (SMTP/IMAP)
             </button>
           </div>
 
@@ -281,6 +294,87 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                     placeholder="EAAO..."
                     className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-pink-500"
                   />
+                </div>
+              </div>
+            )}
+
+            {activeTab === "email" && (
+              <div className="flex flex-col gap-3">
+                <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide">E-Posta Entegrasyonu (SMTP / IMAP)</h4>
+                
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SMTP Sunucu Adresi</label>
+                    <input
+                      type="text"
+                      name="email_smtp_host"
+                      value={channels.email_smtp_host || ""}
+                      onChange={handleChange}
+                      placeholder="smtp.gmail.com"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SMTP Portu</label>
+                    <input
+                      type="text"
+                      name="email_smtp_port"
+                      value={channels.email_smtp_port || "587"}
+                      onChange={handleChange}
+                      placeholder="587 veya 465"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">E-Posta Adresi (Kullanıcı)</label>
+                    <input
+                      type="email"
+                      name="email_smtp_user"
+                      value={channels.email_smtp_user || ""}
+                      onChange={handleChange}
+                      placeholder="destek@company.com"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">E-Posta Şifresi / Uygulama Şifresi</label>
+                    <input
+                      type="password"
+                      name="email_smtp_pass"
+                      value={channels.email_smtp_pass || ""}
+                      onChange={handleChange}
+                      placeholder="••••••••••••"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">IMAP Sunucu Adresi (Gelen Kutusu)</label>
+                    <input
+                      type="text"
+                      name="email_imap_host"
+                      value={channels.email_imap_host || ""}
+                      onChange={handleChange}
+                      placeholder="imap.gmail.com"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">IMAP Portu</label>
+                    <input
+                      type="text"
+                      name="email_imap_port"
+                      value={channels.email_imap_port || "993"}
+                      onChange={handleChange}
+                      placeholder="993"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-emerald-500"
+                    />
+                  </div>
                 </div>
               </div>
             )}

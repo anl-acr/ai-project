@@ -91,8 +91,15 @@
   - `<AIAgentScenarioEditor />` includes a dedicated AI Scenario Assistant Modal (`isAiModalOpen`) featuring a spacious multi-line textarea and preset buttons for natural language scenario design.
   - Backend endpoint `POST /api/settings/ai-agents/generate-scenario` processes Turkish natural language prompts via Gemini API or semantic regex fallback parser (`parse_scenario_semantically()`), mapping sentences, intent branches (`eğer/ise`), directory lookups, forms, numbers (`1000/2000`), and hangups directly into structured visual nodes and connection lines.
   - Process reloads incorporate 2-second timeouts on Asterisk/Docker subprocess calls (`timeout=2.0`) to avoid server startup blocking on local environments.
+- **Omnichannel Multi-Channel Integration Architecture (WhatsApp, Telegram, Meta Direct, Email)**:
+  - **WhatsApp Business Cloud API**: Verified via `GET/POST /api/webhooks/whatsapp`. Outbound messages dispatched via `backend/services/whatsapp_service.py` (`send_whatsapp_message`).
+  - **Telegram Bot API**: Inbound messages handled via `POST /api/webhooks/telegram`. Outbound messages dispatched via `backend/services/telegram_service.py` (`send_telegram_message`).
+  - **Meta Direct (Instagram & Facebook Messenger)**: Webhook endpoints `GET/POST /api/webhooks/meta`, `/api/webhooks/instagram`, `/api/webhooks/facebook`. Outbound messages dispatched via `backend/services/meta_service.py` (`send_meta_message`) using Meta Graph API `v18.0`.
+  - **E-Posta (SMTP & IMAP Polling)**: Outbound emails sent via `backend/services/email_service.py` (`send_email_message` - SMTP SSL/TLS). Background poller worker `poll_imap_inbox()` fetches unread emails every 30 seconds and feeds incoming messages into `handle_inbound_chat_message`.
+  - **Gemini Multi-Channel Context & Tone Adapters**: AI auto-replies in `backend/services/chat_service.py` dynamically adjust tone (formal email format vs friendly social media format with emojis) based on channel type.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
 - Do not wait for explicit user prompt to update memory when a critical workflow or server insight is discovered.
+
 

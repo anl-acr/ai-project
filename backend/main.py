@@ -6078,10 +6078,20 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         from backend.services.call_analyzer import analyze_chat_session
         asyncio.create_task(analyze_chat_session(session_id))
 
-        # Trigger outbound channel message if chat channel is WhatsApp
-        if chat.channel.lower() == "whatsapp":
+        # Trigger outbound channel message
+        ch_lower = chat.channel.lower()
+        if ch_lower == "whatsapp":
             from backend.services.whatsapp_service import send_whatsapp_message
             asyncio.create_task(send_whatsapp_message(chat.sender_info, payload.text))
+        elif ch_lower == "telegram":
+            from backend.services.telegram_service import send_telegram_message
+            asyncio.create_task(send_telegram_message(chat.sender_info, payload.text))
+        elif ch_lower in ["instagram", "facebook"]:
+            from backend.services.meta_service import send_meta_message
+            asyncio.create_task(send_meta_message(chat.sender_info, payload.text, channel=ch_lower))
+        elif ch_lower == "email":
+            from backend.services.email_service import send_email_message
+            asyncio.create_task(send_email_message(chat.sender_info, "AIDA Müşteri Hizmetleri Yanıtı", payload.text))
         
         return {"status": "success", "message": "Mesaj gönderildi."}
 
@@ -6742,6 +6752,12 @@ async def startup_event():
 
             # Start background tasks
             asyncio.create_task(recording_cleanup_task())
+            try:
+                from backend.services.email_service import poll_imap_inbox
+                asyncio.create_task(poll_imap_inbox())
+                print("[Startup] IMAP E-posta dinleme servisi başlatıldı.")
+            except Exception as e_email:
+                print(f"[Startup Error] IMAP e-posta dinleme servisi başlatılamadı: {e_email}")
 
     try:
         await asyncio.wait_for(seed_db_tables(), timeout=5.0)
@@ -7552,6 +7568,52 @@ async def receive_telegram_webhook(request: Request):
     except Exception as e:
         print(f"Telegram webhook parse error: {e}")
         return {"status": "error"}
+
+@app.api_route("/api/webhooks/meta", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@app.api_route("/api/webhooks/instagram", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@app.api_route("/api/webhooks/facebook", methods=["GET", "POST", "HEAD", "OPTIONS"])
+async def handle_meta_webhook(request: Request):
+    """
+    Handles Meta (Instagram Direct / Facebook Messenger) Webhook Verification & Inbound Messages
+    """
+    if request.method == "OPTIONS":
+        return Response(status_code=200)
+
+    if request.method == "HEAD":
+        return Response(status_code=200, media_type="text/plain")
+
+    if request.method == "POST":
+        try:
+            body = await request.json()
+            print(f"[Meta Webhook POST] Incoming payload: {body}")
+            obj = body.get("object")
+            if obj in ["instagram", "page"]:
+                channel = "instagram" if obj == "instagram" else "facebook"
+                for entry in body.get("entry", []):
+                    messaging = entry.get("messaging", [])
+                    for msg_event in messaging:
+                        sender_id = msg_event.get("sender", {}).get("id")
+                        message = msg_event.get("message", {})
+                        text_body = message.get("text", "")
+                        
+                        if sender_id and text_body:
+                            print(f"[Meta Inbound] {channel.capitalize()} message from {sender_id}: '{text_body}'")
+                            asyncio.create_task(
+                                handle_inbound_chat_message(
+                                    channel=channel,
+                                    sender_info=str(sender_id),
+                                    text=text_body
+                                )
+                            )
+        except Exception as e:
+            print(f"Meta webhook parse error: {e}")
+        return Response(content='{"status":"success"}', media_type="application/json", status_code=200)
+
+    params = dict(request.query_params)
+    challenge = params.get("hub.challenge") or params.get("hub_challenge") or params.get("challenge")
+    print(f"[Meta Webhook GET] Verification request params={params}")
+    body = str(challenge) if challenge else "OK"
+    return Response(content=body, media_type="text/plain", status_code=200)
 
 # ==============================================================================
 # WEBRTC ENDPOINTS

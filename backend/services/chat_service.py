@@ -467,11 +467,24 @@ Karşı tarafın kanal türüne (örn: mail ise biraz daha resmi/eposta formatı
                 }
             })
             
-            # Dispatch to external channel if applicable (e.g. WhatsApp)
-            if channel.lower() == "whatsapp":
+            # Dispatch to external channel if applicable
+            ch_lower = channel.lower()
+            if ch_lower == "whatsapp":
                 import asyncio
                 from backend.services.whatsapp_service import send_whatsapp_message
                 asyncio.create_task(send_whatsapp_message(sender_info, ai_reply_text))
+            elif ch_lower == "telegram":
+                import asyncio
+                from backend.services.telegram_service import send_telegram_message
+                asyncio.create_task(send_telegram_message(sender_info, ai_reply_text))
+            elif ch_lower in ["instagram", "facebook"]:
+                import asyncio
+                from backend.services.meta_service import send_meta_message
+                asyncio.create_task(send_meta_message(sender_info, ai_reply_text, channel=ch_lower))
+            elif ch_lower == "email":
+                import asyncio
+                from backend.services.email_service import send_email_message
+                asyncio.create_task(send_email_message(sender_info, "AIDA Yanıtı", ai_reply_text))
 
             return ai_reply_text
 
