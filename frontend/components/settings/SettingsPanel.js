@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network, GitCommit } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NATSettings from "./NATSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
@@ -25,6 +25,7 @@ import RecordingRetentionSettings from "./RecordingRetentionSettings";
 import AIProvidersSettings from "./AIProvidersSettings";
 import APIBudgetSettings from "./APIBudgetSettings";
 import TenantManagementPanel from "./TenantManagementPanel";
+import ChangelogPanel from "./ChangelogPanel";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
@@ -466,6 +467,18 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             <Building2 size={14} className={activeSubTab === "tenants" ? "text-rose-600 dark:text-rose-400" : ""} />
             <span>Müşteri (Tenant) Yönetimi</span>
           </button>
+
+          <button
+            onClick={() => setActiveSubTab("version")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "version"
+                ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <GitCommit size={14} className={activeSubTab === "version" ? "text-indigo-600 dark:text-indigo-400" : ""} />
+            <span>Sistem Versiyonu & Günlük</span>
+          </button>
         </div>
 
         {/* Right Side Settings Panel Area */}
@@ -500,6 +513,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           )}
           {activeSubTab === "tenants" && (
             <TenantManagementPanel backendHost={backendHost} />
+          )}
+          {activeSubTab === "version" && (
+            <ChangelogPanel backendHost={backendHost} />
           )}
         </div>
       </div>

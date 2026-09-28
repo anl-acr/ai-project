@@ -7418,6 +7418,104 @@ async def get_needs_apply():
 async def set_needs_apply(status: dict):
     settings_db["needs_apply"] = status.get("needs_apply", True)
     save_settings(settings_db)
+
+@app.get("/api/settings/version")
+@app.get("/api/version")
+@app.get("/version")
+async def get_system_version_info():
+    """
+    Returns full system version history, git commit hash, release timestamps, and build status.
+    Used by local and production servers to verify deployment synchronization.
+    """
+    return {
+        "version": "v2.4.1",
+        "commit_hash": "55906cc",
+        "release_date": "28 Eylül 2026",
+        "status": "Güncel / Canlı Sürüm",
+        "environment": "Production",
+        "changelog": [
+            {
+                "version": "v2.4.1",
+                "commit_hash": "55906cc",
+                "release_date": "28 Eylül 2026",
+                "badge": "Canlı Sürüm (Güncel)",
+                "badge_type": "current",
+                "title": "SIP Trunk Silme & Çakışan Rota Düzeltmesi",
+                "summary": "Mükerrer delete uç noktaları temizlenerek veritabanı, JSON saklama ve Asterisk PJSIP konfigürasyonları tam senkronize edildi.",
+                "features": [
+                    {
+                        "title": "Veritabanı & Asterisk Senkronizasyonu",
+                        "desc": "SIP Trunk silme işlemlerinde veritabanı satırlarının ve Asterisk pjsip_custom.conf dosyasının anında silinmesi sağlandı."
+                    }
+                ],
+                "fixes": [
+                    "Dış Hat silme rotasındaki çakışan legacy handler kaldırıldı."
+                ]
+            },
+            {
+                "version": "v2.4.0",
+                "commit_hash": "57bb458",
+                "release_date": "28 Eylül 2026",
+                "badge": "Majör Sürüm",
+                "badge_type": "major",
+                "title": "Omnichannel Çoklu Kanal Entegrasyon Genişletmesi",
+                "summary": "WhatsApp, Telegram, Meta Direct (Instagram/Facebook) ve E-Posta (SMTP/IMAP) tam entegrasyonu sağlandı.",
+                "features": [
+                    {
+                        "title": "WhatsApp Cloud API & Telegram Bot",
+                        "desc": "Gelen webhook ve giden mesaj iletim servisleri entegre edildi."
+                    },
+                    {
+                        "title": "E-Posta IMAP Poller & SMTP",
+                        "desc": "30 saniyelik IMAP poller arka plan işçisi ile e-postalar otomatik gelen kutusuna dönüştürüldü."
+                    },
+                    {
+                        "title": "Gemini 2.5 Kanal Adaptörü",
+                        "desc": "Kanal türüne göre resmi veya samimi emoji destekli yanıtlar üretildi."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v2.3.0",
+                "commit_hash": "a237a3f",
+                "release_date": "27 Eylül 2026",
+                "badge": "Özellik Güncellemesi",
+                "badge_type": "feature",
+                "title": "AI Senaryo Asistanı & İsimle Personel Transferi",
+                "summary": "NLP destekli Türkçe senaryo asistanı ve isimle dahili yönlendirme modülü eklendi.",
+                "features": [
+                    {
+                        "title": "NLP Senaryo Oluşturucu",
+                        "desc": "Doğal dilde yazılan senaryolar otomatik görsel akış düğümlerine dönüştürüldü."
+                    }
+                ],
+                "fixes": []
+            },
+            {
+                "version": "v2.2.0",
+                "commit_hash": "b812f91",
+                "release_date": "25 Eylül 2026",
+                "badge": "Mimari",
+                "badge_type": "arch",
+                "title": "Çoklu Müşteri (Multi-Tenant) & WebRTC IP/Varlık Takibi",
+                "summary": "Multi-tenant izolasyonu ve agent canlı varlık takibi sağlandı.",
+                "features": [],
+                "fixes": []
+            },
+            {
+                "version": "v2.1.0",
+                "commit_hash": "c410982",
+                "release_date": "22 Eylül 2026",
+                "badge": "Hata Ayıklama",
+                "badge_type": "tool",
+                "title": "SipTrapper & Canlı Wireshark PCAP İndirme Paneli",
+                "summary": "Canlı sngrep merdiven diyagramı ve PCAP indirme altyapısı eklendi.",
+                "features": [],
+                "fixes": []
+            }
+        ]
+    }
     return {"status": "success"}
 
 @app.post("/api/settings/apply")

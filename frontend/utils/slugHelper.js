@@ -56,7 +56,8 @@ export const SUBTAB_TURKISH_SLUGS = {
   "tenants": "musteri-lisanslari",
   "ai_providers": "yapay-zeka-saglayicilari",
   "api_budgets": "api-butceleri",
-  "nat": "nat-ayarlari"
+  "nat": "nat-ayarlari",
+  "version": "sistem-versiyonu"
 };
 
 const SLUG_TO_SUBTAB = Object.fromEntries(
