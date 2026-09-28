@@ -96,14 +96,14 @@
   - **Telegram Bot API**: Inbound messages handled via `POST /api/webhooks/telegram`. Outbound messages dispatched via `backend/services/telegram_service.py` (`send_telegram_message`).
   - **Meta Direct (Instagram & Facebook Messenger)**: Webhook endpoints `GET/POST /api/webhooks/meta`, `/api/webhooks/instagram`, `/api/webhooks/facebook`. Outbound messages dispatched via `backend/services/meta_service.py` (`send_meta_message`) using Meta Graph API `v18.0`.
   - **E-Posta (SMTP & IMAP Polling)**: Outbound emails sent via `backend/services/email_service.py` (`send_email_message` - SMTP SSL/TLS). Background poller worker `poll_imap_inbox()` fetches unread emails every 30 seconds and feeds incoming messages into `handle_inbound_chat_message`.
-- **System Versioning & Deployment Verification Architecture (v2.4.4)**:
-  - Central version registry endpoint `GET /api/settings/version` (and `/api/version`) returns current version code (`v2.4.4`), build Git commit hash (`c4b0cdc`), release date, and detailed version changelog history.
+- **System Versioning & Deployment Verification Architecture (v2.4.5)**:
+  - Central version registry endpoint `GET /api/settings/version` (and `/api/version`) returns current version code (`v2.4.5`), build Git commit hash (`90f1cef`), release date, and detailed version changelog history.
   - System Settings includes a dedicated visual panel `<ChangelogPanel />` under **Sistem Ayarları > Sistem Versiyonu & Günlük** (`?subtab=sistem-versiyonu`).
   - Features a one-click **Versiyon Kodu Kopyala** button allowing quick comparison between local and remote production server deployments.
-- **Visual CallFlow Evaluator Engine, REAL_DID Extraction & AMI Direct Extension Transfer**:
+- **Visual CallFlow Evaluator Engine, Subscriber Forwarding Resolver & AMI Direct Extension Transfer**:
   - Asterisk `exten => s` dialplan dynamically extracts `REAL_DID` via `PJSIP_HEADER(read,To)` and `CHANNEL(name)`, preventing dummy `"s"` DIDs from being sent to `/api/calls/register`.
-  - `evaluate_call_flow_action(did: str)` in `backend/audiosocket_server.py` evaluates Inbound Rules (`inbound_rules`) and Visual CallFlow workflows (`workflows`) directly upon AudioSocket TCP connection, including fallback for `"s"` or unmatched DIDs.
-  - If a CallFlow graph or Inbound Rule specifies a direct transfer to an Extension (e.g. `1000`) or Queue without an AI agent node, `redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents")` is executed via Asterisk AMI, routing the call immediately to the agent's Web Phone without launching Gemini AI.
+  - `/api/subscriber/resolve_forwarding` endpoint evaluates `forwarding_always`, `forwarding_busy`, `forwarding_no_answer`, and `mobile_transfer_enabled` for target extensions.
+  - If Dahili `1000` is offline (not SIP registered) or busy/unreachable, Asterisk `webrtc_agents` dialplan automatically routes the call to the user's configured GSM mobile phone or forwarding number via `Operator_Trunk`.
   - AMI `get_ami_manager()` automatically registers `Newchannel`, `Hangup`, and `ContactStatus` event handlers on startup, maintaining real-time Asterisk channel tracking with `CoreShowChannels` fallback.
 
 ## Automatic Project Memory Update Rule
