@@ -3583,8 +3583,11 @@ async def check_subscriber_call(caller: str, callee: str):
 @app.get("/api/subscriber/resolve_forwarding")
 async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFORE_DIAL", db: AsyncSession = Depends(get_db)):
     """
-    Checks if extension has call forwarding or mobile transfer enabled.
-    Returns 'ALLOW:target_number' if forwarding should occur, or 'DENY:NONE' if no forwarding.
+    Evaluates the 3 forwarding types for an extension:
+    1. HER ZAMAN (forwarding_always)
+    2. MEŞGUL DURUMDA (forwarding_busy)
+    3. ZAMAN AŞIMINDA / CEVAPSIZ (forwarding_no_answer)
+    Returns 'ALLOW:target_number:timeout' if forwarding should occur, or 'DENY:NONE:30' if no forwarding.
     """
     try:
         ext_str = str(extension).strip()
@@ -3602,14 +3605,14 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         all_users = settings_db.get("users", [])
         for u in all_users:
             if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("username") == ext_str:
-                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled"]:
+                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active"]:
                     val = u.get(k)
                     if val is not None and val != "" and val != {}:
                         user_dict[k] = val
                 break
 
         if not user_dict:
-            return Response(content="DENY:NONE", media_type="text/plain")
+            return Response(content="DENY:NONE:30", media_type="text/plain")
 
         from backend.services.ami_manager import registered_endpoints
         is_registered = (ext_str in registered_endpoints)
@@ -3618,64 +3621,84 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             if not f_obj:
                 return None
             if isinstance(f_obj, dict):
-                # If "enabled" is not explicitly False, treat as enabled if target/value exists
-                is_enabled = f_obj.get("enabled", True) if ("enabled" in f_obj) else (f_obj.get("active", True) if ("active" in f_obj) else True)
-                if is_enabled:
-                    target = f_obj.get("target") or f_obj.get("number") or f_obj.get("destination") or f_obj.get("value")
-                    if target and str(target).strip():
-                        return str(target).strip()
+                active_val = None
+                if "active" in f_obj:
+                    active_val = bool(f_obj["active"])
+                elif "enabled" in f_obj:
+                    active_val = bool(f_obj["enabled"])
+                elif "status" in f_obj:
+                    active_val = f_obj["status"] in [True, "active", "enabled", 1]
+                    
+                if active_val is False:
+                    return None
+                    
+                target = f_obj.get("target") or f_obj.get("number") or f_obj.get("destination") or f_obj.get("value")
+                if target and str(target).strip() and str(target).strip() not in ["Seçiniz...", "select", "none"]:
+                    return str(target).strip()
                 return None
-            if isinstance(f_obj, str) and f_obj.strip():
+                
+            if isinstance(f_obj, str) and f_obj.strip() and f_obj.strip() not in ["Seçiniz...", "select", "none"]:
                 return f_obj.strip()
             return None
 
-        # 1. Check forwarding_always
+        # Extract timeout for no_answer (default 30 seconds)
+        no_ans_obj = user_dict.get("forwarding_no_answer")
+        no_ans_timeout = 30
+        if isinstance(no_ans_obj, dict) and no_ans_obj.get("timeout"):
+            try:
+                no_ans_timeout = int(no_ans_obj.get("timeout"))
+            except Exception:
+                no_ans_timeout = 30
+
+        # Rule 1: HER ZAMAN (forwarding_always) - Always forwarded unconditionally
         f_always = extract_target(user_dict.get("forwarding_always"))
         if f_always:
-            print(f"[Forwarding Resolver] Extension {ext_str} -> Always Forwarding to: {f_always}")
-            return Response(content=f"ALLOW:{f_always}", media_type="text/plain")
+            print(f"[Forwarding Resolver] Extension {ext_str} -> 1. HER ZAMAN (Always Forward) to: {f_always}")
+            return Response(content=f"ALLOW:{f_always}:{no_ans_timeout}", media_type="text/plain")
 
-        # 2. Check mobile_transfer_enabled & gsm_number
+        # Extract remaining targets & mobile transfer settings
+        f_busy = extract_target(user_dict.get("forwarding_busy"))
+        f_noans = extract_target(user_dict.get("forwarding_no_answer"))
         mobile_enabled = bool(user_dict.get("mobile_transfer_enabled", False))
         gsm_num = str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or "").strip()
 
-        f_busy = extract_target(user_dict.get("forwarding_busy"))
-        f_noans = extract_target(user_dict.get("forwarding_no_answer"))
-
-        # If dialstatus is BUSY or NOANSWER, evaluate respective forwarding rules
-        if dialstatus == "BUSY":
+        # Rule 2: MEŞGUL DURUMDA (forwarding_busy) - When line is busy or channel unavailable
+        if dialstatus in ["BUSY", "CHANUNAVAIL", "CONGESTION"]:
             if f_busy:
-                print(f"[Forwarding Resolver] Extension {ext_str} (BUSY) -> Forwarding to: {f_busy}")
-                return Response(content=f"ALLOW:{f_busy}", media_type="text/plain")
+                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 2. MEŞGUL DURUMDA Forward to: {f_busy}")
+                return Response(content=f"ALLOW:{f_busy}:{no_ans_timeout}", media_type="text/plain")
             if mobile_enabled and gsm_num:
-                print(f"[Forwarding Resolver] Extension {ext_str} (BUSY) -> Mobile Transfer to GSM: {gsm_num}")
-                return Response(content=f"ALLOW:{gsm_num}", media_type="text/plain")
+                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Mobile Transfer GSM: {gsm_num}")
+                return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
 
-        if dialstatus in ["NOANSWER", "CANCEL", "CONGESTION"]:
+        # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer) - When line rings and times out
+        if dialstatus in ["NOANSWER", "CANCEL"]:
             if f_noans:
-                print(f"[Forwarding Resolver] Extension {ext_str} (NOANSWER) -> Forwarding to: {f_noans}")
-                return Response(content=f"ALLOW:{f_noans}", media_type="text/plain")
+                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 3. ZAMAN AŞIMINDA (Cevapsız) Forward to: {f_noans}")
+                return Response(content=f"ALLOW:{f_noans}:{no_ans_timeout}", media_type="text/plain")
             if mobile_enabled and gsm_num:
-                print(f"[Forwarding Resolver] Extension {ext_str} (NOANSWER) -> Mobile Transfer to GSM: {gsm_num}")
-                return Response(content=f"ALLOW:{gsm_num}", media_type="text/plain")
+                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Mobile Transfer GSM: {gsm_num}")
+                return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
 
-        # Offline / unreachable status checks
-        is_offline = (not is_registered) or dialstatus in ["CHANUNAVAIL", "UNREACHABLE"]
-        if is_offline:
-            if mobile_enabled and gsm_num:
-                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Mobile Transfer to GSM: {gsm_num}")
-                return Response(content=f"ALLOW:{gsm_num}", media_type="text/plain")
-            if f_noans:
-                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Fallback NoAnswer Forwarding to: {f_noans}")
-                return Response(content=f"ALLOW:{f_noans}", media_type="text/plain")
+        # Offline / Unreachable check for BEFORE_DIAL when extension is NOT SIP registered
+        if dialstatus == "BEFORE_DIAL" and not is_registered:
             if f_busy:
-                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Fallback Busy Forwarding to: {f_busy}")
-                return Response(content=f"ALLOW:{f_busy}", media_type="text/plain")
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> 2. MEŞGUL/OFFLINE Forward to: {f_busy}")
+                return Response(content=f"ALLOW:{f_busy}:{no_ans_timeout}", media_type="text/plain")
+            if f_noans:
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> 3. CEVAPSIZ/OFFLINE Forward to: {f_noans}")
+                return Response(content=f"ALLOW:{f_noans}:{no_ans_timeout}", media_type="text/plain")
+            if mobile_enabled and gsm_num:
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Mobile Transfer GSM: {gsm_num}")
+                return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
+
+        # Return default timeout for Dial execution
+        return Response(content=f"DENY:NONE:{no_ans_timeout}", media_type="text/plain")
 
     except Exception as e:
         print(f"[Resolve Forwarding Error]: {e}")
 
-    return Response(content="DENY:NONE", media_type="text/plain")
+    return Response(content="DENY:NONE:30", media_type="text/plain")
 
 # --- Speed Dials ---
 @app.get("/api/settings/speed_dials")
@@ -7582,18 +7605,40 @@ async def get_system_version_info():
     Used by local and production servers to verify deployment synchronization.
     """
     return {
-        "version": "v2.4.6",
+        "version": "v2.4.7",
         "commit_hash": "auto",
         "release_date": "29 Eylül 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production",
         "changelog": [
             {
-                "version": "v2.4.6",
+                "version": "v2.4.7",
                 "commit_hash": "auto",
                 "release_date": "29 Eylül 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "3 Katmanlı Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında) & Dinamik Süre Entegrasyonu",
+                "summary": "Görsel Kullanıcı Ayarları panelindeki 3 ayrı Yönlendirme Türü (Her Zaman, Meşgul Durumda, Zaman Aşımında/Cevapsız) ve dinamik Zaman Aşımı süresi (15-30-60 sn) Asterisk dialplan ve resolver servisiyle tam entegre edildi.",
+                "features": [
+                    {
+                        "title": "3 Katmanlı Yönlendirme & Toggle Kontrolü",
+                        "desc": "Her Zaman (Always), Meşgul Durumda (Busy) ve Zaman Aşımında (No Answer) kuralları toggle buton durumlarına (active: true/false) göre anında değerlendirilir."
+                    },
+                    {
+                        "title": "Dinamik Zaman Aşımı (Timeout) Entegrasyonu",
+                        "desc": "Zaman Aşımı sekmesinde seçilen süre (sn) Asterisk Dial() komutuna iletilerek belirlenen süre sonunda cevapsız yönlendirmenin çalışması sağlandı."
+                    }
+                ],
+                "fixes": [
+                    "Abonedeki toggle butonları kapalıyken veya 'active' parametresi olan nesnelerde yönlendirme durumunun doğru okunamaması sorunu çözüldü."
+                ]
+            },
+            {
+                "version": "v2.4.6",
+                "commit_hash": "eb501d8",
+                "release_date": "29 Eylül 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "Kullanıcı Yönlendirme Veritabanı Senkronizasyonu & Cevapsız Çağrı Yönlendirme Düzeltmesi",
                 "summary": "Profil güncelleme servisindeki veritabanı senkronizasyon eksikliği giderildi ve /api/subscriber/resolve_forwarding servisi veritabanı ile bellek ayarlarını harmanlayarak varsayılan 'enabled' parametresi olmayan yönlendirme sözlüklerini tam uyumlu hale getirdi.",
                 "features": [
