@@ -3043,6 +3043,16 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                     db_u.avatar = payload.avatar
                 if payload.theme_color:
                     db_u.theme_color = payload.theme_color
+                if payload.gsm_number is not None:
+                    db_u.gsm_number = payload.gsm_number
+                if payload.mobile_transfer_enabled is not None:
+                    db_u.mobile_transfer_enabled = payload.mobile_transfer_enabled
+                if payload.forwarding_always is not None:
+                    db_u.forwarding_always = payload.forwarding_always
+                if payload.forwarding_busy is not None:
+                    db_u.forwarding_busy = payload.forwarding_busy
+                if payload.forwarding_no_answer is not None:
+                    db_u.forwarding_no_answer = payload.forwarding_no_answer
                 session.commit()
     except Exception as e_db_sync:
         print(f"[Profile Update] DB sync notice: {e_db_sync}")
@@ -3579,19 +3589,24 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
     try:
         ext_str = str(extension).strip()
         
+        # 1. Fetch from DB
         stmt = select(SystemUser).where(or_(SystemUser.extension == ext_str, SystemUser.username == ext_str))
         res = await db.execute(stmt)
         user = res.scalars().first()
         
-        user_dict = None
+        user_dict = {}
         if user:
             user_dict = {c.name: getattr(user, c.name) for c in user.__table__.columns}
-        else:
-            all_users = settings_db.get("users", [])
-            for u in all_users:
-                if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str:
-                    user_dict = u
-                    break
+            
+        # 2. Merge with disk user from settings_db
+        all_users = settings_db.get("users", [])
+        for u in all_users:
+            if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("username") == ext_str:
+                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled"]:
+                    val = u.get(k)
+                    if val is not None and val != "" and val != {}:
+                        user_dict[k] = val
+                break
 
         if not user_dict:
             return Response(content="DENY:NONE", media_type="text/plain")
@@ -3603,8 +3618,12 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             if not f_obj:
                 return None
             if isinstance(f_obj, dict):
-                if f_obj.get("enabled") or f_obj.get("active"):
-                    return f_obj.get("target") or f_obj.get("number") or f_obj.get("destination")
+                # If "enabled" is not explicitly False, treat as enabled if target/value exists
+                is_enabled = f_obj.get("enabled", True) if ("enabled" in f_obj) else (f_obj.get("active", True) if ("active" in f_obj) else True)
+                if is_enabled:
+                    target = f_obj.get("target") or f_obj.get("number") or f_obj.get("destination") or f_obj.get("value")
+                    if target and str(target).strip():
+                        return str(target).strip()
                 return None
             if isinstance(f_obj, str) and f_obj.strip():
                 return f_obj.strip()
@@ -3620,35 +3639,38 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         mobile_enabled = bool(user_dict.get("mobile_transfer_enabled", False))
         gsm_num = str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or "").strip()
 
-        # 3. Offline / failed dial status checks
-        is_offline_or_failed = (not is_registered) or dialstatus in ["CHANUNAVAIL", "CONGESTION", "BUSY", "NOANSWER", "UNREACHABLE"]
-        
-        if is_offline_or_failed:
-            if dialstatus == "BUSY":
-                f_busy = extract_target(user_dict.get("forwarding_busy"))
-                if f_busy:
-                    print(f"[Forwarding Resolver] Extension {ext_str} (BUSY) -> Forwarding to: {f_busy}")
-                    return Response(content=f"ALLOW:{f_busy}", media_type="text/plain")
+        f_busy = extract_target(user_dict.get("forwarding_busy"))
+        f_noans = extract_target(user_dict.get("forwarding_no_answer"))
 
-            if dialstatus == "NOANSWER":
-                f_noans = extract_target(user_dict.get("forwarding_no_answer"))
-                if f_noans:
-                    print(f"[Forwarding Resolver] Extension {ext_str} (NOANSWER) -> Forwarding to: {f_noans}")
-                    return Response(content=f"ALLOW:{f_noans}", media_type="text/plain")
-
+        # If dialstatus is BUSY or NOANSWER, evaluate respective forwarding rules
+        if dialstatus == "BUSY":
+            if f_busy:
+                print(f"[Forwarding Resolver] Extension {ext_str} (BUSY) -> Forwarding to: {f_busy}")
+                return Response(content=f"ALLOW:{f_busy}", media_type="text/plain")
             if mobile_enabled and gsm_num:
-                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE/FAILED) -> Mobile Transfer to GSM: {gsm_num}")
+                print(f"[Forwarding Resolver] Extension {ext_str} (BUSY) -> Mobile Transfer to GSM: {gsm_num}")
                 return Response(content=f"ALLOW:{gsm_num}", media_type="text/plain")
 
-            f_busy = extract_target(user_dict.get("forwarding_busy"))
-            if f_busy:
-                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Fallback Busy Forwarding to: {f_busy}")
-                return Response(content=f"ALLOW:{f_busy}", media_type="text/plain")
+        if dialstatus in ["NOANSWER", "CANCEL", "CONGESTION"]:
+            if f_noans:
+                print(f"[Forwarding Resolver] Extension {ext_str} (NOANSWER) -> Forwarding to: {f_noans}")
+                return Response(content=f"ALLOW:{f_noans}", media_type="text/plain")
+            if mobile_enabled and gsm_num:
+                print(f"[Forwarding Resolver] Extension {ext_str} (NOANSWER) -> Mobile Transfer to GSM: {gsm_num}")
+                return Response(content=f"ALLOW:{gsm_num}", media_type="text/plain")
 
-            f_noans = extract_target(user_dict.get("forwarding_no_answer"))
+        # Offline / unreachable status checks
+        is_offline = (not is_registered) or dialstatus in ["CHANUNAVAIL", "UNREACHABLE"]
+        if is_offline:
+            if mobile_enabled and gsm_num:
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Mobile Transfer to GSM: {gsm_num}")
+                return Response(content=f"ALLOW:{gsm_num}", media_type="text/plain")
             if f_noans:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Fallback NoAnswer Forwarding to: {f_noans}")
                 return Response(content=f"ALLOW:{f_noans}", media_type="text/plain")
+            if f_busy:
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Fallback Busy Forwarding to: {f_busy}")
+                return Response(content=f"ALLOW:{f_busy}", media_type="text/plain")
 
     except Exception as e:
         print(f"[Resolve Forwarding Error]: {e}")
@@ -7560,18 +7582,41 @@ async def get_system_version_info():
     Used by local and production servers to verify deployment synchronization.
     """
     return {
-        "version": "v2.4.5",
+        "version": "v2.4.6",
         "commit_hash": "auto",
-        "release_date": "28 Eylül 2026",
+        "release_date": "29 Eylül 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production",
         "changelog": [
             {
-                "version": "v2.4.5",
+                "version": "v2.4.6",
                 "commit_hash": "auto",
-                "release_date": "28 Eylül 2026",
+                "release_date": "29 Eylül 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kullanıcı Yönlendirme Veritabanı Senkronizasyonu & Cevapsız Çağrı Yönlendirme Düzeltmesi",
+                "summary": "Profil güncelleme servisindeki veritabanı senkronizasyon eksikliği giderildi ve /api/subscriber/resolve_forwarding servisi veritabanı ile bellek ayarlarını harmanlayarak varsayılan 'enabled' parametresi olmayan yönlendirme sözlüklerini tam uyumlu hale getirdi.",
+                "features": [
+                    {
+                        "title": "Çift Katmanlı Yönlendirme Harmanlama",
+                        "desc": "Veritabanı (SystemUser) ile hafıza (settings.json) ayarları birleştirilerek kaydedilen yönlendirmelerin anında dialplan tarafından okunması sağlandı."
+                    },
+                    {
+                        "title": "Gelişmiş Target Extractor & NOANSWER Yönlendirme",
+                        "desc": "Cevapsız kalan veya çalmasına rağmen açılmayan dahililerde NOANSWER durumunda Mobil Aktarım (GSM) ve Yönlendirme numaralarına otomatik geçiş garantilendi."
+                    }
+                ],
+                "fixes": [
+                    "Abonede yönlendirme tanımlı olmasına rağmen FWD_POST=DENY:NONE dönmesi ve cevapsız çağrıların düşmesi sorunu çözüldü.",
+                    "update_agent_profile_endpoint servisindeki GSM ve Yönlendirme alanlarının PostgreSQL veritabanına yazılmama hatası giderildi."
+                ]
+            },
+            {
+                "version": "v2.4.5",
+                "commit_hash": "90f1cef",
+                "release_date": "28 Eylül 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "Dahili Çağrı Yönlendirme (Call Forwarding) & Çevrimdışı Mobil Aktarım Entegrasyonu",
                 "summary": "Asterisk dialplan webrtc_agents bağlamı ve /api/subscriber/resolve_forwarding servisi güncellendi; Dahili (1000) SIP kaydı olmasa (offline/unreachable) veya cevapsız/meşgul olsa dahi tanımlı Cep Telefonuna (GSM / Mobil Aktarım) veya Yönlendirme numarasına otomatik aktarılması sağlandı.",
                 "features": [
