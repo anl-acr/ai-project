@@ -7885,6 +7885,10 @@ from backend.services.chat_service import handle_inbound_chat_message
 @app.api_route("/api/webhooks/whatsapp/", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @app.api_route("/api/webhook/whatsapp", methods=["GET", "POST", "HEAD", "OPTIONS"])
 @app.api_route("/api/webhook/whatsapp/", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@app.api_route("/webhooks/whatsapp", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@app.api_route("/webhooks/whatsapp/", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@app.api_route("/webhook/whatsapp", methods=["GET", "POST", "HEAD", "OPTIONS"])
+@app.api_route("/webhook/whatsapp/", methods=["GET", "POST", "HEAD", "OPTIONS"])
 async def handle_whatsapp_webhook(request: Request):
     """
     Handles Meta Graph API Webhook Verification & Inbound Messages
