@@ -113,7 +113,7 @@
   - Added top-level `try...except` wrapper around `handle_inbound_chat_message` to capture, log, and audit all inbound message processing errors to PostgreSQL `EventLog` (`PROCESS_ERROR`) and memory logs.
 - **WhatsApp Advanced Features (Missed Call Auto-responder, Bulk Campaign Broadcast, Buttons & Media)**:
   - **Missed Call Auto-responder**: Integrated `send_whatsapp_missed_call_autoresponder()` into `end_call_endpoint` (`backend/main.py`). Whenever an inbound call ends as `no_answer`, `busy`, `failed`, or `cancelled`, an automated polite greeting is dispatched via WhatsApp to the caller's mobile number.
-  - **Bulk Campaign Broadcast**: Created `POST /api/omnichannel/whatsapp/broadcast` and UI Modal (`<WhatsAppBroadcastModal />`) allowing admins to send bulk WhatsApp campaigns with media/PDF attachments to directory contacts or custom CSV lists.
+  - **Bulk Campaign Broadcast & CSV File Importer**: Created `POST /api/omnichannel/whatsapp/broadcast` and UI Modal (`<WhatsAppBroadcastModal />`) with an integrated **"CSV / TXT Dosyası Seç"** file reader (`FileReader`) that parses, cleans, and deduplicates phone numbers automatically.
   - **Interactive Buttons & Media**: Added `send_whatsapp_buttons()` (quick reply buttons) and `send_whatsapp_media()` (image/document/audio) in `backend/services/whatsapp_service.py`.
 
 ## Automatic Project Memory Update Rule
