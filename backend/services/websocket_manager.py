@@ -47,11 +47,15 @@ class ConnectionManager:
 
     async def broadcast_omnichannel_event(self, event: dict):
         """Sends a JSON event to all connected omnichannel workspace clients."""
+        to_remove = []
         for connection in self.omnichannel_connections:
             try:
                 await connection.send_json(event)
             except Exception:
-                pass
+                to_remove.append(connection)
+        for dead in to_remove:
+            if dead in self.omnichannel_connections:
+                self.omnichannel_connections.remove(dead)
 
 # Singleton manager
 ws_manager = ConnectionManager()

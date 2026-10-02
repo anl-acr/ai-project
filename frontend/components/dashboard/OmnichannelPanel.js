@@ -42,9 +42,9 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     fetchCanned();
   }, [backendHost]);
 
-  // Fetch all chat sessions on mount
-  const fetchSessions = async () => {
-    setLoading(prev => ({ ...prev, sessions: true }));
+  // Fetch all chat sessions
+  const fetchSessions = async (showSpinner = false) => {
+    if (showSpinner) setLoading(prev => ({ ...prev, sessions: true }));
     try {
       const res = await fetch(`${API_BASE}/api/omnichannel/chats`);
       if (res.ok) {
@@ -54,23 +54,30 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     } catch (err) {
       console.error("[Omnichannel] Error loading sessions:", err);
     } finally {
-      setLoading(prev => ({ ...prev, sessions: false }));
+      if (showSpinner) setLoading(prev => ({ ...prev, sessions: false }));
     }
   };
 
   // Fetch messages for a specific session
-  const fetchMessages = async (sessionId) => {
-    setLoading(prev => ({ ...prev, messages: true }));
+  const fetchMessages = async (sessionId, showSpinner = false) => {
+    if (!sessionId) return;
+    if (showSpinner) setLoading(prev => ({ ...prev, messages: true }));
     try {
       const res = await fetch(`${API_BASE}/api/omnichannel/chats/${sessionId}/messages`);
       if (res.ok) {
         const data = await res.json();
-        setMessages(data);
+        setMessages(prev => {
+          // Avoid unnecessary re-renders if length & last message match
+          if (prev.length === data.length && prev.length > 0 && prev[prev.length - 1].id === data[data.length - 1].id) {
+            return prev;
+          }
+          return data;
+        });
       }
     } catch (err) {
       console.error("[Omnichannel] Error loading messages:", err);
     } finally {
-      setLoading(prev => ({ ...prev, messages: false }));
+      if (showSpinner) setLoading(prev => ({ ...prev, messages: false }));
     }
   };
 
@@ -79,9 +86,21 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     activeSessionRef.current = activeSession;
   }, [activeSession]);
 
+  // Silent auto-refresh polling (every 3 seconds) + WebSocket hybrid sync
   useEffect(() => {
-    fetchSessions();
+    fetchSessions(true);
 
+    const interval = setInterval(() => {
+      fetchSessions(false);
+      if (activeSessionRef.current && activeSessionRef.current.id) {
+        fetchMessages(activeSessionRef.current.id, false);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [backendHost]);
+
+  useEffect(() => {
     let isMounted = true;
     let reconnectTimeout = null;
 
@@ -104,16 +123,16 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             const newMsg = data.message;
             
             // Append message if it belongs to currently active session
-            if (activeSessionRef.current && activeSessionRef.current.id === newMsg.session_id) {
+            if (activeSessionRef.current && String(activeSessionRef.current.id) === String(newMsg.session_id)) {
               setMessages(prev => {
-                if (prev.some(m => m.id === newMsg.id)) return prev;
+                if (prev.some(m => String(m.id) === String(newMsg.id))) return prev;
                 return [...prev, newMsg];
               });
             }
 
-            // Also update session list preview (last message text & time) dynamically
+            // Also update session list preview dynamically
             setSessions(prev => {
-              const idx = prev.findIndex(s => s.id === newMsg.session_id);
+              const idx = prev.findIndex(s => String(s.id) === String(newMsg.session_id));
               if (idx > -1) {
                 const next = [...prev];
                 next[idx] = {
@@ -129,7 +148,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
           } else if (data.type === "session_update") {
             const updatedSess = data.session;
             setSessions(prev => {
-              const idx = prev.findIndex(s => s.id === updatedSess.id);
+              const idx = prev.findIndex(s => String(s.id) === String(updatedSess.id));
               if (idx > -1) {
                 const next = [...prev];
                 next[idx] = { ...next[idx], ...updatedSess };
@@ -140,15 +159,15 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             });
             
             // Update active session details dynamically
-            if (activeSessionRef.current && activeSessionRef.current.id === updatedSess.id) {
+            if (activeSessionRef.current && String(activeSessionRef.current.id) === String(updatedSess.id)) {
               setActiveSession(prev => ({ ...prev, ...updatedSess }));
             }
           } else if (data.type === "takeover_changed") {
             const { session_id, assigned_agent } = data;
             setSessions(prev => 
-              prev.map(s => s.id === session_id ? { ...s, assigned_agent } : s)
+              prev.map(s => String(s.id) === String(session_id) ? { ...s, assigned_agent } : s)
             );
-            if (activeSessionRef.current && activeSessionRef.current.id === session_id) {
+            if (activeSessionRef.current && String(activeSessionRef.current.id) === String(session_id)) {
               setActiveSession(prev => ({ ...prev, assigned_agent }));
             }
           }
@@ -188,7 +207,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
   const selectSession = (session) => {
     setActiveSession(session);
-    fetchMessages(session.id);
+    fetchMessages(session.id, true);
   };
 
   // Send manual representative reply
