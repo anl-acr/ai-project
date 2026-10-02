@@ -1,6 +1,7 @@
 import datetime
 import uuid
-from sqlalchemy import select
+import re
+from sqlalchemy import select, or_
 from backend.database.config import AsyncSessionLocal
 from backend.database.models import ChatSession, ChatMessage, Contact, BlacklistItem, BlockWord
 from backend.services.rag_service import get_genai_client
