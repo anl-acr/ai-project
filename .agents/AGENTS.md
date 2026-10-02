@@ -111,10 +111,10 @@
   - Registered 0850 business number `+90 850 360 7390` (`Phone Number ID: 1391907340666153`) under Meta WhatsApp Business Account (`1401185855534577`).
   - Added robust `re` regex and `or_` SQLAlchemy imports in `backend/services/chat_service.py` to prevent silent `NameError` exceptions during active session resolution.
   - Added top-level `try...except` wrapper around `handle_inbound_chat_message` to capture, log, and audit all inbound message processing errors to PostgreSQL `EventLog` (`PROCESS_ERROR`) and memory logs.
-- **Omnichannel Realtime WebSocket Engine & Stale Closure Resolution**:
-  - Refactored `<OmnichannelPanel />` (`frontend/components/dashboard/OmnichannelPanel.js`) to decouple WebSocket connection lifecycle from `activeSession` state changes.
-  - Implemented `activeSessionRef` (`useRef`) to avoid stale state closures inside `ws.onmessage` handlers.
-  - Added persistent auto-reconnection logic (`setTimeout` in `ws.onclose`) to guarantee continuous real-time streaming for `message`, `session_update`, and `takeover_changed` events without page refresh or session re-selection.
+- **Omnichannel Realtime WebSocket Engine & Hybrid Auto-Refresh Architecture**:
+  - Refactored `<OmnichannelPanel />` (`frontend/components/dashboard/OmnichannelPanel.js`) with a Hybrid Realtime Engine (WebSocket streaming + 3-second silent background polling fallback without UI spinners/flickering).
+  - Enforced string-coerced session ID matching (`String(s.id) === String(newMsg.session_id)`) to eliminate type mismatch drops between integer and string UUID IDs.
+  - Added dead WebSocket socket cleanup loop in `broadcast_omnichannel_event()` (`backend/services/websocket_manager.py`) to purge stale connections during active message broadcasts.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
