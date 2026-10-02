@@ -74,70 +74,112 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const activeSessionRef = useRef(activeSession);
+  useEffect(() => {
+    activeSessionRef.current = activeSession;
+  }, [activeSession]);
+
   useEffect(() => {
     fetchSessions();
 
-    // Establish WebSocket Connection for real-time updates
-    const wsUrl = `${WS_BASE}/ws/omnichannel`;
-    console.log(`[Omnichannel WS] Connecting to: ${wsUrl}`);
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
+    let isMounted = true;
+    let reconnectTimeout = null;
 
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        console.log("[Omnichannel WS] Event received:", data);
+    const connectWebSocket = () => {
+      const wsUrl = `${WS_BASE}/ws/omnichannel`;
+      console.log(`[Omnichannel WS] Connecting to: ${wsUrl}`);
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
-        if (data.type === "message") {
-          const newMsg = data.message;
-          // Append message if it belongs to active session
-          if (activeSession && activeSession.id === newMsg.session_id) {
-            setMessages(prev => {
-              // Avoid duplicates
-              if (prev.some(m => m.id === newMsg.id)) return prev;
-              return [...prev, newMsg];
-            });
-          }
-        } else if (data.type === "session_update") {
-          const updatedSess = data.session;
-          setSessions(prev => {
-            const idx = prev.findIndex(s => s.id === updatedSess.id);
-            if (idx > -1) {
-              const next = [...prev];
-              next[idx] = { ...next[idx], ...updatedSess };
-              // Re-sort sessions by last message time
-              return next.sort((a, b) => new Date(b.last_message_time) - new Date(a.last_message_time));
-            } else {
-              return [updatedSess, ...prev];
+      ws.onopen = () => {
+        console.log("[Omnichannel WS] Connected successfully.");
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          console.log("[Omnichannel WS] Event received:", data);
+
+          if (data.type === "message") {
+            const newMsg = data.message;
+            
+            // Append message if it belongs to currently active session
+            if (activeSessionRef.current && activeSessionRef.current.id === newMsg.session_id) {
+              setMessages(prev => {
+                if (prev.some(m => m.id === newMsg.id)) return prev;
+                return [...prev, newMsg];
+              });
             }
-          });
-          
-          // Update active session details dynamically
-          if (activeSession && activeSession.id === updatedSess.id) {
-            setActiveSession(prev => ({ ...prev, ...updatedSess }));
+
+            // Also update session list preview (last message text & time) dynamically
+            setSessions(prev => {
+              const idx = prev.findIndex(s => s.id === newMsg.session_id);
+              if (idx > -1) {
+                const next = [...prev];
+                next[idx] = {
+                  ...next[idx],
+                  last_message_text: newMsg.text,
+                  last_message_time: newMsg.timestamp
+                };
+                return next.sort((a, b) => new Date(b.last_message_time) - new Date(a.last_message_time));
+              }
+              return prev;
+            });
+
+          } else if (data.type === "session_update") {
+            const updatedSess = data.session;
+            setSessions(prev => {
+              const idx = prev.findIndex(s => s.id === updatedSess.id);
+              if (idx > -1) {
+                const next = [...prev];
+                next[idx] = { ...next[idx], ...updatedSess };
+                return next.sort((a, b) => new Date(b.last_message_time) - new Date(a.last_message_time));
+              } else {
+                return [updatedSess, ...prev];
+              }
+            });
+            
+            // Update active session details dynamically
+            if (activeSessionRef.current && activeSessionRef.current.id === updatedSess.id) {
+              setActiveSession(prev => ({ ...prev, ...updatedSess }));
+            }
+          } else if (data.type === "takeover_changed") {
+            const { session_id, assigned_agent } = data;
+            setSessions(prev => 
+              prev.map(s => s.id === session_id ? { ...s, assigned_agent } : s)
+            );
+            if (activeSessionRef.current && activeSessionRef.current.id === session_id) {
+              setActiveSession(prev => ({ ...prev, assigned_agent }));
+            }
           }
-        } else if (data.type === "takeover_changed") {
-          const { session_id, assigned_agent } = data;
-          setSessions(prev => 
-            prev.map(s => s.id === session_id ? { ...s, assigned_agent } : s)
-          );
-          if (activeSession && activeSession.id === session_id) {
-            setActiveSession(prev => ({ ...prev, assigned_agent }));
-          }
+        } catch (err) {
+          console.error("[Omnichannel WS] Error parsing message:", err);
         }
-      } catch (err) {
-        console.error("[Omnichannel WS] Error parsing message:", err);
-      }
+      };
+
+      ws.onerror = (err) => {
+        console.error("[Omnichannel WS] Socket error:", err);
+      };
+
+      ws.onclose = () => {
+        console.log("[Omnichannel WS] Connection closed.");
+        if (isMounted) {
+          reconnectTimeout = setTimeout(() => {
+            console.log("[Omnichannel WS] Reconnecting...");
+            connectWebSocket();
+          }, 3000);
+        }
+      };
     };
 
-    ws.onclose = () => {
-      console.log("[Omnichannel WS] Connection closed.");
-    };
+    connectWebSocket();
 
     return () => {
+      isMounted = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
       if (wsRef.current) wsRef.current.close();
     };
-  }, [activeSession?.id]);
+  }, [backendHost]);
 
   // Scroll to bottom when message log updates
   useEffect(() => {
