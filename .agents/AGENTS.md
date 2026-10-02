@@ -107,6 +107,10 @@
   - Added robust stringified JSON dictionary handling for `forwarding_always`, `forwarding_busy`, and `forwarding_no_answer` fields.
   - If Dahili `1000` is offline (not SIP registered) or busy/unreachable/NOANSWER, Asterisk `webrtc_agents` dialplan automatically routes the call to the user's configured GSM mobile phone or forwarding number via `Operator_Trunk`.
   - AMI `get_ami_manager()` automatically registers `Newchannel`, `Hangup`, and `ContactStatus` event handlers on startup, maintaining real-time Asterisk channel tracking with `CoreShowChannels` fallback.
+- **WhatsApp Cloud API 0850 Business Number Integration & Session Resolver**:
+  - Registered 0850 business number `+90 850 360 7390` (`Phone Number ID: 1391907340666153`) under Meta WhatsApp Business Account (`1401185855534577`).
+  - Added robust `re` regex and `or_` SQLAlchemy imports in `backend/services/chat_service.py` to prevent silent `NameError` exceptions during active session resolution.
+  - Added top-level `try...except` wrapper around `handle_inbound_chat_message` to capture, log, and audit all inbound message processing errors to PostgreSQL `EventLog` (`PROCESS_ERROR`) and memory logs.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
