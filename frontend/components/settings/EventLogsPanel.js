@@ -18,8 +18,8 @@ export default function EventLogsPanel({ backendHost }) {
     setLoading(true);
     setError(null);
     try {
-      // By using window.fetch which is patched in _app.js, X-User-ID is attached
-      const res = await fetch(`http://${backendHost}/api/system/logs?limit=500`);
+      const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
+      const res = await fetch(`${protocol}//${backendHost}/api/system/logs?limit=500`);
       if (!res.ok) throw new Error("Günlükler alınırken bir hata oluştu.");
       const data = await res.json();
       setLogs(data.logs || []);
