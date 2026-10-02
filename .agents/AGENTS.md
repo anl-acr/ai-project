@@ -111,10 +111,10 @@
   - Registered 0850 business number `+90 850 360 7390` (`Phone Number ID: 1391907340666153`) under Meta WhatsApp Business Account (`1401185855534577`).
   - Added robust `re` regex and `or_` SQLAlchemy imports in `backend/services/chat_service.py` to prevent silent `NameError` exceptions during active session resolution.
   - Added top-level `try...except` wrapper around `handle_inbound_chat_message` to capture, log, and audit all inbound message processing errors to PostgreSQL `EventLog` (`PROCESS_ERROR`) and memory logs.
-- **Omnichannel Realtime WebSocket Engine & Hybrid Auto-Refresh Architecture**:
-  - Refactored `<OmnichannelPanel />` (`frontend/components/dashboard/OmnichannelPanel.js`) with a Hybrid Realtime Engine (WebSocket streaming + 3-second silent background polling fallback without UI spinners/flickering).
-  - Enforced string-coerced session ID matching (`String(s.id) === String(newMsg.session_id)`) to eliminate type mismatch drops between integer and string UUID IDs.
-  - Added dead WebSocket socket cleanup loop in `broadcast_omnichannel_event()` (`backend/services/websocket_manager.py`) to purge stale connections during active message broadcasts.
+- **WhatsApp Advanced Features (Missed Call Auto-responder, Bulk Campaign Broadcast, Buttons & Media)**:
+  - **Missed Call Auto-responder**: Integrated `send_whatsapp_missed_call_autoresponder()` into `end_call_endpoint` (`backend/main.py`). Whenever an inbound call ends as `no_answer`, `busy`, `failed`, or `cancelled`, an automated polite greeting is dispatched via WhatsApp to the caller's mobile number.
+  - **Bulk Campaign Broadcast**: Created `POST /api/omnichannel/whatsapp/broadcast` and UI Modal (`<WhatsAppBroadcastModal />`) allowing admins to send bulk WhatsApp campaigns with media/PDF attachments to directory contacts or custom CSV lists.
+  - **Interactive Buttons & Media**: Added `send_whatsapp_buttons()` (quick reply buttons) and `send_whatsapp_media()` (image/document/audio) in `backend/services/whatsapp_service.py`.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
