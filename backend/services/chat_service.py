@@ -415,7 +415,6 @@ Karşı tarafın kanal türüne (örn: mail ise biraz daha resmi/eposta formatı
                     
                     # Check for AI Abuse detection trigger code
                     if "[ABUSE_DETECTED:" in ai_reply_text:
-                        import re
                         match = re.search(r"\[ABUSE_DETECTED:\s*([^\]]+)\]", ai_reply_text)
                         reason_val = match.group(1) if match else "Yapay Zeka Suistimal Tespiti"
                         
