@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp, Megaphone, CheckCircle } from "lucide-react";
+import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp, Megaphone, CheckCircle, Upload } from "lucide-react";
 import AddContactModal from "./AddContactModal";
 
 export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
@@ -350,6 +350,42 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     } finally {
       setBroadcastLoading(false);
     }
+  };
+
+  // CSV / TXT File Import Handler
+  const handleFileUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const content = event.target?.result || "";
+        const lines = content.split(/[\r\n,;]+/);
+        const extracted = [];
+        for (let line of lines) {
+          const digits = line.replace(/[^\d+]/g, "").trim();
+          if (digits.length >= 10) {
+            extracted.push(digits);
+          }
+        }
+        const uniqueNumbers = Array.from(new Set(extracted));
+        if (uniqueNumbers.length > 0) {
+          setBroadcastNumbers(prev => {
+            const existing = prev ? prev.split("\n").map(s => s.trim()).filter(Boolean) : [];
+            const merged = Array.from(new Set([...existing, ...uniqueNumbers]));
+            return merged.join("\n");
+          });
+          alert(`✅ ${uniqueNumbers.length} adet telefon numarası dosyadan başarıyla içe aktarıldı!`);
+        } else {
+          alert("⚠️ Seçilen dosyada geçerli telefon numarası bulunamadı.");
+        }
+      } catch (err) {
+        console.error("Error reading file:", err);
+        alert("Dosya okunurken bir hata oluştu.");
+      }
+    };
+    reader.readAsText(file);
   };
 
   // Helper to render channel badges styled nicely
@@ -902,14 +938,31 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
               {broadcastTarget === "custom" && (
                 <div>
-                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">Telefon Numaraları</label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Telefon Numaraları</label>
+                    <label className="cursor-pointer px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/40 border border-emerald-200/60 dark:border-emerald-800/50 rounded-lg text-[10px] font-bold text-emerald-700 dark:text-emerald-400 transition flex items-center gap-1">
+                      <Upload size={11} />
+                      <span>CSV / TXT Dosyası Seç</span>
+                      <input
+                        type="file"
+                        accept=".csv,.txt,.xlsx,.xls"
+                        onChange={handleFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
                   <textarea
                     value={broadcastNumbers}
                     onChange={(e) => setBroadcastNumbers(e.target.value)}
-                    placeholder="Her satıra bir numara yazın (Örn: +905554443322)"
-                    rows={3}
+                    placeholder="Her satıra bir numara yazın veya yukarıdan CSV/TXT dosyası seçin (Örn: +905554443322)"
+                    rows={4}
                     className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none"
                   />
+                  {broadcastNumbers && (
+                    <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold block mt-1">
+                      Toplam {broadcastNumbers.split("\n").filter(n => n.trim().length >= 10).length} geçerli alıcı numarası tespit edildi.
+                    </span>
+                  )}
                 </div>
               )}
 
