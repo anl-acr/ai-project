@@ -135,9 +135,14 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str)
             sender_name = contact_by_phone.get(sender_info)
 
         # 1. Fetch active session or create new one
+        clean_sender = re.sub(r"\D", "", str(sender_info))
         stmt = select(ChatSession).where(
             ChatSession.channel == channel,
-            ChatSession.sender_info == sender_info,
+            or_(
+                ChatSession.sender_info == sender_info,
+                ChatSession.sender_info == clean_sender,
+                ChatSession.sender_info == f"+{clean_sender}"
+            ),
             ChatSession.status == "active"
         )
         result = await session.execute(stmt)
