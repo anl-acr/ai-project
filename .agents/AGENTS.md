@@ -115,6 +115,7 @@
   - **Missed Call Auto-responder**: Integrated `send_whatsapp_missed_call_autoresponder()` into `end_call_endpoint` (`backend/main.py`). Whenever an inbound call ends as `no_answer`, `busy`, `failed`, or `cancelled`, an automated polite greeting is dispatched via WhatsApp to the caller's mobile number.
   - **Bulk Campaign Broadcast & CSV File Importer**: Created `POST /api/omnichannel/whatsapp/broadcast` and UI Modal (`<WhatsAppBroadcastModal />`) with an integrated **"CSV / TXT Dosyası Seç"** file reader (`FileReader`) that parses, cleans, and deduplicates phone numbers automatically.
   - **Interactive Buttons & Media**: Added `send_whatsapp_buttons()` (quick reply buttons) and `send_whatsapp_media()` (image/document/audio) in `backend/services/whatsapp_service.py`.
+  - **Quick Add Contact Prop Synchronization**: Fixed `<AddContactModal />` state initialization using `useEffect` to guarantee `initialPhone` and `initialEmail` props auto-populate in the input fields when clicking "Rehbere Kaydet" from active chat headers.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
