@@ -5027,6 +5027,15 @@ async def end_call_endpoint(
             await session.commit()
             print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus})")
             add_system_log("ASTERISK", "INFO", f"Arama Sonlandı: ID={call_id}, Durum={resolved_status}")
+
+            # Trigger automated WhatsApp Missed Call greeting if call was unanswered
+            if resolved_status in ["no_answer", "busy", "failed", "cancelled"]:
+                caller_num = str(db_call.caller_number or "").strip()
+                clean_num = re.sub(r"\D", "", caller_num)
+                if len(clean_num) >= 10:
+                    import asyncio
+                    from backend.services.whatsapp_service import send_whatsapp_missed_call_autoresponder
+                    asyncio.create_task(send_whatsapp_missed_call_autoresponder(caller_num))
     return {"status": "success", "call_status": resolved_status}
 
 
@@ -6337,6 +6346,98 @@ async def simulate_incoming_chat_message(payload: ChatSimulateSchema):
         text=payload.text
     )
     return {"status": "success", "ai_reply": reply}
+
+class WhatsAppBroadcastSchema(BaseModel):
+    recipients: List[str]
+    text: str
+    media_url: Optional[str] = None
+    media_type: Optional[str] = None
+
+@app.post("/api/omnichannel/whatsapp/broadcast")
+async def send_whatsapp_broadcast_campaign(
+    payload: WhatsAppBroadcastSchema,
+    user_info: dict = Depends(get_user_info)
+):
+    from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_media
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    recipients_list = payload.recipients or []
+
+    if "all_contacts" in recipients_list:
+        async with AsyncSessionLocal() as session:
+            stmt = select(Contact)
+            res = await session.execute(stmt)
+            contacts = res.scalars().all()
+            recipients_list = [c.phone_number for c in contacts if c.phone_number]
+
+    clean_recipients = list(set([r for r in recipients_list if r and len(re.sub(r"\D", "", r)) >= 10]))
+
+    if not clean_recipients:
+        raise HTTPException(status_code=400, detail="Geçerli alıcı numarası bulunamadı.")
+
+    successful = 0
+    failed = 0
+
+    for phone in clean_recipients:
+        try:
+            if payload.media_url:
+                res = await send_whatsapp_media(phone, payload.media_type or "image", payload.media_url, caption=payload.text)
+            else:
+                res = await send_whatsapp_message(phone, payload.text)
+
+            if res.get("status") in ["success", "dry_run"]:
+                successful += 1
+                async with AsyncSessionLocal() as db_session:
+                    stmt = select(ChatSession).where(
+                        ChatSession.channel == "whatsapp",
+                        ChatSession.sender_info == phone,
+                        ChatSession.status == "active"
+                    )
+                    r_sess = await db_session.execute(stmt)
+                    chat_sess = r_sess.scalar_one_or_none()
+                    if not chat_sess:
+                        chat_sess = ChatSession(
+                            id=str(uuid.uuid4()),
+                            channel="whatsapp",
+                            sender_info=phone,
+                            status="active",
+                            assigned_agent="ai",
+                            tenant_id=target_tenant
+                        )
+                        db_session.add(chat_sess)
+                        await db_session.commit()
+
+                    msg_obj = ChatMessage(
+                        session_id=chat_sess.id,
+                        direction="outbound",
+                        sender="human",
+                        text=f"[Duyuru / Kampanya]: {payload.text}"
+                    )
+                    db_session.add(msg_obj)
+                    await db_session.commit()
+            else:
+                failed += 1
+        except Exception as e:
+            print(f"[WhatsApp Broadcast Error] {phone}: {e}")
+            failed += 1
+
+    add_system_log("WHATSAPP_CAMPAIGN", "INFO", f"Toplu WhatsApp Kampanyası Gönderildi. Başarılı: {successful}, Başarısız: {failed}")
+    return {
+        "status": "success",
+        "total": len(clean_recipients),
+        "successful": successful,
+        "failed": failed
+    }
+
+class WhatsAppButtonsSchema(BaseModel):
+    to_phone: str
+    body_text: str
+    buttons: List[dict]  # [{"id": "btn1", "title": "Buton 1"}, ...]
+
+@app.post("/api/omnichannel/whatsapp/buttons")
+async def send_whatsapp_buttons_endpoint(payload: WhatsAppButtonsSchema):
+    from backend.services.whatsapp_service import send_whatsapp_buttons
+    res = await send_whatsapp_buttons(payload.to_phone, payload.body_text, payload.buttons)
+    return res
 
 @app.websocket("/ws/omnichannel")
 async def websocket_omnichannel(websocket: WebSocket):

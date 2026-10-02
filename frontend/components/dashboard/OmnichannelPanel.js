@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp } from "lucide-react";
+import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp, Megaphone, CheckCircle } from "lucide-react";
 import AddContactModal from "./AddContactModal";
 
 export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
@@ -10,10 +10,19 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [loading, setLoading] = useState({ sessions: false, messages: false });
   const [actionLoading, setActionLoading] = useState(false);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
+  const [showBroadcastModal, setShowBroadcastModal] = useState(false);
   const [cannedResponses, setCannedResponses] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showCannedPopover, setShowCannedPopover] = useState(false);
   const [showQAReport, setShowQAReport] = useState(false);
+
+  // Broadcast Campaign Modal State
+  const [broadcastTarget, setBroadcastTarget] = useState("all_contacts");
+  const [broadcastNumbers, setBroadcastNumbers] = useState("");
+  const [broadcastText, setBroadcastText] = useState("");
+  const [broadcastMediaUrl, setBroadcastMediaUrl] = useState("");
+  const [broadcastLoading, setBroadcastLoading] = useState(false);
+  const [broadcastResult, setBroadcastResult] = useState(null);
 
   // Simulator Form State
   const [simChannel, setSimChannel] = useState("whatsapp");
@@ -295,6 +304,54 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
+  // Handle Bulk WhatsApp Campaign Broadcast
+  const handleStartBroadcast = async (e) => {
+    e.preventDefault();
+    if (!broadcastText.trim()) return;
+
+    let recipientList = [];
+    if (broadcastTarget === "all_contacts") {
+      recipientList = ["all_contacts"];
+    } else {
+      recipientList = broadcastNumbers
+        .split(/[\n,]+/)
+        .map(n => n.trim())
+        .filter(n => n.length >= 10);
+    }
+
+    if (recipientList.length === 0) {
+      alert("Lütfen en az bir alıcı numarası girin.");
+      return;
+    }
+
+    setBroadcastLoading(true);
+    setBroadcastResult(null);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/omnichannel/whatsapp/broadcast`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          recipients: recipientList,
+          text: broadcastText,
+          media_url: broadcastMediaUrl || null
+        })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setBroadcastResult(data);
+        fetchSessions(false);
+      } else {
+        alert(`Hata: ${data.detail || "Kampanya başlatılamadı"}`);
+      }
+    } catch (err) {
+      console.error("[Broadcast Error]", err);
+      alert("Kampanya mesajı gönderilirken bir sunucu hatası oluştu.");
+    } finally {
+      setBroadcastLoading(false);
+    }
+  };
+
   // Helper to render channel badges styled nicely
   const renderChannelBadge = (channel) => {
     switch (channel.toLowerCase()) {
@@ -327,12 +384,23 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             WhatsApp, Instagram, Telegram, Facebook ve Mail kanallarını tek bir sohbet ekranında yönetin.
           </p>
         </div>
-        <button
-          onClick={fetchSessions}
-          className="p-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl transition duration-200 text-slate-505 dark:text-slate-400"
-        >
-          <RefreshCw size={15} className={loading.sessions ? "animate-spin" : ""} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              setBroadcastResult(null);
+              setShowBroadcastModal(true);
+            }}
+            className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-xs font-bold transition flex items-center gap-2 shadow-sm"
+          >
+            <Megaphone size={15} /> Toplu WhatsApp Gönder
+          </button>
+          <button
+            onClick={() => fetchSessions(true)}
+            className="p-2.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl transition duration-200 text-slate-500 dark:text-slate-400"
+          >
+            <RefreshCw size={15} className={loading.sessions ? "animate-spin" : ""} />
+          </button>
+        </div>
       </div>
 
       {/* Main Grid Workspace */}
@@ -800,6 +868,107 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
           fetchSessions();
         }}
       />
+
+      {/* Toplu WhatsApp Gönderim & Kampanya Modalı */}
+      {showBroadcastModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="p-5 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between bg-slate-50/50 dark:bg-slate-950/20">
+              <div className="flex items-center gap-2">
+                <Megaphone size={18} className="text-emerald-500" />
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white">Toplu WhatsApp Duyurusu & Kampanya</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowBroadcastModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleStartBroadcast} className="p-6 space-y-4 text-left">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">Hedef Kitle</label>
+                <select
+                  value={broadcastTarget}
+                  onChange={(e) => setBroadcastTarget(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+                >
+                  <option value="all_contacts">Rehberdeki Tüm Kayıtlı Kişiler</option>
+                  <option value="custom">Özel Numaralar Listesi (CSV / Manuel)</option>
+                </select>
+              </div>
+
+              {broadcastTarget === "custom" && (
+                <div>
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">Telefon Numaraları</label>
+                  <textarea
+                    value={broadcastNumbers}
+                    onChange={(e) => setBroadcastNumbers(e.target.value)}
+                    placeholder="Her satıra bir numara yazın (Örn: +905554443322)"
+                    rows={3}
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">Kampanya Mesajı</label>
+                <textarea
+                  value={broadcastText}
+                  onChange={(e) => setBroadcastText(e.target.value)}
+                  required
+                  placeholder="Gönderilecek kampanya veya duyuru metnini yazın..."
+                  rows={4}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">Medya veya PDF Katalog URL (Opsiyonel)</label>
+                <input
+                  type="text"
+                  value={broadcastMediaUrl}
+                  onChange={(e) => setBroadcastMediaUrl(e.target.value)}
+                  placeholder="https://example.com/katalog.pdf veya gorsel.jpg"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+                />
+              </div>
+
+              {broadcastResult && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs flex items-center justify-between text-emerald-700 dark:text-emerald-400">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle size={16} />
+                    <span>Kampanya tamamlandı!</span>
+                  </div>
+                  <div className="font-bold">
+                    Başarılı: {broadcastResult.successful} / Toplam: {broadcastResult.total}
+                  </div>
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBroadcastModal(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  Kapat
+                </button>
+                <button
+                  type="submit"
+                  disabled={broadcastLoading || !broadcastText.trim()}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Send size={14} />
+                  {broadcastLoading ? "Gönderiliyor..." : "Kampanyayı Başlat"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );
