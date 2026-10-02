@@ -28,6 +28,8 @@ ASTERISK_CONFIG_DIR = os.path.join(PROJECT_ROOT, "asterisk_config")
 import datetime
 import uuid
 
+from backend.services.audit_logger import log_event
+
 system_logs = []
 
 def add_system_log(source: str, level: str, message: str):
@@ -35,17 +37,21 @@ def add_system_log(source: str, level: str, message: str):
     system_logs.append({"timestamp": now, "source": source, "level": level, "message": message})
     if len(system_logs) > 50:
         system_logs.pop(0)
+    try:
+        loop = asyncio.get_running_loop()
+        if loop and loop.is_running():
+            loop.create_task(log_event(user_id=source, action=level, module=source, details={"message": message}))
+    except Exception:
+        pass
 
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
-from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, SystemSetting
+from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, SystemSetting, EventLog
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
 from backend.services.websocket_manager import ws_manager
 import redis.asyncio as aioredis
 redis_client = aioredis.Redis(host='localhost', port=6379, decode_responses=True)
-
-from backend.services.audit_logger import log_event
 
 def is_default_tenant(tenant_id: str) -> bool:
     return not tenant_id or tenant_id in ["tenant-default", "default"]
@@ -5553,20 +5559,41 @@ async def get_system_logs(limit: int = 100, offset: int = 0, module: Optional[st
         result = await session.execute(stmt)
         logs = result.scalars().all()
         
+        formatted_logs = []
+        for l in logs:
+            det = None
+            if l.details:
+                try:
+                    det = json.loads(l.details)
+                except Exception:
+                    det = {"message": l.details}
+            formatted_logs.append({
+                "id": l.id,
+                "timestamp": l.timestamp.isoformat() if l.timestamp else datetime.datetime.utcnow().isoformat(),
+                "user_id": l.user_id or "System",
+                "action": l.action or "INFO",
+                "module": l.module or "System",
+                "details": det,
+                "ip_address": l.ip_address or "127.0.0.1"
+            })
+
+        if not formatted_logs and system_logs:
+            idx = 1
+            for sl in reversed(system_logs):
+                formatted_logs.append({
+                    "id": idx,
+                    "timestamp": datetime.datetime.utcnow().isoformat(),
+                    "user_id": sl.get("source", "System"),
+                    "action": sl.get("level", "INFO"),
+                    "module": sl.get("source", "System"),
+                    "details": {"message": sl.get("message", "")},
+                    "ip_address": "127.0.0.1"
+                })
+                idx += 1
+        
         return {
             "status": "success",
-            "logs": [
-                {
-                    "id": l.id,
-                    "timestamp": l.timestamp.isoformat(),
-                    "user_id": l.user_id,
-                    "action": l.action,
-                    "module": l.module,
-                    "details": json.loads(l.details) if l.details else None,
-                    "ip_address": l.ip_address
-                }
-                for l in logs
-            ]
+            "logs": formatted_logs
         }
 
 # =====================================================================
@@ -6807,7 +6834,7 @@ async def startup_event():
     import json
     from sqlalchemy import update, select
     from backend.database.config import engine, AsyncSessionLocal, Base
-    from backend.database.models import Call, SystemUser, SystemRole, SystemSetting, QAQuestion
+    from backend.database.models import Call, SystemUser, SystemRole, SystemSetting, QAQuestion, EventLog
     from backend.services.ami_manager import start_ami_listener
     
     # 1. Ensure all tables and columns are created in PostgreSQL
@@ -6833,6 +6860,15 @@ async def startup_event():
                         pass
         await asyncio.wait_for(init_db(), timeout=4.0)
         print("[Database Init] Veritabanı tabloları ve pbx_queues sütunları kontrol edildi / oluşturuldu.")
+        try:
+            await log_event(
+                user_id="SYSTEM",
+                action="SYSTEM_STARTUP",
+                module="System",
+                details={"message": "FastAPI sunucu servisi ve veritabanı olay günlüğü başlatıldı."}
+            )
+        except Exception as log_err:
+            print(f"[Database Init] Startup event log error: {log_err}")
     except Exception as e:
         print(f"[Database Init] Error creating tables/columns: {e}")
 

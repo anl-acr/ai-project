@@ -13,13 +13,19 @@ async def log_event(user_id: str, action: str, module: str, details: dict = None
     :param ip_address: IP address of the requester
     """
     try:
-        details_str = json.dumps(details, ensure_ascii=False) if details else None
+        if details is not None:
+            if isinstance(details, (dict, list)):
+                details_str = json.dumps(details, ensure_ascii=False)
+            else:
+                details_str = str(details)
+        else:
+            details_str = None
         
         async with AsyncSessionLocal() as session:
             new_log = EventLog(
-                user_id=user_id,
-                action=action,
-                module=module,
+                user_id=str(user_id) if user_id else "System",
+                action=str(action) if action else "INFO",
+                module=str(module) if module else "System",
                 details=details_str,
                 ip_address=ip_address
             )
