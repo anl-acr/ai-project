@@ -7914,43 +7914,57 @@ async def handle_whatsapp_webhook(request: Request):
             print(f"[WhatsApp Webhook POST] Raw payload: {body_str}")
             
             body = await request.json()
-            entries = body.get("entry", [])
-            if not isinstance(entries, list):
-                entries = [entries]
-
-            for entry in entries:
-                changes = entry.get("changes", [])
-                if not isinstance(changes, list):
-                    changes = [changes]
-                for change in changes:
-                    value = change.get("value", {})
-                    messages = value.get("messages", [])
-                    contacts = value.get("contacts", [])
-                    
-                    if messages:
-                        for msg in messages:
-                            sender_phone = msg.get("from") or (contacts[0].get("wa_id") if contacts else "Unknown")
-                            sender_name = (contacts[0].get("profile", {}).get("name") if contacts else sender_phone) or sender_phone
+            values_to_process = []
+            
+            # Structure 1: Meta Production Payload {"entry": [{"changes": [{"value": {...}}]}]}
+            if "entry" in body:
+                entries = body.get("entry", [])
+                if not isinstance(entries, list):
+                    entries = [entries]
+                for entry in entries:
+                    changes = entry.get("changes", [])
+                    if not isinstance(changes, list):
+                        changes = [changes]
+                    for change in changes:
+                        if isinstance(change, dict) and "value" in change:
+                            values_to_process.append(change.get("value", {}))
                             
-                            text_body = ""
-                            msg_type = msg.get("type")
-                            if msg_type == "text":
-                                text_body = msg.get("text", {}).get("body", "")
-                            elif msg_type == "interactive":
-                                text_body = msg.get("interactive", {}).get("button_reply", {}).get("title") or msg.get("interactive", {}).get("list_reply", {}).get("title") or "Etkileşimli Yanıt"
-                            elif msg_type == "button":
-                                text_body = msg.get("button", {}).get("text", "") or "Buton Yanıtı"
-                            else:
-                                text_body = f"[{msg_type.upper() if msg_type else 'MEDYA'} MESAJI]"
+            # Structure 2: Meta Test Modal Payload {"field": "messages", "value": {...}}
+            if "value" in body and isinstance(body.get("value"), dict):
+                values_to_process.append(body.get("value", {}))
 
-                            print(f"[WhatsApp Inbound] Processing message from {sender_phone} ({sender_name}): '{text_body}'")
-                            asyncio.create_task(
-                                handle_inbound_chat_message(
-                                    channel="whatsapp",
-                                    sender_info=str(sender_phone),
-                                    text=text_body
-                                )
+            # Structure 3: Direct {"messages": [...]}
+            if "messages" in body and isinstance(body.get("messages"), list):
+                values_to_process.append(body)
+
+            for value in values_to_process:
+                messages = value.get("messages", [])
+                contacts = value.get("contacts", [])
+                
+                if messages:
+                    for msg in messages:
+                        sender_phone = msg.get("from") or (contacts[0].get("wa_id") if contacts else "Unknown")
+                        sender_name = (contacts[0].get("profile", {}).get("name") if contacts else sender_phone) or sender_phone
+                        
+                        text_body = ""
+                        msg_type = msg.get("type")
+                        if msg_type == "text":
+                            text_body = msg.get("text", {}).get("body", "")
+                        elif msg_type == "interactive":
+                            text_body = msg.get("interactive", {}).get("button_reply", {}).get("title") or msg.get("interactive", {}).get("list_reply", {}).get("title") or "Etkileşimli Yanıt"
+                        elif msg_type == "button":
+                            text_body = msg.get("button", {}).get("text", "") or "Buton Yanıtı"
+                        else:
+                            text_body = f"[{msg_type.upper() if msg_type else 'MEDYA'} MESAJI]"
+
+                        print(f"[WhatsApp Inbound] Processing message from {sender_phone} ({sender_name}): '{text_body}'")
+                        asyncio.create_task(
+                            handle_inbound_chat_message(
+                                channel="whatsapp",
+                                sender_info=str(sender_phone),
+                                text=text_body
                             )
+                        )
         except Exception as e:
             print(f"[WhatsApp Webhook Parse Error]: {e}")
         return Response(content='{"status":"success"}', media_type="application/json", status_code=200)
