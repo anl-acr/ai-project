@@ -7903,17 +7903,25 @@ async def handle_whatsapp_webhook(request: Request):
     if request.method == "POST":
         try:
             raw_body = await request.body()
-            print(f"[WhatsApp Webhook POST] Incoming raw payload: {raw_body.decode('utf-8', errors='ignore')}")
+            body_str = raw_body.decode('utf-8', errors='ignore')
+            print(f"[WhatsApp Webhook POST] Raw payload: {body_str}")
+            
             body = await request.json()
-            if body.get("object") == "whatsapp_business_account":
-                for entry in body.get("entry", []):
-                    for change in entry.get("changes", []):
-                        value = change.get("value", {})
-                        messages = value.get("messages", [])
-                        contacts = value.get("contacts", [])
-                        
-                        if messages:
-                            msg = messages[0]
+            entries = body.get("entry", [])
+            if not isinstance(entries, list):
+                entries = [entries]
+
+            for entry in entries:
+                changes = entry.get("changes", [])
+                if not isinstance(changes, list):
+                    changes = [changes]
+                for change in changes:
+                    value = change.get("value", {})
+                    messages = value.get("messages", [])
+                    contacts = value.get("contacts", [])
+                    
+                    if messages:
+                        for msg in messages:
                             sender_phone = msg.get("from") or (contacts[0].get("wa_id") if contacts else "Unknown")
                             sender_name = (contacts[0].get("profile", {}).get("name") if contacts else sender_phone) or sender_phone
                             
@@ -7937,7 +7945,7 @@ async def handle_whatsapp_webhook(request: Request):
                                 )
                             )
         except Exception as e:
-            print(f"WhatsApp webhook parse error: {e}")
+            print(f"[WhatsApp Webhook Parse Error]: {e}")
         return Response(content='{"status":"success"}', media_type="application/json", status_code=200)
 
     # GET method: Verification request
@@ -7970,46 +7978,6 @@ async def handle_whatsapp_webhook(request: Request):
         return Response(content=str(challenge).strip(), media_type="text/plain", status_code=200)
 
     return Response(content="OK", media_type="text/plain", status_code=200)
-
-
-@app.post("/api/webhooks/whatsapp")
-@app.post("/api/webhooks/whatsapp/")
-@app.post("/api/webhook/whatsapp")
-@app.post("/api/webhook/whatsapp/")
-async def receive_whatsapp_webhook(request: Request):
-    """
-    Handles incoming messages from WhatsApp (Meta Cloud API).
-    """
-    try:
-        body = await request.json()
-        if body.get("object") == "whatsapp_business_account":
-            for entry in body.get("entry", []):
-                for change in entry.get("changes", []):
-                    value = change.get("value", {})
-                    messages = value.get("messages", [])
-                    contacts = value.get("contacts", [])
-                    
-                    if messages and contacts:
-                        msg = messages[0]
-                        contact = contacts[0]
-                        
-                        sender_phone = contact.get("wa_id")
-                        sender_name = contact.get("profile", {}).get("name", sender_phone)
-                        
-                        if msg.get("type") == "text":
-                            text_body = msg.get("text", {}).get("body", "")
-                            sender_info = f"{sender_name} ({sender_phone})" if sender_name != sender_phone else sender_phone
-                            asyncio.create_task(
-                                handle_inbound_chat_message(
-                                    channel="whatsapp",
-                                    sender_info=sender_phone,
-                                    text=text_body
-                                )
-                            )
-        return {"status": "success"}
-    except Exception as e:
-        print(f"WhatsApp webhook parse error: {e}")
-        return {"status": "error"}
 
 @app.post("/api/webhooks/telegram")
 async def receive_telegram_webhook(request: Request):
