@@ -6108,7 +6108,14 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
     async with AsyncSessionLocal() as session:
         stmt = select(ChatSession)
         if target_tenant not in ["all", "global"]:
-            stmt = stmt.where(or_(ChatSession.tenant_id == target_tenant, ChatSession.tenant_id.is_(None)))
+            stmt = stmt.where(
+                or_(
+                    ChatSession.tenant_id == target_tenant,
+                    ChatSession.tenant_id == "tenant-default",
+                    ChatSession.tenant_id == "default",
+                    ChatSession.tenant_id.is_(None)
+                )
+            )
         stmt = stmt.order_by(ChatSession.last_message_time.desc())
         result = await session.execute(stmt)
         sessions = result.scalars().all()
