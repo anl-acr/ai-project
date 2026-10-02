@@ -10,6 +10,17 @@ export default function AddContactModal({ isOpen, onClose, initialPhone = "", in
   const [errorMsg, setErrorMsg] = useState("");
   const [success, setSuccess] = useState(false);
 
+  React.useEffect(() => {
+    if (isOpen) {
+      setFirstName("");
+      setLastName("");
+      setPhone(initialPhone || "");
+      setEmail(initialEmail || "");
+      setErrorMsg("");
+      setSuccess(false);
+    }
+  }, [isOpen, initialPhone, initialEmail]);
+
   if (!isOpen) return null;
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
