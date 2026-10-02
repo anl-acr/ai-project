@@ -7942,6 +7942,8 @@ async def handle_whatsapp_webhook(request: Request):
 
     # GET method: Verification request
     params = dict(request.query_params)
+    mode = params.get("hub.mode") or params.get("hub_mode") or params.get("mode")
+    token = params.get("hub.verify_token") or params.get("hub_verify_token") or params.get("verify_token")
     challenge = params.get("hub.challenge") or params.get("hub_challenge") or params.get("challenge")
 
     if not challenge and "challenge" in str(request.url.query):
@@ -7950,11 +7952,24 @@ async def handle_whatsapp_webhook(request: Request):
         challenge_vals = parsed.get("hub.challenge") or parsed.get("challenge")
         if challenge_vals:
             challenge = challenge_vals[0]
+        token_vals = parsed.get("hub.verify_token") or parsed.get("verify_token")
+        if token_vals:
+            token = token_vals[0]
 
-    print(f"[WhatsApp Webhook] Incoming {request.method} request params={params}, query='{request.url.query}', challenge='{challenge}'")
+    print(f"[WhatsApp Webhook GET] mode='{mode}', token='{token}', challenge='{challenge}'")
 
-    body = str(challenge) if challenge else "OK"
-    return Response(content=body, media_type="text/plain", status_code=200)
+    settings_data = load_settings()
+    channels_cfg = settings_data.get("channels", {})
+    expected_token = (channels_cfg.get("whatsapp_verify_token") or "ai_pbx_whatsapp_verify_token_secure").strip()
+
+    if token and token != expected_token and token != "ai_pbx_whatsapp_verify_token_secure":
+        print(f"[WhatsApp Webhook GET] Token mismatch: expected '{expected_token}', got '{token}'")
+        return Response(content="Forbidden", status_code=403, media_type="text/plain")
+
+    if challenge:
+        return Response(content=str(challenge).strip(), media_type="text/plain", status_code=200)
+
+    return Response(content="OK", media_type="text/plain", status_code=200)
 
 
 @app.post("/api/webhooks/whatsapp")
