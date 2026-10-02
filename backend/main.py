@@ -3593,7 +3593,7 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         ext_str = str(extension).strip()
         
         # 1. Fetch from DB
-        stmt = select(SystemUser).where(or_(SystemUser.extension == ext_str, SystemUser.username == ext_str))
+        stmt = select(SystemUser).where(or_(SystemUser.extension == ext_str, SystemUser.email == ext_str))
         res = await db.execute(stmt)
         user = res.scalars().first()
         
@@ -3604,7 +3604,7 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         # 2. Merge with disk user from settings_db
         all_users = settings_db.get("users", [])
         for u in all_users:
-            if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("username") == ext_str:
+            if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("email") == ext_str:
                 for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active"]:
                     val = u.get(k)
                     if val is not None and val != "" and val != {}:
@@ -3620,6 +3620,19 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         def extract_target(f_obj):
             if not f_obj:
                 return None
+            if isinstance(f_obj, str):
+                s = f_obj.strip()
+                if s.startswith("{") and s.endswith("}"):
+                    try:
+                        import json
+                        f_obj = json.loads(s)
+                    except Exception:
+                        pass
+                else:
+                    if s and s not in ["Seçiniz...", "select", "none", "null", "undefined"]:
+                        return s
+                    return None
+
             if isinstance(f_obj, dict):
                 active_val = None
                 if "active" in f_obj:
@@ -3633,17 +3646,21 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
                     return None
                     
                 target = f_obj.get("target") or f_obj.get("number") or f_obj.get("destination") or f_obj.get("value")
-                if target and str(target).strip() and str(target).strip() not in ["Seçiniz...", "select", "none"]:
+                if target and str(target).strip() and str(target).strip() not in ["Seçiniz...", "select", "none", "null", "undefined"]:
                     return str(target).strip()
                 return None
                 
-            if isinstance(f_obj, str) and f_obj.strip() and f_obj.strip() not in ["Seçiniz...", "select", "none"]:
-                return f_obj.strip()
             return None
 
         # Extract timeout for no_answer (default 30 seconds)
         no_ans_obj = user_dict.get("forwarding_no_answer")
         no_ans_timeout = 30
+        if isinstance(no_ans_obj, str) and no_ans_obj.strip().startswith("{"):
+            try:
+                import json
+                no_ans_obj = json.loads(no_ans_obj)
+            except Exception:
+                pass
         if isinstance(no_ans_obj, dict) and no_ans_obj.get("timeout"):
             try:
                 no_ans_timeout = int(no_ans_obj.get("timeout"))
@@ -4886,7 +4903,7 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
             call_tenant = "tenant-default"
             try:
                 if caller:
-                    res_u = await session.execute(select(SystemUser).where(or_(SystemUser.extension == str(caller), SystemUser.username == str(caller))))
+                    res_u = await session.execute(select(SystemUser).where(or_(SystemUser.extension == str(caller), SystemUser.email == str(caller))))
                     user_found = res_u.scalars().first()
                     if user_found and getattr(user_found, "tenant_id", None):
                         call_tenant = user_found.tenant_id
@@ -7605,18 +7622,40 @@ async def get_system_version_info():
     Used by local and production servers to verify deployment synchronization.
     """
     return {
-        "version": "v2.4.7",
+        "version": "v2.4.8",
         "commit_hash": "auto",
-        "release_date": "29 Eylül 2026",
+        "release_date": "2 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production",
         "changelog": [
             {
-                "version": "v2.4.7",
+                "version": "v2.4.8",
                 "commit_hash": "auto",
-                "release_date": "29 Eylül 2026",
+                "release_date": "2 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "SystemUser Veritabanı Model Hatası (AttributeError: username) & JSON String Yönlendirme Düzeltmesi",
+                "summary": "/api/subscriber/resolve_forwarding endpoint'inde veritabanı sorgusundaki var olmayan 'username' kolon erişim hatası düzeltildi, JSON string yönlendirme nesnelerinin parse edilerek sorunsuz aktarılması sağlandı.",
+                "features": [
+                    {
+                        "title": "SystemUser Kolon Uyumlaştırması",
+                        "desc": "Veritabanı SystemUser modelinde var olmayan 'username' alanı yerine 'extension' ve 'email' üzerinden eşleştirme yapılması sağlandı."
+                    },
+                    {
+                        "title": "Gelişmiş JSON Parser & Safe String Extraction",
+                        "desc": "Veritabanı veya bellekte string olarak saklanan JSON yönlendirme verileri otomatik parse edilerek hedef numaralar (GSM/Dahili) eksiksiz çıkarıldı."
+                    }
+                ],
+                "fixes": [
+                    "Kullanıcılarda yönlendirme açık olmasına rağmen FWD_PRE=DENY:NONE:30 ve FWD_POST=DENY:NONE:30 dönmesi ve çağrıların düşmesi sorunu tamamen giderildi."
+                ]
+            },
+            {
+                "version": "v2.4.7",
+                "commit_hash": "f3fc018",
+                "release_date": "29 Eylül 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "3 Katmanlı Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında) & Dinamik Süre Entegrasyonu",
                 "summary": "Görsel Kullanıcı Ayarları panelindeki 3 ayrı Yönlendirme Türü (Her Zaman, Meşgul Durumda, Zaman Aşımında/Cevapsız) ve dinamik Zaman Aşımı süresi (15-30-60 sn) Asterisk dialplan ve resolver servisiyle tam entegre edildi.",
                 "features": [
@@ -7626,7 +7665,7 @@ async def get_system_version_info():
                     },
                     {
                         "title": "Dinamik Zaman Aşımı (Timeout) Entegrasyonu",
-                        "desc": "Zaman Aşımı sekmesinde seçilen süre (sn) Asterisk Dial() komutuna iletilerek belirlenen süre sonunda cevapsız yönlendirmenin çalışması sağlandı."
+                        "desc": "Zaman Aşımı sekmesinde sekmesinde seçilen süre (sn) Asterisk Dial() komutuna iletilerek belirlenen süre sonunda cevapsız yönlendirmenin çalışması sağlandı."
                     }
                 ],
                 "fixes": [

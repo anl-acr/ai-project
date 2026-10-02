@@ -96,13 +96,15 @@
   - **Telegram Bot API**: Inbound messages handled via `POST /api/webhooks/telegram`. Outbound messages dispatched via `backend/services/telegram_service.py` (`send_telegram_message`).
   - **Meta Direct (Instagram & Facebook Messenger)**: Webhook endpoints `GET/POST /api/webhooks/meta`, `/api/webhooks/instagram`, `/api/webhooks/facebook`. Outbound messages dispatched via `backend/services/meta_service.py` (`send_meta_message`) using Meta Graph API `v18.0`.
   - **E-Posta (SMTP & IMAP Polling)**: Outbound emails sent via `backend/services/email_service.py` (`send_email_message` - SMTP SSL/TLS). Background poller worker `poll_imap_inbox()` fetches unread emails every 30 seconds and feeds incoming messages into `handle_inbound_chat_message`.
-- **System Versioning & Deployment Verification Architecture (v2.4.7)**:
-  - Central version registry endpoint `GET /api/settings/version` (and `/api/version`) returns current version code (`v2.4.7`), build Git commit hash (`f3fc018`), release date, and detailed version changelog history.
+- **System Versioning & Deployment Verification Architecture (v2.4.8)**:
+  - Central version registry endpoint `GET /api/settings/version` (and `/api/version`) returns current version code (`v2.4.8`), release date, and detailed version changelog history.
   - System Settings includes a dedicated visual panel `<ChangelogPanel />` under **Sistem Ayarları > Sistem Versiyonu & Günlük** (`?subtab=sistem-versiyonu`).
   - Features a one-click **Versiyon Kodu Kopyala** button allowing quick comparison between local and remote production server deployments.
 - **Visual CallFlow Evaluator Engine, 3-Level Subscriber Forwarding Resolver & Dynamic Timeout**:
   - Asterisk `exten => s` dialplan dynamically extracts `REAL_DID` via `PJSIP_HEADER(read,To)` and `CHANNEL(name)`, preventing dummy `"s"` DIDs from being sent to `/api/calls/register`.
   - `/api/subscriber/resolve_forwarding` endpoint evaluates all 3 UI forwarding rules: `forwarding_always` (Her Zaman), `forwarding_busy` (Meşgul Durumda), and `forwarding_no_answer` (Zaman Aşımında/Cevapsız) with toggle state (`active: true/false`) and dynamic timeout (e.g. 15-30-60s).
+  - Resolved `SystemUser.username` `AttributeError` exception inside `resolve_subscriber_forwarding` endpoint where non-existent column was queried, causing fallback exception handling to return `DENY:NONE:30` on every call.
+  - Added robust stringified JSON dictionary handling for `forwarding_always`, `forwarding_busy`, and `forwarding_no_answer` fields.
   - If Dahili `1000` is offline (not SIP registered) or busy/unreachable/NOANSWER, Asterisk `webrtc_agents` dialplan automatically routes the call to the user's configured GSM mobile phone or forwarding number via `Operator_Trunk`.
   - AMI `get_ami_manager()` automatically registers `Newchannel`, `Hangup`, and `ContactStatus` event handlers on startup, maintaining real-time Asterisk channel tracking with `CoreShowChannels` fallback.
 
