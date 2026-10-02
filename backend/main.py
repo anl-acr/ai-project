@@ -7912,6 +7912,7 @@ async def handle_whatsapp_webhook(request: Request):
             raw_body = await request.body()
             body_str = raw_body.decode('utf-8', errors='ignore')
             print(f"[WhatsApp Webhook POST] Raw payload: {body_str}")
+            add_system_log("WHATSAPP", "INFO", f"POST Webhook alındı: {body_str[:120]}")
             
             body = await request.json()
             values_to_process = []
@@ -7958,6 +7959,7 @@ async def handle_whatsapp_webhook(request: Request):
                             text_body = f"[{msg_type.upper() if msg_type else 'MEDYA'} MESAJI]"
 
                         print(f"[WhatsApp Inbound] Processing message from {sender_phone} ({sender_name}): '{text_body}'")
+                        add_system_log("WHATSAPP", "SUCCESS", f"Gelen Mesaj ({sender_phone} - {sender_name}): '{text_body}'")
                         asyncio.create_task(
                             handle_inbound_chat_message(
                                 channel="whatsapp",
@@ -7967,6 +7969,7 @@ async def handle_whatsapp_webhook(request: Request):
                         )
         except Exception as e:
             print(f"[WhatsApp Webhook Parse Error]: {e}")
+            add_system_log("WHATSAPP", "ERROR", f"Webhook Parse Hatası: {e}")
         return Response(content='{"status":"success"}', media_type="application/json", status_code=200)
 
     # GET method: Verification request
