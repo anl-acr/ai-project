@@ -57,7 +57,11 @@ export default function AddContactModal({ isOpen, onClose, initialPhone = "", in
         }, 1500);
       } else {
         const data = await res.json();
-        setErrorMsg(data.detail || "Kişi kaydedilirken bir hata oluştu.");
+        const msg = data.detail || "Kişi kaydedilirken bir hata oluştu.";
+        setErrorMsg(msg);
+        if (msg.includes("zaten mevcut") && onSaveSuccess) {
+          onSaveSuccess();
+        }
       }
     } catch (err) {
       console.error("[AddContactModal] Save error:", err);

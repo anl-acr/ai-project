@@ -6138,6 +6138,25 @@ async def client_logs_endpoint(log: ClientLogSchema):
 # OMNICHANNEL CHATS ENDPOINTS
 # =====================================================================
 
+def resolve_contact_name_by_phone(contacts: list, phone_info: str) -> Optional[str]:
+    if not phone_info:
+        return None
+    clean_target = re.sub(r"\D", "", str(phone_info))
+    if not clean_target:
+        return None
+
+    for c in contacts:
+        if c.phone_number:
+            if c.phone_number.strip() == str(phone_info).strip():
+                return f"{c.first_name} {c.last_name}".strip()
+            c_clean = re.sub(r"\D", "", str(c.phone_number))
+            if c_clean and c_clean == clean_target:
+                return f"{c.first_name} {c.last_name}".strip()
+            if len(c_clean) >= 10 and len(clean_target) >= 10:
+                if c_clean[-10:] == clean_target[-10:]:
+                    return f"{c.first_name} {c.last_name}".strip()
+    return None
+
 @app.get("/api/omnichannel/chats")
 async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
@@ -6160,7 +6179,6 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
         stmt_contacts = select(Contact)
         res_contacts = await session.execute(stmt_contacts)
         contacts = res_contacts.scalars().all()
-        contact_by_phone = {c.phone_number: f"{c.first_name} {c.last_name}" for c in contacts}
         contact_by_email = {c.email: f"{c.first_name} {c.last_name}" for c in contacts if c.email}
         
         # For each session, load the last message preview
@@ -6174,7 +6192,7 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
             if s.channel.lower() == "mail":
                 sender_name = contact_by_email.get(s.sender_info)
             else:
-                sender_name = contact_by_phone.get(s.sender_info)
+                sender_name = resolve_contact_name_by_phone(contacts, s.sender_info)
                 
             data.append({
                 "id": s.id,
@@ -6260,14 +6278,13 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         stmt_contacts = select(Contact)
         res_contacts = await session.execute(stmt_contacts)
         contacts = res_contacts.scalars().all()
-        contact_by_phone = {c.phone_number: f"{c.first_name} {c.last_name}" for c in contacts}
         contact_by_email = {c.email: f"{c.first_name} {c.last_name}" for c in contacts if c.email}
         
         sender_name = None
         if chat.channel.lower() == "mail":
             sender_name = contact_by_email.get(chat.sender_info)
         else:
-            sender_name = contact_by_phone.get(chat.sender_info)
+            sender_name = resolve_contact_name_by_phone(contacts, chat.sender_info)
         
         # Save the message
         db_message = ChatMessage(

@@ -36,6 +36,24 @@ async def auto_blacklist_sender(channel: str, sender_info: str, reason: str):
             print(f"[Abuse Shield] Auto-blacklisted sender: {sender_info} (Reason: {reason})")
             add_system_log("ABUSE_SHIELD", "WARNING", f"Gönderici Kara Listeye Alındı: {sender_info} (Sebep: {reason})")
 
+def resolve_contact_name_by_phone(contacts: list, phone_info: str):
+    if not phone_info:
+        return None
+    clean_target = re.sub(r"\D", "", str(phone_info))
+    if not clean_target:
+        return None
+    for c in contacts:
+        if c.phone_number:
+            if c.phone_number.strip() == str(phone_info).strip():
+                return f"{c.first_name} {c.last_name}".strip()
+            c_clean = re.sub(r"\D", "", str(c.phone_number))
+            if c_clean and c_clean == clean_target:
+                return f"{c.first_name} {c.last_name}".strip()
+            if len(c_clean) >= 10 and len(clean_target) >= 10:
+                if c_clean[-10:] == clean_target[-10:]:
+                    return f"{c.first_name} {c.last_name}".strip()
+    return None
+
 async def handle_inbound_chat_message(channel: str, sender_info: str, text: str):
     """
     Handles an incoming customer chat message from social channels (whatsapp, instagram, telegram, facebook, mail).
@@ -126,14 +144,13 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str)
             stmt_contacts = select(Contact)
             res_contacts = await session.execute(stmt_contacts)
             contacts = res_contacts.scalars().all()
-            contact_by_phone = {c.phone_number: f"{c.first_name} {c.last_name}" for c in contacts}
             contact_by_email = {c.email: f"{c.first_name} {c.last_name}" for c in contacts if c.email}
             
             sender_name = None
             if channel.lower() == "mail":
                 sender_name = contact_by_email.get(sender_info)
             else:
-                sender_name = contact_by_phone.get(sender_info)
+                sender_name = resolve_contact_name_by_phone(contacts, sender_info)
 
             # 1. Fetch active session or create new one
             clean_sender = re.sub(r"\D", "", str(sender_info))
