@@ -4047,6 +4047,17 @@ def compile_agent_scenario_to_instruction(scenario_flow: dict) -> str:
         compiled_parts.append(f"    2. Müşteriye kibarca '{announcement}' de.")
         compiled_parts.append("    3. Hemen '[ACTION: TRANSFER:<DAHILI_NO>]' eylemini tetikle (örn: '[ACTION: TRANSFER:1000]').")
         compiled_parts.append(f"    4. Eğer aranan kişi rehberde bulunamazsa '{fallback}' dahili numarasına aktar ('[ACTION: TRANSFER:{fallback}]').")
+    kvkk_nodes = [n for n in nodes if n.get("type") == "kvkk"]
+    for kn in kvkk_nodes:
+        c_text = kn.get("data", {}).get("consent_text", "")
+        if c_text:
+            compiled_parts.append(f"\n• KVKK & KİŞİSEL VERİ ONAYI: İşlem öncesinde müşteriye açıkça sor: '{c_text}' ve müşterinin sözlü onayını al.")
+    form_nodes = [n for n in nodes if n.get("type") == "form_capture"]
+    for fn in form_nodes:
+        fields = fn.get("data", {}).get("fields", [])
+        if fields:
+            fields_str = ", ".join([str(f) for f in fields])
+            compiled_parts.append(f"\n• BİLGİ TOPLAMA VE FORM DOLDURMA: Müşteriden sırasıyla şu bilgileri iste ve kaydet: {fields_str}.")
     transfer_nodes = [n for n in nodes if n.get("type") == "transfer"]
     for tn in transfer_nodes:
         target = tn.get("data", {}).get("target", "200")
