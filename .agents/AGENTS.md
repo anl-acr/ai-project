@@ -116,6 +116,11 @@
   - **Bulk Campaign Broadcast & CSV File Importer**: Created `POST /api/omnichannel/whatsapp/broadcast` and UI Modal (`<WhatsAppBroadcastModal />`) with an integrated **"CSV / TXT Dosyası Seç"** file reader (`FileReader`) that parses, cleans, and deduplicates phone numbers automatically.
   - **Interactive Buttons & Media**: Added `send_whatsapp_buttons()` (quick reply buttons) and `send_whatsapp_media()` (image/document/audio) in `backend/services/whatsapp_service.py`.
   - **Quick Add Contact Prop Synchronization & Flexible Phone Matching**: Fixed `<AddContactModal />` state initialization using `useEffect` and introduced `resolve_contact_name_by_phone()` in `main.py` and `chat_service.py`. Matches contacts by last 10 digits or cleaned phone strings so numbers formatted with `+90`, `0`, or spaces resolve contact names (e.g. `"Anıl Özel"`) and automatically hide the "Rehbere Kaydet" button.
+  - **WhatsApp AI Persona Selector, Interactive Welcome Menu & After-Hours Auto-Responder**:
+    - **Persona Selector**: `whatsapp_persona` (`samimi`, `satis`, `destek`, `kurumsal`) dynamically instructs Gemini's tone, empathy level, sales push, or corporate formality in `chat_service.py`.
+    - **Interactive 3-Button Welcome Menu**: Automatically dispatches Meta interactive quick reply buttons `[Fiyat ve Bilgi]`, `[Randevu Al]`, `[Canlı Temsilci]` on new WhatsApp customer sessions (`is_new == True`).
+    - **Representative Handoff**: Intercepts `Canlı Temsilci` button clicks or user text, switching `ChatSession.assigned_agent` to `human` and sending immediate confirmation.
+    - **After-Hours Auto-Responder**: Evaluates Turkey UTC+3 local time and weekend status against configured work hours (`whatsapp_work_hours_start` to `whatsapp_work_hours_end`), dynamically injecting after-hours prompts into Gemini's system instructions.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
