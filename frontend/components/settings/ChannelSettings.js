@@ -9,6 +9,11 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
     whatsapp_token: "",
     whatsapp_phone_number_id: "",
     whatsapp_verify_token: "ai_pbx_whatsapp_verify_token_secure",
+    whatsapp_persona: "samimi",
+    whatsapp_welcome_menu_enabled: true,
+    whatsapp_after_hours_enabled: true,
+    whatsapp_work_hours_start: "09:00",
+    whatsapp_work_hours_end: "18:00",
     telegram_token: "",
     instagram_token: "",
     facebook_token: "",
@@ -49,8 +54,11 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
   }, [API_BASE]);
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setChannels((prev) => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setChannels((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value
+    }));
   };
 
   const handleSave = async (e) => {
@@ -161,8 +169,8 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
 
           <form onSubmit={handleSave} className="flex flex-col gap-4">
             {activeTab === "whatsapp" && (
-              <div className="flex flex-col gap-3">
-                <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide">WhatsApp Business Cloud API</h4>
+              <div className="flex flex-col gap-4">
+                <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide">WhatsApp Business Cloud API Bağlantısı</h4>
                 
                 <div className="flex flex-col gap-1.5">
                   <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
@@ -178,32 +186,128 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                   />
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                    WhatsApp Telefon Numarası Kimliği (Phone Number ID)
-                  </label>
-                  <input
-                    type="text"
-                    name="whatsapp_phone_number_id"
-                    value={channels.whatsapp_phone_number_id || ""}
-                    onChange={handleChange}
-                    placeholder="Örn: 109283746592817"
-                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-rose-500"
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                      Telefon Numarası Kimliği (Phone Number ID)
+                    </label>
+                    <input
+                      type="text"
+                      name="whatsapp_phone_number_id"
+                      value={channels.whatsapp_phone_number_id || ""}
+                      onChange={handleChange}
+                      placeholder="Örn: 109283746592817"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                      Webhook Doğrulama Jetonu (Verify Token)
+                    </label>
+                    <input
+                      type="text"
+                      name="whatsapp_verify_token"
+                      value={channels.whatsapp_verify_token || ""}
+                      onChange={handleChange}
+                      placeholder="ai_pbx_whatsapp_verify_token_secure"
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-rose-500"
+                    />
+                  </div>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
-                    Webhook Doğrulama Jetonu (Verify Token)
-                  </label>
-                  <input
-                    type="text"
-                    name="whatsapp_verify_token"
-                    value={channels.whatsapp_verify_token || ""}
-                    onChange={handleChange}
-                    placeholder="ai_pbx_whatsapp_verify_token_secure"
-                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:border-rose-500"
-                  />
+                {/* Gelişmiş AI Özellikleri: Persona, Karşılama ve Mesai Dışı */}
+                <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3 mt-1 flex flex-col gap-3.5">
+                  <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                    <Sparkles size={14} className={text} /> WhatsApp Yapay Zeka Davranış & Özelleştirme Ayarları
+                  </h4>
+
+                  {/* Persona Selector */}
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
+                      Yapay Zeka Temsilci Personası & Konuşma Üslubu
+                    </label>
+                    <select
+                      name="whatsapp_persona"
+                      value={channels.whatsapp_persona || "samimi"}
+                      onChange={handleChange}
+                      className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 font-semibold focus:outline-none"
+                    >
+                      <option value="samimi">😃 Samimi & Emoji Destekli (Varsayılan - Sıcakkanlı & Dostça)</option>
+                      <option value="satis">🎯 Satış & Randevu Odaklı (İkna Edici & Teklif Odaklı)</option>
+                      <option value="destek">🛠️ Çözüm & Teknik Destek Odaklı (Sakin & Adım Adım Rehber)</option>
+                      <option value="kurumsal">💼 Resmi & Kurumsal (Ciddi, Saygılı - Siz/Efendim)</option>
+                    </select>
+                  </div>
+
+                  {/* Interactive Welcome Menu Toggle */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800 rounded-xl flex items-center justify-between gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">İnteraktif Karşılama Menüsü</span>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        Yeni başlayan sohbetlerde [Fiyat ve Bilgi], [Randevu Al], [Canlı Temsilci] hızlı butonları sunulur.
+                      </span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                      <input
+                        type="checkbox"
+                        name="whatsapp_welcome_menu_enabled"
+                        checked={channels.whatsapp_welcome_menu_enabled !== false}
+                        onChange={handleChange}
+                        className="sr-only peer"
+                      />
+                      <div className={"w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all " + (channels.whatsapp_welcome_menu_enabled !== false ? bg : "")} />
+                    </label>
+                  </div>
+
+                  {/* After Hours Mode & Work Hours */}
+                  <div className="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800 rounded-xl flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Mesai Dışı Otomatik Bilgilendirme</span>
+                        <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                          Mesai saatleri dışında ve hafta sonlarında AI mesai dışı olunduğunu bildirerek talebi kaydeder.
+                        </span>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input
+                          type="checkbox"
+                          name="whatsapp_after_hours_enabled"
+                          checked={channels.whatsapp_after_hours_enabled !== false}
+                          onChange={handleChange}
+                          className="sr-only peer"
+                        />
+                        <div className={"w-9 h-5 bg-slate-300 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all " + (channels.whatsapp_after_hours_enabled !== false ? bg : "")} />
+                      </label>
+                    </div>
+
+                    {channels.whatsapp_after_hours_enabled !== false && (
+                      <div className="grid grid-cols-2 gap-3 pt-2 border-t border-slate-200/50 dark:border-slate-800/60">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Mesai Başlangıç Saati</label>
+                          <input
+                            type="text"
+                            name="whatsapp_work_hours_start"
+                            value={channels.whatsapp_work_hours_start || "09:00"}
+                            onChange={handleChange}
+                            placeholder="09:00"
+                            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Mesai Bitiş Saati</label>
+                          <input
+                            type="text"
+                            name="whatsapp_work_hours_end"
+                            value={channels.whatsapp_work_hours_end || "18:00"}
+                            onChange={handleChange}
+                            placeholder="18:00"
+                            className="px-3 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 {/* Webhook Connection Details Card */}

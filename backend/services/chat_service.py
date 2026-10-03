@@ -226,6 +226,57 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str)
                 }
             })
 
+            # Check for direct representative takeover request
+            text_clean = text.strip().lower()
+            if text_clean in ["canlı temsilci", "temsilci", "btn_human", "canlı temsilciye bağlan"] or "canlı temsilci" in text_clean:
+                chat_session.assigned_agent = "human"
+                await session.commit()
+                
+                transfer_text = "Talebiniz alındı. Sizi canlı müşteri temsilcimize aktarıyorum, lütfen temsilcimiz sizinle iletişime geçene kadar bekleyin."
+                
+                db_reply = ChatMessage(
+                    session_id=session_id,
+                    direction="outbound",
+                    sender="human",
+                    text=transfer_text
+                )
+                session.add(db_reply)
+                await session.commit()
+                await session.refresh(db_reply)
+                
+                await ws_manager.broadcast_omnichannel_event({
+                    "type": "message",
+                    "message": {
+                        "id": db_reply.id,
+                        "session_id": session_id,
+                        "direction": db_reply.direction,
+                        "sender": db_reply.sender,
+                        "text": db_reply.text,
+                        "timestamp": db_reply.timestamp.isoformat()
+                    }
+                })
+                
+                await ws_manager.broadcast_omnichannel_event({
+                    "type": "session_update",
+                    "session": {
+                        "id": session_id,
+                        "channel": channel,
+                        "sender_info": sender_info,
+                        "sender_name": sender_name,
+                        "status": chat_session.status,
+                        "assigned_agent": "human",
+                        "last_message_time": chat_session.last_message_time.isoformat(),
+                        "last_message_text": transfer_text
+                    }
+                })
+                
+                if channel.lower() == "whatsapp":
+                    import asyncio
+                    from backend.services.whatsapp_service import send_whatsapp_message
+                    asyncio.create_task(send_whatsapp_message(sender_info, transfer_text))
+                    
+                return transfer_text
+
             # 4. If assigned agent is AI, generate response
             if assigned_agent == "ai":
                 # Fetch message history for context
@@ -244,6 +295,42 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str)
                     
                 history_context = "\n".join(chat_history_str)
 
+                # Settings & Persona Configuration
+                settings_data = load_settings()
+                ch_settings = settings_data.get("channels", {})
+                
+                persona_key = ch_settings.get("whatsapp_persona", "samimi")
+                persona_prompts = {
+                    "samimi": "Üslubun çok samimi, yardımsever, sıcakkanlı ve bol emojili olmalı. Müşteriye dostça yaklaşmalı, samimi bir sohbet tonu kullanmalısın.",
+                    "satis": "Üslubun ikna edici, enerjik, satış ve randevu almaya odaklı olmalı. Müşteriyi ürün/hizmet detaylarını öğrenmeye, randevu takvimine kayıt yaptırmaya ve teklif almaya teşvik etmelisin.",
+                    "destek": "Üslubun son derece sabırlı, sakin, teknik destek ve problem çözme odaklı olmalı. Adım adım açıklayıcı net bilgiler vermeli ve müşteri memnuniyetini ön planda tutmalısın.",
+                    "kurumsal": "Üslubun son derece resmi, kurumsal, ciddi ve profesyonel olmalı. Saygılı bir dil ('Siz/Efendim') kullanmalı ve emoji kullanımını asgari düzeyde tutmalısın."
+                }
+                persona_instruction = persona_prompts.get(persona_key, persona_prompts["samimi"])
+                
+                # After-hours Work Hours Check (Turkey UTC+3)
+                after_hours_instruction = ""
+                if channel.lower() == "whatsapp" and ch_settings.get("whatsapp_after_hours_enabled", True):
+                    turkey_tz = datetime.timezone(datetime.timedelta(hours=3))
+                    now_turkey = datetime.datetime.now(turkey_tz)
+                    is_weekend = now_turkey.weekday() >= 5
+                    
+                    start_str = ch_settings.get("whatsapp_work_hours_start", "09:00")
+                    end_str = ch_settings.get("whatsapp_work_hours_end", "18:00")
+                    
+                    try:
+                        start_hour, start_min = map(int, start_str.split(":"))
+                        end_hour, end_min = map(int, end_str.split(":"))
+                        
+                        current_time_minutes = now_turkey.hour * 60 + now_turkey.minute
+                        start_time_minutes = start_hour * 60 + start_min
+                        end_time_minutes = end_hour * 60 + end_min
+                        
+                        if is_weekend or current_time_minutes < start_time_minutes or current_time_minutes >= end_time_minutes:
+                            after_hours_instruction = f"\n[MESAİ DIŞI BİLGİLENDİRMESİ]\nŞu an mesai saatleri dışındayız (Mesai saatlerimiz: {start_str} - {end_str}, Hafta içi). Müşteriye yanıt verirken mesai saatleri dışında olduğumuzu, mesajının kayda alındığını ve ilk mesai gününde temsilcilerimizin de inceleyeceğini nazikçe hatırlat.\n"
+                    except Exception as e:
+                        print(f"[Chat Service] Work hours parse error: {e}")
+
                 # Gemini client prompt
                 prompt = f"""
 Sen bir ortak gelen kutusu (Omnichannel) müşteri temsilcisi yapay zeka asistanısın.
@@ -251,9 +338,11 @@ Kanallar: WhatsApp, Instagram, Telegram, Facebook ve E-posta.
 Şu anki kanal: {channel.upper()}
 Müşteri Adresi/Bilgisi: {sender_info}
 
+[PERSONA VE ÜSLUP TALİMATI]
+{persona_instruction}
+{after_hours_instruction}
 Müşterinin gönderdiği tüm geçmiş mesajları ve cevaplarımızı inceleyerek, en son mesajına uygun, nazik, net, yardımsever ve çözüm odaklı bir yanıt oluştur.
 Yanıtını kesinlikle Türkçe olarak yaz.
-Karşı tarafın kanal türüne (örn: mail ise biraz daha resmi/eposta formatında, whatsapp/instagram ise daha samimi ve emoji destekli) uygun bir üslup kullan.
 
 [SOHBET GEÇMİŞİ]
 {history_context}
@@ -269,7 +358,6 @@ Karşı tarafın kanal türüne (örn: mail ise biraz daha resmi/eposta formatı
                     from backend.services.tool_executor import execute_custom_api, execute_book_appointment, execute_query_knowledge_base
                     
                     client = get_genai_client()
-                    settings_data = load_settings()
                     
                     # Define base tools
                     base_declarations = [
@@ -493,8 +581,16 @@ Karşı tarafın kanal türüne (örn: mail ise biraz daha resmi/eposta formatı
                 ch_lower = channel.lower()
                 if ch_lower == "whatsapp":
                     import asyncio
-                    from backend.services.whatsapp_service import send_whatsapp_message
-                    asyncio.create_task(send_whatsapp_message(sender_info, ai_reply_text))
+                    from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_buttons
+                    if is_new and ch_settings.get("whatsapp_welcome_menu_enabled", True):
+                        buttons = [
+                            {"id": "btn_info", "title": "Fiyat ve Bilgi"},
+                            {"id": "btn_appoint", "title": "Randevu Al"},
+                            {"id": "btn_human", "title": "Canlı Temsilci"}
+                        ]
+                        asyncio.create_task(send_whatsapp_buttons(sender_info, ai_reply_text, buttons))
+                    else:
+                        asyncio.create_task(send_whatsapp_message(sender_info, ai_reply_text))
                 elif ch_lower == "telegram":
                     import asyncio
                     from backend.services.telegram_service import send_telegram_message

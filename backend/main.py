@@ -178,6 +178,11 @@ class ChannelSettingsSchema(BaseModel):
     whatsapp_token: Optional[str] = None
     whatsapp_phone_number_id: Optional[str] = None
     whatsapp_verify_token: Optional[str] = None
+    whatsapp_persona: Optional[str] = "samimi"
+    whatsapp_welcome_menu_enabled: Optional[bool] = True
+    whatsapp_after_hours_enabled: Optional[bool] = True
+    whatsapp_work_hours_start: Optional[str] = "09:00"
+    whatsapp_work_hours_end: Optional[str] = "18:00"
     telegram_token: Optional[str] = None
     instagram_token: Optional[str] = None
     facebook_token: Optional[str] = None
