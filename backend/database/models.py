@@ -127,6 +127,7 @@ class ChatSession(Base):
     last_message_time = Column(DateTime, default=datetime.datetime.utcnow)
     qa_score = Column(Integer, nullable=True)
     qa_report = Column(Text, nullable=True)
+    recipient_info = Column(String, nullable=True)  # Line account name or target phone number ID
 
     messages = relationship("ChatMessage", back_populates="session", cascade="all, delete-orphan")
 

@@ -24,7 +24,7 @@ def sanitize_phone_number(phone: str) -> str:
     digits = re.sub(r"\D", "", phone)
     return digits
 
-async def send_whatsapp_message(to_phone: str, text: str) -> dict:
+async def send_whatsapp_message(to_phone: str, text: str, phone_number_id: str = None, token: str = None) -> dict:
     """
     Dispatches an outbound text message to Meta WhatsApp Cloud API.
     Endpoint: POST https://graph.facebook.com/v18.0/{phone_number_id}/messages
@@ -36,8 +36,8 @@ async def send_whatsapp_message(to_phone: str, text: str) -> dict:
 
     settings_data = load_settings()
     channels_cfg = settings_data.get("channels", {})
-    whatsapp_token = channels_cfg.get("whatsapp_token", "").strip()
-    whatsapp_phone_number_id = channels_cfg.get("whatsapp_phone_number_id", "").strip()
+    whatsapp_token = (token or channels_cfg.get("whatsapp_token", "")).strip()
+    whatsapp_phone_number_id = (phone_number_id or channels_cfg.get("whatsapp_phone_number_id", "")).strip()
 
     if not whatsapp_token or not whatsapp_phone_number_id:
         print(f"[WhatsApp Service] Credentials missing (token/phone_number_id). Message logged locally to {clean_phone}: '{text}'")
@@ -67,7 +67,7 @@ async def send_whatsapp_message(to_phone: str, text: str) -> dict:
             resp = await client.post(url, headers=headers, json=payload)
             if resp.status_code in [200, 201]:
                 data = resp.json()
-                print(f"[WhatsApp Service] Successfully sent message to {clean_phone}: {data}")
+                print(f"[WhatsApp Service] Successfully sent message to {clean_phone} via line {whatsapp_phone_number_id}: {data}")
                 return {"status": "success", "data": data}
             else:
                 err_body = resp.text
@@ -99,7 +99,7 @@ async def send_whatsapp_missed_call_autoresponder(phone_number: str) -> dict:
     return res
 
 
-async def send_whatsapp_buttons(to_phone: str, body_text: str, buttons: list) -> dict:
+async def send_whatsapp_buttons(to_phone: str, body_text: str, buttons: list, phone_number_id: str = None, token: str = None) -> dict:
     """
     Dispatches interactive quick reply buttons to Meta WhatsApp Cloud API.
     buttons example: [{"id": "btn_1", "title": "Fiyat Bilgisi"}, {"id": "btn_2", "title": "Canlı Temsilci"}]
@@ -110,8 +110,8 @@ async def send_whatsapp_buttons(to_phone: str, body_text: str, buttons: list) ->
 
     settings_data = load_settings()
     channels_cfg = settings_data.get("channels", {})
-    whatsapp_token = channels_cfg.get("whatsapp_token", "").strip()
-    whatsapp_phone_number_id = channels_cfg.get("whatsapp_phone_number_id", "").strip()
+    whatsapp_token = (token or channels_cfg.get("whatsapp_token", "")).strip()
+    whatsapp_phone_number_id = (phone_number_id or channels_cfg.get("whatsapp_phone_number_id", "")).strip()
 
     if not whatsapp_token or not whatsapp_phone_number_id:
         return {"status": "dry_run", "message": "WhatsApp API credentials missing"}

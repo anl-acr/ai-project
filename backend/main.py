@@ -183,6 +183,7 @@ class ChannelSettingsSchema(BaseModel):
     whatsapp_after_hours_enabled: Optional[bool] = True
     whatsapp_work_hours_start: Optional[str] = "09:00"
     whatsapp_work_hours_end: Optional[str] = "18:00"
+    whatsapp_accounts: Optional[List[dict]] = []
     telegram_token: Optional[str] = None
     instagram_token: Optional[str] = None
     facebook_token: Optional[str] = None
@@ -6981,6 +6982,10 @@ async def startup_event():
                         await conn.execute(text(f"ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS {col_def};"))
                     except Exception:
                         pass
+                try:
+                    await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;"))
+                except Exception:
+                    pass
         await asyncio.wait_for(init_db(), timeout=4.0)
         print("[Database Init] Veritabanı tabloları ve pbx_queues sütunları kontrol edildi / oluşturuldu.")
         try:
@@ -8101,6 +8106,9 @@ async def handle_whatsapp_webhook(request: Request):
             for value in values_to_process:
                 messages = value.get("messages", [])
                 contacts = value.get("contacts", [])
+                metadata = value.get("metadata", {})
+                recipient_phone_id = str(metadata.get("phone_number_id", "")) if metadata.get("phone_number_id") else None
+                recipient_phone_num = str(metadata.get("display_phone_number", "")) if metadata.get("display_phone_number") else None
                 
                 if messages:
                     for msg in messages:
@@ -8118,14 +8126,16 @@ async def handle_whatsapp_webhook(request: Request):
                         else:
                             text_body = f"[{msg_type.upper() if msg_type else 'MEDYA'} MESAJI]"
 
-                        print(f"[WhatsApp Inbound] Processing message from {sender_phone} ({sender_name}): '{text_body}'")
+                        print(f"[WhatsApp Inbound] Processing message from {sender_phone} ({sender_name}) on line {recipient_phone_num or recipient_phone_id}: '{text_body}'")
                         add_system_log("WHATSAPP", "SUCCESS", f"Gelen Mesaj ({sender_phone} - {sender_name}): '{text_body}'")
-                        asyncio.create_task(log_event(user_id=f"{sender_name} ({sender_phone})", action="INBOUND_MESSAGE", module="WhatsApp", details={"text": text_body, "phone": sender_phone}))
+                        asyncio.create_task(log_event(user_id=f"{sender_name} ({sender_phone})", action="INBOUND_MESSAGE", module="WhatsApp", details={"text": text_body, "phone": sender_phone, "recipient_phone_id": recipient_phone_id}))
                         asyncio.create_task(
                             handle_inbound_chat_message(
                                 channel="whatsapp",
                                 sender_info=str(sender_phone),
-                                text=text_body
+                                text=text_body,
+                                recipient_phone_id=recipient_phone_id,
+                                recipient_phone_num=recipient_phone_num
                             )
                         )
         except Exception as e:

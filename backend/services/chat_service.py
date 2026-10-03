@@ -54,13 +54,13 @@ def resolve_contact_name_by_phone(contacts: list, phone_info: str):
                     return f"{c.first_name} {c.last_name}".strip()
     return None
 
-async def handle_inbound_chat_message(channel: str, sender_info: str, text: str):
+async def handle_inbound_chat_message(channel: str, sender_info: str, text: str, recipient_phone_id: str = None, recipient_phone_num: str = None):
     """
     Handles an incoming customer chat message from social channels (whatsapp, instagram, telegram, facebook, mail).
     Creates or loads the active session, saves the message, broadcasts it, and generates an automated AI reply
     using Gemini API if the session is currently assigned to the AI.
     """
-    print(f"[Chat Service] Inbound message from {sender_info} on channel {channel}: '{text}'")
+    print(f"[Chat Service] Inbound message from {sender_info} on channel {channel} (Recipient ID: {recipient_phone_id}): '{text}'")
     try:
         async with AsyncSessionLocal() as session:
             # Check blacklist
@@ -166,6 +166,28 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str)
             result = await session.execute(stmt)
             chat_session = result.scalar_one_or_none()
             
+            # Load channel settings & match specific WhatsApp line account if available
+            settings_data = load_settings()
+            ch_settings = settings_data.get("channels", {})
+            whatsapp_accounts = ch_settings.get("whatsapp_accounts", [])
+
+            matched_account = None
+            if recipient_phone_id and whatsapp_accounts:
+                for acc in whatsapp_accounts:
+                    if str(acc.get("phone_number_id", "")).strip() == str(recipient_phone_id).strip():
+                        matched_account = acc
+                        break
+
+            recipient_label = None
+            if matched_account:
+                recipient_label = matched_account.get("name", "")
+                if matched_account.get("display_phone_number"):
+                    recipient_label += f" ({matched_account.get('display_phone_number')})"
+            elif recipient_phone_num:
+                recipient_label = recipient_phone_num
+            elif recipient_phone_id:
+                recipient_label = f"ID: {recipient_phone_id}"
+
             is_new = False
             if not chat_session:
                 is_new = True
@@ -174,13 +196,16 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str)
                     channel=channel,
                     sender_info=sender_info,
                     status="active",
-                    assigned_agent="ai"
+                    assigned_agent="ai",
+                    recipient_info=recipient_label
                 )
                 session.add(chat_session)
                 await session.commit()
-                print(f"[Chat Service] Created new chat session: {chat_session.id}")
+                print(f"[Chat Service] Created new chat session: {chat_session.id} (Recipient: {recipient_label})")
             else:
                 chat_session.last_message_time = datetime.datetime.utcnow()
+                if recipient_label and not chat_session.recipient_info:
+                    chat_session.recipient_info = recipient_label
                 await session.commit()
                 
             session_id = chat_session.id
@@ -219,6 +244,7 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str)
                     "channel": channel,
                     "sender_info": sender_info,
                     "sender_name": sender_name,
+                    "recipient_info": chat_session.recipient_info,
                     "status": chat_session.status,
                     "assigned_agent": assigned_agent,
                     "last_message_time": chat_session.last_message_time.isoformat(),
@@ -299,7 +325,11 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str)
                 settings_data = load_settings()
                 ch_settings = settings_data.get("channels", {})
                 
-                persona_key = ch_settings.get("whatsapp_persona", "samimi")
+                if matched_account and matched_account.get("persona"):
+                    persona_key = matched_account.get("persona")
+                else:
+                    persona_key = ch_settings.get("whatsapp_persona", "samimi")
+                    
                 persona_prompts = {
                     "samimi": "Üslubun çok samimi, yardımsever, sıcakkanlı ve bol emojili olmalı. Müşteriye dostça yaklaşmalı, samimi bir sohbet tonu kullanmalısın.",
                     "satis": "Üslubun ikna edici, enerjik, satış ve randevu almaya odaklı olmalı. Müşteriyi ürün/hizmet detaylarını öğrenmeye, randevu takvimine kayıt yaptırmaya ve teklif almaya teşvik etmelisin.",
@@ -582,15 +612,25 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                 if ch_lower == "whatsapp":
                     import asyncio
                     from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_buttons
-                    if is_new and ch_settings.get("whatsapp_welcome_menu_enabled", True):
+                    
+                    outbound_phone_id = (matched_account.get("phone_number_id") if matched_account else None) or recipient_phone_id
+                    outbound_token = (matched_account.get("access_token") if matched_account else None)
+                    
+                    welcome_menu_enabled = True
+                    if matched_account and "welcome_menu_enabled" in matched_account:
+                        welcome_menu_enabled = matched_account.get("welcome_menu_enabled")
+                    else:
+                        welcome_menu_enabled = ch_settings.get("whatsapp_welcome_menu_enabled", True)
+
+                    if is_new and welcome_menu_enabled:
                         buttons = [
                             {"id": "btn_info", "title": "Fiyat ve Bilgi"},
                             {"id": "btn_appoint", "title": "Randevu Al"},
                             {"id": "btn_human", "title": "Canlı Temsilci"}
                         ]
-                        asyncio.create_task(send_whatsapp_buttons(sender_info, ai_reply_text, buttons))
+                        asyncio.create_task(send_whatsapp_buttons(sender_info, ai_reply_text, buttons, phone_number_id=outbound_phone_id, token=outbound_token))
                     else:
-                        asyncio.create_task(send_whatsapp_message(sender_info, ai_reply_text))
+                        asyncio.create_task(send_whatsapp_message(sender_info, ai_reply_text, phone_number_id=outbound_phone_id, token=outbound_token))
                 elif ch_lower == "telegram":
                     import asyncio
                     from backend.services.telegram_service import send_telegram_message

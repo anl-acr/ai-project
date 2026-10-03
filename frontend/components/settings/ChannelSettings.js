@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, User, HelpCircle, Save, CheckCircle, Smartphone, Copy, Check, Sparkles } from "lucide-react";
+import { MessageSquare, Send, Bot, User, HelpCircle, Save, CheckCircle, Smartphone, Copy, Check, Sparkles, Plus, Trash2, Edit3, AlertTriangle, Layers, PhoneCall } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
 export default function ChannelSettings({ backendHost = "localhost:8000" }) {
@@ -14,6 +14,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
     whatsapp_after_hours_enabled: true,
     whatsapp_work_hours_start: "09:00",
     whatsapp_work_hours_end: "18:00",
+    whatsapp_accounts: [],
     telegram_token: "",
     instagram_token: "",
     facebook_token: "",
@@ -30,6 +31,65 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
   const [activeTab, setActiveTab] = useState("whatsapp"); // whatsapp, telegram, meta
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedToken, setCopiedToken] = useState(false);
+
+  // Multi-WhatsApp Account Modal States
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [accountForm, setAccountForm] = useState({
+    id: "",
+    name: "",
+    display_phone_number: "",
+    phone_number_id: "",
+    access_token: "",
+    persona: "samimi",
+    welcome_menu_enabled: true
+  });
+  const [deleteAccountTarget, setDeleteAccountTarget] = useState(null);
+
+  const handleOpenAddAccount = () => {
+    setAccountForm({
+      id: "wa_" + Date.now(),
+      name: "",
+      display_phone_number: "",
+      phone_number_id: "",
+      access_token: "",
+      persona: "samimi",
+      welcome_menu_enabled: true
+    });
+    setShowAccountModal(true);
+  };
+
+  const handleEditAccount = (acc) => {
+    setAccountForm({ ...acc });
+    setShowAccountModal(true);
+  };
+
+  const handleSaveAccount = (e) => {
+    e.preventDefault();
+    if (!accountForm.name || !accountForm.phone_number_id) return;
+    
+    setChannels((prev) => {
+      const existing = prev.whatsapp_accounts || [];
+      const idx = existing.findIndex((a) => a.id === accountForm.id);
+      let updated = [];
+      if (idx >= 0) {
+        updated = [...existing];
+        updated[idx] = accountForm;
+      } else {
+        updated = [...existing, accountForm];
+      }
+      return { ...prev, whatsapp_accounts: updated };
+    });
+    setShowAccountModal(false);
+  };
+
+  const handleDeleteAccountConfirm = () => {
+    if (!deleteAccountTarget) return;
+    setChannels((prev) => ({
+      ...prev,
+      whatsapp_accounts: (prev.whatsapp_accounts || []).filter((a) => a.id !== deleteAccountTarget.id)
+    }));
+    setDeleteAccountTarget(null);
+  };
 
   // Chat Copilot States
   const [chatMessages, setChatMessages] = useState([
@@ -310,6 +370,80 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                   </div>
                 </div>
 
+                {/* Multi-WhatsApp Hatları & Numaraları */}
+                  <div className="border-t border-slate-100 dark:border-slate-800/80 pt-3 mt-1 flex flex-col gap-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="font-bold text-xs text-slate-400 dark:text-slate-500 uppercase tracking-wide flex items-center gap-1.5">
+                          <Layers size={14} className={text} /> Çoklu WhatsApp Hatları & Numaraları
+                        </h4>
+                        <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5 font-medium">
+                          Birden fazla WhatsApp numaranız varsa her hat için özel isim, Phone Number ID ve Yapay Zeka Personası atayın.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleOpenAddAccount}
+                        title="Yeni WhatsApp Hattı Ekle"
+                        className="bg-rose-600 hover:bg-rose-500 rounded-xl h-8 w-8 flex items-center justify-center shrink-0 text-white shadow-sm transition"
+                      >
+                        <Plus size={16} />
+                      </button>
+                    </div>
+
+                    {/* Account List */}
+                    {(!channels.whatsapp_accounts || channels.whatsapp_accounts.length === 0) ? (
+                      <div className="p-3 bg-slate-50 dark:bg-slate-950/40 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-center text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                        Henüz özel bir WhatsApp hattı eklenmedi. Yukarıdaki varsayılan jetonlar kullanılır veya '+' butonuna basarak yeni hat ekleyebilirsiniz.
+                      </div>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        {channels.whatsapp_accounts.map((acc) => (
+                          <div
+                            key={acc.id}
+                            className="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800 rounded-xl flex items-center justify-between gap-3 text-xs"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className={"p-2 rounded-lg border " + lightBg + " " + text + " " + borderLight}>
+                                <PhoneCall size={16} />
+                              </div>
+                              <div className="flex flex-col gap-0.5">
+                                <span className="font-bold text-slate-800 dark:text-slate-200">{acc.name}</span>
+                                <div className="flex items-center gap-2 text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                                  <span>{acc.display_phone_number || "Numara Yok"}</span>
+                                  <span>•</span>
+                                  <span>ID: {acc.phone_number_id}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2">
+                              <span className={"px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider border " + lightBg + " " + text + " " + borderLight}>
+                                {acc.persona === "satis" ? "🎯 Satış" : acc.persona === "destek" ? "🛠️ Destek" : acc.persona === "kurumsal" ? "💼 Kurumsal" : "😃 Samimi"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleEditAccount(acc)}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition"
+                                title="Hattı Düzenle"
+                              >
+                                <Edit3 size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteAccountTarget(acc)}
+                                className="p-1.5 text-rose-500 hover:text-rose-600 transition"
+                                title="Hattı Sil"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
                 {/* Webhook Connection Details Card */}
                 <div className={"p-3 rounded-xl border text-[11px] leading-relaxed flex flex-col gap-2 " + lightBg + " " + borderLight}>
                   <p className={"font-bold text-xs " + text}>Meta Developer Portal Webhook Yapılandırma Bilgileri:</p>
@@ -562,6 +696,141 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
           </form>
         </div>
       </div>
+
+      {/* Account Add/Edit Modal */}
+      {showAccountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-5 shadow-2xl flex flex-col gap-4">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white flex items-center gap-2">
+                <PhoneCall size={18} className={text} />
+                {accountForm.id ? "WhatsApp Hattı Düzenle" : "Yeni WhatsApp Hattı Ekle"}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowAccountModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xs font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveAccount} className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Hat Tanımı / Adı *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Örn: Satış & Danışma Hattı"
+                  value={accountForm.name}
+                  onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
+                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Görünecek Telefon Numarası</label>
+                  <input
+                    type="text"
+                    placeholder="+90 850 360 7390"
+                    value={accountForm.display_phone_number}
+                    onChange={(e) => setAccountForm({ ...accountForm, display_phone_number: e.target.value })}
+                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Phone Number ID *</label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="1391907340666153"
+                    value={accountForm.phone_number_id}
+                    onChange={(e) => setAccountForm({ ...accountForm, phone_number_id: e.target.value })}
+                    className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Hatta Özel Erişim Jetonu (Opsiyonel)</label>
+                <textarea
+                  rows={2}
+                  placeholder="Boş bırakılırsa genel WhatsApp jetonu kullanılır"
+                  value={accountForm.access_token}
+                  onChange={(e) => setAccountForm({ ...accountForm, access_token: e.target.value })}
+                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono focus:outline-none resize-none"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase">Bu Hatta Atanacak Yapay Zeka Personası</label>
+                <select
+                  value={accountForm.persona}
+                  onChange={(e) => setAccountForm({ ...accountForm, persona: e.target.value })}
+                  className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold focus:outline-none"
+                >
+                  <option value="samimi">😃 Samimi & Emoji Destekli (Varsayılan)</option>
+                  <option value="satis">🎯 Satış & Randevu Odaklı</option>
+                  <option value="destek">🛠️ Çözüm & Teknik Destek Odaklı</option>
+                  <option value="kurumsal">💼 Resmi & Kurumsal</option>
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowAccountModal(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold"
+                >
+                  İptal
+                </button>
+                <button
+                  type="submit"
+                  className={"px-4 py-2 text-white rounded-xl text-xs font-bold shadow-md transition " + bg + " " + hover}
+                >
+                  Hattı Kaydet
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Application-Native Custom Delete Confirmation Modal */}
+      {deleteAccountTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-sm p-5 shadow-2xl flex flex-col items-center text-center gap-3">
+            <div className="h-12 w-12 rounded-full bg-rose-100 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800/60 text-rose-600 dark:text-rose-400 flex items-center justify-center animate-pulse">
+              <AlertTriangle size={24} />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">WhatsApp Hattını Sil</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                <strong className="text-slate-800 dark:text-slate-200">{deleteAccountTarget.name}</strong> hattını silmek istediğinize emin misiniz?
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 w-full mt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteAccountTarget(null)}
+                className="flex-1 py-2 px-3 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl font-bold text-xs hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccountConfirm}
+                className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs shadow-md transition"
+              >
+                Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

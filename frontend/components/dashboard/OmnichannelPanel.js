@@ -473,6 +473,12 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       {renderChannelBadge(session.channel)}
                     </div>
                     
+                    {session.recipient_info && (
+                      <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/40 px-1.5 py-0.5 rounded-md self-start">
+                        {session.recipient_info}
+                      </span>
+                    )}
+
                     <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-semibold">
                       {session.last_message_text || "Mesaj yok"}
                     </p>
@@ -527,7 +533,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       )}
                     </h4>
                     <span className="text-[9px] text-slate-400 dark:text-slate-550 font-bold tracking-wide mt-1 block">
-                      Kanal: {activeSession.channel.toUpperCase()}
+                      Kanal: {activeSession.channel.toUpperCase()} {activeSession.recipient_info ? `• Hat: ${activeSession.recipient_info}` : ""}
                     </span>
                   </div>
                 </div>
