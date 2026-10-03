@@ -121,6 +121,11 @@
     - **Interactive 3-Button Welcome Menu**: Automatically dispatches Meta interactive quick reply buttons `[Fiyat ve Bilgi]`, `[Randevu Al]`, `[Canlı Temsilci]` on new WhatsApp customer sessions (`is_new == True`).
     - **Representative Handoff**: Intercepts `Canlı Temsilci` button clicks or user text, switching `ChatSession.assigned_agent` to `human` and sending immediate confirmation.
     - **After-Hours Auto-Responder**: Evaluates Turkey UTC+3 local time and weekend status against configured work hours (`whatsapp_work_hours_start` to `whatsapp_work_hours_end`), dynamically injecting after-hours prompts into Gemini's system instructions.
+  - **Multi-Number WhatsApp Architecture & Line Matching**:
+    - `whatsapp_accounts` list in `channels` settings allows managing multiple WhatsApp phone lines per tenant (e.g. Satış Hattı `+90 850 360 7390`, Destek Hattı `+90 850 360 7391`).
+    - Webhook extracts Meta `metadata.phone_number_id` and matches the incoming line account in `chat_service.py`, automatically applying that specific line's AI Persona, welcome menu, and access token.
+    - Added `recipient_info` column to `ChatSession` PostgreSQL table and models (`chat_sessions.recipient_info`).
+    - Omnichannel Panel renders clear line badges (e.g. `[Satış Hattı - 0850 360 7390]`) for representatives and displays line details in chat headers.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
