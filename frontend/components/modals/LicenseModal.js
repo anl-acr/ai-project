@@ -312,27 +312,41 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
                   <span>Kriptografik Lisans Anahtarı (Key)</span>
                 </label>
 
-                {licenseStatus?.license_key && (
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={handleCopyKey}
-                    className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white flex items-center gap-1 cursor-pointer"
+                    onClick={async () => {
+                      try {
+                        const text = await navigator.clipboard.readText();
+                        if (text) setInputKey(text.trim());
+                      } catch(e){}
+                    }}
+                    className="text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 px-2 py-0.5 rounded-lg hover:bg-rose-100 transition-colors cursor-pointer flex items-center gap-1"
                   >
-                    <Copy size={12} />
-                    <span>{copied ? "Kopyalandı!" : "Mevcut Key'i Kopyala"}</span>
+                    <span>📋 Panodan Yapıştır</span>
                   </button>
-                )}
+                  {licenseStatus?.license_key && (
+                    <button
+                      type="button"
+                      onClick={handleCopyKey}
+                      className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white flex items-center gap-1 cursor-pointer"
+                    >
+                      <Copy size={12} />
+                      <span>{copied ? "Kopyalandı!" : "Mevcut Key'i Kopyala"}</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <input
-                type="text"
+              <textarea
+                rows={3}
                 value={inputKey}
                 onChange={(e) => setInputKey(e.target.value)}
-                placeholder="Örn: AIDA-DEFAULT-20261231-56148939"
-                className="w-full text-xs font-mono font-extrabold px-3.5 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-slate-900 dark:text-white placeholder:text-slate-400"
+                placeholder="Lisans sunucusundan kopyaladığınız AIDA-... ile başlayan imzalı lisans anahtarını buraya yapıştırınız..."
+                className="w-full text-xs font-mono font-extrabold px-3.5 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 text-slate-900 dark:text-white placeholder:text-slate-400 placeholder:font-sans resize-none"
               />
               <p className="mt-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                Lisans anahtarı HMAC-SHA256 imzası ile tahrifata karşı korunmaktadır.
+                Lisans anahtarı HMAC-SHA256 imzası ve Donanım ID doğrulaması ile korunmaktadır.
               </p>
             </div>
 

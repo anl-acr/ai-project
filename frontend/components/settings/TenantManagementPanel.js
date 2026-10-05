@@ -112,6 +112,70 @@ export default function TenantManagementPanel({ backendHost }) {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [tenantToDelete, setTenantToDelete] = useState(null);
 
+  // Offline License Key Modal state
+  const [offlineModalOpen, setOfflineModalOpen] = useState(false);
+  const [offlineTargetTenant, setOfflineTargetTenant] = useState(null);
+  const [offlinePastedKey, setOfflinePastedKey] = useState("");
+  const [offlineLoading, setOfflineLoading] = useState(false);
+  const [offlineError, setOfflineError] = useState("");
+  const [offlineSuccess, setOfflineSuccess] = useState("");
+
+  const handleOpenOfflineModal = (tenant = null) => {
+    setOfflineTargetTenant(tenant || tenants[0] || null);
+    setOfflinePastedKey("");
+    setOfflineError("");
+    setOfflineSuccess("");
+    setOfflineModalOpen(true);
+  };
+
+  const handlePasteClipboard = async () => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) setOfflinePastedKey(text.trim());
+    } catch (e) {
+      console.error("Clipboard paste error:", e);
+    }
+  };
+
+  const handleApplyOfflineKey = async (e) => {
+    e.preventDefault();
+    if (!offlineTargetTenant) {
+      setOfflineError("Lütfen bir müşteri / kiracı seçiniz.");
+      return;
+    }
+    if (!offlinePastedKey.trim()) {
+      setOfflineError("Lütfen lisans sunucusundan kopyaladığınız anahtarı yapıştırınız.");
+      return;
+    }
+
+    setOfflineLoading(true);
+    setOfflineError("");
+    setOfflineSuccess("");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/license/renew`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          tenant_id: offlineTargetTenant.id,
+          license_key: offlinePastedKey.trim()
+        })
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.detail || "Lisans anahtarı doğrulanamadı.");
+      }
+
+      setOfflineSuccess(data.message || "Lisans anahtarı ve donanım doğrulaması başarıyla tamamlandı! Bitiş tarihi ve kotalar güncellendi.");
+      fetchTenants();
+    } catch (err) {
+      setOfflineError(err.message || "Lisans anahtarı doğrulanırken sunucu hatası oluştu.");
+    } finally {
+      setOfflineLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchTenants();
   }, [backendHost]);
@@ -424,14 +488,25 @@ export default function TenantManagementPanel({ backendHost }) {
           </div>
         </div>
 
-        {/* Unified Red Plus Add Button Rule */}
-        <button
-          onClick={handleOpenAddModal}
-          className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-md cursor-pointer"
-          title="Yeni Müşteri Lisansı Ekle"
-        >
-          <Plus size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => handleOpenOfflineModal(null)}
+            className="px-3.5 py-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-extrabold flex items-center gap-1.5 transition-all cursor-pointer shadow-xs"
+            title="Lisans Sunucusundan alınan imzalı offline key'i yapıştırın ve aktifleştirin"
+          >
+            <Key size={14} className="text-rose-500" />
+            <span>🔑 Offline Key Yükle</span>
+          </button>
+
+          {/* Unified Red Plus Add Button Rule */}
+          <button
+            onClick={handleOpenAddModal}
+            className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-md cursor-pointer"
+            title="Yeni Müşteri Lisansı Ekle"
+          >
+            <Plus size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Separated Distinct Row List View */}
@@ -557,6 +632,13 @@ export default function TenantManagementPanel({ backendHost }) {
               <div className="lg:col-span-1 flex items-center justify-end w-full lg:w-auto">
                 <div className="flex items-center gap-1.5">
                   <button
+                    onClick={() => handleOpenOfflineModal(t)}
+                    className="p-2 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl text-rose-600 dark:text-rose-400 transition cursor-pointer"
+                    title="Offline Lisans Key Yapıştır / Yenile"
+                  >
+                    <Key size={15} />
+                  </button>
+                  <button
                     onClick={() => handleOpenEditModal(t)}
                     className="p-2 hover:bg-slate-200/80 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-300 transition"
                     title="Lisans ve Kotaları Düzenle"
@@ -662,20 +744,35 @@ export default function TenantManagementPanel({ backendHost }) {
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Lisans Anahtarı (Key)</label>
-                    <button
-                      type="button"
-                      onClick={handleGenerateLicenseKey}
-                      className="text-[10px] font-extrabold px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 transition-colors cursor-pointer"
-                      title="Tarih ve müşteri koduna göre imzalı kriptografik key üretir"
-                    >
-                      ⚡ Key Üret
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const text = await navigator.clipboard.readText();
+                            if (text) setLicenseKey(text.trim());
+                          } catch(e){}
+                        }}
+                        className="text-[10px] font-extrabold px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                        title="Panodaki lisans anahtarını yapıştır"
+                      >
+                        📋 Panodan Yapıştır
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleGenerateLicenseKey}
+                        className="text-[10px] font-extrabold px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 transition-colors cursor-pointer"
+                        title="Tarih ve müşteri koduna göre imzalı kriptografik key üretir"
+                      >
+                        ⚡ Key Üret
+                      </button>
+                    </div>
                   </div>
                   <input
                     type="text"
                     value={licenseKey}
                     onChange={(e) => setLicenseKey(e.target.value)}
-                    placeholder="Otomatik Oluşturulur"
+                    placeholder="Otomatik Oluşturulur veya Lisans Sunucusundan kopyalanan key'i yapıştırın"
                     className="w-full text-xs px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-800 dark:text-white"
                   />
                 </div>
@@ -843,6 +940,104 @@ export default function TenantManagementPanel({ backendHost }) {
                 Sil
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* OFFLINE LICENSE KEY RENEWAL MODAL */}
+      {offlineModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 lg:p-8 shadow-2xl max-w-xl w-full text-slate-900 dark:text-slate-100 space-y-5">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 rounded-2xl">
+                  <Key size={20} />
+                </div>
+                <div>
+                  <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
+                    Offline Lisans Anahtarı Yükleme & Aktifleştirme
+                  </h4>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold">
+                    Lisans Sunucusundan (Control Center) alınan imzalı key'i yükleyin.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleApplyOfflineKey} className="space-y-4 text-xs font-semibold">
+              <div>
+                <label className="block text-slate-700 dark:text-slate-300 mb-1.5 font-bold">Hedef Müşteri / Kiracı</label>
+                <select
+                  value={offlineTargetTenant?.id || ""}
+                  onChange={(e) => {
+                    const sel = tenants.find(t => t.id === e.target.value);
+                    if (sel) setOfflineTargetTenant(sel);
+                  }}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-900 dark:text-white cursor-pointer"
+                >
+                  {tenants.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.code}) - {t.plan_tier ? t.plan_tier.toUpperCase() : "PROFESSIONAL"}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-700 dark:text-slate-300 font-bold">İmzalı Lisans Anahtarı (Key)</label>
+                  <button
+                    type="button"
+                    onClick={handlePasteClipboard}
+                    className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    📋 Panodan Yapıştır
+                  </button>
+                </div>
+
+                <textarea
+                  rows={4}
+                  required
+                  value={offlinePastedKey}
+                  onChange={(e) => setOfflinePastedKey(e.target.value)}
+                  placeholder="Lisans sunucusunda 'Yeni Key Üret & Kaydet' sonrasında kopyaladığınız AIDA-... ile başlayan imzalı lisans anahtarını buraya yapıştırınız..."
+                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 font-mono font-extrabold text-slate-900 dark:text-white placeholder:text-slate-400 placeholder:font-sans resize-none"
+                />
+              </div>
+
+              {offlineError && (
+                <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                  <AlertTriangle size={16} />
+                  <span>{offlineError}</span>
+                </div>
+              )}
+
+              {offlineSuccess && (
+                <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
+                  <CheckCircle size={16} />
+                  <span>{offlineSuccess}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setOfflineModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer font-bold"
+                >
+                  Kapat
+                </button>
+                <button
+                  type="submit"
+                  disabled={offlineLoading}
+                  className={`px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold shadow-lg shadow-rose-600/20 cursor-pointer flex items-center gap-2 transition-all ${
+                    offlineLoading ? "opacity-50 cursor-not-allowed" : ""
+                  }`}
+                >
+                  {offlineLoading ? "Doğrulanıyor..." : "Lisans Key'i Yapıştır & Uygula"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

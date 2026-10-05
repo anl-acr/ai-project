@@ -4795,7 +4795,18 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
     target_tenant["license_expires_at"] = payload.license_expires_at if payload.license_expires_at is not None else target_tenant.get("license_expires_at", "")
     t_code = target_tenant.get("code") or tenant_id.replace("tenant-", "")
     if payload.license_key:
-        target_tenant["license_key"] = payload.license_key
+        clean_key = payload.license_key.strip()
+        target_tenant["license_key"] = clean_key
+        verification = verify_license_key(t_code, clean_key)
+        if verification.get("valid"):
+            if verification.get("expires_at") and verification["expires_at"] != "unlimited":
+                target_tenant["license_expires_at"] = verification["expires_at"]
+            target_tenant["status"] = "active"
+            custom_q = verification.get("custom_quotas")
+            if custom_q and isinstance(custom_q, dict):
+                for q_key, q_val in custom_q.items():
+                    if isinstance(q_val, (int, float)):
+                        target_tenant[q_key] = int(q_val)
     elif payload.license_expires_at and str(payload.license_expires_at).strip() and str(payload.license_expires_at).lower() not in ["unlimited", "limitsiz", "suresiz"]:
         target_tenant["license_key"] = generate_license_key(t_code, payload.license_expires_at)
     target_tenant["plan_tier"] = payload.plan_tier or target_tenant.get("plan_tier", "professional")

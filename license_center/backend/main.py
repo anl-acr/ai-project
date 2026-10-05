@@ -472,7 +472,21 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
     # Find matching client if available
     res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
     client = res.scalars().first()
-    if client:
+    if not client:
+        client = ClientServer(
+            company_name=f"Müşteri ({t_code})",
+            tenant_code=t_code,
+            hardware_id=hw_id,
+            plan_tier=payload.plan_tier or "professional",
+            status="active",
+            current_license_key=key,
+            license_expires_at=exp_date,
+            custom_quotas=json.dumps(payload.custom_quotas) if payload.custom_quotas else None
+        )
+        db.add(client)
+        await db.commit()
+        await db.refresh(client)
+    else:
         if payload.custom_quotas is not None:
             client.custom_quotas = json.dumps(payload.custom_quotas) if payload.custom_quotas else None
         client.current_license_key = key
@@ -480,6 +494,10 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
         client.hardware_id = hw_id
         client.status = "active"
 
+    # Safely insert or update LicenseRecord to avoid UNIQUE constraint exception on identical keys
+    rec_res = await db.execute(select(LicenseRecord).where(LicenseRecord.license_key == key))
+    existing_log = rec_res.scalars().first()
+    if not existing_log:
         log = LicenseRecord(
             client_id=client.id,
             tenant_code=t_code,
@@ -490,7 +508,10 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
             created_by=payload.performed_by or "admin"
         )
         db.add(log)
-        await db.commit()
+    else:
+        existing_log.created_at = datetime.datetime.utcnow()
+
+    await db.commit()
 
     await log_master_action(db, payload.performed_by or "admin", "LICENSE_GENERATE", f"Yeni Lisans Key Üretildi ({t_code}): Key={key}, Bitiş={exp_date}, HW={hw_id}", request.client.host if request.client else None)
 

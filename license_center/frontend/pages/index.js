@@ -243,12 +243,15 @@ export default function MasterDashboard() {
   ];
 
   const [genCustomQuotas, setGenCustomQuotas] = useState({});
+  const [isGeneratingKey, setIsGeneratingKey] = useState(false);
+  const [genError, setGenError] = useState("");
 
   const openKeyGenModal = (client) => {
     setKeyGenModalClient(client);
     setGenExpiryDate(client.license_expires_at || "2027-12-31");
     setGenHwId(client.hardware_id || "UNBOUND");
     setGeneratedResultKey("");
+    setGenError("");
 
     const existingQuotas = client.custom_quotas || {};
     const initQ = {};
@@ -261,6 +264,10 @@ export default function MasterDashboard() {
   const handleGenerateCustomKey = async (e) => {
     e.preventDefault();
     if (!keyGenModalClient) return;
+
+    setIsGeneratingKey(true);
+    setGenError("");
+    setGeneratedResultKey("");
 
     try {
       const res = await fetch(`${API_BASE}/api/v1/licenses/generate`, {
@@ -282,9 +289,15 @@ export default function MasterDashboard() {
         const data = await res.json();
         setGeneratedResultKey(data.license_key);
         fetchData();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setGenError(errData.detail || "Lisans anahtarı üretilirken bir hata oluştu.");
       }
     } catch (e) {
       console.error("Key generate error:", e);
+      setGenError("Sunucuya bağlanılamadı. Lütfen bağlantınızı kontrol edin.");
+    } finally {
+      setIsGeneratingKey(false);
     }
   };
 
@@ -867,6 +880,13 @@ export default function MasterDashboard() {
 
               </div>
 
+              {genError && (
+                <div className="p-3.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-2xl text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+                  <AlertTriangle size={16} />
+                  <span>{genError}</span>
+                </div>
+              )}
+
               {generatedResultKey && (
                 <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-2xl space-y-2">
                   <div className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1.5">
@@ -895,9 +915,13 @@ export default function MasterDashboard() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold shadow-lg shadow-rose-600/20 cursor-pointer"
+                  disabled={isGeneratingKey}
+                  className={`px-5 py-2.5 rounded-xl font-extrabold shadow-lg shadow-rose-600/20 cursor-pointer flex items-center gap-2 transition-all ${
+                    isGeneratingKey ? "bg-slate-400 text-white cursor-not-allowed" : "bg-rose-600 hover:bg-rose-500 text-white"
+                  }`}
                 >
-                  Yeni Key Üret & Kaydet
+                  {isGeneratingKey && <RefreshCw size={14} className="animate-spin" />}
+                  {isGeneratingKey ? "Key Üretiliyor & Kaydediliyor..." : "Yeni Key Üret & Kaydet"}
                 </button>
               </div>
             </form>

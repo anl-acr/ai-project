@@ -14,6 +14,12 @@ async def get_central_db():
     async with AsyncSessionLocal() as session:
         yield session
 
+from sqlalchemy import text
+
 async def init_central_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(text("ALTER TABLE client_servers ADD COLUMN custom_quotas TEXT;"))
+        except Exception:
+            pass

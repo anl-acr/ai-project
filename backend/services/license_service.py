@@ -47,7 +47,7 @@ def compute_license_signature(tenant_code: str, expiry_date_str: str, hw_id: str
     """
     Computes an 8-character uppercase HMAC-SHA256 signature mapping tenant code, expiry date (YYYY-MM-DD), and hardware ID.
     """
-    clean_code = tenant_code.strip().lower()
+    clean_code = tenant_code.strip().lower().replace("-", "")
     clean_date = expiry_date_str.strip()
     clean_hw = hw_id.strip().upper().replace("-", "").replace("HW", "")
     msg = f"{clean_code}:{clean_date}:{clean_hw}"
