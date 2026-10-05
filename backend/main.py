@@ -4595,12 +4595,56 @@ def check_tenant_quota_limit(tenant_id: str, resource_type: str, current_count: 
         )
 
 
+def compute_tenant_usage_dict(current_settings: dict, t_id: str) -> dict:
+    """Calculates live usage counts for all 19 feature quotas for a specific tenant."""
+    def count_items(keys):
+        if isinstance(keys, str):
+            keys = [keys]
+        total = 0
+        for k in keys:
+            items = current_settings.get(k, [])
+            if not isinstance(items, list):
+                continue
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item_t = item.get("tenant_id")
+                if t_id in ["tenant-default", "default"]:
+                    if not item_t or item_t in ["tenant-default", "default"]:
+                        total += 1
+                else:
+                    if item_t == t_id:
+                        total += 1
+        return total
+
+    return {
+        "max_agents": count_items(["ai_agents"]),
+        "max_rag_docs": count_items(["rag_docs", "documents"]),
+        "max_scenarios": count_items(["scenarios", "ai_scenarios"]),
+        "max_users": count_items(["users", "system_users"]),
+        "max_announcements": count_items(["announcements"]),
+        "max_queues": count_items(["queues", "acd_queues"]),
+        "max_inbound_rules": count_items(["inbound_rules"]),
+        "max_outbound_rules": count_items(["outbound_rules"]),
+        "max_pickup_groups": count_items(["pickup_groups", "call_pickup_groups"]),
+        "max_subscriber_groups": count_items(["subscriber_groups"]),
+        "max_phonebook_contacts": count_items(["contacts"]),
+        "max_trunks": count_items(["trunks", "sip_trunks"]),
+        "max_conference_rooms": count_items(["conferences", "conference_rooms"]),
+        "max_speed_dials": count_items(["speed_dials"]),
+        "max_blacklist_entries": count_items(["blacklist", "blacklist_items"]),
+        "max_locations": count_items(["locations"]),
+        "max_departments": count_items(["departments"]),
+        "max_call_flows": count_items(["workflows", "call_flows"]),
+        "max_dialers": count_items(["dialers", "dialer_campaigns"])
+    }
+
 @app.get("/api/tenants")
 @app.get("/api/tenants/")
 @app.get("/api/settings/tenants")
 @app.get("/api/settings/tenants/")
 async def get_tenants():
-    """Returns list of registered tenants with license expiration checks and numeric tenant_num_id assignment."""
+    """Returns list of registered tenants with license expiration checks, numeric tenant_num_id assignment, and live usage metrics."""
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
 
@@ -4618,7 +4662,14 @@ async def get_tenants():
         current["tenants"] = tenants
         save_settings(current)
         settings_db["tenants"] = tenants
-    return tenants
+
+    result = []
+    for t in tenants:
+        t_copy = dict(t)
+        t_copy["usage"] = compute_tenant_usage_dict(current, t.get("id", "tenant-default"))
+        result.append(t_copy)
+
+    return result
 
 
 

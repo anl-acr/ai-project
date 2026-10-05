@@ -78,6 +78,8 @@ export default function TenantManagementPanel({ backendHost }) {
   const [licenseKey, setLicenseKey] = useState("");
   const [planTier, setPlanTier] = useState("professional");
 
+  const [usage, setUsage] = useState({});
+
   // 1. Yapay Zeka Kotaları
   const [maxAgents, setMaxAgents] = useState(10);
   const [maxRagDocs, setMaxRagDocs] = useState(200);
@@ -165,6 +167,7 @@ export default function TenantManagementPanel({ backendHost }) {
     setLicenseExpiresAt("");
     setIsUnlimited(true);
     setLicenseKey("");
+    setUsage({});
     applyPlanPreset("professional");
 
     setErrorMsg("");
@@ -182,6 +185,7 @@ export default function TenantManagementPanel({ backendHost }) {
     setLicenseKey(t.license_key || "");
     const tier = t.plan_tier || "professional";
     setPlanTier(tier);
+    setUsage(t.usage || {});
 
     // Load or default 19 quota fields
     const p = PLAN_PRESETS[tier] || PLAN_PRESETS.professional;
@@ -209,6 +213,65 @@ export default function TenantManagementPanel({ backendHost }) {
 
     setErrorMsg("");
     setShowModal(true);
+  };
+
+  const renderQuotaCard = (label, usageKey, maxVal, unit = "", color = "purple") => {
+    const max = parseInt(maxVal) || 0;
+    const used = usage[usageKey] || 0;
+    const isInfinite = max >= 999;
+    const pct = isInfinite ? 0 : Math.min(100, Math.round((used / (max || 1)) * 100));
+
+    const colors = {
+      purple: {
+        border: "border-purple-200/60 dark:border-purple-900/40",
+        bar: pct >= 100 ? "bg-rose-500" : pct >= 80 ? "bg-amber-500" : "bg-purple-600",
+        badge: pct >= 100 ? "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300" : "bg-purple-100 text-purple-700 dark:bg-purple-950/60 dark:text-purple-300",
+        text: "text-purple-600 dark:text-purple-400"
+      },
+      blue: {
+        border: "border-blue-200/60 dark:border-blue-900/40",
+        bar: pct >= 100 ? "bg-rose-500" : pct >= 80 ? "bg-amber-500" : "bg-blue-600",
+        badge: pct >= 100 ? "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300" : "bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300",
+        text: "text-blue-600 dark:text-blue-400"
+      },
+      emerald: {
+        border: "border-emerald-200/60 dark:border-emerald-900/40",
+        bar: pct >= 100 ? "bg-rose-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-600",
+        badge: pct >= 100 ? "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300",
+        text: "text-emerald-600 dark:text-emerald-400"
+      }
+    };
+
+    const c = colors[color] || colors.blue;
+
+    return (
+      <div className={`bg-white dark:bg-slate-900 p-3 rounded-xl border ${c.border} shadow-sm flex flex-col justify-between space-y-2`}>
+        <div className="flex items-start justify-between gap-1">
+          <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 leading-snug">{label}</span>
+          <span className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md font-mono shrink-0 ${c.badge}`}>
+            {isInfinite ? "♾️ Sınırsız" : `%${pct}`}
+          </span>
+        </div>
+
+        <div>
+          <div className="flex items-baseline justify-between mb-1">
+            <span className={`text-xs font-mono font-extrabold ${c.text}`}>
+              {used} <span className="text-[9px] font-bold text-slate-400">kullanılan</span>
+            </span>
+            <span className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400">
+              / {isInfinite ? "♾️" : max} {unit}
+            </span>
+          </div>
+
+          <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${c.bar}`}
+              style={{ width: isInfinite ? (used > 0 ? '15%' : '0%') : `${Math.max(used > 0 ? 3 : 0, pct)}%` }}
+            />
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const handleGenerateLicenseKey = async () => {
@@ -650,12 +713,12 @@ export default function TenantManagementPanel({ backendHost }) {
                 <span>Lisans Kapasite Kotaları Merkez Lisans Sunucusu (Control Center) ve Lisans Paketi Tarafından Otomatik Belirlenmektedir (Salt Okunur).</span>
               </div>
 
-              {/* SECTION 1: YAPAY ZEKA LİSANS HAKLARI */}
+              {/* SECTION 1: YAPAY ZEKA LİSANS HAKLARI & CANLI KULLANIM */}
               <div className="p-4 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
                     <Bot size={16} />
-                    <span>1. Yapay Zeka Lisans Hakları</span>
+                    <span>1. Yapay Zeka Lisans Hakları & Canlı Kullanım</span>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
                     🔒 Lisans Kilitli
@@ -663,35 +726,18 @@ export default function TenantManagementPanel({ backendHost }) {
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
-                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-sm flex flex-col">
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">AI Temsilcileri</span>
-                    <span className="text-base font-mono font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
-                      {parseInt(maxAgents) >= 999 ? "♾️ Limitsiz" : `${maxAgents} Hak`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-sm flex flex-col">
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Bilgi Bankası (RAG)</span>
-                    <span className="text-base font-mono font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
-                      {parseInt(maxRagDocs) >= 9999 ? "♾️ Limitsiz" : `${maxRagDocs} Doküman`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-sm flex flex-col">
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Senaryo Editörü</span>
-                    <span className="text-base font-mono font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
-                      {parseInt(maxScenarios) >= 999 ? "♾️ Limitsiz" : `${maxScenarios} Akış`}
-                    </span>
-                  </div>
+                  {renderQuotaCard("AI Temsilcileri", "max_agents", maxAgents, "Hak", "purple")}
+                  {renderQuotaCard("Bilgi Bankası (RAG)", "max_rag_docs", maxRagDocs, "Doküman", "purple")}
+                  {renderQuotaCard("Senaryo Editörü", "max_scenarios", maxScenarios, "Akış", "purple")}
                 </div>
               </div>
 
-              {/* SECTION 2: SANTRAL LİSANS HAKLARI */}
+              {/* SECTION 2: SANTRAL LİSANS HAKLARI & CANLI KULLANIM */}
               <div className="p-4 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-extrabold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
                     <PhoneCall size={16} />
-                    <span>2. Santral & Dahili Lisans Hakları</span>
+                    <span>2. Santral & Dahili Lisans Hakları & Canlı Kullanım</span>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
                     🔒 Lisans Kilitli
@@ -699,98 +745,29 @@ export default function TenantManagementPanel({ backendHost }) {
                 </div>
 
                 <div className="grid grid-cols-3 gap-2.5">
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Kullanıcılar</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxUsers) >= 9999 ? "♾️ Limitsiz" : `${maxUsers} Kişi`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Dış Hat (SIP Trunk)</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxTrunks) >= 999 ? "♾️ Limitsiz" : `${maxTrunks} Hat`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Kuyruklar</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxQueues) >= 999 ? "♾️ Limitsiz" : `${maxQueues} Kuyruk`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Anonslar</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxAnnouncements) >= 9999 ? "♾️ Limitsiz" : `${maxAnnouncements} Ses`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Gelen Arama Kuralları</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxInboundRules) >= 9999 ? "♾️ Limitsiz" : `${maxInboundRules} Kural`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Giden Arama Kuralları</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxOutboundRules) >= 9999 ? "♾️ Limitsiz" : `${maxOutboundRules} Kural`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Çağrı Toplama</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxPickupGroups) >= 999 ? "♾️ Limitsiz" : `${maxPickupGroups} Grup`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Abone Grubu</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxSubscriberGroups) >= 999 ? "♾️ Limitsiz" : `${maxSubscriberGroups} Grup`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Rehber Kişileri</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxPhonebookContacts) >= 99999 ? "♾️ Limitsiz" : `${maxPhonebookContacts} Kişi`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Konferans Odaları</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxConferenceRooms) >= 999 ? "♾️ Limitsiz" : `${maxConferenceRooms} Oda`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Hızlı Arama</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxSpeedDials) >= 9999 ? "♾️ Limitsiz" : `${maxSpeedDials} Kayıt`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Numara Engelleme</span>
-                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
-                      {parseInt(maxBlacklistEntries) >= 99999 ? "♾️ Limitsiz" : `${maxBlacklistEntries} Numara`}
-                    </span>
-                  </div>
+                  {renderQuotaCard("Kullanıcılar", "max_users", maxUsers, "Kişi", "blue")}
+                  {renderQuotaCard("Dış Hat (SIP Trunk)", "max_trunks", maxTrunks, "Hat", "blue")}
+                  {renderQuotaCard("Kuyruklar", "max_queues", maxQueues, "Kuyruk", "blue")}
+                  {renderQuotaCard("Anonslar", "max_announcements", maxAnnouncements, "Ses", "blue")}
+                  {renderQuotaCard("Gelen Arama Kuralları", "max_inbound_rules", maxInboundRules, "Kural", "blue")}
+                  {renderQuotaCard("Giden Arama Kuralları", "max_outbound_rules", maxOutboundRules, "Kural", "blue")}
+                  {renderQuotaCard("Çağrı Toplama", "max_pickup_groups", maxPickupGroups, "Grup", "blue")}
+                  {renderQuotaCard("Abone Grubu", "max_subscriber_groups", maxSubscriberGroups, "Grup", "blue")}
+                  {renderQuotaCard("Rehber Kişileri", "max_phonebook_contacts", maxPhonebookContacts, "Kişi", "blue")}
+                  {renderQuotaCard("Konferans Odaları", "max_conference_rooms", maxConferenceRooms, "Oda", "blue")}
+                  {renderQuotaCard("Hızlı Arama", "max_speed_dials", maxSpeedDials, "Kayıt", "blue")}
+                  {renderQuotaCard("Numara Engelleme", "max_blacklist_entries", maxBlacklistEntries, "Numara", "blue")}
+                  {renderQuotaCard("Lokasyon", "max_locations", maxLocations, "Lokasyon", "blue")}
+                  {renderQuotaCard("Departman", "max_departments", maxDepartments, "Departman", "blue")}
                 </div>
               </div>
 
-              {/* SECTION 3: ÇAĞRI YÖNLENDİRME & AKIŞ LİSANS HAKLARI */}
+              {/* SECTION 3: ÇAĞRI YÖNLENDİRME & AKIŞ LİSANS HAKLARI & CANLI KULLANIM */}
               <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-xl space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
                     <GitMerge size={16} />
-                    <span>3. Çağrı Yönlendirme & Akış Lisans Hakları</span>
+                    <span>3. Çağrı Yönlendirme & Akış Lisans Hakları & Canlı Kullanım</span>
                   </div>
                   <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
                     🔒 Lisans Kilitli
@@ -798,19 +775,8 @@ export default function TenantManagementPanel({ backendHost }) {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm flex flex-col">
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Arama Akış Yönetimi (Workflows)</span>
-                    <span className="text-base font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                      {parseInt(maxCallFlows) >= 999 ? "♾️ Limitsiz" : `${maxCallFlows} Akış`}
-                    </span>
-                  </div>
-
-                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm flex flex-col">
-                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Dış Arama Dialer</span>
-                    <span className="text-base font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
-                      {parseInt(maxDialers) >= 999 ? "♾️ Limitsiz" : `${maxDialers} Dialer`}
-                    </span>
-                  </div>
+                  {renderQuotaCard("Arama Akış Yönetimi (Workflows)", "max_call_flows", maxCallFlows, "Akış", "emerald")}
+                  {renderQuotaCard("Dış Arama Dialer", "max_dialers", maxDialers, "Dialer", "emerald")}
                 </div>
               </div>
 
