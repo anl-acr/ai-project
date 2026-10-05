@@ -8049,18 +8049,41 @@ async def get_system_version_info():
     Used by local and production servers to verify deployment synchronization.
     """
     return {
-        "version": "v2.4.8",
+        "version": "v2.4.9",
         "commit_hash": "auto",
-        "release_date": "2 Ekim 2026",
+        "release_date": "6 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production",
         "changelog": [
             {
-                "version": "v2.4.8",
+                "version": "v2.4.9",
                 "commit_hash": "auto",
-                "release_date": "2 Ekim 2026",
+                "release_date": "6 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Offline Kriptografik Lisans Anahtarı Yükleme, Donanım Kilidi & Kotaların Canlı Entegrasyonu",
+                "summary": "Lisans sunucusunda üretilen HMAC-SHA256 imzalı ve Base64 kotalı lisans anahtarlarının offline ortamda uygulama sunucusuna yüklenmesi, kotaların anında güncellenmesi ve dedicated Lisans & Key Yönetimi panelinin entegrasyonu sağlandı.",
+                "features": [
+                    {
+                        "title": "🔑 Sistem Ayarları > Lisans & Key Yönetimi Paneli",
+                        "desc": "Sistem Ayarları sol menüsüne ve üst header barına doğrudan lisans anahtarı yapıştırma (Textarea + Panodan Yapıştır) ve donanım kimliği (Machine Fingerprint) kopyalama alanı eklendi."
+                    },
+                    {
+                        "title": "🛡️ Offline Lisans Doğrulama & Otomatik Kota Güncelleme",
+                        "desc": "Yüklenen lisans key'lerinin donanım kimliği ve HMAC imzası doğrulanarak 19 farklı sistem kotası (kullanıcı, agent, trunk vb.) offline sunucularda anında yenilenmektedir."
+                    }
+                ],
+                "fixes": [
+                    "Lisans sunucusunda yeni key üretirken oluşan SQLite UNIQUE kısıtlama hatası giderildi.",
+                    "Lisans anahtarındaki tire (-) karakteri nedeniyle oluşan HMAC imza eşleşmeme hatası düzeltildi."
+                ]
+            },
+            {
+                "version": "v2.4.8",
+                "commit_hash": "cb159a0",
+                "release_date": "2 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "SystemUser Veritabanı Model Hatası (AttributeError: username) & JSON String Yönlendirme Düzeltmesi",
                 "summary": "/api/subscriber/resolve_forwarding endpoint'inde veritabanı sorgusundaki var olmayan 'username' kolon erişim hatası düzeltildi, JSON string yönlendirme nesnelerinin parse edilerek sorunsuz aktarılması sağlandı.",
                 "features": [

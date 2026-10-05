@@ -68,7 +68,7 @@ async def start_telemetry_heartbeat_loop():
                 
             payload = {
                 "hardware_id": hw_id,
-                "software_version": "v2.4.8",
+                "software_version": "v2.4.9",
                 "cpu_percent": round(cpu_pct, 1),
                 "memory_percent": round(mem_pct, 1),
                 "active_calls": active_calls,
