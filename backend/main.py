@@ -4789,11 +4789,13 @@ class LicenseRenewSchema(BaseModel):
 class LicenseGenerateSchema(BaseModel):
     tenant_code: str
     expiry_date: str
+    hardware_id: Optional[str] = "UNBOUND"
 
 @app.get("/api/tenant/license/status")
 @app.get("/api/settings/license/status")
 async def get_license_status(request: Request):
-    """Returns cryptographic license status, days remaining, and metadata for the active tenant."""
+    """Returns cryptographic license status, days remaining, hardware fingerprint, and metadata for active tenant."""
+    from backend.services.hardware_info import get_system_hardware_fingerprint
     user_info = get_user_info(request)
     tenant_id = user_info.get("tenant_id", "tenant-default")
     current = load_settings()
@@ -4807,6 +4809,7 @@ async def get_license_status(request: Request):
         
     t_code = matched.get("code") or matched.get("id", "default").replace("tenant-", "")
     verification = verify_license_key(t_code, matched.get("license_key", ""))
+    hw_info = get_system_hardware_fingerprint()
     
     days_left = None
     if verification.get("expires_at") and verification["expires_at"] != "unlimited":
@@ -4827,13 +4830,14 @@ async def get_license_status(request: Request):
         "valid": verification.get("valid", False) and matched.get("status") != "passive",
         "reason": verification.get("reason"),
         "days_left": days_left,
-        "is_unlimited": verification.get("expires_at") == "unlimited" or not matched.get("license_expires_at")
+        "is_unlimited": verification.get("expires_at") == "unlimited" or not matched.get("license_expires_at"),
+        "server_hardware_id": hw_info.get("hardware_id")
     }
 
 @app.post("/api/tenant/license/renew")
 @app.post("/api/settings/license/renew")
 async def renew_license_key(payload: LicenseRenewSchema):
-    """Verifies HMAC signature and applies new license key to activate system operations."""
+    """Verifies HMAC signature & Machine Binding and applies new license key to activate system operations."""
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
     
@@ -4861,22 +4865,24 @@ async def renew_license_key(payload: LicenseRenewSchema):
     
     return {
         "success": True,
-        "message": f"Lisans anahtarı başarıyla doğrulandı ve sistem aktifleştirildi. (Son Kullanma: {target.get('license_expires_at', 'Süresiz')})",
+        "message": f"Lisans anahtarı ve sunucu donanım doğrulaması başarıyla tamamlandı. (Son Kullanma: {target.get('license_expires_at', 'Süresiz')})",
         "expires_at": target.get("license_expires_at"),
         "status": "active"
     }
 
 @app.post("/api/settings/tenants/generate-license-key")
 async def generate_license_key_endpoint(payload: LicenseGenerateSchema):
-    """Generates a cryptographic HMAC-SHA256 signed license key."""
+    """Generates a cryptographic HMAC-SHA256 signed license key with machine binding."""
     if not payload.tenant_code or not payload.expiry_date:
         raise HTTPException(status_code=400, detail="Müşteri kodu ve bitiş tarihi gereklidir.")
         
-    key = generate_license_key(payload.tenant_code, payload.expiry_date)
+    hw_id = payload.hardware_id or "UNBOUND"
+    key = generate_license_key(payload.tenant_code, payload.expiry_date, hw_id)
     return {
         "license_key": key,
         "tenant_code": payload.tenant_code,
-        "expiry_date": payload.expiry_date
+        "expiry_date": payload.expiry_date,
+        "hardware_id": hw_id
     }
 
 @app.get("/api/settings/ai-providers/elevenlabs-voices")

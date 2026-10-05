@@ -172,6 +172,29 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
             )}
           </div>
 
+          {/* Server Hardware ID Badge */}
+          {licenseStatus?.server_hardware_id && (
+            <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl flex items-center justify-between">
+              <div>
+                <div className="text-[10px] font-extrabold uppercase text-slate-400 tracking-wider">Sunucu Donanım Kimliği (Machine Fingerprint)</div>
+                <div className="text-xs font-mono font-extrabold text-slate-800 dark:text-slate-200">
+                  {licenseStatus.server_hardware_id}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(licenseStatus.server_hardware_id);
+                  alert(`Donanım Kimliği Kopyalandı: ${licenseStatus.server_hardware_id}`);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-slate-200/80 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <Copy size={12} />
+                <span>Kopyala</span>
+              </button>
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleRenew} className="space-y-4">
             <div>

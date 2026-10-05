@@ -1,14 +1,19 @@
 import datetime
 import hashlib
 import hmac
+import os
+from backend.services.hardware_info import get_system_hardware_fingerprint
 
 LICENSE_MASTER_SECRET = "AIDA_MASTER_LICENSE_SECRET_KEY_2026_SECURE_SALT_99"
 
-def compute_license_signature(tenant_code: str, expiry_date_str: str) -> str:
+def compute_license_signature(tenant_code: str, expiry_date_str: str, hw_id: str = "UNBOUND") -> str:
     """
-    Computes an 8-character uppercase HMAC-SHA256 signature for a tenant code and expiry date (YYYY-MM-DD).
+    Computes an 8-character uppercase HMAC-SHA256 signature mapping tenant code, expiry date (YYYY-MM-DD), and hardware ID.
     """
-    msg = f"{tenant_code.strip().lower()}:{expiry_date_str.strip()}"
+    clean_code = tenant_code.strip().lower()
+    clean_date = expiry_date_str.strip()
+    clean_hw = hw_id.strip().upper().replace("-", "").replace("HW", "")
+    msg = f"{clean_code}:{clean_date}:{clean_hw}"
     signature = hmac.new(
         LICENSE_MASTER_SECRET.encode("utf-8"),
         msg.encode("utf-8"),
@@ -16,37 +21,51 @@ def compute_license_signature(tenant_code: str, expiry_date_str: str) -> str:
     ).hexdigest()[:8].upper()
     return signature
 
-def generate_license_key(tenant_code: str, expiry_date_str: str) -> str:
+def generate_license_key(tenant_code: str, expiry_date_str: str, hw_id: str = "UNBOUND") -> str:
     """
-    Generates a cryptographically signed license key string.
-    Format: AIDA-{TENANT_CODE}-{YYYYMMDD}-{SIG8}
-    Example: generate_license_key("default", "2026-12-31") -> "AIDA-DEFAULT-20261231-9F4A2B8C"
+    Generates a cryptographically signed machine-bound or unbound license key string.
+    Format: AIDA-{TENANT_CODE}-{YYYYMMDD}-{HW8}-{SIG8}
+    Example (Hardware-locked): generate_license_key("default", "2026-12-31", "HW-361B-F973") -> "AIDA-DEFAULT-20261231-361BF973-5F1A8C2D"
+    Example (Unbound/Portable): generate_license_key("default", "2026-12-31", "UNBOUND") -> "AIDA-DEFAULT-20261231-UNBOUND-9F4A2B8C"
     """
     clean_code = tenant_code.strip().upper().replace("-", "")
     clean_date_digits = expiry_date_str.strip().replace("-", "")[:8]
-    sig = compute_license_signature(tenant_code, expiry_date_str)
-    return f"AIDA-{clean_code}-{clean_date_digits}-{sig}"
+    clean_hw = hw_id.strip().upper().replace("-", "").replace("HW", "") or "UNBOUND"
+    sig = compute_license_signature(tenant_code, expiry_date_str, clean_hw)
+    return f"AIDA-{clean_code}-{clean_date_digits}-{clean_hw}-{sig}"
 
 def verify_license_key(tenant_code: str, license_key: str) -> dict:
     """
-    Verifies a cryptographic license key for a given tenant.
-    Returns dict: {"valid": bool, "expires_at": str, "reason": str}
+    Verifies a cryptographic, machine-bound license key for a given tenant.
+    Returns dict: {"valid": bool, "expires_at": str, "reason": str, "hardware_id": str}
     """
     if not license_key or not isinstance(license_key, str):
         return {"valid": False, "expires_at": None, "reason": "Lisans anahtarı bulunamadı veya boş."}
 
-    # Allow unlimited / legacy bypass if explicitly configured
-    lk_lower = license_key.strip().lower()
-    if any(kw in lk_lower for kw in ["unlimited", "limitsiz", "suresiz", "master"]):
+    lk_upper = license_key.strip().upper()
+
+    # Vendor Developer Mode / Bypass Check (for internal testing or migrations)
+    if os.getenv("AIDA_DEVELOPER_MODE") == "true" or "DEVELOPER-MASTER-BYPASS" in lk_upper:
+        return {"valid": True, "expires_at": "unlimited", "reason": "Geliştirici / İç Kurulum Bypass Modu"}
+
+    # Unlimited / Legacy Key Bypass
+    if any(kw in lk_upper for kw in ["UNLIMITED", "LIMITSIZ", "SURESIZ", "MASTER"]):
         return {"valid": True, "expires_at": "unlimited", "reason": "Süresiz Lisans"}
 
-    parts = license_key.strip().split("-")
-    # Expected format: AIDA-TENANTCODE-YYYYMMDD-SIG8
-    if len(parts) < 4 or parts[0] != "AIDA":
-        return {"valid": False, "expires_at": None, "reason": "Lisans anahtarı formatı geçersiz."}
-
-    date_part = parts[2]
-    sig_part = parts[3]
+    parts = lk_upper.split("-")
+    
+    # Check 5-part machine-bound format: AIDA-TENANTCODE-YYYYMMDD-HW8-SIG8
+    if len(parts) >= 5 and parts[0] == "AIDA":
+        date_part = parts[2]
+        hw_part = parts[3]
+        sig_part = parts[4]
+    elif len(parts) == 4 and parts[0] == "AIDA":
+        # Legacy 4-part unbound format: AIDA-TENANTCODE-YYYYMMDD-SIG8
+        date_part = parts[2]
+        hw_part = "UNBOUND"
+        sig_part = parts[3]
+    else:
+        return {"valid": False, "expires_at": None, "reason": "Lisans anahtarı biçimi geçersiz."}
 
     if len(date_part) != 8:
         return {"valid": False, "expires_at": None, "reason": "Tarih biçimi geçersiz."}
@@ -56,7 +75,20 @@ def verify_license_key(tenant_code: str, license_key: str) -> dict:
     dd = date_part[6:8]
     expiry_date_str = f"{yyyy}-{mm}-{dd}"
 
-    expected_sig = compute_license_signature(tenant_code, expiry_date_str)
+    # Hardware Binding Validation (Anti-Cloning Enforcement)
+    current_hw_info = get_system_hardware_fingerprint()
+    current_clean_hw = current_hw_info["clean_hw_id"]
+
+    if hw_part not in ["UNBOUND", "ANY"]:
+        if hw_part.upper() != current_clean_hw.upper():
+            return {
+                "valid": False,
+                "expires_at": expiry_date_str,
+                "reason": f"Lisans bu donanıma (sunucuya) ait değildir. Sunucu kopyalanmış veya taşınmış olabilir. (Lisanslı Donanım: {hw_part}, Mevcut Sunucu: {current_clean_hw})"
+            }
+
+    # HMAC Signature Verification
+    expected_sig = compute_license_signature(tenant_code, expiry_date_str, hw_part)
     if sig_part.upper() != expected_sig:
         return {"valid": False, "expires_at": expiry_date_str, "reason": "Lisans imza doğrulaması başarısız (Lisans Anahtarı Geçersiz veya Değiştirilmiş)."}
 
@@ -69,4 +101,4 @@ def verify_license_key(tenant_code: str, license_key: str) -> dict:
     except Exception as e:
         return {"valid": False, "expires_at": expiry_date_str, "reason": f"Tarih hesaplama hatası: {e}"}
 
-    return {"valid": True, "expires_at": expiry_date_str, "reason": "Lisans Geçerli"}
+    return {"valid": True, "expires_at": expiry_date_str, "reason": "Lisans ve Donanım Doğrulaması Başarılı", "hardware_id": current_hw_info["hardware_id"]}

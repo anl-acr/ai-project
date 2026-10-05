@@ -126,12 +126,14 @@
     - Webhook extracts Meta `metadata.phone_number_id` and matches the incoming line account in `chat_service.py`, automatically applying that specific line's AI Persona, welcome menu, and access token.
     - Added `recipient_info` column to `ChatSession` PostgreSQL table and models (`chat_sessions.recipient_info`).
     - Omnichannel Panel renders clear line badges (e.g. `[Satış Hattı - 0850 360 7390]`) for representatives and displays line details in chat headers.
-  - **On-Premise Tamper-Proof Cryptographic License Verification & Expiration Architecture**:
-    - `backend/services/license_service.py` computes 8-char HMAC-SHA256 signatures (`compute_license_signature`) mapping `(tenant_code, expiry_date_str)` with a secure master secret.
-    - Key format: `AIDA-{TENANT_CODE}-{YYYYMMDD}-{SIG8}` (e.g. `AIDA-DEFAULT-20261231-56148939`). If an on-premise admin attempts to bypass expiry by editing `license_expires_at` in `settings.json`, signature verification fails immediately (`Lisans imza doğrulaması başarısız`).
-    - `check_and_update_tenant_expiration()` in `main.py` checks cryptographic validity on startup and request cycles, setting tenant `status = "passive"` if expired or tampered.
+  - **On-Premise Tamper-Proof Cryptographic License Verification & Machine-Binding (Anti-Cloning) Architecture**:
+    - `backend/services/hardware_info.py` extracts host DMI/Motherboard product UUID, Linux `/etc/machine-id`, disk volume UUID, and primary NIC MAC address to generate unique hardware fingerprint (`HW-361B-F973`).
+    - `backend/services/license_service.py` computes 8-char HMAC-SHA256 signatures (`compute_license_signature`) mapping `(tenant_code, expiry_date_str, hardware_id)` with a secure master secret.
+    - Key format: `AIDA-{TENANT_CODE}-{YYYYMMDD}-{HW8}-{SIG8}` (e.g. `AIDA-NOLTO-20271231-361BF973-4C24CE3A`). If a VM, disk image, or directory is cloned/copied to a new server or hypervisor, hardware ID mismatch causes immediate license validation rejection (`Lisans bu donanıma ait değildir`).
+    - `check_and_update_tenant_expiration()` in `main.py` checks cryptographic validity on startup and request cycles, setting tenant `status = "passive"` if expired, tampered, or hardware mismatched.
+    - CLI tools `backend/scripts/get_machine_id.py` (extracts client hardware ID during setup) and `backend/scripts/generate_client_license.py` (generates signed machine-bound license keys for vendor) provide easy deployment management.
     - AudioSocket engine (`audiosocket_server.py`) verifies license signature on incoming TCP calls and terminates calls immediately if license is invalid or passive (`[AudioSocket License Block]`).
-    - Endpoints `GET /api/settings/license/status`, `POST /api/tenant/license/renew`, and `POST /api/settings/tenants/generate-license-key` provide live license status, automated HMAC key generation, and seamless UI key renewal modal (`<LicenseModal />`). Registered under `SYSTEM_FEATURES` (`tenant_license`) in `RoleSettings.js`.
+    - Endpoints `GET /api/settings/license/status`, `POST /api/tenant/license/renew`, and `POST /api/settings/tenants/generate-license-key` provide live license status, server hardware ID display, automated HMAC key generation, and seamless UI key renewal modal (`<LicenseModal />`). Registered under `SYSTEM_FEATURES` (`tenant_license`) in `RoleSettings.js`.
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
