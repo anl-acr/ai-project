@@ -153,24 +153,26 @@ export default function TenantManagementPanel({ backendHost }) {
     setOfflineSuccess("");
 
     try {
-      const res = await fetch(`${API_BASE}/api/settings/license/renew`, {
+      const targetId = offlineTargetTenant.id || offlineTargetTenant.code || "tenant-default";
+      const apiUrl = API_BASE ? `${API_BASE}/api/settings/license/renew` : "/api/settings/license/renew";
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          tenant_id: offlineTargetTenant.id,
+          tenant_id: targetId,
           license_key: offlinePastedKey.trim()
         })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.detail || "Lisans anahtarı doğrulanamadı.");
+        throw new Error(data.detail || data.message || "Lisans anahtarı doğrulanamadı.");
       }
 
       setOfflineSuccess(data.message || "Lisans anahtarı ve donanım doğrulaması başarıyla tamamlandı! Bitiş tarihi ve kotalar güncellendi.");
       fetchTenants();
     } catch (err) {
-      setOfflineError(err.message || "Lisans anahtarı doğrulanırken sunucu hatası oluştu.");
+      setOfflineError(err.message || "Lisans anahtarı doğrulanırken bir hata oluştu.");
     } finally {
       setOfflineLoading(false);
     }

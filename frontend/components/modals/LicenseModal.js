@@ -51,7 +51,8 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
 
     try {
       const activeTenantId = licenseStatus?.tenant_id || "tenant-default";
-      const res = await fetch(`${API_BASE}/api/tenant/license/renew`, {
+      const apiUrl = API_BASE ? `${API_BASE}/api/tenant/license/renew` : "/api/tenant/license/renew";
+      const res = await fetch(apiUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -60,10 +61,10 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
         })
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(data.detail || "Lisans doğrulama başarısız oldu.");
+        throw new Error(data.detail || data.message || "Lisans doğrulama başarısız oldu.");
       }
 
       setSuccessMsg(data.message || "Lisansınız başarıyla yenilendi ve aktifleştirildi!");

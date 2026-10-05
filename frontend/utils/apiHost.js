@@ -1,17 +1,19 @@
 export function getBackendHost(providedHost) {
-  if (providedHost && providedHost !== "localhost:8000" && providedHost !== "127.0.0.1:8000") {
+  if (typeof window !== "undefined") {
+    if (!providedHost || providedHost.includes("localhost") || providedHost.includes("127.0.0.1") || providedHost.startsWith("192.168.") || providedHost.startsWith("10.") || providedHost.startsWith("172.")) {
+      return window.location.host;
+    }
     return providedHost;
   }
-  if (typeof window !== "undefined") {
-    return window.location.host;
-  }
-  return "localhost:3000";
+  return providedHost || "localhost:8000";
 }
 
 export function getApiBaseUrl(providedHost) {
+  if (typeof window !== "undefined") {
+    return "";
+  }
   const host = getBackendHost(providedHost);
-  const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-  return `${protocol}//${host}`;
+  return `http://${host}`;
 }
 
 export function getActiveTenantId() {
