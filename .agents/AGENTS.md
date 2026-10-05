@@ -134,6 +134,11 @@
     - CLI tools `backend/scripts/get_machine_id.py` (extracts client hardware ID during setup) and `backend/scripts/generate_client_license.py` (generates signed machine-bound license keys for vendor) provide easy deployment management.
     - AudioSocket engine (`audiosocket_server.py`) verifies license signature on incoming TCP calls and terminates calls immediately if license is invalid or passive (`[AudioSocket License Block]`).
     - Endpoints `GET /api/settings/license/status`, `POST /api/tenant/license/renew`, and `POST /api/settings/tenants/generate-license-key` provide live license status, server hardware ID display, automated HMAC key generation, and seamless UI key renewal modal (`<LicenseModal />`). Registered under `SYSTEM_FEATURES` (`tenant_license`) in `RoleSettings.js`.
+  - **Standalone Central License Authority & Fleet Monitoring Architecture (`license_center`)**:
+    - Central FastAPI License API Server (`license_center/backend/main.py` on Port `8050`) and Next.js Master Dashboard Console (`license_center/frontend` on Port `3050`).
+    - Client On-Premise Background Telemetry Worker (`backend/services/telemetry_worker.py`) sends 10-minute periodic heartbeats containing CPU %, RAM %, active calls, user counts, and hardware ID to `POST /api/v1/telemetry/heartbeat`.
+    - Supports Remote Kill-Switch (suspends client server remotely) and Remote License Auto-Renewal (updates client `settings.json` upon license extension from central portal).
+    - Launch script `./run_license_center.sh` starts Central Master API (8050) and Master Web Dashboard (3050).
 
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.

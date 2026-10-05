@@ -71,6 +71,14 @@ app = FastAPI(title="AI PBX & Omnichannel Backend API")
 from backend.routers import sip_debugger
 app.include_router(sip_debugger.router)
 
+@app.on_event("startup")
+async def on_startup_telemetry():
+    try:
+        from backend.services.telemetry_worker import start_telemetry_heartbeat_loop
+        asyncio.create_task(start_telemetry_heartbeat_loop())
+    except Exception as e:
+        print(f"[Telemetry Startup Error]: {e}")
+
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
