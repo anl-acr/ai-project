@@ -29,7 +29,7 @@ def save_settings(data):
         print(f"[Telemetry Worker] Save settings error: {e}")
 
 async def start_telemetry_heartbeat_loop():
-    """Background async worker that sends periodic server health & license heartbeat to Central License Master Console."""
+    """Background async worker that sends periodic server health & license heartbeat for ALL tenants to Central License Master Console."""
     print("[Telemetry Worker] Central License Telemetry Loop Initialized (Interval: 10 mins).")
     
     # Wait 10 seconds after server startup before sending first ping
@@ -39,10 +39,16 @@ async def start_telemetry_heartbeat_loop():
         try:
             current_settings = load_settings()
             tenants = current_settings.get("tenants", [])
-            primary_tenant = tenants[0] if tenants else {}
-            
-            t_code = primary_tenant.get("code") or "default"
-            t_key = primary_tenant.get("license_key") or ""
+            if not tenants:
+                tenants = [{"code": "default", "license_key": "", "status": "active"}]
+
+            tenant_pings = []
+            for t in tenants:
+                tenant_pings.append({
+                    "tenant_code": t.get("code") or "default",
+                    "license_key": t.get("license_key") or "",
+                    "status": t.get("status") or "active"
+                })
             
             hw_info = get_system_hardware_fingerprint()
             hw_id = hw_info.get("hardware_id", "HW-UNKNOWN")
@@ -61,38 +67,54 @@ async def start_telemetry_heartbeat_loop():
                 pass
                 
             payload = {
-                "tenant_code": t_code,
                 "hardware_id": hw_id,
-                "license_key": t_key,
                 "software_version": "v2.4.8",
                 "cpu_percent": round(cpu_pct, 1),
                 "memory_percent": round(mem_pct, 1),
                 "active_calls": active_calls,
                 "total_users": len(current_settings.get("users", [])),
-                "whatsapp_status": "connected" if current_settings.get("channels", {}).get("whatsapp_phone_number_id") else "offline"
+                "whatsapp_status": "connected" if current_settings.get("channels", {}).get("whatsapp_phone_number_id") else "offline",
+                "tenants": tenant_pings,
+                # Legacy fallback fields for backwards compatibility:
+                "tenant_code": tenant_pings[0]["tenant_code"],
+                "license_key": tenant_pings[0]["license_key"]
             }
             
             async with httpx.AsyncClient(timeout=10.0) as client:
                 resp = await client.post(LICENSE_CENTER_URL, json=payload)
                 if resp.status_code == 200:
                     data = resp.json()
+                    tenants_resp = data.get("tenants_response", [])
                     
-                    # Remote Kill-Switch Enforcement
-                    if data.get("remote_kill_switch"):
-                        print(f"[Telemetry Worker] REMOTE KILL-SWITCH RECEIVED! Tenant '{t_code}' suspended on Central Portal.")
-                        if primary_tenant.get("status") != "passive":
-                            primary_tenant["status"] = "passive"
-                            save_settings(current_settings)
+                    settings_changed = False
+                    
+                    for t_res in tenants_resp:
+                        t_code = t_res.get("tenant_code")
+                        # Find matching tenant in local settings
+                        target_t = next((t for t in tenants if t.get("code") == t_code), None)
+                        if not target_t:
+                            continue
                             
-                    # Remote License Auto-Renewal Enforcement
-                    latest_key = data.get("latest_license_key")
-                    latest_expiry = data.get("license_expires_at")
-                    if latest_key and latest_key != t_key:
-                        print(f"[Telemetry Worker] REMOTE LICENSE AUTO-RENEWAL RECEIVED! Updating key to: {latest_key}")
-                        primary_tenant["license_key"] = latest_key
-                        if latest_expiry:
-                            primary_tenant["license_expires_at"] = latest_expiry
-                        primary_tenant["status"] = "active"
+                        # Remote Kill-Switch Enforcement per tenant
+                        if t_res.get("remote_kill_switch"):
+                            if target_t.get("status") != "passive":
+                                print(f"[Telemetry Worker] REMOTE KILL-SWITCH RECEIVED! Tenant '{t_code}' suspended on Central Portal.")
+                                target_t["status"] = "passive"
+                                settings_changed = True
+                                
+                        # Remote License Auto-Renewal Enforcement per tenant
+                        latest_key = t_res.get("latest_license_key")
+                        latest_expiry = t_res.get("license_expires_at")
+                        if latest_key and latest_key != target_t.get("license_key"):
+                            print(f"[Telemetry Worker] REMOTE LICENSE AUTO-RENEWAL RECEIVED! Tenant '{t_code}' updating key to: {latest_key}")
+                            target_t["license_key"] = latest_key
+                            if latest_expiry:
+                                target_t["license_expires_at"] = latest_expiry
+                            target_t["status"] = "active"
+                            settings_changed = True
+
+                    if settings_changed:
+                        current_settings["tenants"] = tenants
                         save_settings(current_settings)
                         
         except Exception as e:

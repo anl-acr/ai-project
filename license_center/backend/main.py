@@ -94,16 +94,22 @@ class LicenseGenerateSchema(BaseModel):
     plan_tier: Optional[str] = "professional"
     performed_by: Optional[str] = "admin"
 
-class HeartbeatSchema(BaseModel):
+class TenantPingItem(BaseModel):
     tenant_code: str
+    license_key: Optional[str] = ""
+    status: Optional[str] = "active"
+
+class HeartbeatSchema(BaseModel):
     hardware_id: str
-    license_key: str
+    tenant_code: Optional[str] = None
+    license_key: Optional[str] = None
     software_version: Optional[str] = "v2.4.8"
     cpu_percent: Optional[float] = 0.0
     memory_percent: Optional[float] = 0.0
     active_calls: Optional[int] = 0
     total_users: Optional[int] = 0
     whatsapp_status: Optional[str] = "offline"
+    tenants: Optional[List[TenantPingItem]] = []
 
 class LoginSchema(BaseModel):
     username: str
@@ -476,64 +482,83 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
 # --------------------------------------------------------------------------
 @app.post("/api/v1/telemetry/heartbeat")
 async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
-    """Receives 10-minute status pings from client on-premise servers."""
+    """Receives 10-minute status pings from client on-premise servers (supports single & multi-tenant pings)."""
     client_ip = request.client.host if request.client else None
-    t_code = payload.tenant_code.strip().lower()
+    hw_id = payload.hardware_id or "HW-UNKNOWN"
 
-    res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
-    client = res.scalars().first()
+    tenant_items = []
+    if payload.tenants and len(payload.tenants) > 0:
+        tenant_items = payload.tenants
+    elif payload.tenant_code:
+        tenant_items = [TenantPingItem(tenant_code=payload.tenant_code, license_key=payload.license_key or "")]
 
-    if not client:
-        # Auto-register unknown server ping
-        client = ClientServer(
-            company_name=f"Otomatik Kayıt ({t_code})",
+    tenants_response = []
+
+    for t_item in tenant_items:
+        t_code = t_item.tenant_code.strip().lower()
+        if not t_code:
+            continue
+
+        res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
+        client = res.scalars().first()
+
+        if not client:
+            client = ClientServer(
+                company_name=f"Otomatik Kayıt ({t_code})",
+                tenant_code=t_code,
+                hardware_id=hw_id,
+                ip_address=client_ip,
+                status="active",
+                current_license_key=t_item.license_key,
+                software_version=payload.software_version
+            )
+            db.add(client)
+            await db.commit()
+            await db.refresh(client)
+
+        client.last_heartbeat_at = datetime.datetime.utcnow()
+        client.ip_address = client_ip or client.ip_address
+        client.hardware_id = hw_id
+        client.cpu_usage_percent = payload.cpu_percent or 0.0
+        client.ram_usage_percent = payload.memory_percent or 0.0
+        client.active_calls_count = payload.active_calls or 0
+        client.total_users_count = payload.total_users or 0
+        client.whatsapp_status = payload.whatsapp_status or "offline"
+        client.software_version = payload.software_version or client.software_version
+
+        t_log = TelemetryLog(
+            client_id=client.id,
             tenant_code=t_code,
-            hardware_id=payload.hardware_id,
+            hardware_id=hw_id,
             ip_address=client_ip,
-            status="active",
-            current_license_key=payload.license_key,
-            software_version=payload.software_version
+            software_version=payload.software_version,
+            cpu_percent=payload.cpu_percent,
+            memory_percent=payload.memory_percent,
+            active_calls=payload.active_calls,
+            whatsapp_status=payload.whatsapp_status
         )
-        db.add(client)
+        db.add(t_log)
         await db.commit()
-        await db.refresh(client)
 
-    # Update Telemetry Metrics
-    client.last_heartbeat_at = datetime.datetime.utcnow()
-    client.ip_address = client_ip or client.ip_address
-    client.hardware_id = payload.hardware_id or client.hardware_id
-    client.cpu_usage_percent = payload.cpu_percent or 0.0
-    client.ram_usage_percent = payload.memory_percent or 0.0
-    client.active_calls_count = payload.active_calls or 0
-    client.total_users_count = payload.total_users or 0
-    client.whatsapp_status = payload.whatsapp_status or "offline"
-    client.software_version = payload.software_version or client.software_version
+        remote_kill_switch = (client.status in ["suspended", "expired"])
 
-    # Record Telemetry Log Entry
-    t_log = TelemetryLog(
-        client_id=client.id,
-        tenant_code=t_code,
-        hardware_id=payload.hardware_id,
-        ip_address=client_ip,
-        software_version=payload.software_version,
-        cpu_percent=payload.cpu_percent,
-        memory_percent=payload.memory_percent,
-        active_calls=payload.active_calls,
-        whatsapp_status=payload.whatsapp_status
-    )
-    db.add(t_log)
-    await db.commit()
+        tenants_response.append({
+            "tenant_code": t_code,
+            "client_status": client.status,
+            "remote_kill_switch": remote_kill_switch,
+            "latest_license_key": client.current_license_key,
+            "license_expires_at": client.license_expires_at
+        })
 
-    # Determine response instructions
-    remote_kill_switch = (client.status in ["suspended", "expired"])
-    
+    primary_resp = tenants_response[0] if tenants_response else {}
+
     return {
         "status": "ok",
-        "client_status": client.status,
-        "remote_kill_switch": remote_kill_switch,
-        "latest_license_key": client.current_license_key,
-        "license_expires_at": client.license_expires_at,
-        "message": "Heartbeat alındı."
+        "remote_kill_switch": primary_resp.get("remote_kill_switch", False),
+        "latest_license_key": primary_resp.get("latest_license_key"),
+        "license_expires_at": primary_resp.get("license_expires_at"),
+        "tenants_response": tenants_response,
+        "message": f"Heartbeat alındı ({len(tenants_response)} tenant güncellendi)."
     }
 
 if __name__ == "__main__":
