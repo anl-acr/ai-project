@@ -4885,6 +4885,9 @@ async def renew_license_key(payload: LicenseRenewSchema):
         raise HTTPException(status_code=400, detail=f"Lisans Anahtarı Geçersiz: {verification.get('reason')}")
         
     target["license_key"] = payload.license_key.strip()
+    embedded_code = verification.get("embedded_tenant_code")
+    if embedded_code:
+        target["code"] = embedded_code
     if verification.get("expires_at") and verification["expires_at"] != "unlimited":
         target["license_expires_at"] = verification["expires_at"]
     target["status"] = "active"

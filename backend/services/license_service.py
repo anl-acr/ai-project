@@ -91,11 +91,13 @@ def verify_license_key(tenant_code: str, license_key: str) -> dict:
     
     # Check 5-part machine-bound format: AIDA-TENANTCODE-YYYYMMDD-HW8-SIG8
     if len(parts) >= 5 and parts[0] == "AIDA":
+        key_tenant_code = parts[1].strip().lower()
         date_part = parts[2]
         hw_part = parts[3]
         sig_part = parts[4]
     elif len(parts) == 4 and parts[0] == "AIDA":
         # Legacy 4-part unbound format: AIDA-TENANTCODE-YYYYMMDD-SIG8
+        key_tenant_code = parts[1].strip().lower()
         date_part = parts[2]
         hw_part = "UNBOUND"
         sig_part = parts[3]
@@ -122,9 +124,11 @@ def verify_license_key(tenant_code: str, license_key: str) -> dict:
                 "reason": f"Lisans bu donanıma (sunucuya) ait değildir. Sunucu kopyalanmış veya taşınmış olabilir. (Lisanslı Donanım: {hw_part}, Mevcut Sunucu: {current_clean_hw})"
             }
 
-    # HMAC Signature Verification
-    expected_sig = compute_license_signature(tenant_code, expiry_date_str, hw_part)
-    if sig_part.upper() != expected_sig:
+    # HMAC Signature Verification (Check both embedded key_tenant_code and passed tenant_code)
+    sig_1 = compute_license_signature(key_tenant_code, expiry_date_str, hw_part)
+    sig_2 = compute_license_signature(tenant_code, expiry_date_str, hw_part)
+
+    if sig_part.upper() not in [sig_1, sig_2]:
         return {"valid": False, "expires_at": expiry_date_str, "reason": "Lisans imza doğrulaması başarısız (Lisans Anahtarı Geçersiz veya Değiştirilmiş)."}
 
     # Expiry Check
@@ -136,4 +140,4 @@ def verify_license_key(tenant_code: str, license_key: str) -> dict:
     except Exception as e:
         return {"valid": False, "expires_at": expiry_date_str, "reason": f"Tarih hesaplama hatası: {e}"}
 
-    return {"valid": True, "expires_at": expiry_date_str, "reason": "Lisans ve Donanım Doğrulaması Başarılı", "hardware_id": current_hw_info["hardware_id"]}
+    return {"valid": True, "expires_at": expiry_date_str, "reason": "Lisans ve Donanım Doğrulaması Başarılı", "hardware_id": current_hw_info["hardware_id"], "embedded_tenant_code": key_tenant_code}
