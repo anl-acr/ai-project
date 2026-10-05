@@ -11,6 +11,7 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [copied, setCopied] = useState(false);
+  const [hwCopied, setHwCopied] = useState(false);
 
   const API_BASE = getApiBaseUrl(backendHost);
 
@@ -82,6 +83,14 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
       navigator.clipboard.writeText(licenseStatus.license_key);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const handleCopyHwId = () => {
+    if (licenseStatus?.server_hardware_id) {
+      navigator.clipboard.writeText(licenseStatus.server_hardware_id);
+      setHwCopied(true);
+      setTimeout(() => setHwCopied(false), 2000);
     }
   };
 
@@ -183,14 +192,24 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
               </div>
               <button
                 type="button"
-                onClick={() => {
-                  navigator.clipboard.writeText(licenseStatus.server_hardware_id);
-                  alert(`Donanım Kimliği Kopyalandı: ${licenseStatus.server_hardware_id}`);
-                }}
-                className="px-2.5 py-1 rounded-lg bg-slate-200/80 dark:bg-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700 transition-colors flex items-center gap-1 cursor-pointer"
+                onClick={handleCopyHwId}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                  hwCopied 
+                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30" 
+                    : "bg-slate-200/80 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-300 dark:hover:bg-slate-700"
+                }`}
               >
-                <Copy size={12} />
-                <span>Kopyala</span>
+                {hwCopied ? (
+                  <>
+                    <Check size={12} className="text-emerald-500" />
+                    <span>Kopyalandı!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy size={12} />
+                    <span>Kopyala</span>
+                  </>
+                )}
               </button>
             </div>
           )}
