@@ -4802,8 +4802,11 @@ class LicenseGenerateSchema(BaseModel):
 @app.get("/api/tenant/license/status")
 @app.get("/api/settings/license/status")
 async def get_license_status(request: Request):
-    """Returns cryptographic license status, days remaining, hardware fingerprint, and metadata for active tenant."""
+    """Returns cryptographic license status, days remaining, hardware fingerprint, capacities and live usage metrics."""
     from backend.services.hardware_info import get_system_hardware_fingerprint
+    from backend.services.license_service import get_plan_limits
+    from backend.services.ami_manager import active_channels
+
     user_info = get_user_info(request)
     tenant_id = user_info.get("tenant_id", "tenant-default")
     current = load_settings()
@@ -4827,11 +4830,25 @@ async def get_license_status(request: Request):
             days_left = max(0, delta.days + 1)
         except Exception:
             pass
-            
+
+    plan_tier = matched.get("plan_tier") or "professional"
+    if verification.get("expires_at") == "unlimited":
+        plan_tier = "unlimited"
+
+    limits = get_plan_limits(plan_tier)
+
+    # Live Usage Metrics
+    used_users = len(current.get("users", []))
+    used_channels = len(active_channels) if active_channels else 0
+    used_ai_agents = len(current.get("ai_agents", []))
+    used_tenants = len(current.get("tenants", []))
+
     return {
         "tenant_id": matched.get("id"),
         "tenant_name": matched.get("name"),
         "tenant_code": t_code,
+        "plan_tier": plan_tier,
+        "plan_label": limits["label"],
         "status": matched.get("status"),
         "license_key": matched.get("license_key"),
         "license_expires_at": matched.get("license_expires_at"),
@@ -4839,7 +4856,14 @@ async def get_license_status(request: Request):
         "reason": verification.get("reason"),
         "days_left": days_left,
         "is_unlimited": verification.get("expires_at") == "unlimited" or not matched.get("license_expires_at"),
-        "server_hardware_id": hw_info.get("hardware_id")
+        "server_hardware_id": hw_info.get("hardware_id"),
+        "limits": limits,
+        "usage": {
+            "used_users": used_users,
+            "used_channels": used_channels,
+            "used_ai_agents": used_ai_agents,
+            "used_tenants": used_tenants
+        }
     }
 
 @app.post("/api/tenant/license/renew")

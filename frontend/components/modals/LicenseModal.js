@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Shield, ShieldAlert, ShieldCheck, Key, Calendar, Clock, Check, AlertTriangle, RefreshCw, X, Copy } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, Key, Calendar, Clock, Check, AlertTriangle, RefreshCw, X, Copy, Activity, User, PhoneCall, Cpu, Building2 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
@@ -91,7 +91,7 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
-      <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden transform transition-all scale-100">
+      <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden transform transition-all scale-100 text-slate-900 dark:text-slate-100">
         
         {/* Header */}
         <div className={`p-6 border-b ${isExpired ? "bg-rose-500/10 border-rose-500/20" : "bg-slate-50 dark:bg-slate-950/50 border-slate-100 dark:border-slate-800"} flex items-center justify-between`}>
@@ -119,7 +119,7 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
           {!isExpired && (
             <button
               onClick={onClose}
-              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
             >
               <X size={18} />
             </button>
@@ -195,6 +195,95 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
             </div>
           )}
 
+          {/* Lisans Kapasitesi & Canlı Kullanım Metrikleri */}
+          {licenseStatus?.limits && licenseStatus?.usage && (
+            <div className="space-y-3 pt-1">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-extrabold uppercase text-slate-500 dark:text-slate-400 tracking-wider flex items-center gap-1.5">
+                  <Activity size={14} className="text-rose-500" />
+                  <span>Lisans Kapasitesi & Canlı Kullanım</span>
+                </div>
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20">
+                  {licenseStatus.plan_label || "Professional Paket"}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                {/* Temsilci Kotası */}
+                {(() => {
+                  const used = licenseStatus.usage.used_users || 0;
+                  const max = licenseStatus.limits.max_users || 1;
+                  const pct = Math.min(100, Math.round((used / max) * 100));
+                  return (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        <span className="flex items-center gap-1"><User size={13} className="text-rose-500" /> Temsilci Kotası</span>
+                        <span className="font-mono text-slate-900 dark:text-white font-extrabold">{used} / {max >= 999 ? "♾️" : max}</span>
+                      </div>
+                      <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-rose-600" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* SIP Kanal Kotası */}
+                {(() => {
+                  const used = licenseStatus.usage.used_channels || 0;
+                  const max = licenseStatus.limits.max_channels || 1;
+                  const pct = Math.min(100, Math.round((used / max) * 100));
+                  return (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        <span className="flex items-center gap-1"><PhoneCall size={13} className="text-blue-500" /> SIP Çağrı Kanalı</span>
+                        <span className="font-mono text-slate-900 dark:text-white font-extrabold">{used} / {max >= 999 ? "♾️" : max}</span>
+                      </div>
+                      <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-rose-600" : pct >= 80 ? "bg-amber-500" : "bg-blue-500"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* AI Asistan Slotu */}
+                {(() => {
+                  const used = licenseStatus.usage.used_ai_agents || 0;
+                  const max = licenseStatus.limits.max_ai_agents || 1;
+                  const pct = Math.min(100, Math.round((used / max) * 100));
+                  return (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        <span className="flex items-center gap-1"><Cpu size={13} className="text-purple-500" /> AI Asistan Slotu</span>
+                        <span className="font-mono text-slate-900 dark:text-white font-extrabold">{used} / {max >= 999 ? "♾️" : max}</span>
+                      </div>
+                      <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-rose-600" : pct >= 80 ? "bg-amber-500" : "bg-purple-500"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Tenant / Şirket Kotası */}
+                {(() => {
+                  const used = licenseStatus.usage.used_tenants || 0;
+                  const max = licenseStatus.limits.max_tenants || 1;
+                  const pct = Math.min(100, Math.round((used / max) * 100));
+                  return (
+                    <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-1.5">
+                      <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                        <span className="flex items-center gap-1"><Building2 size={13} className="text-amber-500" /> Tenant Kotası</span>
+                        <span className="font-mono text-slate-900 dark:text-white font-extrabold">{used} / {max >= 999 ? "♾️" : max}</span>
+                      </div>
+                      <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-rose-600" : pct >= 80 ? "bg-amber-500" : "bg-amber-500"}`} style={{ width: `${pct}%` }} />
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
           {/* Form */}
           <form onSubmit={handleRenew} className="space-y-4">
             <div>
@@ -208,7 +297,7 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
                   <button
                     type="button"
                     onClick={handleCopyKey}
-                    className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white flex items-center gap-1"
+                    className="text-[11px] font-bold text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-white flex items-center gap-1 cursor-pointer"
                   >
                     <Copy size={12} />
                     <span>{copied ? "Kopyalandı!" : "Mevcut Key'i Kopyala"}</span>
@@ -247,7 +336,7 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  className="px-4 py-2.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                 >
                   Kapat
                 </button>
@@ -256,7 +345,7 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
               <button
                 type="submit"
                 disabled={loading}
-                className={"px-5 py-2.5 rounded-xl text-xs font-extrabold text-white flex items-center gap-2 shadow-lg transition-all disabled:opacity-50 " + bg + " " + hover}
+                className={"px-5 py-2.5 rounded-xl text-xs font-extrabold text-white flex items-center gap-2 shadow-lg transition-all cursor-pointer disabled:opacity-50 " + bg + " " + hover}
               >
                 {loading ? (
                   <>

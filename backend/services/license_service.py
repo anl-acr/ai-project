@@ -6,6 +6,41 @@ from backend.services.hardware_info import get_system_hardware_fingerprint
 
 LICENSE_MASTER_SECRET = "AIDA_MASTER_LICENSE_SECRET_KEY_2026_SECURE_SALT_99"
 
+PLAN_LIMITS = {
+    "starter": {
+        "max_users": 5,
+        "max_channels": 2,
+        "max_ai_agents": 1,
+        "max_tenants": 1,
+        "label": "Starter Paket"
+    },
+    "professional": {
+        "max_users": 25,
+        "max_channels": 10,
+        "max_ai_agents": 3,
+        "max_tenants": 3,
+        "label": "Professional Paket"
+    },
+    "enterprise": {
+        "max_users": 100,
+        "max_channels": 30,
+        "max_ai_agents": 10,
+        "max_tenants": 10,
+        "label": "Enterprise Paket"
+    },
+    "unlimited": {
+        "max_users": 9999,
+        "max_channels": 9999,
+        "max_ai_agents": 9999,
+        "max_tenants": 9999,
+        "label": "Limitsiz / Özel Paket"
+    }
+}
+
+def get_plan_limits(plan_tier: str = "professional") -> dict:
+    tier = (plan_tier or "professional").strip().lower()
+    return PLAN_LIMITS.get(tier, PLAN_LIMITS["professional"])
+
 def compute_license_signature(tenant_code: str, expiry_date_str: str, hw_id: str = "UNBOUND") -> str:
     """
     Computes an 8-character uppercase HMAC-SHA256 signature mapping tenant code, expiry date (YYYY-MM-DD), and hardware ID.
