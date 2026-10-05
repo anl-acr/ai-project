@@ -16,9 +16,12 @@
             "code": "test-teknoloji",
             "status": "active",
             "created_at": "2026-07-24T13:19:00",
-            "max_agents": 20,
-            "max_trunks": 20,
-            "tenant_num_id": 109
+            "max_agents": 12,
+            "max_trunks": 15,
+            "tenant_num_id": 109,
+            "max_users": 65,
+            "license_key": "AIDA-TESTTEKNOLOJI-20271231-361BF973-3D1EB0EF.eyJtYXhfdXNlcnMiOjY1LCJtYXhfYWdlbnRzIjoxMiwibWF4X3RydW5rcyI6MTV9",
+            "license_expires_at": "2027-12-31"
         },
         {
             "id": "tenant-nolto",

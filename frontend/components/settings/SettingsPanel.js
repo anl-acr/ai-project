@@ -25,6 +25,7 @@ import RecordingRetentionSettings from "./RecordingRetentionSettings";
 import AIProvidersSettings from "./AIProvidersSettings";
 import APIBudgetSettings from "./APIBudgetSettings";
 import TenantManagementPanel from "./TenantManagementPanel";
+import LicenseSettingsPanel from "./LicenseSettingsPanel";
 import ChangelogPanel from "./ChangelogPanel";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
 
@@ -469,6 +470,18 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           </button>
 
           <button
+            onClick={() => setActiveSubTab("license")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "license"
+                ? "bg-rose-50/50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 border-rose-100/50 dark:border-rose-900/30 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <Lock size={14} className={activeSubTab === "license" ? "text-rose-600 dark:text-rose-400" : ""} />
+            <span>🔑 Lisans & Key Yönetimi</span>
+          </button>
+
+          <button
             onClick={() => setActiveSubTab("version")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "version"
@@ -513,6 +526,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           )}
           {activeSubTab === "tenants" && (
             <TenantManagementPanel backendHost={backendHost} />
+          )}
+          {activeSubTab === "license" && (
+            <LicenseSettingsPanel backendHost={backendHost} />
           )}
           {activeSubTab === "version" && (
             <ChangelogPanel backendHost={backendHost} />
