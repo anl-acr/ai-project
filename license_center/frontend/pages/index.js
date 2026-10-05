@@ -22,12 +22,21 @@ import {
   Building2, 
   Globe, 
   Smartphone,
-  Layers
+  Layers,
+  LogOut,
+  Terminal
 } from "lucide-react";
+
+import LoginModal from "../components/LoginModal";
+import UserManagementModal from "../components/UserManagementModal";
+import AuditLogsModal from "../components/AuditLogsModal";
 
 const API_BASE = "http://localhost:8050";
 
 export default function MasterDashboard() {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
+
   const [stats, setStats] = useState({
     total_clients: 0,
     online_count: 0,
@@ -43,6 +52,9 @@ export default function MasterDashboard() {
 
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showUsersModal, setShowUsersModal] = useState(false);
+  const [showAuditLogsModal, setShowAuditLogsModal] = useState(false);
+
   const [companyName, setCompanyName] = useState("");
   const [tenantCode, setTenantCode] = useState("");
   const [hardwareId, setHardwareId] = useState("");
@@ -55,6 +67,29 @@ export default function MasterDashboard() {
   const [genExpiryDate, setGenExpiryDate] = useState("2027-12-31");
   const [genHwId, setGenHwId] = useState("");
   const [generatedResultKey, setGeneratedResultKey] = useState("");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = sessionStorage.getItem("master_user");
+      if (stored) {
+        try {
+          setCurrentUser(JSON.parse(stored));
+        } catch (e) {}
+      }
+      setIsAuthChecking(false);
+    }
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${API_BASE}/api/v1/auth/logout`, {
+        method: "POST",
+        headers: { "X-User-Name": currentUser?.username || "admin" }
+      });
+    } catch (e) {}
+    sessionStorage.removeItem("master_user");
+    setCurrentUser(null);
+  };
 
   useEffect(() => {
     fetchData();
@@ -176,6 +211,10 @@ export default function MasterDashboard() {
     return matchSearch;
   });
 
+  if (!currentUser && !isAuthChecking) {
+    return <LoginModal onLoginSuccess={(user) => setCurrentUser(user)} />;
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans">
       <Head>
@@ -198,6 +237,24 @@ export default function MasterDashboard() {
 
         <div className="flex items-center gap-3">
           <button
+            onClick={() => setShowAuditLogsModal(true)}
+            className="p-2.5 rounded-xl border border-slate-800 bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-2 text-xs font-bold cursor-pointer"
+            title="Sistem İşlem Logları"
+          >
+            <Terminal size={14} className="text-cyan-400" />
+            <span>İşlem Logları</span>
+          </button>
+
+          <button
+            onClick={() => setShowUsersModal(true)}
+            className="p-2.5 rounded-xl border border-slate-800 bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-2 text-xs font-bold cursor-pointer"
+            title="Master Kullanıcı Yönetimi"
+          >
+            <Users size={14} className="text-rose-400" />
+            <span>Kullanıcılar</span>
+          </button>
+
+          <button
             onClick={fetchData}
             className="p-2.5 rounded-xl border border-slate-800 bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-2 text-xs font-bold"
           >
@@ -212,6 +269,23 @@ export default function MasterDashboard() {
             <Plus size={16} />
             <span>Yeni Müşteri & Sunucu Ekle</span>
           </button>
+
+          {/* User Profile & Logout */}
+          {currentUser && (
+            <div className="flex items-center gap-2 pl-2 border-l border-slate-800">
+              <div className="text-right text-xs">
+                <div className="font-extrabold text-white">{currentUser.full_name}</div>
+                <div className="text-[10px] text-rose-400 font-mono">@{currentUser.username}</div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors cursor-pointer"
+                title="Çıkış Yap"
+              >
+                <LogOut size={16} />
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -624,6 +698,19 @@ export default function MasterDashboard() {
           </div>
         </div>
       )}
+
+      {/* USER MANAGEMENT MODAL */}
+      <UserManagementModal
+        isOpen={showUsersModal}
+        onClose={() => setShowUsersModal(false)}
+        currentUser={currentUser}
+      />
+
+      {/* AUDIT LOGS MODAL */}
+      <AuditLogsModal
+        isOpen={showAuditLogsModal}
+        onClose={() => setShowAuditLogsModal(false)}
+      />
     </div>
   );
 }

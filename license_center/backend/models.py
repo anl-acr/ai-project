@@ -3,6 +3,33 @@ from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Text, 
 from sqlalchemy.orm import relationship
 from license_center.backend.database import Base
 
+class MasterUser(Base):
+    __tablename__ = "master_users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    full_name = Column(String, nullable=False)
+    email = Column(String, unique=True, nullable=False)
+    password_hash = Column(String, nullable=False)
+    role = Column(String, default="admin") # admin, operator, viewer
+    is_active = Column(Boolean, default=True)
+    avatar = Column(String, nullable=True)
+    last_login_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
+class MasterAuditLog(Base):
+    __tablename__ = "master_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=True)
+    username = Column(String, nullable=False)
+    action = Column(String, nullable=False)   # LICENSE_GENERATE, CLIENT_CREATE, CLIENT_SUSPEND, USER_CREATE, USER_LOGIN
+    details = Column(Text, nullable=False)
+    ip_address = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+
 class ClientServer(Base):
     __tablename__ = "client_servers"
 
