@@ -602,9 +602,10 @@ export default function MasterDashboard() {
                   <button
                     onClick={() => openKeyGenModal(client)}
                     className="flex-1 py-2 px-3 rounded-xl bg-rose-50 dark:bg-rose-600/20 hover:bg-rose-600 text-rose-600 dark:text-rose-400 hover:text-white border border-rose-200 dark:border-rose-500/30 transition-all text-xs font-extrabold flex items-center justify-center gap-1.5 cursor-pointer shadow-xs dark:shadow-none"
+                    title="Müşteri lisans kotalarını düzenle veya yeni anahtar üret"
                   >
-                    <Key size={13} />
-                    <span>Lisans Yenile / Key Üret</span>
+                    <Edit3 size={13} />
+                    <span>Lisans & Kotaları Düzenle / Key Üret</span>
                   </button>
 
                   <button
