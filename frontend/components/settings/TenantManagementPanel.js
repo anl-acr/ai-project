@@ -24,6 +24,44 @@ const PLAN_TIERS = {
   enterprise: { name: "Enterprise / Kurumsal Özel", color: "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border-rose-200/50" }
 };
 
+const PLAN_PRESETS = {
+  trial: {
+    max_agents: 1, max_rag_docs: 20, max_scenarios: 5,
+    max_users: 5, max_announcements: 5, max_queues: 2, max_inbound_rules: 5, max_outbound_rules: 5,
+    max_pickup_groups: 2, max_subscriber_groups: 2, max_phonebook_contacts: 100, max_trunks: 2,
+    max_conference_rooms: 2, max_speed_dials: 10, max_blacklist_entries: 50, max_locations: 2, max_departments: 2,
+    max_call_flows: 2, max_dialers: 1
+  },
+  starter: {
+    max_agents: 2, max_rag_docs: 50, max_scenarios: 10,
+    max_users: 10, max_announcements: 10, max_queues: 5, max_inbound_rules: 10, max_outbound_rules: 10,
+    max_pickup_groups: 5, max_subscriber_groups: 5, max_phonebook_contacts: 500, max_trunks: 3,
+    max_conference_rooms: 5, max_speed_dials: 25, max_blacklist_entries: 100, max_locations: 3, max_departments: 5,
+    max_call_flows: 5, max_dialers: 2
+  },
+  professional: {
+    max_agents: 10, max_rag_docs: 200, max_scenarios: 30,
+    max_users: 50, max_announcements: 30, max_queues: 20, max_inbound_rules: 50, max_outbound_rules: 50,
+    max_pickup_groups: 15, max_subscriber_groups: 15, max_phonebook_contacts: 2000, max_trunks: 10,
+    max_conference_rooms: 15, max_speed_dials: 100, max_blacklist_entries: 500, max_locations: 10, max_departments: 15,
+    max_call_flows: 20, max_dialers: 10
+  },
+  enterprise: {
+    max_agents: 50, max_rag_docs: 1000, max_scenarios: 100,
+    max_users: 250, max_announcements: 100, max_queues: 50, max_inbound_rules: 200, max_outbound_rules: 200,
+    max_pickup_groups: 50, max_subscriber_groups: 50, max_phonebook_contacts: 10000, max_trunks: 30,
+    max_conference_rooms: 50, max_speed_dials: 500, max_blacklist_entries: 2000, max_locations: 30, max_departments: 50,
+    max_call_flows: 50, max_dialers: 25
+  },
+  unlimited: {
+    max_agents: 999, max_rag_docs: 9999, max_scenarios: 999,
+    max_users: 9999, max_announcements: 9999, max_queues: 999, max_inbound_rules: 9999, max_outbound_rules: 9999,
+    max_pickup_groups: 999, max_subscriber_groups: 999, max_phonebook_contacts: 99999, max_trunks: 999,
+    max_conference_rooms: 999, max_speed_dials: 9999, max_blacklist_entries: 99999, max_locations: 999, max_departments: 999,
+    max_call_flows: 999, max_dialers: 999
+  }
+};
+
 export default function TenantManagementPanel({ backendHost }) {
   const [tenants, setTenants] = useState(DEFAULT_TENANTS);
   const [showModal, setShowModal] = useState(false);
@@ -41,29 +79,29 @@ export default function TenantManagementPanel({ backendHost }) {
   const [planTier, setPlanTier] = useState("professional");
 
   // 1. Yapay Zeka Kotaları
-  const [maxAgents, setMaxAgents] = useState(20);
-  const [maxRagDocs, setMaxRagDocs] = useState(100);
-  const [maxScenarios, setMaxScenarios] = useState(20);
+  const [maxAgents, setMaxAgents] = useState(10);
+  const [maxRagDocs, setMaxRagDocs] = useState(200);
+  const [maxScenarios, setMaxScenarios] = useState(30);
 
   // 2. Santral Kotaları
   const [maxUsers, setMaxUsers] = useState(50);
-  const [maxAnnouncements, setMaxAnnouncements] = useState(20);
-  const [maxQueues, setMaxQueues] = useState(10);
-  const [maxInboundRules, setMaxInboundRules] = useState(25);
-  const [maxOutboundRules, setMaxOutboundRules] = useState(25);
-  const [maxPickupGroups, setMaxPickupGroups] = useState(10);
-  const [maxSubscriberGroups, setMaxSubscriberGroups] = useState(10);
-  const [maxPhonebookContacts, setMaxPhonebookContacts] = useState(500);
-  const [maxTrunks, setMaxTrunks] = useState(5);
-  const [maxConferenceRooms, setMaxConferenceRooms] = useState(5);
-  const [maxSpeedDials, setMaxSpeedDials] = useState(50);
-  const [maxBlacklistEntries, setMaxBlacklistEntries] = useState(100);
-  const [maxLocations, setMaxLocations] = useState(5);
-  const [maxDepartments, setMaxDepartments] = useState(10);
+  const [maxAnnouncements, setMaxAnnouncements] = useState(30);
+  const [maxQueues, setMaxQueues] = useState(20);
+  const [maxInboundRules, setMaxInboundRules] = useState(50);
+  const [maxOutboundRules, setMaxOutboundRules] = useState(50);
+  const [maxPickupGroups, setMaxPickupGroups] = useState(15);
+  const [maxSubscriberGroups, setMaxSubscriberGroups] = useState(15);
+  const [maxPhonebookContacts, setMaxPhonebookContacts] = useState(2000);
+  const [maxTrunks, setMaxTrunks] = useState(10);
+  const [maxConferenceRooms, setMaxConferenceRooms] = useState(15);
+  const [maxSpeedDials, setMaxSpeedDials] = useState(100);
+  const [maxBlacklistEntries, setMaxBlacklistEntries] = useState(500);
+  const [maxLocations, setMaxLocations] = useState(10);
+  const [maxDepartments, setMaxDepartments] = useState(15);
 
   // 3. Çağrı Yönlendirme & Akış Kotaları
-  const [maxCallFlows, setMaxCallFlows] = useState(10);
-  const [maxDialers, setMaxDialers] = useState(5);
+  const [maxCallFlows, setMaxCallFlows] = useState(20);
+  const [maxDialers, setMaxDialers] = useState(10);
 
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -93,6 +131,31 @@ export default function TenantManagementPanel({ backendHost }) {
     }
   };
 
+  const applyPlanPreset = (tierKey) => {
+    setPlanTier(tierKey);
+    const p = PLAN_PRESETS[tierKey] || PLAN_PRESETS.professional;
+    setMaxAgents(p.max_agents);
+    setMaxRagDocs(p.max_rag_docs);
+    setMaxScenarios(p.max_scenarios);
+
+    setMaxUsers(p.max_users);
+    setMaxAnnouncements(p.max_announcements);
+    setMaxQueues(p.max_queues);
+    setMaxInboundRules(p.max_inbound_rules);
+    setMaxOutboundRules(p.max_outbound_rules);
+    setMaxPickupGroups(p.max_pickup_groups);
+    setMaxSubscriberGroups(p.max_subscriber_groups);
+    setMaxPhonebookContacts(p.max_phonebook_contacts);
+    setMaxTrunks(p.max_trunks);
+    setMaxConferenceRooms(p.max_conference_rooms);
+    setMaxSpeedDials(p.max_speed_dials);
+    setMaxBlacklistEntries(p.max_blacklist_entries);
+    setMaxLocations(p.max_locations);
+    setMaxDepartments(p.max_departments);
+
+    setMaxCallFlows(p.max_call_flows);
+    setMaxDialers(p.max_dialers);
+  };
 
   const handleOpenAddModal = () => {
     setEditingTenant(null);
@@ -102,30 +165,7 @@ export default function TenantManagementPanel({ backendHost }) {
     setLicenseExpiresAt("");
     setIsUnlimited(true);
     setLicenseKey("");
-    setPlanTier("professional");
-    
-    // Reset 19 quota fields
-    setMaxAgents(20);
-    setMaxRagDocs(100);
-    setMaxScenarios(20);
-
-    setMaxUsers(50);
-    setMaxAnnouncements(20);
-    setMaxQueues(10);
-    setMaxInboundRules(25);
-    setMaxOutboundRules(25);
-    setMaxPickupGroups(10);
-    setMaxSubscriberGroups(10);
-    setMaxPhonebookContacts(500);
-    setMaxTrunks(5);
-    setMaxConferenceRooms(5);
-    setMaxSpeedDials(50);
-    setMaxBlacklistEntries(100);
-    setMaxLocations(5);
-    setMaxDepartments(10);
-
-    setMaxCallFlows(10);
-    setMaxDialers(5);
+    applyPlanPreset("professional");
 
     setErrorMsg("");
     setShowModal(true);
@@ -140,30 +180,32 @@ export default function TenantManagementPanel({ backendHost }) {
     setIsUnlimited(hasNoDate);
     setLicenseExpiresAt(hasNoDate ? "" : t.license_expires_at.substring(0, 10));
     setLicenseKey(t.license_key || "");
-    setPlanTier(t.plan_tier || "professional");
+    const tier = t.plan_tier || "professional";
+    setPlanTier(tier);
 
-    // Load 19 quota fields
-    setMaxAgents(t.max_agents || 20);
-    setMaxRagDocs(t.max_rag_docs || 100);
-    setMaxScenarios(t.max_scenarios || 20);
+    // Load or default 19 quota fields
+    const p = PLAN_PRESETS[tier] || PLAN_PRESETS.professional;
+    setMaxAgents(t.max_agents || p.max_agents);
+    setMaxRagDocs(t.max_rag_docs || p.max_rag_docs);
+    setMaxScenarios(t.max_scenarios || p.max_scenarios);
 
-    setMaxUsers(t.max_users || 50);
-    setMaxAnnouncements(t.max_announcements || 20);
-    setMaxQueues(t.max_queues || 10);
-    setMaxInboundRules(t.max_inbound_rules || 25);
-    setMaxOutboundRules(t.max_outbound_rules || 25);
-    setMaxPickupGroups(t.max_pickup_groups || 10);
-    setMaxSubscriberGroups(t.max_subscriber_groups || 10);
-    setMaxPhonebookContacts(t.max_phonebook_contacts || 500);
-    setMaxTrunks(t.max_trunks || 5);
-    setMaxConferenceRooms(t.max_conference_rooms || 5);
-    setMaxSpeedDials(t.max_speed_dials || 50);
-    setMaxBlacklistEntries(t.max_blacklist_entries || 100);
-    setMaxLocations(t.max_locations || 5);
-    setMaxDepartments(t.max_departments || 10);
+    setMaxUsers(t.max_users || p.max_users);
+    setMaxAnnouncements(t.max_announcements || p.max_announcements);
+    setMaxQueues(t.max_queues || p.max_queues);
+    setMaxInboundRules(t.max_inbound_rules || p.max_inbound_rules);
+    setMaxOutboundRules(t.max_outbound_rules || p.max_outbound_rules);
+    setMaxPickupGroups(t.max_pickup_groups || p.max_pickup_groups);
+    setMaxSubscriberGroups(t.max_subscriber_groups || p.max_subscriber_groups);
+    setMaxPhonebookContacts(t.max_phonebook_contacts || p.max_phonebook_contacts);
+    setMaxTrunks(t.max_trunks || p.max_trunks);
+    setMaxConferenceRooms(t.max_conference_rooms || p.max_conference_rooms);
+    setMaxSpeedDials(t.max_speed_dials || p.max_speed_dials);
+    setMaxBlacklistEntries(t.max_blacklist_entries || p.max_blacklist_entries);
+    setMaxLocations(t.max_locations || p.max_locations);
+    setMaxDepartments(t.max_departments || p.max_departments);
 
-    setMaxCallFlows(t.max_call_flows || 10);
-    setMaxDialers(t.max_dialers || 5);
+    setMaxCallFlows(t.max_call_flows || p.max_call_flows);
+    setMaxDialers(t.max_dialers || p.max_dialers);
 
     setErrorMsg("");
     setShowModal(true);
@@ -529,13 +571,14 @@ export default function TenantManagementPanel({ backendHost }) {
                   <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Lisans Paketi / Planı</label>
                   <select
                     value={planTier}
-                    onChange={(e) => setPlanTier(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-800 dark:text-white"
+                    onChange={(e) => applyPlanPreset(e.target.value)}
+                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-800 dark:text-white cursor-pointer"
                   >
                     <option value="trial">Trial / Deneme Süresi (30 Gün)</option>
                     <option value="starter">Starter / Başlangıç Paket</option>
                     <option value="professional">Professional Paket</option>
                     <option value="enterprise">Enterprise / Kurumsal Özel</option>
+                    <option value="unlimited">Limitsiz / Özel Paket</option>
                   </select>
                 </div>
 
@@ -545,7 +588,7 @@ export default function TenantManagementPanel({ backendHost }) {
                     <button
                       type="button"
                       onClick={handleGenerateLicenseKey}
-                      className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 transition-colors"
+                      className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 transition-colors cursor-pointer"
                       title="Tarih ve müşteri koduna göre imzalı kriptografik key üretir"
                     >
                       ⚡ Key Üret
@@ -568,7 +611,7 @@ export default function TenantManagementPanel({ backendHost }) {
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-800 dark:text-white"
+                    className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-800 dark:text-white cursor-pointer"
                   >
                     <option value="active">🟢 Aktif (Erişim & AI Açık)</option>
                     <option value="passive">🔴 Pasif (Erişim & AI Kapalı)</option>
@@ -601,241 +644,172 @@ export default function TenantManagementPanel({ backendHost }) {
                 </div>
               </div>
 
-              {/* SECTION 1: YAPAY ZEKA KOTALARI */}
+              {/* Info Notice Banner */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800/80 rounded-xl flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                <Lock size={15} className="text-rose-500 shrink-0" />
+                <span>Lisans Kapasite Kotaları Merkez Lisans Sunucusu (Control Center) ve Lisans Paketi Tarafından Otomatik Belirlenmektedir (Salt Okunur).</span>
+              </div>
+
+              {/* SECTION 1: YAPAY ZEKA LİSANS HAKLARI */}
               <div className="p-4 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 rounded-xl space-y-3">
-                <div className="flex items-center gap-2 text-xs font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                  <Bot size={16} />
-                  <span>1. Yapay Zeka Kotaları</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                    <Bot size={16} />
+                    <span>1. Yapay Zeka Lisans Hakları</span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
+                    🔒 Lisans Kilitli
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-purple-900 dark:text-purple-300 mb-1">AI Temsilcileri</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxAgents}
-                      onChange={(e) => setMaxAgents(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 rounded-xl focus:outline-none focus:border-purple-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-sm flex flex-col">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">AI Temsilcileri</span>
+                    <span className="text-base font-mono font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
+                      {parseInt(maxAgents) >= 999 ? "♾️ Limitsiz" : `${maxAgents} Hak`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-purple-900 dark:text-purple-300 mb-1">Bilgi Bankası (RAG)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxRagDocs}
-                      onChange={(e) => setMaxRagDocs(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 rounded-xl focus:outline-none focus:border-purple-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-sm flex flex-col">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Bilgi Bankası (RAG)</span>
+                    <span className="text-base font-mono font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
+                      {parseInt(maxRagDocs) >= 9999 ? "♾️ Limitsiz" : `${maxRagDocs} Doküman`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-purple-900 dark:text-purple-300 mb-1">Kural & Senaryo Editörü</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxScenarios}
-                      onChange={(e) => setMaxScenarios(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 rounded-xl focus:outline-none focus:border-purple-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-sm flex flex-col">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Senaryo Editörü</span>
+                    <span className="text-base font-mono font-extrabold text-purple-600 dark:text-purple-400 mt-0.5">
+                      {parseInt(maxScenarios) >= 999 ? "♾️ Limitsiz" : `${maxScenarios} Akış`}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* SECTION 2: SANTRAL KOTALARI */}
+              {/* SECTION 2: SANTRAL LİSANS HAKLARI */}
               <div className="p-4 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 rounded-xl space-y-3">
-                <div className="flex items-center gap-2 text-xs font-extrabold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
-                  <PhoneCall size={16} />
-                  <span>2. Santral Kotaları</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-extrabold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+                    <PhoneCall size={16} />
+                    <span>2. Santral & Dahili Lisans Hakları</span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
+                    🔒 Lisans Kilitli
+                  </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Kullanıcılar</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxUsers}
-                      onChange={(e) => setMaxUsers(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                <div className="grid grid-cols-3 gap-2.5">
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Kullanıcılar</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxUsers) >= 9999 ? "♾️ Limitsiz" : `${maxUsers} Kişi`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Anonslar</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxAnnouncements}
-                      onChange={(e) => setMaxAnnouncements(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Dış Hat (SIP Trunk)</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxTrunks) >= 999 ? "♾️ Limitsiz" : `${maxTrunks} Hat`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Kuyruklar</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxQueues}
-                      onChange={(e) => setMaxQueues(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Kuyruklar</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxQueues) >= 999 ? "♾️ Limitsiz" : `${maxQueues} Kuyruk`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Gelen Arama Kuralı</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxInboundRules}
-                      onChange={(e) => setMaxInboundRules(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Anonslar</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxAnnouncements) >= 9999 ? "♾️ Limitsiz" : `${maxAnnouncements} Ses`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Giden Arama Kuralı</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxOutboundRules}
-                      onChange={(e) => setMaxOutboundRules(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Gelen Arama Kuralları</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxInboundRules) >= 9999 ? "♾️ Limitsiz" : `${maxInboundRules} Kural`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Çağrı Toplama Grubu</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxPickupGroups}
-                      onChange={(e) => setMaxPickupGroups(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Giden Arama Kuralları</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxOutboundRules) >= 9999 ? "♾️ Limitsiz" : `${maxOutboundRules} Kural`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Abone Grubu</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxSubscriberGroups}
-                      onChange={(e) => setMaxSubscriberGroups(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Çağrı Toplama</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxPickupGroups) >= 999 ? "♾️ Limitsiz" : `${maxPickupGroups} Grup`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Rehber Kişileri</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxPhonebookContacts}
-                      onChange={(e) => setMaxPhonebookContacts(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Abone Grubu</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxSubscriberGroups) >= 999 ? "♾️ Limitsiz" : `${maxSubscriberGroups} Grup`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Dış Hat (SIP Trunk)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxTrunks}
-                      onChange={(e) => setMaxTrunks(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Rehber Kişileri</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxPhonebookContacts) >= 99999 ? "♾️ Limitsiz" : `${maxPhonebookContacts} Kişi`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Konferans Odaları</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxConferenceRooms}
-                      onChange={(e) => setMaxConferenceRooms(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Konferans Odaları</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxConferenceRooms) >= 999 ? "♾️ Limitsiz" : `${maxConferenceRooms} Oda`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Hızlı Arama</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxSpeedDials}
-                      onChange={(e) => setMaxSpeedDials(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Hızlı Arama</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxSpeedDials) >= 9999 ? "♾️ Limitsiz" : `${maxSpeedDials} Kayıt`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Numara Engelleme</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxBlacklistEntries}
-                      onChange={(e) => setMaxBlacklistEntries(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Lokasyon</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxLocations}
-                      onChange={(e) => setMaxLocations(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-blue-900 dark:text-blue-300 mb-1">Departman</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxDepartments}
-                      onChange={(e) => setMaxDepartments(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-sm flex flex-col">
+                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">Numara Engelleme</span>
+                    <span className="text-sm font-mono font-extrabold text-blue-600 dark:text-blue-400 mt-0.5">
+                      {parseInt(maxBlacklistEntries) >= 99999 ? "♾️ Limitsiz" : `${maxBlacklistEntries} Numara`}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* SECTION 3: ÇAĞRI YÖNLENDİRME & AKIŞ KOTALARI */}
+              {/* SECTION 3: ÇAĞRI YÖNLENDİRME & AKIŞ LİSANS HAKLARI */}
               <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-xl space-y-3">
-                <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
-                  <GitMerge size={16} />
-                  <span>3. Çağrı Yönlendirme & Akış Kotaları</span>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
+                    <GitMerge size={16} />
+                    <span>3. Çağrı Yönlendirme & Akış Lisans Hakları</span>
+                  </div>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                    🔒 Lisans Kilitli
+                  </span>
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-emerald-900 dark:text-emerald-300 mb-1">Arama Akış Yönetimi (Workflows)</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxCallFlows}
-                      onChange={(e) => setMaxCallFlows(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-xl focus:outline-none focus:border-emerald-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm flex flex-col">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Arama Akış Yönetimi (Workflows)</span>
+                    <span className="text-base font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      {parseInt(maxCallFlows) >= 999 ? "♾️ Limitsiz" : `${maxCallFlows} Akış`}
+                    </span>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] font-bold text-emerald-900 dark:text-emerald-300 mb-1">Dış Arama Dialer Seçenekleri</label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={maxDialers}
-                      onChange={(e) => setMaxDialers(e.target.value)}
-                      className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-emerald-200 dark:border-emerald-800 rounded-xl focus:outline-none focus:border-emerald-500 font-mono font-bold text-slate-800 dark:text-white"
-                    />
+                  <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-sm flex flex-col">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">Dış Arama Dialer</span>
+                    <span className="text-base font-mono font-extrabold text-emerald-600 dark:text-emerald-400 mt-0.5">
+                      {parseInt(maxDialers) >= 999 ? "♾️ Limitsiz" : `${maxDialers} Dialer`}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -844,14 +818,14 @@ export default function TenantManagementPanel({ backendHost }) {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
                 >
                   Vazgeç
                 </button>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-md transition"
+                  className="px-5 py-2 rounded-xl text-xs font-bold text-white bg-rose-600 hover:bg-rose-500 shadow-md transition cursor-pointer disabled:opacity-50"
                 >
                   {loading ? "Kaydediliyor..." : "Kaydet"}
                 </button>
