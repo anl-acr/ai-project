@@ -3,6 +3,7 @@ import sys
 import datetime
 import asyncio
 import hashlib
+import json
 from typing import List, Optional, Dict, Any
 from fastapi import FastAPI, Depends, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,7 +57,6 @@ async def on_startup():
     # Auto-seed default superadmin user if no users exist
     async with AsyncSessionLocal() as db:
         res = await db.execute(select(MasterUser))
-        res = await db.execute(select(MasterUser))
         users = res.scalars().all()
         if not users:
             admin_user = MasterUser(
@@ -83,6 +83,7 @@ class ClientCreateSchema(BaseModel):
     plan_tier: Optional[str] = "professional"
     license_expires_at: Optional[str] = "2026-12-31"
     status: Optional[str] = "active"
+    custom_quotas: Optional[Dict[str, Any]] = None
     notes: Optional[str] = None
     performed_by: Optional[str] = "admin"
 
@@ -92,6 +93,7 @@ class LicenseGenerateSchema(BaseModel):
     expiry_date: str
     hardware_id: Optional[str] = "UNBOUND"
     plan_tier: Optional[str] = "professional"
+    custom_quotas: Optional[Dict[str, Any]] = None
     performed_by: Optional[str] = "admin"
 
 class TenantPingItem(BaseModel):
@@ -317,6 +319,13 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
                 days_left = max(0, (exp_d - now).days + 1)
             except Exception:
                 pass
+
+        parsed_quotas = None
+        if c.custom_quotas:
+            try:
+                parsed_quotas = json.loads(c.custom_quotas)
+            except Exception:
+                pass
                 
         output.append({
             "id": c.id,
@@ -331,6 +340,7 @@ async def get_clients(db: AsyncSession = Depends(get_central_db)):
             "status": c.status,
             "current_license_key": c.current_license_key,
             "license_expires_at": c.license_expires_at,
+            "custom_quotas": parsed_quotas,
             "is_online": is_online,
             "last_heartbeat_at": c.last_heartbeat_at.isoformat() if c.last_heartbeat_at else None,
             "software_version": c.software_version,
@@ -354,7 +364,8 @@ async def create_client(payload: ClientCreateSchema, request: Request, db: Async
 
     hw_id = payload.hardware_id.strip().upper() if payload.hardware_id else "UNBOUND"
     exp_date = payload.license_expires_at or "2026-12-31"
-    gen_key = generate_signed_license_key(t_code, exp_date, hw_id)
+    cq_json = json.dumps(payload.custom_quotas) if payload.custom_quotas else None
+    gen_key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=payload.custom_quotas)
 
     new_client = ClientServer(
         company_name=payload.company_name.strip(),
@@ -368,6 +379,7 @@ async def create_client(payload: ClientCreateSchema, request: Request, db: Async
         status=payload.status or "active",
         current_license_key=gen_key,
         license_expires_at=exp_date,
+        custom_quotas=cq_json,
         notes=payload.notes
     )
     db.add(new_client)
@@ -407,8 +419,18 @@ async def update_client(client_id: int, payload: ClientCreateSchema, request: Re
     if payload.hardware_id:
         client.hardware_id = payload.hardware_id.strip().upper()
 
+    if payload.custom_quotas is not None:
+        client.custom_quotas = json.dumps(payload.custom_quotas) if payload.custom_quotas else None
+
+    parsed_quotas = None
+    if client.custom_quotas:
+        try:
+            parsed_quotas = json.loads(client.custom_quotas)
+        except Exception:
+            pass
+
     hw_id = client.hardware_id or "UNBOUND"
-    gen_key = generate_signed_license_key(client.tenant_code, client.license_expires_at, hw_id)
+    gen_key = generate_signed_license_key(client.tenant_code, client.license_expires_at, hw_id, custom_quotas=parsed_quotas)
     client.current_license_key = gen_key
 
     await db.commit()
@@ -445,12 +467,14 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
     hw_id = payload.hardware_id.strip().upper() if payload.hardware_id else "UNBOUND"
     exp_date = payload.expiry_date.strip()
 
-    key = generate_signed_license_key(t_code, exp_date, hw_id)
+    key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=payload.custom_quotas)
 
     # Find matching client if available
     res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
     client = res.scalars().first()
     if client:
+        if payload.custom_quotas is not None:
+            client.custom_quotas = json.dumps(payload.custom_quotas) if payload.custom_quotas else None
         client.current_license_key = key
         client.license_expires_at = exp_date
         client.hardware_id = hw_id
@@ -540,6 +564,13 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
         db.add(t_log)
         await db.commit()
 
+        parsed_quotas = None
+        if client.custom_quotas:
+            try:
+                parsed_quotas = json.loads(client.custom_quotas)
+            except Exception:
+                pass
+
         remote_kill_switch = (client.status in ["suspended", "expired"])
 
         tenants_response.append({
@@ -547,7 +578,8 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
             "client_status": client.status,
             "remote_kill_switch": remote_kill_switch,
             "latest_license_key": client.current_license_key,
-            "license_expires_at": client.license_expires_at
+            "license_expires_at": client.license_expires_at,
+            "quotas": parsed_quotas
         })
 
     primary_resp = tenants_response[0] if tenants_response else {}
@@ -564,3 +596,4 @@ async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: Asyn
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("license_center.backend.main:app", host="0.0.0.0", port=8050, reload=True)
+

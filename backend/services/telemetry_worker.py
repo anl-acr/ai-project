@@ -102,6 +102,15 @@ async def start_telemetry_heartbeat_loop():
                                 target_t["status"] = "passive"
                                 settings_changed = True
                                 
+                        # Remote Quota Update Enforcement per tenant
+                        quotas = t_res.get("quotas") or t_res.get("custom_quotas")
+                        if quotas and isinstance(quotas, dict):
+                            for q_key, q_val in quotas.items():
+                                if isinstance(q_val, (int, float)):
+                                    if target_t.get(q_key) != int(q_val):
+                                        target_t[q_key] = int(q_val)
+                                        settings_changed = True
+
                         # Remote License Auto-Renewal Enforcement per tenant
                         latest_key = t_res.get("latest_license_key")
                         latest_expiry = t_res.get("license_expires_at")
@@ -111,6 +120,14 @@ async def start_telemetry_heartbeat_loop():
                             if latest_expiry:
                                 target_t["license_expires_at"] = latest_expiry
                             target_t["status"] = "active"
+                            
+                            # Check if latest_key has embedded Base64 quotas
+                            v_key = verify_license_key(t_code, latest_key)
+                            if v_key.get("custom_quotas") and isinstance(v_key["custom_quotas"], dict):
+                                for q_k, q_v in v_key["custom_quotas"].items():
+                                    if isinstance(q_v, (int, float)):
+                                        target_t[q_k] = int(q_v)
+
                             settings_changed = True
 
                     if settings_changed:
@@ -123,3 +140,4 @@ async def start_telemetry_heartbeat_loop():
 
         # Sleep 10 minutes (600 seconds)
         await asyncio.sleep(600)
+

@@ -4550,7 +4550,17 @@ def check_and_update_tenant_expiration(tenants):
                 changed = True
                 add_system_log("TENANT_MANAGEMENT", "LICENSE_RENEWED", f"Kiracı Lisansı Yenilendi (Aktif Yapıldı): {t.get('name')} ({t.get('id')})")
 
+            # Embedded Base64 Quotas application
+            custom_q = verification.get("custom_quotas")
+            if custom_q and isinstance(custom_q, dict):
+                for q_key, q_val in custom_q.items():
+                    if isinstance(q_val, (int, float)):
+                        if t.get(q_key) != int(q_val):
+                            t[q_key] = int(q_val)
+                            changed = True
+
     return changed
+
 
 
 def check_tenant_quota_limit(tenant_id: str, resource_type: str, current_count: int):
@@ -4943,9 +4953,17 @@ async def renew_license_key(payload: LicenseRenewSchema):
         target["license_expires_at"] = verification["expires_at"]
     target["status"] = "active"
     
+    # Embedded Base64 Quotas application
+    custom_q = verification.get("custom_quotas")
+    if custom_q and isinstance(custom_q, dict):
+        for q_key, q_val in custom_q.items():
+            if isinstance(q_val, (int, float)):
+                target[q_key] = int(q_val)
+
     current["tenants"] = tenants
     save_settings(current)
     settings_db["tenants"] = tenants
+
     
     add_system_log("TENANT_MANAGEMENT", "LICENSE_RENEW", f"Lisans Anahtarı Yenilendi: {target.get('name')} [Geçerlilik: {target.get('license_expires_at', 'Süresiz')}]")
     

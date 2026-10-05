@@ -55,6 +55,8 @@ class ClientServer(Base):
     total_users_count = Column(Integer, default=0)
     whatsapp_status = Column(String, default="offline")
     
+    custom_quotas = Column(Text, nullable=True) # JSON string of custom quota overrides
+    
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
