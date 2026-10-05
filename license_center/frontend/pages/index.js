@@ -26,7 +26,9 @@ import {
   LogOut,
   Terminal,
   Sun,
-  Moon
+  Moon,
+  Bot,
+  GitMerge
 } from "lucide-react";
 
 import LoginModal from "../components/LoginModal";
@@ -212,26 +214,32 @@ export default function MasterDashboard() {
     }
   };
 
-  const QUOTA_FIELDS = [
-    { key: "max_agents", label: "Yapay Zeka Temsilcileri", defaultVal: 10 },
-    { key: "max_rag_docs", label: "Bilgi Bankası Dokümanı", defaultVal: 200 },
-    { key: "max_scenarios", label: "Diyalog Senaryosu", defaultVal: 30 },
-    { key: "max_users", label: "Dahili Kullanıcılar", defaultVal: 50 },
-    { key: "max_announcements", label: "Sesli Anonslar", defaultVal: 30 },
-    { key: "max_queues", label: "Çağrı Kuyrukları", defaultVal: 20 },
-    { key: "max_inbound_rules", label: "Gelen Arama Kuralı", defaultVal: 50 },
-    { key: "max_outbound_rules", label: "Giden Arama Kuralı", defaultVal: 50 },
-    { key: "max_pickup_groups", label: "Grup Yakalama", defaultVal: 15 },
-    { key: "max_subscriber_groups", label: "Abone Grupları", defaultVal: 15 },
-    { key: "max_phonebook_contacts", label: "Rehber Kişileri", defaultVal: 2000 },
-    { key: "max_trunks", label: "SIP Trunk / Dış Hat", defaultVal: 10 },
-    { key: "max_conference_rooms", label: "Konferans Odası", defaultVal: 15 },
-    { key: "max_speed_dials", label: "Hızlı Arama Kaydı", defaultVal: 100 },
-    { key: "max_blacklist_entries", label: "Karaliste Kaydı", defaultVal: 500 },
-    { key: "max_locations", label: "Lokasyon Sayısı", defaultVal: 10 },
-    { key: "max_departments", label: "Departman Sayısı", defaultVal: 15 },
-    { key: "max_call_flows", label: "Arama Akışları", defaultVal: 20 },
-    { key: "max_dialers", label: "Otomatik Dış Arama", defaultVal: 10 }
+  const AI_QUOTA_FIELDS = [
+    { key: "max_agents", label: "AI Temsilcileri", defaultVal: 10, unit: "Hak" },
+    { key: "max_rag_docs", label: "Bilgi Bankası (RAG)", defaultVal: 200, unit: "Doküman" },
+    { key: "max_scenarios", label: "Senaryo Editörü", defaultVal: 30, unit: "Akış" }
+  ];
+
+  const PBX_QUOTA_FIELDS = [
+    { key: "max_users", label: "Kullanıcılar", defaultVal: 50, unit: "Kişi" },
+    { key: "max_trunks", label: "Dış Hat (SIP Trunk)", defaultVal: 10, unit: "Hat" },
+    { key: "max_queues", label: "Kuyruklar", defaultVal: 20, unit: "Kuyruk" },
+    { key: "max_announcements", label: "Anonslar", defaultVal: 30, unit: "Ses" },
+    { key: "max_inbound_rules", label: "Gelen Arama Kuralları", defaultVal: 50, unit: "Kural" },
+    { key: "max_outbound_rules", label: "Giden Arama Kuralları", defaultVal: 50, unit: "Kural" },
+    { key: "max_pickup_groups", label: "Çağrı Toplama", defaultVal: 15, unit: "Grup" },
+    { key: "max_subscriber_groups", label: "Abone Grubu", defaultVal: 15, unit: "Grup" },
+    { key: "max_phonebook_contacts", label: "Rehber Kişileri", defaultVal: 2000, unit: "Kişi" },
+    { key: "max_conference_rooms", label: "Konferans Odaları", defaultVal: 15, unit: "Oda" },
+    { key: "max_speed_dials", label: "Hızlı Arama", defaultVal: 100, unit: "Kayıt" },
+    { key: "max_blacklist_entries", label: "Numara Engelleme", defaultVal: 500, unit: "Numara" },
+    { key: "max_locations", label: "Lokasyon", defaultVal: 10, unit: "Lokasyon" },
+    { key: "max_departments", label: "Departman", defaultVal: 15, unit: "Departman" }
+  ];
+
+  const FLOW_QUOTA_FIELDS = [
+    { key: "max_call_flows", label: "Arama Akış Yönetimi (Workflows)", defaultVal: 20, unit: "Akış" },
+    { key: "max_dialers", label: "Dış Arama Dialer", defaultVal: 10, unit: "Dialer" }
   ];
 
   const [genCustomQuotas, setGenCustomQuotas] = useState({});
@@ -244,7 +252,7 @@ export default function MasterDashboard() {
 
     const existingQuotas = client.custom_quotas || {};
     const initQ = {};
-    QUOTA_FIELDS.forEach(f => {
+    [...AI_QUOTA_FIELDS, ...PBX_QUOTA_FIELDS, ...FLOW_QUOTA_FIELDS].forEach(f => {
       initQ[f.key] = existingQuotas[f.key] !== undefined ? existingQuotas[f.key] : f.defaultVal;
     });
     setGenCustomQuotas(initQ);
@@ -761,27 +769,102 @@ export default function MasterDashboard() {
                 </div>
               </div>
 
-              {/* 19 Custom Quotas Editor Grid */}
-              <div className="pt-2 border-t border-slate-200 dark:border-slate-800 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h4 className="font-extrabold text-slate-800 dark:text-slate-200 text-xs">Lisans Hakları & Özelleştirilebilir Kotalar (19 Adet)</h4>
-                  <span className="text-[10px] text-rose-600 dark:text-rose-400 font-bold bg-rose-50 dark:bg-rose-950/40 px-2 py-0.5 rounded-full border border-rose-200 dark:border-rose-900/40">Master Otorite</span>
+              {/* Categorized 19 Custom Quotas Editor */}
+              <div className="space-y-4 pt-2 border-t border-slate-200 dark:border-slate-800">
+
+                {/* 1. YAPAY ZEKA LİSANS HAKLARI & KOTALARI */}
+                <div className="p-4 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                      <Bot size={18} />
+                      <span>1. Yapay Zeka Lisans Hakları & Kotaları</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
+                      ⚡ Kotaları Düzenle
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {AI_QUOTA_FIELDS.map(q => (
+                      <div key={q.key} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{q.label}</span>
+                          <span className="text-[9px] text-purple-600 dark:text-purple-400 font-mono font-bold">{q.unit}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
+                          onChange={(e) => handleQuotaChange(q.key, e.target.value)}
+                          className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto pr-1">
-                  {QUOTA_FIELDS.map(q => (
-                    <div key={q.key} className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl space-y-1">
-                      <label className="block text-[10px] text-slate-500 dark:text-slate-400 font-bold truncate" title={q.label}>{q.label}</label>
-                      <input
-                        type="number"
-                        min="0"
-                        value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
-                        onChange={(e) => handleQuotaChange(q.key, e.target.value)}
-                        className="w-full px-2 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
-                      />
+                {/* 2. SANTRAL & DAHİLİ LİSANS HAKLARI & KOTALARI */}
+                <div className="p-4 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-extrabold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
+                      <PhoneCall size={18} />
+                      <span>2. Santral & Dahili Lisans Hakları & Kotaları</span>
                     </div>
-                  ))}
+                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
+                      ⚡ Kotaları Düzenle
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    {PBX_QUOTA_FIELDS.map(q => (
+                      <div key={q.key} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-blue-200/60 dark:border-blue-900/40 shadow-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{q.label}</span>
+                          <span className="text-[9px] text-blue-600 dark:text-blue-400 font-mono font-bold">{q.unit}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
+                          onChange={(e) => handleQuotaChange(q.key, e.target.value)}
+                          className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
                 </div>
+
+                {/* 3. ÇAĞRI YÖNLENDİRME & AKIŞ LİSANS HAKLARI & KOTALARI */}
+                <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-2xl space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
+                      <GitMerge size={18} />
+                      <span>3. Çağrı Yönlendirme & Akış Lisans Hakları & Kotaları</span>
+                    </div>
+                    <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                      ⚡ Kotaları Düzenle
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {FLOW_QUOTA_FIELDS.map(q => (
+                      <div key={q.key} className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-emerald-200/60 dark:border-emerald-900/40 shadow-xs space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 truncate">{q.label}</span>
+                          <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-mono font-bold">{q.unit}</span>
+                        </div>
+                        <input
+                          type="number"
+                          min="0"
+                          value={genCustomQuotas[q.key] !== undefined ? genCustomQuotas[q.key] : q.defaultVal}
+                          onChange={(e) => handleQuotaChange(q.key, e.target.value)}
+                          className="w-full px-2.5 py-1 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg text-xs font-mono font-extrabold text-slate-900 dark:text-white focus:outline-none focus:border-rose-500"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
               </div>
 
               {generatedResultKey && (
