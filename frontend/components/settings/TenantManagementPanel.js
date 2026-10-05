@@ -565,35 +565,34 @@ export default function TenantManagementPanel({ backendHost }) {
 
       {/* Add / Edit Tenant & Categorized Quotas Modal */}
       {showModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-6 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-4 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-3">
-              <Shield size={18} className="text-rose-600" />
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 lg:p-6 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 lg:p-8 shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
+            <h4 className="text-base font-extrabold text-slate-900 dark:text-white mb-5 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <Shield size={20} className="text-rose-600" />
               <span>{editingTenant ? "Müşteri Lisansı ve Limitleri Düzenle" : "Yeni Müşteri Lisansı Oluştur"}</span>
             </h4>
 
             {errorMsg && (
-              <div className="p-3 mb-4 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-xl">
+              <div className="p-3.5 mb-5 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 text-xs font-semibold rounded-2xl">
                 {errorMsg}
               </div>
             )}
 
             {editingTenant && (
-              <div className="p-3 mb-4 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 rounded-xl flex items-center justify-between">
+              <div className="p-3.5 mb-5 bg-rose-50/50 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/30 rounded-2xl flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Asterisk Dialplan Sayısal Tenant ID:</span>
-                <span className="text-xs font-mono font-extrabold text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-900 px-3 py-1 rounded-lg border border-rose-200 dark:border-rose-900">
+                <span className="text-xs font-mono font-extrabold text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-900 px-3 py-1 rounded-xl border border-rose-200 dark:border-rose-900">
                   ID: {editingTenant.tenant_num_id || 100} ({editingTenant.id})
                 </span>
               </div>
             )}
 
-            <form onSubmit={handleSaveTenant} className="space-y-5">
+            <form onSubmit={handleSaveTenant} className="space-y-6">
 
-              
               {/* Genel Bilgiler */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Müşteri / Firma Adı</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Müşteri / Firma Adı</label>
                   <input
                     type="text"
                     required
@@ -610,32 +609,31 @@ export default function TenantManagementPanel({ backendHost }) {
                       }
                     }}
                     placeholder="Örn: Acme Holding A.Ş."
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-medium text-slate-800 dark:text-white"
+                    className="w-full text-xs px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-medium text-slate-800 dark:text-white"
                   />
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Kod Adı (Slug Code)</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Kod Adı (Slug Code)</label>
                   <input
                     type="text"
                     disabled={!!editingTenant}
                     value={code}
                     onChange={(e) => setCode(e.target.value)}
                     placeholder="Otomatik Oluşturulur (Örn: acme-corp)"
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-800 dark:text-white disabled:opacity-60"
+                    className="w-full text-xs px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-800 dark:text-white disabled:opacity-60"
                   />
-
                 </div>
               </div>
 
               {/* Lisans Paketi & Key */}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-5">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Lisans Paketi / Planı</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Lisans Paketi / Planı</label>
                   <select
                     value={planTier}
                     onChange={(e) => applyPlanPreset(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-800 dark:text-white cursor-pointer"
+                    className="w-full text-xs px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-800 dark:text-white cursor-pointer"
                   >
                     <option value="trial">Trial / Deneme Süresi (30 Gün)</option>
                     <option value="starter">Starter / Başlangıç Paket</option>
@@ -646,12 +644,12 @@ export default function TenantManagementPanel({ backendHost }) {
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-1.5">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Lisans Anahtarı (Key)</label>
                     <button
                       type="button"
                       onClick={handleGenerateLicenseKey}
-                      className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 transition-colors cursor-pointer"
+                      className="text-[10px] font-extrabold px-2.5 py-1 rounded-lg bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 transition-colors cursor-pointer"
                       title="Tarih ve müşteri koduna göre imzalı kriptografik key üretir"
                     >
                       ⚡ Key Üret
@@ -662,19 +660,19 @@ export default function TenantManagementPanel({ backendHost }) {
                     value={licenseKey}
                     onChange={(e) => setLicenseKey(e.target.value)}
                     placeholder="Otomatik Oluşturulur"
-                    className="w-full text-xs px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-800 dark:text-white"
+                    className="w-full text-xs px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-800 dark:text-white"
                   />
                 </div>
               </div>
 
               {/* Status & Expiration */}
-              <div className="grid grid-cols-2 gap-4 bg-slate-50/80 dark:bg-slate-950/60 p-3 rounded-xl border border-slate-200/60 dark:border-slate-800/60">
+              <div className="grid grid-cols-2 gap-5 bg-slate-50/80 dark:bg-slate-950/60 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-800/60">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Müşteri Durumu</label>
+                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Müşteri Durumu</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-800 dark:text-white cursor-pointer"
+                    className="w-full text-xs px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-800 dark:text-white cursor-pointer"
                   >
                     <option value="active">🟢 Aktif (Erişim & AI Açık)</option>
                     <option value="passive">🔴 Pasif (Erişim & AI Kapalı)</option>
@@ -682,7 +680,7 @@ export default function TenantManagementPanel({ backendHost }) {
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-1.5">
                     <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Lisans Bitiş Tarihi</label>
                     <label className="flex items-center gap-1.5 text-[11px] font-extrabold text-rose-600 dark:text-rose-400 cursor-pointer">
                       <input
@@ -702,30 +700,30 @@ export default function TenantManagementPanel({ backendHost }) {
                     disabled={isUnlimited}
                     value={isUnlimited ? "" : licenseExpiresAt}
                     onChange={(e) => setLicenseExpiresAt(e.target.value)}
-                    className="w-full text-xs px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-800 dark:text-white disabled:opacity-40 disabled:bg-slate-100 dark:disabled:bg-slate-800/60"
+                    className="w-full text-xs px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-800 dark:text-white disabled:opacity-40 disabled:bg-slate-100 dark:disabled:bg-slate-800/60"
                   />
                 </div>
               </div>
 
               {/* Info Notice Banner */}
-              <div className="p-3 bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800/80 rounded-xl flex items-center gap-2.5 text-xs font-semibold text-slate-600 dark:text-slate-400">
-                <Lock size={15} className="text-rose-500 shrink-0" />
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-950/80 border border-slate-200 dark:border-slate-800/80 rounded-2xl flex items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                <Lock size={16} className="text-rose-500 shrink-0" />
                 <span>Lisans Kapasite Kotaları Merkez Lisans Sunucusu (Control Center) ve Lisans Paketi Tarafından Otomatik Belirlenmektedir (Salt Okunur).</span>
               </div>
 
               {/* SECTION 1: YAPAY ZEKA LİSANS HAKLARI & CANLI KULLANIM */}
-              <div className="p-4 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 rounded-xl space-y-3">
+              <div className="p-4 lg:p-5 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 rounded-2xl space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
-                    <Bot size={16} />
+                    <Bot size={18} />
                     <span>1. Yapay Zeka Lisans Hakları & Canlı Kullanım</span>
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
+                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
                     🔒 Lisans Kilitli
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {renderQuotaCard("AI Temsilcileri", "max_agents", maxAgents, "Hak", "purple")}
                   {renderQuotaCard("Bilgi Bankası (RAG)", "max_rag_docs", maxRagDocs, "Doküman", "purple")}
                   {renderQuotaCard("Senaryo Editörü", "max_scenarios", maxScenarios, "Akış", "purple")}
@@ -733,18 +731,18 @@ export default function TenantManagementPanel({ backendHost }) {
               </div>
 
               {/* SECTION 2: SANTRAL LİSANS HAKLARI & CANLI KULLANIM */}
-              <div className="p-4 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 rounded-xl space-y-3">
+              <div className="p-4 lg:p-5 bg-blue-50/50 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40 rounded-2xl space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-extrabold text-blue-700 dark:text-blue-300 uppercase tracking-wider">
-                    <PhoneCall size={16} />
+                    <PhoneCall size={18} />
                     <span>2. Santral & Dahili Lisans Hakları & Canlı Kullanım</span>
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
+                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
                     🔒 Lisans Kilitli
                   </span>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                   {renderQuotaCard("Kullanıcılar", "max_users", maxUsers, "Kişi", "blue")}
                   {renderQuotaCard("Dış Hat (SIP Trunk)", "max_trunks", maxTrunks, "Hat", "blue")}
                   {renderQuotaCard("Kuyruklar", "max_queues", maxQueues, "Kuyruk", "blue")}
@@ -763,18 +761,18 @@ export default function TenantManagementPanel({ backendHost }) {
               </div>
 
               {/* SECTION 3: ÇAĞRI YÖNLENDİRME & AKIŞ LİSANS HAKLARI & CANLI KULLANIM */}
-              <div className="p-4 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-xl space-y-3">
+              <div className="p-4 lg:p-5 bg-emerald-50/50 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40 rounded-2xl space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-extrabold text-emerald-700 dark:text-emerald-300 uppercase tracking-wider">
-                    <GitMerge size={16} />
+                    <GitMerge size={18} />
                     <span>3. Çağrı Yönlendirme & Akış Lisans Hakları & Canlı Kullanım</span>
                   </div>
-                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
                     🔒 Lisans Kilitli
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {renderQuotaCard("Arama Akış Yönetimi (Workflows)", "max_call_flows", maxCallFlows, "Akış", "emerald")}
                   {renderQuotaCard("Dış Arama Dialer", "max_dialers", maxDialers, "Dialer", "emerald")}
                 </div>
