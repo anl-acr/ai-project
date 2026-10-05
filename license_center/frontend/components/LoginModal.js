@@ -46,8 +46,8 @@ export default function LoginModal({ onLoginSuccess }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md animate-fadeIn">
-      <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-8 space-y-6 relative">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+      <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden p-8 space-y-6 relative text-slate-900 dark:text-slate-100">
         
         {/* Decorative Top Accent */}
         <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-rose-600 via-rose-500 to-amber-500" />
@@ -57,14 +57,14 @@ export default function LoginModal({ onLoginSuccess }) {
           <div className="mx-auto w-14 h-14 rounded-2xl bg-rose-600 text-white flex items-center justify-center font-extrabold shadow-lg shadow-rose-600/30">
             <ShieldCheck size={32} />
           </div>
-          <h2 className="text-xl font-extrabold text-white tracking-tight">AIDA Control Center</h2>
-          <p className="text-xs font-semibold text-slate-400">Merkezi Lisans Otoritesi Giriş Paneli</p>
+          <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-tight">AIDA Control Center</h2>
+          <p className="text-xs font-semibold text-slate-500 dark:text-slate-400">Merkezi Lisans Otoritesi Giriş Paneli</p>
         </div>
 
         {/* Form */}
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
               <User size={14} className="text-slate-400" />
               <span>Kullanıcı Adı</span>
             </label>
@@ -74,12 +74,12 @@ export default function LoginModal({ onLoginSuccess }) {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="Kullanıcı adınızı giriniz"
-              className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-xs font-semibold text-white placeholder:text-slate-600"
+              className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-slate-300 mb-1.5 flex items-center gap-1.5">
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 flex items-center gap-1.5">
               <Lock size={14} className="text-slate-400" />
               <span>Şifre</span>
             </label>
@@ -90,12 +90,12 @@ export default function LoginModal({ onLoginSuccess }) {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Şifrenizi giriniz"
-                className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-xs font-semibold text-white placeholder:text-slate-600 pr-10"
+                className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-xs font-semibold text-slate-900 dark:text-white placeholder:text-slate-400 dark:placeholder:text-slate-600 pr-10"
               />
               <button
                 type="button"
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-3.5 text-slate-500 hover:text-slate-300"
+                className="absolute right-3 top-3.5 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer"
               >
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
@@ -103,7 +103,7 @@ export default function LoginModal({ onLoginSuccess }) {
           </div>
 
           {errorMsg && (
-            <div className="p-3 bg-rose-950/60 border border-rose-800 rounded-2xl text-xs font-bold text-rose-400 flex items-center gap-2">
+            <div className="p-3 bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 rounded-2xl text-xs font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
               <AlertTriangle size={16} className="shrink-0" />
               <span>{errorMsg}</span>
             </div>
@@ -125,8 +125,8 @@ export default function LoginModal({ onLoginSuccess }) {
           </button>
         </form>
 
-        <div className="text-center text-[11px] font-semibold text-slate-500 pt-2 border-t border-slate-800/60">
-          Varsayılan Giriş: <span className="font-mono text-slate-300">admin / admin123</span>
+        <div className="text-center text-[11px] font-semibold text-slate-500 pt-2 border-t border-slate-200 dark:border-slate-800/60">
+          Varsayılan Giriş: <span className="font-mono text-slate-800 dark:text-slate-300 font-bold">admin / admin123</span>
         </div>
 
       </div>
