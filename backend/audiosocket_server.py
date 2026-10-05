@@ -682,6 +682,26 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         print(f"Arama Basladi. Benzersiz ID (call_id): {call_id}")
         await register_call_db(call_id)
         
+        # Check License verification before initiating AI voice streams
+        try:
+            from backend.services.license_service import verify_license_key
+            settings_data = load_settings()
+            tenants_list = settings_data.get("tenants", [])
+            target_tenant = tenants_list[0] if tenants_list else None
+            if target_tenant:
+                t_code = target_tenant.get("code") or target_tenant.get("id", "default").replace("tenant-", "")
+                t_key = target_tenant.get("license_key", "")
+                lic_res = verify_license_key(t_code, t_key)
+                if not lic_res.get("valid") or target_tenant.get("status") == "passive":
+                    print(f"[AudioSocket License Block] Tenant '{target_tenant.get('name')}' license expired or invalid ({lic_res.get('reason')}). Terminating call.")
+                    from backend.services.ami_manager import hangup_call
+                    await hangup_call(call_id)
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+        except Exception as lic_err:
+            print(f"[AudioSocket License Check Error]: {lic_err}")
+
         # 2. Wait for Asterisk connection
         
 

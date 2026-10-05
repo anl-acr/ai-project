@@ -46,7 +46,8 @@ const SYSTEM_FEATURES = [
   { id: "api_budgets", name: "API Bütçe ve Tüketim Takibi", icon: HardDrive, type: "crud_partial", color: "emerald" },
   { id: "sip_debugger", name: "SIP Trafik Yakalayıcı (sngrep)", icon: Terminal, type: "access", color: "indigo" },
   { id: "nat", name: "NAT ve Dış IP Ayarları", icon: Network, type: "crud", color: "blue" },
-  { id: "ai_agent_scenarios", name: "AI Temsilci Senaryo Editörü", icon: GitBranch, type: "crud", color: "purple" }
+  { id: "ai_agent_scenarios", name: "AI Temsilci Senaryo Editörü", icon: GitBranch, type: "crud", color: "purple" },
+  { id: "tenant_license", name: "Lisans ve Müşteri Yönetimi", icon: Lock, type: "crud", color: "rose" }
 ];
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {

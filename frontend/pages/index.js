@@ -103,6 +103,7 @@ import SecurityPanel from "../components/security/SecurityPanel";
 import SipDebuggerPanel from "../components/dashboard/SipDebuggerPanel";
 import Login from "../components/auth/Login";
 import TenantSwitcher from "../components/TenantSwitcher";
+import LicenseModal from "../components/modals/LicenseModal";
 
 const SUPER_ADMIN = {
   id: 9999,
@@ -368,6 +369,33 @@ export default function Home() {
     window.addEventListener("tenantChanged", handleTenantChange);
     return () => window.removeEventListener("tenantChanged", handleTenantChange);
   }, []);
+
+  // Global License Enforcement State
+  const [licenseStatus, setLicenseStatus] = useState(null);
+  const [isLicenseModalOpen, setIsLicenseModalOpen] = useState(false);
+
+  const fetchGlobalLicenseStatus = async () => {
+    try {
+      const backendHostUrl = getBackendHost();
+      const API_BASE = `${window.location.protocol}//${backendHostUrl}`;
+      const res = await fetch(`${API_BASE}/api/settings/license/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setLicenseStatus(data);
+        if (!data.valid || data.status === "passive") {
+          setIsLicenseModalOpen(true);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to check global license status:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchGlobalLicenseStatus();
+    }
+  }, [isLoggedIn, activeTenantId]);
 
   // Profile and ringtone preferences states
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -2004,6 +2032,30 @@ export default function Home() {
             )}
 
             <button
+              onClick={() => setIsLicenseModalOpen(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm ${
+                licenseStatus && (!licenseStatus.valid || licenseStatus.status === "passive")
+                  ? "bg-rose-500/10 text-rose-600 border-rose-500/30 animate-pulse cursor-pointer"
+                  : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+              }`}
+              title="Sistem Lisans Yönetimi & Süre Bilgisi"
+            >
+              {licenseStatus && (!licenseStatus.valid || licenseStatus.status === "passive") ? (
+                <>
+                  <ShieldAlert size={15} className="text-rose-500" />
+                  <span className="text-rose-600 dark:text-rose-400 font-extrabold">⚠️ LİSANS DOLDU</span>
+                </>
+              ) : (
+                <>
+                  <ShieldCheck size={15} className="text-emerald-500" />
+                  <span>
+                    {licenseStatus?.is_unlimited ? "♾️ Limitsiz Lisans" : (licenseStatus?.days_left !== null && licenseStatus?.days_left !== undefined ? `Lisans: ${licenseStatus.days_left} Gün` : "Lisans Aktif")}
+                  </span>
+                </>
+              )}
+            </button>
+
+            <button
               onClick={toggleTheme}
               className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
               title={isDarkMode ? "Aydınlık Mod" : "Karanlık Mod"}
@@ -3176,6 +3228,13 @@ export default function Home() {
             currentUser={currentUser}
           />
         )}
+        {/* Global License Verification & Renewal Modal */}
+        <LicenseModal
+          isOpen={isLicenseModalOpen}
+          onClose={() => setIsLicenseModalOpen(false)}
+          backendHost={backendHost}
+          onLicenseUpdated={() => fetchGlobalLicenseStatus()}
+        />
       </main>
     </div>
   );

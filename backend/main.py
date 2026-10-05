@@ -49,6 +49,7 @@ add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
 from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, SystemSetting, EventLog
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
+from backend.services.license_service import verify_license_key, generate_license_key
 from backend.services.websocket_manager import ws_manager
 import redis.asyncio as aioredis
 redis_client = aioredis.Redis(host='localhost', port=6379, decode_responses=True)
@@ -4504,25 +4505,43 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
 
 
 def check_and_update_tenant_expiration(tenants):
-    """Checks license expiration dates for all tenants and automatically updates status to passive when expired (ignores unlimited)."""
+    """Checks license expiration dates & cryptographic HMAC signatures for all tenants and automatically updates status to passive when expired or tampered."""
 
-    now = datetime.datetime.utcnow()
     changed = False
     for t in tenants:
+        t_code = t.get("code") or t.get("id", "default").replace("tenant-", "")
+        t_key = t.get("license_key") or ""
         exp_str = t.get("license_expires_at")
-        if exp_str and str(exp_str).strip() and str(exp_str).lower() not in ["unlimited", "limitsiz", "suresiz", "null", "none", ""]:
+        
+        # If key is missing but expiration date is set, auto-generate initial cryptographic key
+        if not t_key and exp_str and str(exp_str).strip() and str(exp_str).lower() not in ["unlimited", "limitsiz", "suresiz", "null", "none", ""]:
             try:
-                if len(exp_str) == 10:
-                    exp_date = datetime.datetime.strptime(exp_str, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
-                else:
-                    exp_date = datetime.datetime.fromisoformat(exp_str.replace("Z", "+00:00")).replace(tzinfo=None)
-                
-                if exp_date < now and t.get("status") != "passive":
-                    t["status"] = "passive"
-                    changed = True
-                    add_system_log("TENANT_MANAGEMENT", "LICENSE_EXPIRED", f"Kiracı Lisans Süresi Doldu (Otomatik Pasif Yapıldı): {t.get('name')} ({t.get('id')})")
+                date_clean = str(exp_str).strip()[:10]
+                t_key = generate_license_key(t_code, date_clean)
+                t["license_key"] = t_key
+                changed = True
             except Exception as e:
-                print(f"[License Check Error] {e}")
+                print(f"[License Key Auto-Gen Error]: {e}")
+                
+        verification = verify_license_key(t_code, t_key)
+        
+        if not verification.get("valid"):
+            if t.get("status") != "passive":
+                t["status"] = "passive"
+                changed = True
+                add_system_log("TENANT_MANAGEMENT", "LICENSE_EXPIRED", f"Kiracı Lisansı Geçersiz/Doldu (Pasif Yapıldı): {t.get('name')} ({t.get('id')}) - Nedeni: {verification.get('reason')}")
+        else:
+            # If valid and previously passive due to old expiration, reactivate automatically
+            verified_expiry = verification.get("expires_at")
+            if verified_expiry and verified_expiry != "unlimited":
+                if t.get("license_expires_at") != verified_expiry:
+                    t["license_expires_at"] = verified_expiry
+                    changed = True
+            if t.get("status") == "passive":
+                t["status"] = "active"
+                changed = True
+                add_system_log("TENANT_MANAGEMENT", "LICENSE_RENEWED", f"Kiracı Lisansı Yenilendi (Aktif Yapıldı): {t.get('name')} ({t.get('id')})")
+
     return changed
 
 
@@ -4614,8 +4633,12 @@ async def create_tenant(payload: TenantCreateSchema):
             detail=f"'{existing.get('name')}' isimli veya '{tenant_code}' kodlu müşteri zaten sistemde kayıtlı. Lütfen farklı bir müşteri adı giriniz."
         )
         
-    import uuid
-    generated_key = payload.license_key or f"AIDA-{uuid.uuid4().hex[:4].upper()}-{uuid.uuid4().hex[:4].upper()}-2026"
+    if payload.license_key:
+        generated_key = payload.license_key
+    elif payload.license_expires_at and str(payload.license_expires_at).strip() and str(payload.license_expires_at).lower() not in ["unlimited", "limitsiz", "suresiz"]:
+        generated_key = generate_license_key(tenant_code, payload.license_expires_at)
+    else:
+        generated_key = f"AIDA-{tenant_code.upper().replace('-','')}-UNLIMITED-MASTER"
     
     # Calculate next numeric tenant ID
     existing_num_ids = [t.get("tenant_num_id") for t in tenants if t.get("tenant_num_id") is not None]
@@ -4701,8 +4724,11 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
     target_tenant["name"] = payload.name.strip()
     target_tenant["status"] = payload.status or target_tenant.get("status", "active")
     target_tenant["license_expires_at"] = payload.license_expires_at if payload.license_expires_at is not None else target_tenant.get("license_expires_at", "")
+    t_code = target_tenant.get("code") or tenant_id.replace("tenant-", "")
     if payload.license_key:
         target_tenant["license_key"] = payload.license_key
+    elif payload.license_expires_at and str(payload.license_expires_at).strip() and str(payload.license_expires_at).lower() not in ["unlimited", "limitsiz", "suresiz"]:
+        target_tenant["license_key"] = generate_license_key(t_code, payload.license_expires_at)
     target_tenant["plan_tier"] = payload.plan_tier or target_tenant.get("plan_tier", "professional")
     
     # 1. Yapay Zeka Kotaları
@@ -4754,6 +4780,104 @@ async def delete_tenant(tenant_id: str):
     settings_db["tenants"] = filtered
     add_system_log("TENANT_MANAGEMENT", "DELETE", f"Kiracı Silindi: {tenant_id}")
     return {"status": "success", "message": f"Tenant {tenant_id} silindi."}
+
+
+class LicenseRenewSchema(BaseModel):
+    tenant_id: Optional[str] = "tenant-default"
+    license_key: str
+
+class LicenseGenerateSchema(BaseModel):
+    tenant_code: str
+    expiry_date: str
+
+@app.get("/api/tenant/license/status")
+@app.get("/api/settings/license/status")
+async def get_license_status(request: Request):
+    """Returns cryptographic license status, days remaining, and metadata for the active tenant."""
+    user_info = get_user_info(request)
+    tenant_id = user_info.get("tenant_id", "tenant-default")
+    current = load_settings()
+    tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
+    
+    check_and_update_tenant_expiration(tenants)
+    
+    matched = next((t for t in tenants if t.get("id") == tenant_id), tenants[0] if tenants else None)
+    if not matched:
+        return {"valid": False, "reason": "Müşteri bulunamadı"}
+        
+    t_code = matched.get("code") or matched.get("id", "default").replace("tenant-", "")
+    verification = verify_license_key(t_code, matched.get("license_key", ""))
+    
+    days_left = None
+    if verification.get("expires_at") and verification["expires_at"] != "unlimited":
+        try:
+            exp_d = datetime.datetime.strptime(verification["expires_at"], "%Y-%m-%d")
+            delta = exp_d - datetime.datetime.utcnow()
+            days_left = max(0, delta.days + 1)
+        except Exception:
+            pass
+            
+    return {
+        "tenant_id": matched.get("id"),
+        "tenant_name": matched.get("name"),
+        "tenant_code": t_code,
+        "status": matched.get("status"),
+        "license_key": matched.get("license_key"),
+        "license_expires_at": matched.get("license_expires_at"),
+        "valid": verification.get("valid", False) and matched.get("status") != "passive",
+        "reason": verification.get("reason"),
+        "days_left": days_left,
+        "is_unlimited": verification.get("expires_at") == "unlimited" or not matched.get("license_expires_at")
+    }
+
+@app.post("/api/tenant/license/renew")
+@app.post("/api/settings/license/renew")
+async def renew_license_key(payload: LicenseRenewSchema):
+    """Verifies HMAC signature and applies new license key to activate system operations."""
+    current = load_settings()
+    tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
+    
+    tenant_id = payload.tenant_id or "tenant-default"
+    target = next((t for t in tenants if t.get("id") == tenant_id or t.get("code") == tenant_id), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Müşteri / Kiracı bulunamadı.")
+        
+    t_code = target.get("code") or target.get("id", "default").replace("tenant-", "")
+    verification = verify_license_key(t_code, payload.license_key)
+    
+    if not verification.get("valid"):
+        raise HTTPException(status_code=400, detail=f"Lisans Anahtarı Geçersiz: {verification.get('reason')}")
+        
+    target["license_key"] = payload.license_key.strip()
+    if verification.get("expires_at") and verification["expires_at"] != "unlimited":
+        target["license_expires_at"] = verification["expires_at"]
+    target["status"] = "active"
+    
+    current["tenants"] = tenants
+    save_settings(current)
+    settings_db["tenants"] = tenants
+    
+    add_system_log("TENANT_MANAGEMENT", "LICENSE_RENEW", f"Lisans Anahtarı Yenilendi: {target.get('name')} [Geçerlilik: {target.get('license_expires_at', 'Süresiz')}]")
+    
+    return {
+        "success": True,
+        "message": f"Lisans anahtarı başarıyla doğrulandı ve sistem aktifleştirildi. (Son Kullanma: {target.get('license_expires_at', 'Süresiz')})",
+        "expires_at": target.get("license_expires_at"),
+        "status": "active"
+    }
+
+@app.post("/api/settings/tenants/generate-license-key")
+async def generate_license_key_endpoint(payload: LicenseGenerateSchema):
+    """Generates a cryptographic HMAC-SHA256 signed license key."""
+    if not payload.tenant_code or not payload.expiry_date:
+        raise HTTPException(status_code=400, detail="Müşteri kodu ve bitiş tarihi gereklidir.")
+        
+    key = generate_license_key(payload.tenant_code, payload.expiry_date)
+    return {
+        "license_key": key,
+        "tenant_code": payload.tenant_code,
+        "expiry_date": payload.expiry_date
+    }
 
 @app.get("/api/settings/ai-providers/elevenlabs-voices")
 async def get_elevenlabs_voices():

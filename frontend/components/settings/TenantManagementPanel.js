@@ -169,6 +169,26 @@ export default function TenantManagementPanel({ backendHost }) {
     setShowModal(true);
   };
 
+  const handleGenerateLicenseKey = async () => {
+    try {
+      const finalCode = (code.trim() || name.toLowerCase() || "default")
+        .replace(/ğ/g, "g").replace(/ü/g, "u").replace(/ş/g, "s").replace(/ı/g, "i").replace(/ö/g, "o").replace(/ç/g, "c")
+        .replace(/[^a-z0-9]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+      const expDate = isUnlimited ? "2099-12-31" : (licenseExpiresAt || "2026-12-31");
+      const res = await fetch(`${API_BASE}/api/settings/tenants/generate-license-key`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tenant_code: finalCode, expiry_date: expDate })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.license_key) setLicenseKey(data.license_key);
+      }
+    } catch (e) {
+      console.error("Key generation failed:", e);
+    }
+  };
+
   const handleSaveTenant = async (e) => {
     e.preventDefault();
     const finalName = name.trim();
@@ -520,7 +540,17 @@ export default function TenantManagementPanel({ backendHost }) {
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">Lisans Anahtarı (Key)</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">Lisans Anahtarı (Key)</label>
+                    <button
+                      type="button"
+                      onClick={handleGenerateLicenseKey}
+                      className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-rose-500/10 text-rose-600 hover:bg-rose-500/20 dark:bg-rose-500/20 dark:text-rose-400 transition-colors"
+                      title="Tarih ve müşteri koduna göre imzalı kriptografik key üretir"
+                    >
+                      ⚡ Key Üret
+                    </button>
+                  </div>
                   <input
                     type="text"
                     value={licenseKey}
