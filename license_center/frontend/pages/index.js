@@ -243,13 +243,21 @@ export default function MasterDashboard() {
   ];
 
   const [genCustomQuotas, setGenCustomQuotas] = useState({});
+  const [genPlanTier, setGenPlanTier] = useState("professional");
+  const [genIsUnlimited, setGenIsUnlimited] = useState(false);
+  const [genStatus, setGenStatus] = useState("active");
   const [isGeneratingKey, setIsGeneratingKey] = useState(false);
   const [genError, setGenError] = useState("");
 
   const openKeyGenModal = (client) => {
     setKeyGenModalClient(client);
-    setGenExpiryDate(client.license_expires_at || "2027-12-31");
+    const exp = client.license_expires_at || "2027-12-31";
+    const isUnl = exp === "unlimited" || client.plan_tier === "unlimited";
+    setGenExpiryDate(isUnl ? "" : exp);
+    setGenIsUnlimited(isUnl);
     setGenHwId(client.hardware_id || "UNBOUND");
+    setGenPlanTier(client.plan_tier || "professional");
+    setGenStatus(client.status || "active");
     setGeneratedResultKey("");
     setGenError("");
 
@@ -269,6 +277,15 @@ export default function MasterDashboard() {
     setGenError("");
     setGeneratedResultKey("");
 
+    const finalExpiry = genIsUnlimited ? "unlimited" : (genExpiryDate || "2027-12-31");
+    const finalQuotas = {
+      ...genCustomQuotas,
+      plan_tier: genPlanTier,
+      status: genStatus,
+      is_unlimited: genIsUnlimited,
+      license_expires_at: finalExpiry
+    };
+
     try {
       const res = await fetch(`${API_BASE}/api/v1/licenses/generate`, {
         method: "POST",
@@ -279,10 +296,10 @@ export default function MasterDashboard() {
         body: JSON.stringify({
           client_id: keyGenModalClient.id,
           tenant_code: keyGenModalClient.tenant_code,
-          expiry_date: genExpiryDate,
+          expiry_date: finalExpiry,
           hardware_id: genHwId || keyGenModalClient.hardware_id || "UNBOUND",
-          plan_tier: keyGenModalClient.plan_tier,
-          custom_quotas: genCustomQuotas
+          plan_tier: genPlanTier,
+          custom_quotas: finalQuotas
         })
       });
       if (res.ok) {
@@ -759,26 +776,82 @@ export default function MasterDashboard() {
                 <div className="text-slate-500 dark:text-slate-400">Mevcut Lisans Key: <span className="font-mono text-slate-700 dark:text-slate-300">{keyGenModalClient.current_license_key || "Yok"}</span></div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-600 dark:text-slate-400 mb-1">Yeni Bitiş Tarihi</label>
-                  <input
-                    type="date"
-                    value={genExpiryDate}
-                    onChange={(e) => setGenExpiryDate(e.target.value)}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 font-mono text-slate-900 dark:text-white"
-                  />
+              {/* Key Controls: Plan Tier, Status, Expiry, HW ID */}
+              <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-4">
+                <div className="text-xs font-extrabold uppercase text-slate-500 dark:text-slate-400 tracking-wider flex items-center gap-1.5">
+                  <Shield size={16} className="text-rose-500" />
+                  <span>Lisans Paketi, Durum & Geçerlilik Yapılandırması</span>
                 </div>
 
-                <div>
-                  <label className="block text-slate-600 dark:text-slate-400 mb-1">Hedef Donanım ID (Hardware Binding)</label>
-                  <input
-                    type="text"
-                    value={genHwId}
-                    onChange={(e) => setGenHwId(e.target.value)}
-                    placeholder="UNBOUND veya HW-361B-F973"
-                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 font-mono text-slate-900 dark:text-white"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Lisans Paketi / Planı */}
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Lisans Paketi / Planı</label>
+                    <select
+                      value={genPlanTier}
+                      onChange={(e) => setGenPlanTier(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-900 dark:text-white cursor-pointer text-xs"
+                    >
+                      <option value="trial">Trial / Deneme Süresi (30 Gün)</option>
+                      <option value="starter">Starter / Başlangıç Paket</option>
+                      <option value="professional">Professional Paket</option>
+                      <option value="enterprise">Enterprise / Kurumsal Özel</option>
+                      <option value="unlimited">Limitsiz / Özel Paket</option>
+                    </select>
+                  </div>
+
+                  {/* Müşteri Durumu */}
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Müşteri Durumu</label>
+                    <select
+                      value={genStatus}
+                      onChange={(e) => setGenStatus(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-bold text-slate-900 dark:text-white cursor-pointer text-xs"
+                    >
+                      <option value="active">🟢 Aktif (Erişim & AI Açık)</option>
+                      <option value="passive">🔴 Pasif (Erişim & AI Kapalı)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Yeni Bitiş Tarihi */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-slate-700 dark:text-slate-300 font-bold">Lisans Bitiş Tarihi</label>
+                      <label className="flex items-center gap-1.5 text-xs font-extrabold text-rose-600 dark:text-rose-400 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={genIsUnlimited}
+                          onChange={(e) => {
+                            setGenIsUnlimited(e.target.checked);
+                            if (e.target.checked) setGenExpiryDate("");
+                          }}
+                          className="rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer"
+                        />
+                        <span>♾️ Limitsiz</span>
+                      </label>
+                    </div>
+                    <input
+                      type="date"
+                      disabled={genIsUnlimited}
+                      value={genIsUnlimited ? "" : genExpiryDate}
+                      onChange={(e) => setGenExpiryDate(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-900 dark:text-white disabled:opacity-40 text-xs"
+                    />
+                  </div>
+
+                  {/* Hedef Donanım ID */}
+                  <div>
+                    <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Hedef Donanım ID (Machine Binding)</label>
+                    <input
+                      type="text"
+                      value={genHwId}
+                      onChange={(e) => setGenHwId(e.target.value)}
+                      placeholder="UNBOUND veya HW-361B-F973"
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl focus:outline-none focus:border-rose-500 font-mono font-bold text-slate-900 dark:text-white text-xs"
+                    />
+                  </div>
                 </div>
               </div>
 
