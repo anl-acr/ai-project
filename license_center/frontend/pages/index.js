@@ -624,11 +624,15 @@ export default function MasterDashboard() {
 
                 {/* License Key Box */}
                 {client.current_license_key && (
-                  <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-xl flex items-center justify-between text-[11px] font-mono">
-                    <span className="truncate text-slate-600 dark:text-slate-400 max-w-[210px]">{client.current_license_key}</span>
+                  <div className="p-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-xl flex items-center justify-between text-[11px] font-mono gap-2">
+                    <span className="truncate text-slate-700 dark:text-slate-300 font-bold max-w-[210px]" title={client.current_license_key}>
+                      {client.current_license_key.length > 32 
+                        ? `${client.current_license_key.substring(0, 20)}...${client.current_license_key.slice(-8)}` 
+                        : client.current_license_key}
+                    </span>
                     <button
                       onClick={() => handleCopyText(client.current_license_key, `key-${client.id}`)}
-                      className="p-1 rounded text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800"
+                      className="p-1 rounded text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-200 dark:hover:bg-slate-800 shrink-0 cursor-pointer"
                       title="Lisans Key Kopyala"
                     >
                       {copiedKey === `key-${client.id}` ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
@@ -772,9 +776,35 @@ export default function MasterDashboard() {
             </h3>
 
             <form onSubmit={handleGenerateCustomKey} className="space-y-4 text-xs font-semibold">
-              <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-1">
-                <div className="text-slate-500 dark:text-slate-400">Tenant Code: <span className="font-mono text-slate-900 dark:text-white font-bold">{keyGenModalClient.tenant_code}</span></div>
-                <div className="text-slate-500 dark:text-slate-400">Mevcut Lisans Key: <span className="font-mono text-slate-700 dark:text-slate-300">{keyGenModalClient.current_license_key || "Yok"}</span></div>
+              <div className="p-3.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-2 text-xs">
+                <div>
+                  <div className="text-slate-500 dark:text-slate-400">
+                    Tenant Code: <span className="font-mono text-slate-900 dark:text-white font-extrabold">{keyGenModalClient.tenant_code}</span>
+                  </div>
+                  <div className="text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-1.5 flex-wrap">
+                    <span>Mevcut Lisans Key:</span>
+                    {keyGenModalClient.current_license_key ? (
+                      <span className="font-mono text-slate-800 dark:text-slate-200 font-bold bg-white dark:bg-slate-900 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-800 text-[11px] truncate max-w-[340px]" title={keyGenModalClient.current_license_key}>
+                        {keyGenModalClient.current_license_key.length > 35 
+                          ? `${keyGenModalClient.current_license_key.substring(0, 22)}...${keyGenModalClient.current_license_key.slice(-10)}` 
+                          : keyGenModalClient.current_license_key}
+                      </span>
+                    ) : (
+                      <span className="font-mono text-slate-400 font-bold">Henüz Üretilmedi</span>
+                    )}
+                  </div>
+                </div>
+
+                {keyGenModalClient.current_license_key && (
+                  <button
+                    type="button"
+                    onClick={() => handleCopyText(keyGenModalClient.current_license_key, "modal-cur-key")}
+                    className="px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-bold cursor-pointer shrink-0 flex items-center gap-1 shadow-xs"
+                  >
+                    {copiedKey === "modal-cur-key" ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
+                    <span>{copiedKey === "modal-cur-key" ? "Kopyalandı!" : "Key Kopyala"}</span>
+                  </button>
+                )}
               </div>
 
               {/* Key Controls: Plan Tier, Status, Expiry, HW ID */}
