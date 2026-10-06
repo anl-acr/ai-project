@@ -549,9 +549,9 @@ export default function TenantManagementPanel({ backendHost }) {
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                  <span className="text-[10px] font-mono bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1">
+                  <span className="text-[10px] font-mono bg-slate-200/80 dark:bg-slate-800 text-slate-800 dark:text-slate-200 px-2 py-0.5 rounded-md font-bold flex items-center gap-1" title={t.license_key || "Lisans Anahtarı"}>
                     <Key size={10} className="text-rose-500" />
-                    {t.license_key || `AIDA-${t.code.toUpperCase()}-2026`}
+                    <span>{t.license_key ? "İmzalı Lisans Anahtarı Yüklü" : `AIDA-${(t.code || t.id).toUpperCase()}-2026`}</span>
                   </span>
                   <span className="text-[9px] font-mono text-slate-400">({t.id})</span>
                 </div>
