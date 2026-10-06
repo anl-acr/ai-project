@@ -4964,11 +4964,15 @@ async def renew_license_key(payload: LicenseRenewSchema):
         target["license_expires_at"] = verification["expires_at"]
     target["status"] = "active"
     
-    # Embedded Base64 Quotas application
+    # Embedded Base64 Quotas & Plan Parameters application
     custom_q = verification.get("custom_quotas")
     if custom_q and isinstance(custom_q, dict):
         for q_key, q_val in custom_q.items():
-            if isinstance(q_val, (int, float)):
+            if q_key in ["plan_tier", "status", "license_expires_at"]:
+                target[q_key] = str(q_val)
+            elif q_key == "is_unlimited":
+                target[q_key] = bool(q_val)
+            elif isinstance(q_val, (int, float)):
                 target[q_key] = int(q_val)
 
     current["tenants"] = tenants

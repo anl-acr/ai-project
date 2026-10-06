@@ -463,11 +463,15 @@ async def delete_client(client_id: int, request: Request, db: AsyncSession = Dep
 @app.post("/api/v1/licenses/generate")
 async def generate_license(payload: LicenseGenerateSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
     """Generates a cryptographic machine-bound key and records it in history."""
-    t_code = payload.tenant_code.strip().lower()
-    hw_id = payload.hardware_id.strip().upper() if payload.hardware_id else "UNBOUND"
-    exp_date = payload.expiry_date.strip()
+    quotas = payload.custom_quotas.copy() if payload.custom_quotas else {}
+    if payload.plan_tier:
+        quotas["plan_tier"] = payload.plan_tier
+    quotas["license_expires_at"] = exp_date
+    quotas["status"] = "active"
+    if exp_date in ["unlimited", "Süresiz", ""] or payload.plan_tier == "unlimited":
+        quotas["is_unlimited"] = True
 
-    key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=payload.custom_quotas)
+    key = generate_signed_license_key(t_code, exp_date, hw_id, custom_quotas=quotas)
 
     # Find matching client if available
     res = await db.execute(select(ClientServer).where(ClientServer.tenant_code == t_code))
