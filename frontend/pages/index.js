@@ -2031,29 +2031,16 @@ export default function Home() {
               </div>
             )}
 
-            <button
-              onClick={() => setIsLicenseModalOpen(true)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm ${
-                licenseStatus && (!licenseStatus.valid || licenseStatus.status === "passive")
-                  ? "bg-rose-500/10 text-rose-600 border-rose-500/30 animate-pulse cursor-pointer"
-                  : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
-              }`}
-              title="Sistem Lisans Yönetimi & Süre Bilgisi"
-            >
-              {licenseStatus && (!licenseStatus.valid || licenseStatus.status === "passive") ? (
-                <>
-                  <ShieldAlert size={15} className="text-rose-500" />
-                  <span className="text-rose-600 dark:text-rose-400 font-extrabold">⚠️ LİSANS DOLDU</span>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck size={15} className="text-emerald-500" />
-                  <span>
-                    {licenseStatus?.is_unlimited ? "♾️ Limitsiz Lisans" : (licenseStatus?.days_left !== null && licenseStatus?.days_left !== undefined ? `Lisans: ${licenseStatus.days_left} Gün` : "Lisans Aktif")}
-                  </span>
-                </>
-              )}
-            </button>
+            {licenseStatus && (!licenseStatus.valid || licenseStatus.status === "passive") && (
+              <button
+                onClick={() => setIsLicenseModalOpen(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-bold transition-all shadow-sm bg-rose-500/10 text-rose-600 border-rose-500/30 animate-pulse cursor-pointer"
+                title="Sistem Lisans Yönetimi"
+              >
+                <ShieldAlert size={15} className="text-rose-500" />
+                <span className="text-rose-600 dark:text-rose-400 font-extrabold">⚠️ LİSANS DOLDU</span>
+              </button>
+            )}
 
             <button
               onClick={toggleTheme}
