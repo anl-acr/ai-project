@@ -6760,6 +6760,10 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                             outbound_phone_id = (acc.get("phone_number_id") or "").strip()
                         break
                         
+            if outbound_phone_id and not chat.recipient_info:
+                chat.recipient_info = f"ID:{outbound_phone_id}"
+                await session.commit()
+
             dispatch_res = await send_whatsapp_message(
                 chat.sender_info, 
                 payload.text, 

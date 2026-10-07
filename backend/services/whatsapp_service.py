@@ -83,8 +83,7 @@ def resolve_whatsapp_credentials(token: str = None, phone_number_id: str = None)
             
             if acc_tok and not resolved_token:
                 resolved_token = acc_tok
-            if acc_pid:
-                # Always prefer Meta's numeric phone_number_id over phone strings (e.g. 0850...)
+            if acc_pid and (not resolved_phone_id or not str(resolved_phone_id).isdigit()):
                 resolved_phone_id = acc_pid
 
     if not resolved_token and isinstance(accs, list):
