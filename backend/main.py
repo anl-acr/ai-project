@@ -6679,7 +6679,7 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             "direction": db_message.direction,
             "sender": db_message.sender,
             "text": db_message.text,
-            "timestamp": db_message.timestamp.isoformat()
+            "timestamp": db_message.timestamp.isoformat() + "Z"
         }
         
         # Broadcast message turn
@@ -6700,7 +6700,7 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                 "status": chat.status,
                 "assigned_agent": chat.assigned_agent,
                 "assigned_user": chat.assigned_user,
-                "last_message_time": chat.last_message_time.isoformat(),
+                "last_message_time": chat.last_message_time.isoformat() + "Z",
                 "last_message_text": db_message.text
             }
         })
@@ -6711,6 +6711,7 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         asyncio.create_task(analyze_chat_session(session_id))
 
         # Trigger outbound channel message
+        dispatch_res = None
         ch_lower = chat.channel.lower()
         if ch_lower == "whatsapp":
             from backend.services.whatsapp_service import send_whatsapp_message, load_settings
@@ -6730,23 +6731,31 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                         outbound_token = acc.get("token") or acc.get("access_token")
                         break
                         
-            asyncio.create_task(send_whatsapp_message(
+            dispatch_res = await send_whatsapp_message(
                 chat.sender_info, 
                 payload.text, 
                 phone_number_id=outbound_phone_id, 
                 token=outbound_token
-            ))
+            )
+            print(f"[Send Representative Message] WhatsApp dispatch result: {dispatch_res}")
         elif ch_lower == "telegram":
             from backend.services.telegram_service import send_telegram_message
-            asyncio.create_task(send_telegram_message(chat.sender_info, payload.text))
+            dispatch_res = await send_telegram_message(chat.sender_info, payload.text)
         elif ch_lower in ["instagram", "facebook"]:
             from backend.services.meta_service import send_meta_message
-            asyncio.create_task(send_meta_message(chat.sender_info, payload.text, channel=ch_lower))
+            dispatch_res = await send_meta_message(chat.sender_info, payload.text, channel=ch_lower)
         elif ch_lower == "email":
             from backend.services.email_service import send_email_message
-            asyncio.create_task(send_email_message(chat.sender_info, "AIDA Müşteri Hizmetleri Yanıtı", payload.text))
+            dispatch_res = await send_email_message(chat.sender_info, "AIDA Müşteri Hizmetleri Yanıtı", payload.text)
         
-        return {"status": "success", "message": "Mesaj gönderildi."}
+        if dispatch_res and dispatch_res.get("status") in ["dry_run", "error"]:
+            return {
+                "status": "warning", 
+                "message": f"Mesaj veritabanına kaydedildi ancak {chat.channel.upper()} entegrasyon jetonu tanımlı değil veya Meta reddetti.", 
+                "dispatch": dispatch_res
+            }
+
+        return {"status": "success", "message": "Mesaj gönderildi.", "dispatch": dispatch_res}
 
 class ChatSimulateSchema(BaseModel):
     channel: str

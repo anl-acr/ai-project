@@ -38,6 +38,19 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const API_BASE = `${window.location.protocol}//${backendHost}`;
   const WS_BASE = window.location.protocol === "https:" ? `wss://${backendHost}` : `ws://${backendHost}`;
 
+  const safeFormatTime = (ts) => {
+    if (!ts) return "";
+    try {
+      let isoString = String(ts);
+      if (!isoString.endsWith("Z") && !isoString.includes("+") && !isoString.includes("-", 10)) {
+        isoString += "Z";
+      }
+      return new Date(isoString).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return "";
+    }
+  };
+
   useEffect(() => {
     const fetchCanned = async () => {
       try {
@@ -552,7 +565,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       <div className="flex items-center justify-between text-[9px] text-slate-400 dark:text-slate-550 mt-0.5">
                         <div className="flex items-center gap-1.5">
                           <span>
-                            {new Date(session.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            {safeFormatTime(session.last_message_time)}
                           </span>
                           {session.qa_score !== undefined && session.qa_score !== null && (
                             <span className="px-1 py-0.2 rounded text-[7px] font-extrabold bg-indigo-50 dark:bg-indigo-950/20 text-primary border border-indigo-100 dark:border-indigo-900/35">
@@ -677,7 +690,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                         
                         {/* Time */}
                         <span className="text-[8px] text-slate-400 dark:text-slate-550 mt-1 px-1">
-                          {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {safeFormatTime(msg.timestamp)}
                         </span>
                       </div>
                     );

@@ -335,7 +335,11 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   const formatTime = (ts) => {
     if (!ts) return "";
     try {
-      return new Date(ts).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+      let isoString = String(ts);
+      if (!isoString.endsWith("Z") && !isoString.includes("+") && !isoString.includes("-", 10)) {
+        isoString += "Z";
+      }
+      return new Date(isoString).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
     } catch (e) {
       return "";
     }
