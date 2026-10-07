@@ -6515,6 +6515,7 @@ async def takeover_chat(session_id: str, user_info: dict = Depends(get_user_info
 
 @app.post("/api/omnichannel/chats/{session_id}/transfer_to_ai")
 async def release_chat_to_ai(session_id: str):
+    import datetime
     async with AsyncSessionLocal() as session:
         stmt = select(ChatSession).where(ChatSession.id == session_id)
         result = await session.execute(stmt)
@@ -6523,15 +6524,54 @@ async def release_chat_to_ai(session_id: str):
             raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
         chat.assigned_agent = "ai"
         chat.assigned_user = None
-        await session.commit()
+        chat.last_message_time = datetime.datetime.utcnow()
         
-        event = {
+        sys_msg = ChatMessage(
+            session_id=session_id,
+            direction="outbound",
+            sender="system",
+            text="Sohbet Yapay Zeka Asistanına geri devredilmiştir."
+        )
+        session.add(sys_msg)
+        await session.commit()
+        await session.refresh(sys_msg)
+        
+        # Broadcast system message turn
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "message",
+            "message": {
+                "id": sys_msg.id,
+                "session_id": session_id,
+                "direction": sys_msg.direction,
+                "sender": sys_msg.sender,
+                "text": sys_msg.text,
+                "timestamp": sys_msg.timestamp.isoformat()
+            }
+        })
+        
+        # Broadcast takeover state update
+        await ws_manager.broadcast_omnichannel_event({
             "type": "takeover_changed",
             "session_id": session_id,
             "assigned_agent": "ai",
             "assigned_user": None
-        }
-        await ws_manager.broadcast_omnichannel_event(event)
+        })
+        
+        # Broadcast session preview update
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "session_update",
+            "session": {
+                "id": session_id,
+                "channel": chat.channel,
+                "sender_info": chat.sender_info,
+                "recipient_info": chat.recipient_info,
+                "status": chat.status,
+                "assigned_agent": "ai",
+                "assigned_user": None,
+                "last_message_time": chat.last_message_time.isoformat(),
+                "last_message_text": sys_msg.text
+            }
+        })
         return {"status": "success", "message": "Sohbet yapay zekaya devredildi."}
 
 class ChatMessageSendSchema(BaseModel):

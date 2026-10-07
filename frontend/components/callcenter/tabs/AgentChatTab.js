@@ -5,8 +5,11 @@ import { useTheme } from "../../../utils/theme";
 export default function AgentChatTab({ backendHost, currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
 
-  // Primary Tab State: "customer" (Bana Atananlar) | "internal" (İç Yazışma)
+  // Primary Tab State: "customer" (Müşteri Sohbetleri) | "internal" (İç Yazışma)
   const [chatTab, setChatTab] = useState("customer");
+  
+  // Customer Sub-filter State: "assigned" (Bana Atananlar) | "all" (Tüm Sohbetler)
+  const [customerFilter, setCustomerFilter] = useState("assigned");
   
   // Omnichannel Customer Chat States
   const [apiCustomerSessions, setApiCustomerSessions] = useState([]);
@@ -162,24 +165,24 @@ export default function AgentChatTab({ backendHost, currentUser }) {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [customerMessages, activeChatId]);
 
-  // Filter Customer Sessions assigned to logged-in Representative
+  // Filter Customer Sessions assigned to logged-in Representative or All
   const filteredCustomerSessions = apiCustomerSessions.filter(session => {
-    // Session must be taken over by human representative
-    const isHuman = session.assigned_agent === "human";
-    if (!isHuman) return false;
+    if (customerFilter === "assigned") {
+      const isHuman = session.assigned_agent === "human";
+      if (!isHuman) return false;
 
-    // Filter by assigned user matching currentUser
-    const currentUserFullName = (currentUser?.full_name || "").toLowerCase().trim();
-    const currentUsername = (currentUser?.username || "").toLowerCase().trim();
-    const assignedUser = (session.assigned_user || "").toLowerCase().trim();
-    const isAdmin = currentUser?.role === "admin" || currentUsername === "admin";
+      const currentUserFullName = (currentUser?.full_name || "").toLowerCase().trim();
+      const currentUsername = (currentUser?.username || "").toLowerCase().trim();
+      const assignedUser = (session.assigned_user || "").toLowerCase().trim();
+      const isAdmin = currentUser?.role === "admin" || currentUsername === "admin";
 
-    const isAssignedToMe = !assignedUser || 
-      assignedUser === currentUserFullName || 
-      assignedUser === currentUsername ||
-      isAdmin;
+      const isAssignedToMe = !assignedUser || 
+        assignedUser === currentUserFullName || 
+        assignedUser === currentUsername ||
+        isAdmin;
 
-    if (!isAssignedToMe) return false;
+      if (!isAssignedToMe) return false;
+    }
 
     // Search query filter (Name, Phone/Info, or Last Message)
     if (searchQuery.trim()) {
@@ -215,7 +218,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
       });
       if (res.ok) {
         fetchCustomerSessions(true);
-        setActiveChatId(null);
+        fetchCustomerMessages(sessionId, true);
       }
     } catch (err) {
       console.error("[AgentChatTab] Error transferring session back to AI:", err);
@@ -355,7 +358,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                       : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                   }`}
                 >
-                  <span>Bana Atananlar</span>
+                  <span>Müşteri Sohbetleri</span>
                   {filteredCustomerSessions.length > 0 && (
                     <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${chatTab === "customer" ? "bg-white/20 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"}`}>
                       {filteredCustomerSessions.length}
@@ -373,6 +376,32 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                   İç Yazışma
                 </button>
               </div>
+
+              {/* Sub-filter Selector for Customer Chats */}
+              {chatTab === "customer" && (
+                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-[11px] font-bold">
+                  <button
+                    onClick={() => setCustomerFilter("assigned")}
+                    className={`flex-1 py-1.5 rounded-lg transition-colors ${
+                      customerFilter === "assigned"
+                        ? "bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                    }`}
+                  >
+                    Bana Atananlar
+                  </button>
+                  <button
+                    onClick={() => setCustomerFilter("all")}
+                    className={`flex-1 py-1.5 rounded-lg transition-colors ${
+                      customerFilter === "all"
+                        ? "bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400 shadow-sm"
+                        : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
+                    }`}
+                  >
+                    Tüm Sohbetler (AI + Canlı)
+                  </button>
+                </div>
+              )}
 
               {/* Search Field */}
               <div className="relative">
@@ -400,13 +429,21 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                     ) : filteredCustomerSessions.length === 0 ? (
                       <div className="py-12 text-center text-xs font-medium text-slate-400 dark:text-slate-500 space-y-1">
                         <MessageSquare size={32} className="mx-auto text-slate-300 dark:text-slate-700 mb-2" />
-                        <p className="font-bold text-slate-600 dark:text-slate-400">Atanmış sohbet bulunmuyor</p>
-                        <p className="text-[11px]">Omnichannel panelinden canlı sohbet devraldığınızda burada listelenir.</p>
+                        <p className="font-bold text-slate-600 dark:text-slate-400">
+                          {customerFilter === "assigned" ? "Atanmış sohbet bulunmuyor" : "Sohbet bulunmuyor"}
+                        </p>
+                        <p className="text-[11px]">
+                          {customerFilter === "assigned" 
+                            ? "Canlı sohbet devraldığınızda burada listelenir veya 'Tüm Sohbetler' seçeneğine geçebilirsiniz."
+                            : "Henüz başlatılmış sohbet bulunmuyor."
+                          }
+                        </p>
                       </div>
                     ) : (
                       filteredCustomerSessions.map((session) => {
                         const isSelected = String(activeChatId) === String(session.id);
                         const displayName = session.sender_name || session.sender_info || "Müşteri";
+                        const isAi = session.assigned_agent === "ai";
 
                         return (
                           <button
@@ -420,7 +457,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                           >
                             <div className="flex items-center gap-3 truncate min-w-0">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 relative ${
-                                isSelected ? `${bg} text-white` : "bg-rose-500/10 text-rose-600 dark:bg-rose-500/20"
+                                isSelected ? `${bg} text-white` : isAi ? "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20" : "bg-rose-500/10 text-rose-600 dark:bg-rose-500/20"
                               }`}>
                                 {displayName.charAt(0).toUpperCase()}
                               </div>
@@ -434,8 +471,12 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                                   </span>
                                 </div>
                                 <div className="flex items-center gap-1.5 mt-0.5">
-                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase border bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200/30">
-                                    {session.channel || "WhatsApp"}
+                                  <span className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase border ${
+                                    isAi 
+                                      ? "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 dark:text-indigo-400 border-indigo-200/30"
+                                      : "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-200/30"
+                                  }`}>
+                                    {isAi ? "🤖 AI" : session.channel || "WhatsApp"}
                                   </span>
                                   <p className="text-xs text-slate-450 dark:text-slate-400 truncate font-normal flex-1">
                                     {session.last_message_text || "Mesaj yok..."}
@@ -554,7 +595,12 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                           <>
                             <span className="uppercase font-bold text-emerald-600 dark:text-emerald-400">{selectedCustomerChat?.channel}</span>
                             <span>•</span>
-                            <span className="text-slate-400">👤 Temsilci: {selectedCustomerChat?.assigned_user || currentUser?.full_name || currentUser?.username || "Ben"}</span>
+                            <span className="text-slate-400">
+                              {selectedCustomerChat?.assigned_agent === "human"
+                                ? `👤 Temsilci: ${selectedCustomerChat?.assigned_user || currentUser?.full_name || currentUser?.username || "Ben"}`
+                                : "🤖 Yapay Zeka Asistanı"
+                              }
+                            </span>
                           </>
                         ) : (
                           selectedInternalChat?.online ? 'Çevrimiçi' : 'Çevrimdışı'
@@ -564,7 +610,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                   </div>
 
                   {/* Header Actions */}
-                  {chatTab === "customer" && (
+                  {chatTab === "customer" && selectedCustomerChat?.assigned_agent === "human" && (
                     <div className="flex items-center gap-2">
                       <button
                         onClick={() => handleTransferToAI(selectedCustomerChat.id)}
@@ -704,7 +750,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
               <div className="flex-1 flex flex-col items-center justify-center text-slate-400 dark:text-slate-500">
                 <MessageSquare size={48} className="mb-4 opacity-40 text-rose-500" />
                 <p className="text-base font-bold text-slate-600 dark:text-slate-400">Görüntülemek için bir sohbet seçin</p>
-                <p className="text-xs mt-1 text-slate-400">Sol listeden atanan bir konuşmaya tıklayın.</p>
+                <p className="text-xs mt-1 text-slate-400">Sol listeden bir konuşmaya tıklayın.</p>
               </div>
             )}
           </div>

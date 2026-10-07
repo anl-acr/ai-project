@@ -162,9 +162,17 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
                     ChatSession.sender_info == f"+{clean_sender}"
                 ),
                 ChatSession.status == "active"
-            )
+            ).order_by(ChatSession.last_message_time.desc())
             result = await session.execute(stmt)
-            chat_session = result.scalar_one_or_none()
+            chat_sessions = result.scalars().all()
+            
+            chat_session = chat_sessions[0] if chat_sessions else None
+            
+            # Auto-close older duplicate active sessions if any exist
+            if chat_sessions and len(chat_sessions) > 1:
+                for old_sess in chat_sessions[1:]:
+                    old_sess.status = "closed"
+                await session.commit()
             
             # Load channel settings & match specific WhatsApp line account if available
             settings_data = load_settings()
