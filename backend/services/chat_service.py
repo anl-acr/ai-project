@@ -247,6 +247,7 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
                     "recipient_info": chat_session.recipient_info,
                     "status": chat_session.status,
                     "assigned_agent": assigned_agent,
+                    "assigned_user": chat_session.assigned_user,
                     "last_message_time": chat_session.last_message_time.isoformat(),
                     "last_message_text": text
                 }
@@ -289,8 +290,10 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
                         "channel": channel,
                         "sender_info": sender_info,
                         "sender_name": sender_name,
+                        "recipient_info": chat_session.recipient_info,
                         "status": chat_session.status,
                         "assigned_agent": "human",
+                        "assigned_user": chat_session.assigned_user,
                         "last_message_time": chat_session.last_message_time.isoformat(),
                         "last_message_text": transfer_text
                     }
@@ -600,8 +603,10 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                         "channel": channel,
                         "sender_info": sender_info,
                         "sender_name": sender_name,
+                        "recipient_info": chat_session.recipient_info,
                         "status": chat_session.status,
                         "assigned_agent": assigned_agent,
+                        "assigned_user": chat_session.assigned_user,
                         "last_message_time": chat_session.last_message_time.isoformat(),
                         "last_message_text": ai_reply_text
                     }

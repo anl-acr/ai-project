@@ -103,11 +103,45 @@ export default function AgentChatTab({ backendHost, currentUser }) {
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          if (data.type === "message" || data.type === "session_update" || data.type === "takeover_changed") {
-            fetchCustomerSessions(false);
-            if (activeChatIdRef.current && chatTab === "customer") {
-              fetchCustomerMessages(activeChatIdRef.current, false);
+          if (data.type === "message") {
+            const newMsg = data.message;
+            if (activeChatIdRef.current && String(activeChatIdRef.current) === String(newMsg.session_id)) {
+              setCustomerMessages(prev => {
+                if (prev.some(m => String(m.id) === String(newMsg.id))) return prev;
+                return [...prev, newMsg];
+              });
             }
+            setApiCustomerSessions(prev => {
+              const idx = prev.findIndex(s => String(s.id) === String(newMsg.session_id));
+              if (idx > -1) {
+                const next = [...prev];
+                next[idx] = {
+                  ...next[idx],
+                  last_message_text: newMsg.text,
+                  last_message_time: newMsg.timestamp
+                };
+                return next.sort((a, b) => new Date(b.last_message_time) - new Date(a.last_message_time));
+              }
+              return prev;
+            });
+          } else if (data.type === "session_update") {
+            const updatedSess = data.session;
+            setApiCustomerSessions(prev => {
+              const idx = prev.findIndex(s => String(s.id) === String(updatedSess.id));
+              if (idx > -1) {
+                const next = [...prev];
+                next[idx] = { ...next[idx], ...updatedSess };
+                return next.sort((a, b) => new Date(b.last_message_time) - new Date(a.last_message_time));
+              } else {
+                return [updatedSess, ...prev];
+              }
+            });
+          } else if (data.type === "takeover_changed") {
+            const { session_id, assigned_agent, assigned_user } = data;
+            setApiCustomerSessions(prev =>
+              prev.map(s => String(s.id) === String(session_id) ? { ...s, assigned_agent, assigned_user } : s)
+            );
+            fetchCustomerSessions(false);
           }
         } catch (e) {
           // Silent JSON parse error fallback

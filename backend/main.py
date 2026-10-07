@@ -6595,8 +6595,10 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                 "channel": chat.channel,
                 "sender_info": chat.sender_info,
                 "sender_name": sender_name,
+                "recipient_info": chat.recipient_info,
                 "status": chat.status,
                 "assigned_agent": chat.assigned_agent,
+                "assigned_user": chat.assigned_user,
                 "last_message_time": chat.last_message_time.isoformat(),
                 "last_message_text": db_message.text
             }
@@ -6610,8 +6612,29 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         # Trigger outbound channel message
         ch_lower = chat.channel.lower()
         if ch_lower == "whatsapp":
-            from backend.services.whatsapp_service import send_whatsapp_message
-            asyncio.create_task(send_whatsapp_message(chat.sender_info, payload.text))
+            from backend.services.whatsapp_service import send_whatsapp_message, load_settings
+            settings_data = load_settings()
+            ch_settings = settings_data.get("channels", {})
+            whatsapp_accounts = ch_settings.get("whatsapp_accounts", [])
+            outbound_phone_id = None
+            outbound_token = None
+            
+            if chat.recipient_info and whatsapp_accounts:
+                for acc in whatsapp_accounts:
+                    acc_id = str(acc.get("phone_number_id", "")).strip()
+                    acc_phone = str(acc.get("display_phone_number", "")).strip()
+                    acc_name = str(acc.get("name", "")).strip()
+                    if (acc_id and acc_id in str(chat.recipient_info)) or (acc_phone and acc_phone in str(chat.recipient_info)) or (acc_name and acc_name in str(chat.recipient_info)):
+                        outbound_phone_id = acc.get("phone_number_id")
+                        outbound_token = acc.get("token") or acc.get("access_token")
+                        break
+                        
+            asyncio.create_task(send_whatsapp_message(
+                chat.sender_info, 
+                payload.text, 
+                phone_number_id=outbound_phone_id, 
+                token=outbound_token
+            ))
         elif ch_lower == "telegram":
             from backend.services.telegram_service import send_telegram_message
             asyncio.create_task(send_telegram_message(chat.sender_info, payload.text))
