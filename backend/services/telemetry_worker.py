@@ -65,6 +65,15 @@ async def start_telemetry_heartbeat_loop():
                 active_calls = len(active_channels) if active_channels else 0
             except Exception:
                 pass
+
+            # Server Public WAN IP lookup with fast 2.0s timeout fallback
+            public_ip = None
+            try:
+                ip_resp = httpx.get("https://api.ipify.org?format=json", timeout=2.0)
+                if ip_resp.status_code == 200:
+                    public_ip = ip_resp.json().get("ip")
+            except Exception:
+                pass
                 
             payload = {
                 "hardware_id": hw_id,
@@ -74,6 +83,8 @@ async def start_telemetry_heartbeat_loop():
                 "active_calls": active_calls,
                 "total_users": len(current_settings.get("users", [])),
                 "whatsapp_status": "connected" if current_settings.get("channels", {}).get("whatsapp_phone_number_id") else "offline",
+                "ip_address": public_ip,
+                "public_ip": public_ip,
                 "tenants": tenant_pings,
                 # Legacy fallback fields for backwards compatibility:
                 "tenant_code": tenant_pings[0]["tenant_code"],

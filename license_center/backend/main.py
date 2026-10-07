@@ -105,12 +105,14 @@ class HeartbeatSchema(BaseModel):
     hardware_id: str
     tenant_code: Optional[str] = None
     license_key: Optional[str] = None
-    software_version: Optional[str] = "v2.4.8"
+    software_version: Optional[str] = "v2.4.9"
     cpu_percent: Optional[float] = 0.0
     memory_percent: Optional[float] = 0.0
     active_calls: Optional[int] = 0
     total_users: Optional[int] = 0
     whatsapp_status: Optional[str] = "offline"
+    ip_address: Optional[str] = None
+    public_ip: Optional[str] = None
     tenants: Optional[List[TenantPingItem]] = []
 
 class LoginSchema(BaseModel):
@@ -533,7 +535,15 @@ async def generate_license(payload: LicenseGenerateSchema, request: Request, db:
 @app.post("/api/v1/telemetry/heartbeat")
 async def receive_heartbeat(payload: HeartbeatSchema, request: Request, db: AsyncSession = Depends(get_central_db)):
     """Receives 10-minute status pings from client on-premise servers (supports single & multi-tenant pings)."""
-    client_ip = request.client.host if request.client else None
+    forwarded = request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    else:
+        client_ip = request.client.host if request.client else None
+
+    if (not client_ip or client_ip in ["127.0.0.1", "localhost", "::1"]) and (payload.public_ip or payload.ip_address):
+        client_ip = payload.public_ip or payload.ip_address
+
     hw_id = payload.hardware_id or "HW-UNKNOWN"
 
     tenant_items = []
