@@ -25,16 +25,25 @@ def load_settings():
 def sanitize_phone_number(phone: str) -> str:
     """
     Strips leading +, spaces, dashes and non-digit characters.
-    Ensures Turkish 10/11 digit mobile numbers (starting with 5 or 05) are formatted with country code 90.
-    Example:
-    '0507 179 63 72' -> '905071796372'
-    '5071796372'     -> '905071796372'
-    '+905071796372'  -> '905071796372'
-    '905071796372'   -> '905071796372'
+    Ensures Turkish 10/11/12 digit mobile numbers (starting with 5, 05, or 905) are properly formatted with country code 90.
     """
     if not phone:
         return ""
-    digits = re.sub(r"\D", "", phone)
+    
+    phone_str = str(phone)
+    # Search for explicit Turkish mobile pattern (e.g., 90507..., 0507..., 507...)
+    phone_match = re.findall(r'(?:90|0)?5\d{9}', phone_str)
+    if phone_match:
+        target = phone_match[0]
+        digits = re.sub(r"\D", "", target)
+        if len(digits) == 10 and digits.startswith("5"):
+            return "90" + digits
+        elif len(digits) == 11 and digits.startswith("05"):
+            return "90" + digits[1:]
+        elif len(digits) == 12 and digits.startswith("905"):
+            return digits
+
+    digits = re.sub(r"\D", "", phone_str)
     if len(digits) == 10 and digits.startswith("5"):
         digits = "90" + digits
     elif len(digits) == 11 and digits.startswith("05"):
