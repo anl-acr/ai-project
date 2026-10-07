@@ -191,10 +191,14 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
                 recipient_label = matched_account.get("name", "")
                 if matched_account.get("display_phone_number"):
                     recipient_label += f" ({matched_account.get('display_phone_number')})"
+                if matched_account.get("phone_number_id"):
+                    recipient_label += f" ID:{matched_account.get('phone_number_id')}"
             elif recipient_phone_num:
                 recipient_label = recipient_phone_num
+                if recipient_phone_id:
+                    recipient_label += f" ID:{recipient_phone_id}"
             elif recipient_phone_id:
-                recipient_label = f"ID: {recipient_phone_id}"
+                recipient_label = f"ID:{recipient_phone_id}"
 
             is_new = False
             if not chat_session:

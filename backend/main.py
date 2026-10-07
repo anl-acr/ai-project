@@ -6731,6 +6731,11 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                         outbound_token = acc.get("token") or acc.get("access_token")
                         break
                         
+            if not outbound_phone_id and chat.recipient_info:
+                digits_found = re.findall(r'\d{10,}', str(chat.recipient_info))
+                if digits_found:
+                    outbound_phone_id = digits_found[0]
+                        
             dispatch_res = await send_whatsapp_message(
                 chat.sender_info, 
                 payload.text, 

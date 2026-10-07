@@ -45,14 +45,34 @@ def resolve_whatsapp_credentials(token: str = None, phone_number_id: str = None)
     resolved_token = (token or channels_cfg.get("whatsapp_token", "") or os.getenv("WHATSAPP_TOKEN", "")).strip()
     resolved_phone_id = (phone_number_id or channels_cfg.get("whatsapp_phone_number_id", "") or os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")).strip()
     
-    if not resolved_token or not resolved_phone_id:
-        accs = channels_cfg.get("whatsapp_accounts", [])
-        if accs and isinstance(accs, list) and len(accs) > 0:
-            first_acc = accs[0]
-            if not resolved_token:
-                resolved_token = (first_acc.get("token") or first_acc.get("access_token") or "").strip()
-            if not resolved_phone_id:
-                resolved_phone_id = (first_acc.get("phone_number_id") or "").strip()
+    accs = channels_cfg.get("whatsapp_accounts", [])
+    if isinstance(accs, list) and len(accs) > 0:
+        matched_acc = None
+        if resolved_phone_id:
+            for acc in accs:
+                acc_id = str(acc.get("phone_number_id", "")).strip()
+                acc_phone = str(acc.get("display_phone_number", "")).strip()
+                acc_name = str(acc.get("name", "")).strip()
+                if acc_id == resolved_phone_id or (acc_id and acc_id in resolved_phone_id) or (acc_phone and acc_phone in resolved_phone_id) or (acc_name and acc_name in resolved_phone_id):
+                    matched_acc = acc
+                    break
+        
+        if not matched_acc:
+            matched_acc = accs[0]
+
+        if not resolved_token:
+            resolved_token = (matched_acc.get("token") or matched_acc.get("access_token") or "").strip()
+        if not resolved_phone_id:
+            resolved_phone_id = (matched_acc.get("phone_number_id") or "").strip()
+
+    if not resolved_token and isinstance(accs, list):
+        for acc in accs:
+            t = (acc.get("token") or acc.get("access_token") or "").strip()
+            if t:
+                resolved_token = t
+                if not resolved_phone_id:
+                    resolved_phone_id = str(acc.get("phone_number_id", "")).strip()
+                break
 
     return resolved_token, resolved_phone_id
 
