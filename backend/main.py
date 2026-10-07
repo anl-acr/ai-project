@@ -6802,6 +6802,24 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
 
         return {"status": "success", "message": "Mesaj gönderildi.", "dispatch": dispatch_res}
 
+@app.get("/api/omnichannel/whatsapp/status")
+async def get_whatsapp_diagnostics():
+    from backend.services.whatsapp_service import resolve_whatsapp_credentials, load_settings
+    settings_disk = load_settings()
+    settings_mem = settings_db.get("channels", {})
+    
+    token_resolved, phone_id_resolved = resolve_whatsapp_credentials()
+    
+    return {
+        "status": "success",
+        "has_token": bool(token_resolved),
+        "token_preview": (token_resolved[:12] + "...") if token_resolved else "TANIMLANMAMIŞ (BOŞ)",
+        "resolved_phone_number_id": phone_id_resolved or "TANIMLANMAMIŞ (BOŞ)",
+        "memory_channels_configured": bool(settings_mem),
+        "disk_channels_configured": bool(settings_disk.get("channels")),
+        "accounts_count": len((settings_mem or settings_disk.get("channels", {})).get("whatsapp_accounts", []))
+    }
+
 class ChatSimulateSchema(BaseModel):
     channel: str
     sender_info: str
