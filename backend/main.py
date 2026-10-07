@@ -6467,6 +6467,9 @@ async def list_chat_sessions(user_info: dict = Depends(get_user_info)):
                 "sender_name": sender_name,
                 "status": s.status,
                 "assigned_agent": s.assigned_agent,
+                "assigned_user": s.assigned_user,
+                "recipient_info": s.recipient_info,
+                "qa_score": s.qa_score,
                 "last_message_time": s.last_message_time.isoformat(),
                 "last_message_text": last_msg.text if last_msg else ""
             })
@@ -6488,23 +6491,27 @@ async def get_chat_messages(session_id: str):
         } for m in messages]
 
 @app.post("/api/omnichannel/chats/{session_id}/takeover")
-async def takeover_chat(session_id: str):
+async def takeover_chat(session_id: str, user_info: dict = Depends(get_user_info)):
     async with AsyncSessionLocal() as session:
         stmt = select(ChatSession).where(ChatSession.id == session_id)
         result = await session.execute(stmt)
         chat = result.scalar_one_or_none()
         if not chat:
             raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
+        
+        agent_name = user_info.get("full_name") or user_info.get("username") or "Temsilci"
         chat.assigned_agent = "human"
+        chat.assigned_user = agent_name
         await session.commit()
         
         event = {
             "type": "takeover_changed",
             "session_id": session_id,
-            "assigned_agent": "human"
+            "assigned_agent": "human",
+            "assigned_user": agent_name
         }
         await ws_manager.broadcast_omnichannel_event(event)
-        return {"status": "success", "message": "Sohbet temsilciye aktarıldı."}
+        return {"status": "success", "message": f"Sohbet temsilciye ({agent_name}) aktarıldı.", "assigned_user": agent_name}
 
 @app.post("/api/omnichannel/chats/{session_id}/transfer_to_ai")
 async def release_chat_to_ai(session_id: str):
@@ -6515,12 +6522,14 @@ async def release_chat_to_ai(session_id: str):
         if not chat:
             raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
         chat.assigned_agent = "ai"
+        chat.assigned_user = None
         await session.commit()
         
         event = {
             "type": "takeover_changed",
             "session_id": session_id,
-            "assigned_agent": "ai"
+            "assigned_agent": "ai",
+            "assigned_user": None
         }
         await ws_manager.broadcast_omnichannel_event(event)
         return {"status": "success", "message": "Sohbet yapay zekaya devredildi."}
@@ -7276,6 +7285,7 @@ async def startup_event():
                         pass
                 try:
                     await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;"))
+                    await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;"))
                 except Exception:
                     pass
         await asyncio.wait_for(init_db(), timeout=4.0)

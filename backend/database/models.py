@@ -124,6 +124,7 @@ class ChatSession(Base):
     sender_info = Column(String, nullable=False)  # Phone number, username, or email
     status = Column(String, default="active")  # active, closed
     assigned_agent = Column(String, default="ai")  # ai, human
+    assigned_user = Column(String, nullable=True)  # Name of human agent who took over
     last_message_time = Column(DateTime, default=datetime.datetime.utcnow)
     qa_score = Column(Integer, nullable=True)
     qa_report = Column(Text, nullable=True)
