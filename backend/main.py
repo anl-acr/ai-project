@@ -6767,18 +6767,21 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                 chat.recipient_info = f"ID:{resolved_phone_id}"
                 await session.commit()
 
-            dispatch_res = await send_whatsapp_message(
-                chat.sender_info, 
-                payload.text, 
-                phone_number_id=resolved_phone_id, 
-                token=resolved_token
+            # Execute background task for outbound dispatch (exact AI response pattern) to eliminate client timeouts
+            asyncio.create_task(
+                send_whatsapp_message(
+                    chat.sender_info, 
+                    payload.text, 
+                    phone_number_id=resolved_phone_id, 
+                    token=resolved_token
+                )
             )
-            print(f"[Send Representative Message] WhatsApp dispatch result for {chat.sender_info} (phone_id: {resolved_phone_id}): {dispatch_res}")
             add_system_log(
                 "REPRESENTATIVE_OUTBOUND",
-                "INFO" if (dispatch_res and dispatch_res.get("status") == "success") else "ERROR",
-                f"Temsilci Yanıtı: Alıcı={chat.sender_info}, PhoneID={resolved_phone_id}, Dispatch={dispatch_res}"
+                "INFO",
+                f"Temsilci Yanıtı Gönderim Görevi Başlatıldı: Alıcı={chat.sender_info}, PhoneID={resolved_phone_id}"
             )
+            dispatch_res = {"status": "success", "message": "Gönderim görevi başlatıldı"}
         elif ch_lower == "telegram":
             from backend.services.telegram_service import send_telegram_message
             dispatch_res = await send_telegram_message(chat.sender_info, payload.text)

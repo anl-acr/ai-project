@@ -133,7 +133,7 @@ async def send_whatsapp_message(to_phone: str, text: str, phone_number_id: str =
     }
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=25.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
             resp_data = None
             try:
@@ -168,8 +168,22 @@ async def send_whatsapp_message(to_phone: str, text: str, phone_number_id: str =
                 err_body = resp.text
                 print(f"[WhatsApp Service] Meta API Error ({resp.status_code}): {err_body}")
                 return {"status": "error", "code": resp.status_code, "detail": f"Meta API HTTP {resp.status_code}: {err_body}"}
+    except httpx.TimeoutException:
+        msg = f"Meta Graph API sunucularına bağlantı 25 saniyede zaman aşımına uğradı (Timeout). Alıcı: {clean_phone}"
+        print(f"[WhatsApp Service] Timeout: {msg}")
+        try:
+            from backend.main import add_system_log
+            add_system_log("WHATSAPP_OUTBOUND", "ERROR", msg)
+        except Exception:
+            pass
+        return {"status": "error", "detail": msg}
     except Exception as e:
         print(f"[WhatsApp Service] Exception while sending message to {clean_phone}: {e}")
+        try:
+            from backend.main import add_system_log
+            add_system_log("WHATSAPP_OUTBOUND", "ERROR", f"Bağlantı Hatası: {e}")
+        except Exception:
+            pass
         return {"status": "error", "detail": str(e)}
 
 
