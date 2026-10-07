@@ -263,6 +263,7 @@ async def get_master_audit_logs(db: AsyncSession = Depends(get_central_db)):
 # Fleet Dashboard & Stats
 # --------------------------------------------------------------------------
 @app.get("/api/v1/dashboard/stats")
+@app.get("/api/v1/stats")
 async def get_dashboard_stats(db: AsyncSession = Depends(get_central_db)):
     """Returns real-time fleet overview metrics."""
     res_clients = await db.execute(select(ClientServer))
