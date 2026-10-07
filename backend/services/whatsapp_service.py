@@ -11,16 +11,29 @@ def load_settings():
         "/opt/ai-project/backend/settings.json",
         "/opt/ai-project/settings.json"
     ]
+    data = {}
     for path in candidate_paths:
         if os.path.exists(path):
             try:
                 with open(path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    if data and isinstance(data, dict):
-                        return data
+                    file_data = json.load(f)
+                    if file_data and isinstance(file_data, dict):
+                        data.update(file_data)
+                        break
             except Exception as e:
                 print(f"[WhatsApp Service] Error loading settings from {path}: {e}")
-    return {}
+
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemSetting
+        with SyncSessionLocal() as session:
+            settings = session.query(SystemSetting).all()
+            for s in settings:
+                data[s.key] = s.value
+    except Exception as e_db:
+        print(f"[WhatsApp Service] DB settings load fallback: {e_db}")
+
+    return data
 
 def sanitize_phone_number(phone: str) -> str:
     """
