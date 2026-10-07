@@ -23,6 +23,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [broadcastMediaUrl, setBroadcastMediaUrl] = useState("");
   const [broadcastLoading, setBroadcastLoading] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState(null);
+  const [broadcastError, setBroadcastError] = useState(null);
 
   // Simulator Form State
   const [simChannel, setSimChannel] = useState("whatsapp");
@@ -326,6 +327,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
     setBroadcastLoading(true);
     setBroadcastResult(null);
+    setBroadcastError(null);
 
     try {
       const res = await fetch(`${API_BASE}/api/omnichannel/whatsapp/broadcast`, {
@@ -342,11 +344,11 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
         setBroadcastResult(data);
         fetchSessions(false);
       } else {
-        alert(`Hata: ${data.detail || "Kampanya başlatılamadı"}`);
+        setBroadcastError(data.detail || "Kampanya mesajı gönderilirken bir hata oluştu.");
       }
     } catch (err) {
       console.error("[Broadcast Error]", err);
-      alert("Kampanya mesajı gönderilirken bir sunucu hatası oluştu.");
+      setBroadcastError("Sunucu ile bağlantı kurulamadı. Lütfen ağ bağlantınızı ve servis durumunu kontrol ediniz.");
     } finally {
       setBroadcastLoading(false);
     }
@@ -995,15 +997,39 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 />
               </div>
 
+              {broadcastError && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-start gap-2 text-rose-700 dark:text-rose-400">
+                  <AlertTriangle size={16} className="shrink-0 mt-0.5" />
+                  <div className="flex-1 font-medium">{broadcastError}</div>
+                </div>
+              )}
+
               {broadcastResult && (
-                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 rounded-xl text-xs flex items-center justify-between text-emerald-700 dark:text-emerald-400">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle size={16} />
-                    <span>Kampanya tamamlandı!</span>
+                <div className={`p-3 rounded-xl text-xs flex flex-col gap-1 ${
+                  broadcastResult.successful > 0 && broadcastResult.failed === 0
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900/40 text-emerald-700 dark:text-emerald-400"
+                    : broadcastResult.successful > 0
+                    ? "bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 text-amber-700 dark:text-amber-400"
+                    : "bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 text-rose-700 dark:text-rose-400"
+                }`}>
+                  <div className="flex items-center justify-between font-bold">
+                    <div className="flex items-center gap-2">
+                      {broadcastResult.successful > 0 ? <CheckCircle size={16} /> : <AlertTriangle size={16} />}
+                      <span>
+                        {broadcastResult.successful > 0 && broadcastResult.failed === 0
+                          ? "Kampanya Başarıyla Tamamlandı!"
+                          : broadcastResult.successful > 0
+                          ? "Kampanya Kısmen Tamamlandı"
+                          : "Kampanya Mesajları İletilemedi!"}
+                      </span>
+                    </div>
+                    <span>Başarılı: {broadcastResult.successful} / Toplam: {broadcastResult.total}</span>
                   </div>
-                  <div className="font-bold">
-                    Başarılı: {broadcastResult.successful} / Toplam: {broadcastResult.total}
-                  </div>
+                  {broadcastResult.successful === 0 && (
+                    <p className="text-[11px] opacity-90 mt-1">
+                      ⚠️ Mesajlar WhatsApp API servisine iletilemedi. Lütfen <strong>Sistem Ayarları &gt; Kanal Ayarları</strong> sekmesinden WhatsApp Jetonu (Token) ve Phone Number ID bilgilerinizi tanımladığınızdan emin olun.
+                    </p>
+                  )}
                 </div>
               )}
 
