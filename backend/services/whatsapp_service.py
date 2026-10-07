@@ -135,14 +135,39 @@ async def send_whatsapp_message(to_phone: str, text: str, phone_number_id: str =
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(url, headers=headers, json=payload)
+            resp_data = None
+            try:
+                resp_data = resp.json()
+            except Exception:
+                resp_data = resp.text
+
+            print(f"[WhatsApp Service] Response for {clean_phone} via line {whatsapp_phone_number_id} (HTTP {resp.status_code}): {resp_data}")
+
+            try:
+                from backend.main import add_system_log
+                add_system_log("WHATSAPP_OUTBOUND", "INFO" if resp.status_code in [200, 201] else "ERROR", f"Mesaj Yanıtı ({clean_phone} - Line {whatsapp_phone_number_id}): HTTP {resp.status_code} - {resp.text[:300]}")
+            except Exception:
+                pass
+
+            # Check if Meta returned internal JSON error structure
+            if isinstance(resp_data, dict) and ("error" in resp_data or "errors" in resp_data):
+                err_info = resp_data.get("error") or resp_data.get("errors")
+                err_msg = err_info.get("message") if isinstance(err_info, dict) else str(err_info)
+                err_code = err_info.get("code") if isinstance(err_info, dict) else ""
+                print(f"[WhatsApp Service] Meta internal error detected: {err_msg} (code {err_code})")
+                return {
+                    "status": "error",
+                    "code": resp.status_code,
+                    "meta_code": err_code,
+                    "detail": f"Meta Reddi ({err_code}): {err_msg}"
+                }
+
             if resp.status_code in [200, 201]:
-                data = resp.json()
-                print(f"[WhatsApp Service] Successfully sent message to {clean_phone} via line {whatsapp_phone_number_id}: {data}")
-                return {"status": "success", "data": data}
+                return {"status": "success", "data": resp_data, "phone_number_id": whatsapp_phone_number_id}
             else:
                 err_body = resp.text
                 print(f"[WhatsApp Service] Meta API Error ({resp.status_code}): {err_body}")
-                return {"status": "error", "code": resp.status_code, "detail": err_body}
+                return {"status": "error", "code": resp.status_code, "detail": f"Meta API HTTP {resp.status_code}: {err_body}"}
     except Exception as e:
         print(f"[WhatsApp Service] Exception while sending message to {clean_phone}: {e}")
         return {"status": "error", "detail": str(e)}
