@@ -6641,21 +6641,52 @@ async def send_whatsapp_broadcast_campaign(
     payload: WhatsAppBroadcastSchema,
     user_info: dict = Depends(get_user_info)
 ):
-    from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_media
+    from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_media, sanitize_phone_number, resolve_whatsapp_credentials
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     recipients_list = payload.recipients or []
 
+    # Check credentials first
+    w_token, w_phone_id = resolve_whatsapp_credentials()
+    if not w_token or not w_phone_id:
+        raise HTTPException(
+            status_code=400, 
+            detail="WhatsApp API kimlik bilgileri (Erişim Jetonu / Phone Number ID) Ayarlar > Kanal Ayarları menüsünde tanımlı değil. Lütfen önce WhatsApp hesabınızı ekleyin."
+        )
+
     if "all_contacts" in recipients_list:
+        recipients_list = []
         async with AsyncSessionLocal() as session:
+            # 1. Fetch DB contacts
             stmt = select(Contact)
             res = await session.execute(stmt)
             contacts = res.scalars().all()
-            recipients_list = [c.phone_number for c in contacts if c.phone_number]
+            for c in contacts:
+                if c.phone_number:
+                    recipients_list.append(c.phone_number)
+            
+            # 2. Fetch ChatSession whatsapp senders
+            cs_stmt = select(ChatSession.sender_info).where(ChatSession.channel == "whatsapp")
+            cs_res = await session.execute(cs_stmt)
+            for phone in cs_res.scalars().all():
+                if phone:
+                    recipients_list.append(phone)
 
-    clean_recipients = list(set([r for r in recipients_list if r and len(re.sub(r"\D", "", r)) >= 10]))
+        # 3. Fetch contacts from settings.json if any
+        try:
+            from backend.services.whatsapp_service import load_settings
+            st = load_settings()
+            cfg_contacts = st.get("contacts", [])
+            for c in cfg_contacts:
+                p = c.get("phone_number") or c.get("phone")
+                if p:
+                    recipients_list.append(p)
+        except Exception:
+            pass
+
+    clean_recipients = list(set([sanitize_phone_number(r) for r in recipients_list if r and len(re.sub(r"\D", "", r)) >= 10]))
 
     if not clean_recipients:
-        raise HTTPException(status_code=400, detail="Geçerli alıcı numarası bulunamadı.")
+        raise HTTPException(status_code=400, detail="Geçerli alıcı numarası bulunamadı. Rehberde kayıtlı telefon numaralarını kontrol ediniz.")
 
     successful = 0
     failed = 0
@@ -6663,11 +6694,11 @@ async def send_whatsapp_broadcast_campaign(
     for phone in clean_recipients:
         try:
             if payload.media_url:
-                res = await send_whatsapp_media(phone, payload.media_type or "image", payload.media_url, caption=payload.text)
+                res = await send_whatsapp_media(phone, payload.media_type or "image", payload.media_url, caption=payload.text, phone_number_id=w_phone_id, token=w_token)
             else:
-                res = await send_whatsapp_message(phone, payload.text)
+                res = await send_whatsapp_message(phone, payload.text, phone_number_id=w_phone_id, token=w_token)
 
-            if res.get("status") in ["success", "dry_run"]:
+            if res.get("status") == "success":
                 successful += 1
                 async with AsyncSessionLocal() as db_session:
                     stmt = select(ChatSession).where(
@@ -6699,6 +6730,7 @@ async def send_whatsapp_broadcast_campaign(
                     await db_session.commit()
             else:
                 failed += 1
+                print(f"[WhatsApp Broadcast Failed] Phone: {phone}, Result: {res}")
         except Exception as e:
             print(f"[WhatsApp Broadcast Error] {phone}: {e}")
             failed += 1

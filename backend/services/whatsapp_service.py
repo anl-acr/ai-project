@@ -16,13 +16,45 @@ def load_settings():
 def sanitize_phone_number(phone: str) -> str:
     """
     Strips leading +, spaces, dashes and non-digit characters.
-    Example: '+90 (555) 444-3322' -> '905554443322'
+    Ensures Turkish 10/11 digit mobile numbers (starting with 5 or 05) are formatted with country code 90.
+    Example:
+    '0507 179 63 72' -> '905071796372'
+    '5071796372'     -> '905071796372'
+    '+905071796372'  -> '905071796372'
+    '905071796372'   -> '905071796372'
     """
     if not phone:
         return ""
-    # Extract only digits
     digits = re.sub(r"\D", "", phone)
+    if len(digits) == 10 and digits.startswith("5"):
+        digits = "90" + digits
+    elif len(digits) == 11 and digits.startswith("05"):
+        digits = "90" + digits[1:]
     return digits
+
+def resolve_whatsapp_credentials(token: str = None, phone_number_id: str = None) -> tuple:
+    """
+    Resolves active WhatsApp Bearer Token and Phone Number ID from:
+    1. Direct parameters
+    2. settings.json channels configuration (top-level or whatsapp_accounts list)
+    3. Environment variables
+    """
+    settings_data = load_settings()
+    channels_cfg = settings_data.get("channels", {})
+    
+    resolved_token = (token or channels_cfg.get("whatsapp_token", "") or os.getenv("WHATSAPP_TOKEN", "")).strip()
+    resolved_phone_id = (phone_number_id or channels_cfg.get("whatsapp_phone_number_id", "") or os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")).strip()
+    
+    if not resolved_token or not resolved_phone_id:
+        accs = channels_cfg.get("whatsapp_accounts", [])
+        if accs and isinstance(accs, list) and len(accs) > 0:
+            first_acc = accs[0]
+            if not resolved_token:
+                resolved_token = (first_acc.get("token") or first_acc.get("access_token") or "").strip()
+            if not resolved_phone_id:
+                resolved_phone_id = (first_acc.get("phone_number_id") or "").strip()
+
+    return resolved_token, resolved_phone_id
 
 async def send_whatsapp_message(to_phone: str, text: str, phone_number_id: str = None, token: str = None) -> dict:
     """
@@ -34,10 +66,7 @@ async def send_whatsapp_message(to_phone: str, text: str, phone_number_id: str =
         print(f"[WhatsApp Service] Invalid phone ({to_phone}) or empty text.")
         return {"status": "error", "message": "Invalid recipient or empty text"}
 
-    settings_data = load_settings()
-    channels_cfg = settings_data.get("channels", {})
-    whatsapp_token = (token or channels_cfg.get("whatsapp_token", "")).strip()
-    whatsapp_phone_number_id = (phone_number_id or channels_cfg.get("whatsapp_phone_number_id", "")).strip()
+    whatsapp_token, whatsapp_phone_number_id = resolve_whatsapp_credentials(token, phone_number_id)
 
     if not whatsapp_token or not whatsapp_phone_number_id:
         print(f"[WhatsApp Service] Credentials missing (token/phone_number_id). Message logged locally to {clean_phone}: '{text}'")
@@ -108,10 +137,7 @@ async def send_whatsapp_buttons(to_phone: str, body_text: str, buttons: list, ph
     if not clean_phone or not body_text:
         return {"status": "error", "message": "Invalid recipient or empty text"}
 
-    settings_data = load_settings()
-    channels_cfg = settings_data.get("channels", {})
-    whatsapp_token = (token or channels_cfg.get("whatsapp_token", "")).strip()
-    whatsapp_phone_number_id = (phone_number_id or channels_cfg.get("whatsapp_phone_number_id", "")).strip()
+    whatsapp_token, whatsapp_phone_number_id = resolve_whatsapp_credentials(token, phone_number_id)
 
     if not whatsapp_token or not whatsapp_phone_number_id:
         return {"status": "dry_run", "message": "WhatsApp API credentials missing"}
@@ -155,7 +181,7 @@ async def send_whatsapp_buttons(to_phone: str, body_text: str, buttons: list, ph
         return {"status": "error", "detail": str(e)}
 
 
-async def send_whatsapp_media(to_phone: str, media_type: str, media_url: str, caption: str = "") -> dict:
+async def send_whatsapp_media(to_phone: str, media_type: str, media_url: str, caption: str = "", phone_number_id: str = None, token: str = None) -> dict:
     """
     Dispatches media files (image, document, audio) to Meta WhatsApp Cloud API.
     media_type: 'image', 'document', 'audio'
@@ -164,10 +190,7 @@ async def send_whatsapp_media(to_phone: str, media_type: str, media_url: str, ca
     if not clean_phone or not media_url:
         return {"status": "error", "message": "Invalid recipient or empty media URL"}
 
-    settings_data = load_settings()
-    channels_cfg = settings_data.get("channels", {})
-    whatsapp_token = channels_cfg.get("whatsapp_token", "").strip()
-    whatsapp_phone_number_id = channels_cfg.get("whatsapp_phone_number_id", "").strip()
+    whatsapp_token, whatsapp_phone_number_id = resolve_whatsapp_credentials(token, phone_number_id)
 
     if not whatsapp_token or not whatsapp_phone_number_id:
         return {"status": "dry_run", "message": "WhatsApp API credentials missing"}
