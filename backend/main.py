@@ -6741,9 +6741,13 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                         break
                         
             if not outbound_phone_id and chat.recipient_info:
-                digits_found = re.findall(r'\d{10,}', str(chat.recipient_info))
-                if digits_found:
-                    outbound_phone_id = digits_found[0]
+                id_match = re.search(r'ID:(\d+)', str(chat.recipient_info))
+                if id_match:
+                    outbound_phone_id = id_match.group(1)
+                else:
+                    long_digits = re.findall(r'\d{14,}', str(chat.recipient_info))
+                    if long_digits:
+                        outbound_phone_id = long_digits[0]
 
             # Fallbacks: Top-level credentials or any account in whatsapp_accounts
             if not outbound_token and ch_settings.get("whatsapp_token"):

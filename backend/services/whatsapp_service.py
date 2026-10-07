@@ -73,9 +73,18 @@ def resolve_whatsapp_credentials(token: str = None, phone_number_id: str = None)
     settings_data = load_settings()
     channels_cfg = settings_data.get("channels", {})
     
-    resolved_token = (token or channels_cfg.get("whatsapp_token", "") or os.getenv("WHATSAPP_TOKEN", "")).strip()
-    resolved_phone_id = (phone_number_id or channels_cfg.get("whatsapp_phone_number_id", "") or os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")).strip()
+    top_token = (channels_cfg.get("whatsapp_token", "") or os.getenv("WHATSAPP_TOKEN", "")).strip()
+    top_phone_id = (channels_cfg.get("whatsapp_phone_number_id", "") or os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")).strip()
+
+    resolved_token = (token or top_token).strip()
     
+    # If phone_number_id passed is a display phone number (10-12 digits) rather than Meta Object ID (14+ digits), prefer top_phone_id if valid
+    target_pid = (phone_number_id or "").strip()
+    if target_pid and len(re.sub(r"\D", "", target_pid)) < 14 and top_phone_id and len(re.sub(r"\D", "", top_phone_id)) >= 14:
+        resolved_phone_id = top_phone_id
+    else:
+        resolved_phone_id = (target_pid or top_phone_id).strip()
+
     accs = channels_cfg.get("whatsapp_accounts", [])
     if isinstance(accs, list) and len(accs) > 0:
         matched_acc = None
@@ -105,7 +114,7 @@ def resolve_whatsapp_credentials(token: str = None, phone_number_id: str = None)
             
             if acc_tok and not resolved_token:
                 resolved_token = acc_tok
-            if acc_pid and (not resolved_phone_id or not str(resolved_phone_id).isdigit()):
+            if acc_pid:
                 resolved_phone_id = acc_pid
 
     if not resolved_token and isinstance(accs, list):
@@ -116,6 +125,9 @@ def resolve_whatsapp_credentials(token: str = None, phone_number_id: str = None)
                 if not resolved_phone_id:
                     resolved_phone_id = str(acc.get("phone_number_id", "")).strip()
                 break
+
+    if not resolved_phone_id and top_phone_id:
+        resolved_phone_id = top_phone_id
 
     return resolved_token, resolved_phone_id
 
