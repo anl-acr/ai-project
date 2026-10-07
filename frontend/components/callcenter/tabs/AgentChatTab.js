@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus } from "lucide-react";
+import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 
 export default function AgentChatTab({ backendHost, currentUser }) {
@@ -20,6 +20,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   // Active Chat & Messaging Input
   const [activeChatId, setActiveChatId] = useState(null);
   const [chatInput, setChatInput] = useState("");
+  const [sendError, setSendError] = useState("");
   
   // Internal Chat States
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
@@ -251,7 +252,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
 
     if (chatTab === "customer") {
       const textToSend = chatInput.trim();
-      setChatInput("");
+      setSendError("");
 
       // Optimistic message append
       const optimisticMsg = {
@@ -270,12 +271,21 @@ export default function AgentChatTab({ backendHost, currentUser }) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ text: textToSend })
         });
-        if (res.ok) {
+        const data = await res.json();
+        if (!res.ok) {
+          setSendError(data.detail || data.message || "Mesaj iletilemedi.");
+          setCustomerMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+        } else if (data.status === "warning" || data.status === "error" || data.dispatch?.status === "error" || data.dispatch?.status === "dry_run") {
+          setSendError(data.message || data.dispatch?.detail || data.dispatch?.message || "Mesaj veritabanına kaydedildi ancak dış kanala iletilemedi.");
+        } else {
+          setChatInput("");
           fetchCustomerMessages(activeChatId, false);
           fetchCustomerSessions(false);
         }
       } catch (err) {
         console.error("[AgentChatTab] Error sending omnichannel message:", err);
+        setSendError("Sunucu bağlantı hatası: Mesaj iletilemedi.");
+        setCustomerMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
       }
     } else {
       // Internal Chat Send Logic
@@ -759,6 +769,17 @@ export default function AgentChatTab({ backendHost, currentUser }) {
 
                 {/* Input Area */}
                 <div className={`p-4 bg-white dark:bg-slate-900 border-t ${borderLight} shrink-0`}>
+                  {sendError && (
+                    <div className="mb-3 px-4 py-2.5 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-900/60 text-xs text-rose-700 dark:text-rose-400 rounded-xl flex items-center justify-between font-medium">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle size={15} className="shrink-0 text-rose-500" />
+                        <span>{sendError}</span>
+                      </div>
+                      <button type="button" onClick={() => setSendError("")} className="text-rose-400 hover:text-rose-600">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
                   <form onSubmit={handleSendChatMessage} className="flex items-center gap-3">
                     <div className="flex-1 relative">
                       <input

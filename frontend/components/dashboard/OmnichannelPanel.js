@@ -16,6 +16,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [showCannedPopover, setShowCannedPopover] = useState(false);
   const [showQAReport, setShowQAReport] = useState(false);
+  const [sendError, setSendError] = useState("");
 
   // Broadcast Campaign Modal State
   const [broadcastTarget, setBroadcastTarget] = useState("all_contacts");
@@ -240,17 +241,24 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     if (!inputText.trim() || !activeSession) return;
 
     setActionLoading(true);
+    setSendError("");
     try {
       const res = await fetch(`${API_BASE}/api/omnichannel/chats/${activeSession.id}/send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: inputText })
       });
-      if (res.ok) {
+      const data = await res.json();
+      if (!res.ok) {
+        setSendError(data.detail || data.message || "Mesaj iletilemedi.");
+      } else if (data.status === "warning" || data.status === "error" || data.dispatch?.status === "error" || data.dispatch?.status === "dry_run") {
+        setSendError(data.message || data.dispatch?.detail || data.dispatch?.message || "Mesaj veritabanına kaydedildi ancak dış kanala gönderilemedi.");
+      } else {
         setInputText("");
       }
     } catch (err) {
       console.error("[Omnichannel] Error sending message:", err);
+      setSendError("Sunucu bağlantı hatası: Mesaj iletilemedi.");
     } finally {
       setActionLoading(false);
     }
@@ -722,6 +730,18 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       <span className="text-[10px] text-slate-555 dark:text-slate-400 truncate max-w-xs">{item.content}</span>
                     </button>
                   ))}
+                </div>
+              )}
+
+              {sendError && (
+                <div className="px-4 py-2.5 bg-rose-50 dark:bg-rose-950/40 border-t border-rose-200 dark:border-rose-900/60 text-xs text-rose-700 dark:text-rose-400 flex items-center justify-between font-medium">
+                  <div className="flex items-center gap-2">
+                    <AlertTriangle size={15} className="shrink-0 text-rose-500" />
+                    <span>{sendError}</span>
+                  </div>
+                  <button type="button" onClick={() => setSendError("")} className="text-rose-400 hover:text-rose-600">
+                    <X size={14} />
+                  </button>
                 </div>
               )}
 

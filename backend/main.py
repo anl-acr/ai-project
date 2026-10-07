@@ -6760,11 +6760,12 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             dispatch_res = await send_email_message(chat.sender_info, "AIDA Müşteri Hizmetleri Yanıtı", payload.text)
         
         if dispatch_res and dispatch_res.get("status") in ["dry_run", "error"]:
-            return {
-                "status": "warning", 
-                "message": f"Mesaj veritabanına kaydedildi ancak {chat.channel.upper()} entegrasyon jetonu tanımlı değil veya Meta reddetti.", 
-                "dispatch": dispatch_res
-            }
+            err_detail = dispatch_res.get("detail") or dispatch_res.get("message") or "Meta servisine ulaşılamadı veya erişim jetonu eksik."
+            print(f"[Send Representative Message Error] {chat.channel.upper()} dispatch failed: {err_detail}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Mesaj {chat.channel.upper()} hattından gönderilemedi: {err_detail}"
+            )
 
         return {"status": "success", "message": "Mesaj gönderildi.", "dispatch": dispatch_res}
 
