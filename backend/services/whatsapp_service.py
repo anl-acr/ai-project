@@ -48,22 +48,35 @@ def resolve_whatsapp_credentials(token: str = None, phone_number_id: str = None)
     accs = channels_cfg.get("whatsapp_accounts", [])
     if isinstance(accs, list) and len(accs) > 0:
         matched_acc = None
-        if resolved_phone_id:
+        target_str = str(resolved_phone_id or "").strip()
+        target_digits = re.sub(r"\D", "", target_str)
+        
+        if target_str or target_digits:
             for acc in accs:
                 acc_id = str(acc.get("phone_number_id", "")).strip()
                 acc_phone = str(acc.get("display_phone_number", "")).strip()
+                acc_phone_digits = re.sub(r"\D", "", acc_phone)
                 acc_name = str(acc.get("name", "")).strip()
-                if acc_id == resolved_phone_id or (acc_id and acc_id in resolved_phone_id) or (acc_phone and acc_phone in resolved_phone_id) or (acc_name and acc_name in resolved_phone_id):
+                
+                if (acc_id and (acc_id == target_str or acc_id in target_str)) or \
+                   (acc_phone and acc_phone in target_str) or \
+                   (acc_phone_digits and target_digits and (acc_phone_digits in target_digits or target_digits in acc_phone_digits)) or \
+                   (acc_name and acc_name in target_str):
                     matched_acc = acc
                     break
         
         if not matched_acc:
             matched_acc = accs[0]
 
-        if not resolved_token:
-            resolved_token = (matched_acc.get("token") or matched_acc.get("access_token") or "").strip()
-        if not resolved_phone_id:
-            resolved_phone_id = (matched_acc.get("phone_number_id") or "").strip()
+        if matched_acc:
+            acc_tok = (matched_acc.get("token") or matched_acc.get("access_token") or "").strip()
+            acc_pid = (matched_acc.get("phone_number_id") or "").strip()
+            
+            if acc_tok and not resolved_token:
+                resolved_token = acc_tok
+            if acc_pid:
+                # Always prefer Meta's numeric phone_number_id over phone strings (e.g. 0850...)
+                resolved_phone_id = acc_pid
 
     if not resolved_token and isinstance(accs, list):
         for acc in accs:

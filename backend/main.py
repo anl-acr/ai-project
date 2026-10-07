@@ -6722,11 +6722,17 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             outbound_token = None
             
             if chat.recipient_info and whatsapp_accounts:
+                rec_str = str(chat.recipient_info)
+                rec_digits = re.sub(r"\D", "", rec_str)
                 for acc in whatsapp_accounts:
                     acc_id = str(acc.get("phone_number_id", "")).strip()
                     acc_phone = str(acc.get("display_phone_number", "")).strip()
+                    acc_phone_digits = re.sub(r"\D", "", acc_phone)
                     acc_name = str(acc.get("name", "")).strip()
-                    if (acc_id and acc_id in str(chat.recipient_info)) or (acc_phone and acc_phone in str(chat.recipient_info)) or (acc_name and acc_name in str(chat.recipient_info)):
+                    if (acc_id and acc_id in rec_str) or \
+                       (acc_phone and acc_phone in rec_str) or \
+                       (acc_phone_digits and rec_digits and (acc_phone_digits in rec_digits or rec_digits in acc_phone_digits)) or \
+                       (acc_name and acc_name in rec_str):
                         outbound_phone_id = acc.get("phone_number_id")
                         outbound_token = acc.get("token") or acc.get("access_token")
                         break
