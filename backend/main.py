@@ -6760,17 +6760,25 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                             outbound_phone_id = (acc.get("phone_number_id") or "").strip()
                         break
                         
-            if outbound_phone_id and not chat.recipient_info:
-                chat.recipient_info = f"ID:{outbound_phone_id}"
+            from backend.services.whatsapp_service import resolve_whatsapp_credentials
+            resolved_token, resolved_phone_id = resolve_whatsapp_credentials(outbound_token, outbound_phone_id)
+
+            if resolved_phone_id and not chat.recipient_info:
+                chat.recipient_info = f"ID:{resolved_phone_id}"
                 await session.commit()
 
             dispatch_res = await send_whatsapp_message(
                 chat.sender_info, 
                 payload.text, 
-                phone_number_id=outbound_phone_id, 
-                token=outbound_token
+                phone_number_id=resolved_phone_id, 
+                token=resolved_token
             )
-            print(f"[Send Representative Message] WhatsApp dispatch result for {chat.sender_info} (phone_id: {outbound_phone_id}): {dispatch_res}")
+            print(f"[Send Representative Message] WhatsApp dispatch result for {chat.sender_info} (phone_id: {resolved_phone_id}): {dispatch_res}")
+            add_system_log(
+                "REPRESENTATIVE_OUTBOUND",
+                "INFO" if (dispatch_res and dispatch_res.get("status") == "success") else "ERROR",
+                f"Temsilci Yanıtı: Alıcı={chat.sender_info}, PhoneID={resolved_phone_id}, Dispatch={dispatch_res}"
+            )
         elif ch_lower == "telegram":
             from backend.services.telegram_service import send_telegram_message
             dispatch_res = await send_telegram_message(chat.sender_info, payload.text)
