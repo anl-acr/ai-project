@@ -6715,8 +6715,11 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         ch_lower = chat.channel.lower()
         if ch_lower == "whatsapp":
             from backend.services.whatsapp_service import send_whatsapp_message, load_settings
-            settings_data = load_settings()
-            ch_settings = settings_data.get("channels", {})
+            ch_settings = settings_db.get("channels", {})
+            if not ch_settings or not (ch_settings.get("whatsapp_token") or ch_settings.get("whatsapp_accounts")):
+                disk_settings = load_settings()
+                ch_settings = disk_settings.get("channels", {}) or ch_settings
+                
             whatsapp_accounts = ch_settings.get("whatsapp_accounts", [])
             outbound_phone_id = None
             outbound_token = None
@@ -6741,6 +6744,21 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                 digits_found = re.findall(r'\d{10,}', str(chat.recipient_info))
                 if digits_found:
                     outbound_phone_id = digits_found[0]
+
+            # Fallbacks: Top-level credentials or any account in whatsapp_accounts
+            if not outbound_token and ch_settings.get("whatsapp_token"):
+                outbound_token = ch_settings.get("whatsapp_token")
+            if not outbound_phone_id and ch_settings.get("whatsapp_phone_number_id"):
+                outbound_phone_id = ch_settings.get("whatsapp_phone_number_id")
+
+            if not outbound_token and whatsapp_accounts:
+                for acc in whatsapp_accounts:
+                    t = (acc.get("token") or acc.get("access_token") or "").strip()
+                    if t:
+                        outbound_token = t
+                        if not outbound_phone_id:
+                            outbound_phone_id = (acc.get("phone_number_id") or "").strip()
+                        break
                         
             dispatch_res = await send_whatsapp_message(
                 chat.sender_info, 
@@ -6748,7 +6766,7 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                 phone_number_id=outbound_phone_id, 
                 token=outbound_token
             )
-            print(f"[Send Representative Message] WhatsApp dispatch result: {dispatch_res}")
+            print(f"[Send Representative Message] WhatsApp dispatch result for {chat.sender_info} (phone_id: {outbound_phone_id}): {dispatch_res}")
         elif ch_lower == "telegram":
             from backend.services.telegram_service import send_telegram_message
             dispatch_res = await send_telegram_message(chat.sender_info, payload.text)

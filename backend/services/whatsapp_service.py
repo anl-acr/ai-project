@@ -4,13 +4,22 @@ import os
 import re
 
 def load_settings():
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "settings.json")
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"[WhatsApp Service] Error loading settings: {e}")
+    candidate_paths = [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "settings.json"),
+        os.path.join(os.getcwd(), "backend", "settings.json"),
+        os.path.join(os.getcwd(), "settings.json"),
+        "/opt/ai-project/backend/settings.json",
+        "/opt/ai-project/settings.json"
+    ]
+    for path in candidate_paths:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if data and isinstance(data, dict):
+                        return data
+            except Exception as e:
+                print(f"[WhatsApp Service] Error loading settings from {path}: {e}")
     return {}
 
 def sanitize_phone_number(phone: str) -> str:
