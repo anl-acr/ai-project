@@ -209,6 +209,25 @@ export default function AgentChatTab({ backendHost, currentUser }) {
     fetchCustomerMessages(session.id, true);
   };
 
+  // Human Takeover action
+  const handleTakeover = async (sessionId) => {
+    if (!sessionId) return;
+    try {
+      const activeUser = currentUser?.full_name || currentUser?.username || "Temsilci";
+      const res = await fetch(`${API_BASE}/api/omnichannel/chats/${sessionId}/takeover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assigned_user: activeUser })
+      });
+      if (res.ok) {
+        fetchCustomerSessions(true);
+        fetchCustomerMessages(sessionId, true);
+      }
+    } catch (err) {
+      console.error("[AgentChatTab] Takeover error:", err);
+    }
+  };
+
   // Transfer Customer Chat back to AI Assistant
   const handleTransferToAI = async (sessionId) => {
     if (!sessionId) return;
@@ -610,16 +629,27 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                   </div>
 
                   {/* Header Actions */}
-                  {chatTab === "customer" && selectedCustomerChat?.assigned_agent === "human" && (
+                  {chatTab === "customer" && (
                     <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => handleTransferToAI(selectedCustomerChat.id)}
-                        className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/50 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-                        title="Sohbeti Yapay Zeka Asistanına geri devret"
-                      >
-                        <Bot size={14} />
-                        AI'ya Devret
-                      </button>
+                      {selectedCustomerChat?.assigned_agent === "human" ? (
+                        <button
+                          onClick={() => handleTransferToAI(selectedCustomerChat.id)}
+                          className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 border border-indigo-200/50 dark:border-indigo-800/50 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                          title="Sohbeti Yapay Zeka Asistanına geri devret"
+                        >
+                          <Bot size={14} />
+                          AI'ya Devret
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleTakeover(selectedCustomerChat.id)}
+                          className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                          title="Sohbeti temsilci olarak devral"
+                        >
+                          <User size={14} />
+                          Sohbeti Devral
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

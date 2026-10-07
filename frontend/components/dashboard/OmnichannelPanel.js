@@ -248,8 +248,11 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     if (!activeSession) return;
     setActionLoading(true);
     try {
+      const activeUserId = localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id") || "";
       const res = await fetch(`${API_BASE}/api/omnichannel/chats/${activeSession.id}/takeover`, {
-        method: "POST"
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ assigned_user: activeUserId || "Temsilci" })
       });
       if (res.ok) {
         // Status will be updated via websocket event

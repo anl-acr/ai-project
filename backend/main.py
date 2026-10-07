@@ -6490,8 +6490,12 @@ async def get_chat_messages(session_id: str):
             "timestamp": m.timestamp.isoformat()
         } for m in messages]
 
+class TakeoverSchema(BaseModel):
+    assigned_user: Optional[str] = None
+
 @app.post("/api/omnichannel/chats/{session_id}/takeover")
-async def takeover_chat(session_id: str, user_info: dict = Depends(get_user_info)):
+async def takeover_chat(session_id: str, payload: Optional[TakeoverSchema] = None, user_info: dict = Depends(get_user_info)):
+    import datetime
     async with AsyncSessionLocal() as session:
         stmt = select(ChatSession).where(ChatSession.id == session_id)
         result = await session.execute(stmt)
@@ -6499,18 +6503,75 @@ async def takeover_chat(session_id: str, user_info: dict = Depends(get_user_info
         if not chat:
             raise HTTPException(status_code=404, detail="Sohbet oturumu bulunamadı")
         
-        agent_name = user_info.get("full_name") or user_info.get("username") or "Temsilci"
+        agent_name = None
+        if payload and payload.assigned_user:
+            agent_name = payload.assigned_user.strip()
+            
+        if not agent_name and user_info.get("user_id") and user_info.get("user_id") != "Bilinmeyen":
+            stmt_u = select(SystemUser).where(
+                or_(
+                    SystemUser.id == user_info.get("user_id"),
+                    SystemUser.username == user_info.get("user_id")
+                )
+            )
+            res_u = await session.execute(stmt_u)
+            u = res_u.scalar_one_or_none()
+            if u:
+                agent_name = f"{u.first_name} {u.last_name}".strip() or u.username
+                
+        if not agent_name:
+            agent_name = user_info.get("full_name") or user_info.get("username") or "Temsilci"
+            
         chat.assigned_agent = "human"
         chat.assigned_user = agent_name
-        await session.commit()
+        chat.last_message_time = datetime.datetime.utcnow()
         
-        event = {
+        sys_msg = ChatMessage(
+            session_id=session_id,
+            direction="outbound",
+            sender="system",
+            text=f"Bu görüşme müşteri temsilcisi ({agent_name}) tarafından devralınmıştır."
+        )
+        session.add(sys_msg)
+        await session.commit()
+        await session.refresh(sys_msg)
+        
+        # Broadcast system message turn
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "message",
+            "message": {
+                "id": sys_msg.id,
+                "session_id": session_id,
+                "direction": sys_msg.direction,
+                "sender": sys_msg.sender,
+                "text": sys_msg.text,
+                "timestamp": sys_msg.timestamp.isoformat()
+            }
+        })
+        
+        # Broadcast takeover state update
+        await ws_manager.broadcast_omnichannel_event({
             "type": "takeover_changed",
             "session_id": session_id,
             "assigned_agent": "human",
             "assigned_user": agent_name
-        }
-        await ws_manager.broadcast_omnichannel_event(event)
+        })
+        
+        # Broadcast session preview update
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "session_update",
+            "session": {
+                "id": session_id,
+                "channel": chat.channel,
+                "sender_info": chat.sender_info,
+                "recipient_info": chat.recipient_info,
+                "status": chat.status,
+                "assigned_agent": "human",
+                "assigned_user": agent_name,
+                "last_message_time": chat.last_message_time.isoformat(),
+                "last_message_text": sys_msg.text
+            }
+        })
         return {"status": "success", "message": f"Sohbet temsilciye ({agent_name}) aktarıldı.", "assigned_user": agent_name}
 
 @app.post("/api/omnichannel/chats/{session_id}/transfer_to_ai")
