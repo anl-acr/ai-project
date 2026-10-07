@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp, Megaphone, CheckCircle, Upload } from "lucide-react";
+import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp, Megaphone, CheckCircle, Upload, Search } from "lucide-react";
 import AddContactModal from "./AddContactModal";
 
 export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
@@ -7,6 +7,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [activeSession, setActiveSession] = useState(null);
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState({ sessions: false, messages: false });
   const [actionLoading, setActionLoading] = useState(false);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
@@ -446,8 +447,46 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
         {/* 1. Left Session List (25% width on large screens) */}
         <div className="lg:col-span-1 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm h-[600px] flex flex-col transition-colors duration-300">
-          <div className="p-4 border-b border-slate-100 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-950/20">
-            <h3 className="text-xs font-bold text-slate-850 dark:text-slate-200 uppercase tracking-wider">Aktif Sohbetler</h3>
+          <div className="p-3 border-b border-slate-100 dark:border-slate-850 bg-slate-50/50 dark:bg-slate-950/20 space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold text-slate-850 dark:text-slate-200 uppercase tracking-wider">Aktif Sohbetler</h3>
+              <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 bg-slate-200/60 dark:bg-slate-800 px-2 py-0.5 rounded-full">
+                {sessions.filter((session) => {
+                  if (!searchQuery.trim()) return true;
+                  const q = searchQuery.toLowerCase().trim();
+                  const nameMatch = session.sender_name && session.sender_name.toLowerCase().includes(q);
+                  const infoMatch = session.sender_info && session.sender_info.toLowerCase().includes(q);
+                  const cleanPhone = session.sender_info ? session.sender_info.replace(/\D/g, "") : "";
+                  const qDigits = q.replace(/\D/g, "");
+                  const phoneDigitsMatch = qDigits.length >= 2 && cleanPhone.includes(qDigits);
+                  const lastMsgMatch = session.last_message_text && session.last_message_text.toLowerCase().includes(q);
+                  const lineMatch = session.recipient_info && session.recipient_info.toLowerCase().includes(q);
+                  return nameMatch || infoMatch || phoneDigitsMatch || lastMsgMatch || lineMatch;
+                }).length}
+              </span>
+            </div>
+            
+            {/* Search Input Box */}
+            <div className="relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="İsim veya tel no ara..."
+                className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-purple-500 font-medium"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  title="Aramayı Temizle"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
           </div>
           
           <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-850">
@@ -456,59 +495,82 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             ) : sessions.length === 0 ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-bold">Aktif sohbet bulunmuyor.</div>
             ) : (
-              sessions.map((session) => {
-                const isActive = activeSession && activeSession.id === session.id;
-                return (
-                  <div
-                    key={session.id}
-                    onClick={() => selectSession(session)}
-                    className={`p-4 cursor-pointer transition text-left flex flex-col gap-2.5 relative ${
-                      isActive 
-                        ? "bg-purple-50/40 dark:bg-purple-950/15 border-l-[3px] border-purple-500" 
-                        : "hover:bg-slate-50 dark:hover:bg-slate-850/50 border-l-[3px] border-transparent"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-extrabold text-slate-900 dark:text-white truncate max-w-[65%]">
-                        {session.sender_name ? `${session.sender_name} (${session.sender_info})` : session.sender_info}
-                      </span>
-                      {renderChannelBadge(session.channel)}
+              (() => {
+                const filteredSessions = sessions.filter((session) => {
+                  if (!searchQuery.trim()) return true;
+                  const q = searchQuery.toLowerCase().trim();
+                  const nameMatch = session.sender_name && session.sender_name.toLowerCase().includes(q);
+                  const infoMatch = session.sender_info && session.sender_info.toLowerCase().includes(q);
+                  const cleanPhone = session.sender_info ? session.sender_info.replace(/\D/g, "") : "";
+                  const qDigits = q.replace(/\D/g, "");
+                  const phoneDigitsMatch = qDigits.length >= 2 && cleanPhone.includes(qDigits);
+                  const lastMsgMatch = session.last_message_text && session.last_message_text.toLowerCase().includes(q);
+                  const lineMatch = session.recipient_info && session.recipient_info.toLowerCase().includes(q);
+                  return nameMatch || infoMatch || phoneDigitsMatch || lastMsgMatch || lineMatch;
+                });
+
+                if (filteredSessions.length === 0) {
+                  return (
+                    <div className="text-center py-12 px-4 text-xs text-slate-400 dark:text-slate-500 font-medium">
+                      "{searchQuery}" aramasına uygun sohbet bulunamadı.
                     </div>
-                    
-                    {session.recipient_info && (
-                      <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/40 px-1.5 py-0.5 rounded-md self-start">
-                        {session.recipient_info}
-                      </span>
-                    )}
+                  );
+                }
 
-                    <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-semibold">
-                      {session.last_message_text || "Mesaj yok"}
-                    </p>
-
-                    <div className="flex items-center justify-between text-[9px] text-slate-400 dark:text-slate-550 mt-0.5">
-                      <div className="flex items-center gap-1.5">
-                        <span>
-                          {new Date(session.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                return filteredSessions.map((session) => {
+                  const isActive = activeSession && activeSession.id === session.id;
+                  return (
+                    <div
+                      key={session.id}
+                      onClick={() => selectSession(session)}
+                      className={`p-4 cursor-pointer transition text-left flex flex-col gap-2.5 relative ${
+                        isActive 
+                          ? "bg-purple-50/40 dark:bg-purple-950/15 border-l-[3px] border-purple-500" 
+                          : "hover:bg-slate-50 dark:hover:bg-slate-850/50 border-l-[3px] border-transparent"
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-white truncate max-w-[65%]">
+                          {session.sender_name ? `${session.sender_name} (${session.sender_info})` : session.sender_info}
                         </span>
-                        {session.qa_score !== undefined && session.qa_score !== null && (
-                          <span className="px-1 py-0.2 rounded text-[7px] font-extrabold bg-indigo-50 dark:bg-indigo-950/20 text-primary border border-indigo-100 dark:border-indigo-900/35">
-                            QA: {session.qa_score}
+                        {renderChannelBadge(session.channel)}
+                      </div>
+                      
+                      {session.recipient_info && (
+                        <span className="text-[9px] font-bold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/40 px-1.5 py-0.5 rounded-md self-start">
+                          {session.recipient_info}
+                        </span>
+                      )}
+
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate font-semibold">
+                        {session.last_message_text || "Mesaj yok"}
+                      </p>
+
+                      <div className="flex items-center justify-between text-[9px] text-slate-400 dark:text-slate-550 mt-0.5">
+                        <div className="flex items-center gap-1.5">
+                          <span>
+                            {new Date(session.last_message_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                          {session.qa_score !== undefined && session.qa_score !== null && (
+                            <span className="px-1 py-0.2 rounded text-[7px] font-extrabold bg-indigo-50 dark:bg-indigo-950/20 text-primary border border-indigo-100 dark:border-indigo-900/35">
+                              QA: {session.qa_score}
+                            </span>
+                          )}
+                        </div>
+                        {session.assigned_agent === "ai" ? (
+                          <span className="flex items-center gap-1 text-primary dark:text-purple-400 font-bold">
+                            <Bot size={10} /> AI Yanıtlıyor
+                          </span>
+                        ) : (
+                          <span className="flex items-center gap-1 text-primary dark:text-primary font-bold">
+                            <User size={10} /> Temsilcide
                           </span>
                         )}
                       </div>
-                      {session.assigned_agent === "ai" ? (
-                        <span className="flex items-center gap-1 text-primary dark:text-purple-400 font-bold">
-                          <Bot size={10} /> AI Yanıtlıyor
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-primary dark:text-primary font-bold">
-                          <User size={10} /> Temsilcide
-                        </span>
-                      )}
                     </div>
-                  </div>
-                );
-              })
+                  );
+                });
+              })()
             )}
           </div>
         </div>
