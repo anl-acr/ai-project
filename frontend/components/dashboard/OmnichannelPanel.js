@@ -513,8 +513,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
           </div>
         </div>
 
-        {/* 2. Middle Message Thread (50% width on large screens) */}
-        <div className="lg:col-span-2 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm h-[600px] flex flex-col transition-colors duration-300">
+        {/* 2. Middle Message Thread (75% width on large screens - Expanded) */}
+        <div className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm h-[600px] flex flex-col transition-colors duration-300">
           {activeSession ? (
             <>
               {/* Active Header */}
@@ -540,16 +540,38 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   </div>
                 </div>
                 
-                {/* Agent Control status */}
-                <div>
+                {/* Agent Control Status & Takeover Action Button */}
+                <div className="flex items-center gap-2">
                   {activeSession.assigned_agent === "ai" ? (
-                    <span className="px-2.5 py-1 bg-primary/10 text-primary dark:text-purple-400 border border-purple-500/20 rounded-full text-[10px] font-extrabold flex items-center gap-1">
-                      <Bot size={11} /> AI Modu
-                    </span>
+                    <>
+                      <span className="px-2.5 py-1 bg-purple-50 dark:bg-purple-950/40 text-primary dark:text-purple-400 border border-purple-200 dark:border-purple-800/40 rounded-full text-[10px] font-extrabold flex items-center gap-1">
+                        <Bot size={11} /> AI Modu
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleTakeover}
+                        disabled={actionLoading}
+                        className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                        title="Sohbeti Devral"
+                      >
+                        <User size={13} /> Sohbeti Devral
+                      </button>
+                    </>
                   ) : (
-                    <span className="px-2.5 py-1 bg-primary/10 text-amber-650 dark:text-amber-400 border border-amber-500/20 rounded-full text-[10px] font-extrabold flex items-center gap-1 animate-pulse">
-                      <User size={11} /> Temsilci Modu
-                    </span>
+                    <>
+                      <span className="px-2.5 py-1 bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/40 rounded-full text-[10px] font-extrabold flex items-center gap-1 animate-pulse">
+                        <User size={11} /> Temsilci Modu
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleTransferToAI}
+                        disabled={actionLoading}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
+                        title="Sohbeti AI'a Aktar"
+                      >
+                        <Bot size={13} /> Sohbeti AI'a Aktar
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -722,180 +744,6 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
               </p>
             </div>
           )}
-        </div>
-
-        {/* 3. Right Control Box & Simulator (25% width on large screens) */}
-        <div className="lg:col-span-1 space-y-6">
-          
-          {/* Action Panel */}
-          {activeSession && (
-            <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm text-left transition-colors duration-300">
-              <h3 className="text-xs font-extrabold text-slate-850 dark:text-slate-200 uppercase tracking-wider mb-4">Müdahale Kontrolü</h3>
-              
-              <div className="space-y-4">
-                {activeSession.assigned_agent === "ai" ? (
-                  <div className="space-y-3">
-                    <div className="p-3 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-100/50 dark:border-purple-900/30 rounded-2xl flex gap-2">
-                      <HelpCircle size={15} className="text-primary shrink-0 mt-0.5" />
-                      <p className="text-[10px] text-purple-700 dark:text-purple-400 font-semibold leading-normal">
-                        Bu sohbet şu anda yapay zeka tarafından yanıtlanıyor. Temsilcinin müdahale etmesi gerekiyorsa sohbeti devralabilirsiniz.
-                      </p>
-                    </div>
-                    <button
-                      onClick={handleTakeover}
-                      disabled={actionLoading}
-                      className="w-full py-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm shadow-amber-500/10"
-                    >
-                      <User size={14} /> Sohbeti Devral
-                    </button>
-                  </div>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="p-3 bg-amber-50/50 dark:bg-amber-900/15 border border-amber-200/40 dark:border-amber-900/30 rounded-2xl flex gap-2">
-                      <AlertCircle size={15} className="text-primary shrink-0 mt-0.5" />
-                      <p className="text-[10px] text-amber-700 dark:text-amber-400 font-semibold leading-normal">
-                        Sohbet kontrolü temsilcide. Yapay zeka asistanı şu anda sessizde. İşi tamamladıktan sonra kontrolü geri verebilirsiniz.
-                      </p>
-                    </div>
-                    <button
-                      onClick={handleTransferToAI}
-                      disabled={actionLoading}
-                      className="w-full py-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 shadow-sm shadow-purple-500/10"
-                    >
-                      <Bot size={14} /> Sohbeti AI'a Aktar
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* QA Quality Evaluation Card */}
-          {activeSession && activeSession.qa_score !== undefined && activeSession.qa_score !== null && (
-            <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm text-left transition-colors duration-300 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="text-xs font-extrabold text-slate-850 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                  <Award size={15} className="text-primary" />
-                  <span>Sohbet QA Skoru</span>
-                </h3>
-                <span className="text-sm font-extrabold text-primary dark:text-indigo-400">{activeSession.qa_score} / 100</span>
-              </div>
-
-              {activeSession.qa_report && (
-                <div className="space-y-3">
-                  <button
-                    onClick={() => setShowQAReport(!showQAReport)}
-                    className="w-full flex items-center justify-between py-1 px-2 border border-slate-100 dark:border-slate-800 rounded-xl text-[10px] font-bold text-slate-550 focus:outline-none"
-                  >
-                    <span>Detaylı Kriterler</span>
-                    {showQAReport ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-                  </button>
-
-                  {showQAReport && (
-                    <div className="text-[10px] space-y-2 border-t border-slate-50 dark:border-slate-850 pt-2 leading-relaxed">
-                      {(() => {
-                        try {
-                          const qaObj = JSON.parse(activeSession.qa_report);
-                          return (
-                            <>
-                              <div className="p-2.5 bg-indigo-50/30 dark:bg-indigo-950/10 border border-indigo-100/30 dark:border-indigo-900/20 rounded-xl">
-                                <strong className="text-primary dark:text-indigo-400 block mb-1">Koçluk Tavsiyesi:</strong>
-                                <p className="text-slate-600 dark:text-slate-400 font-medium">{qaObj.coaching_report}</p>
-                              </div>
-
-                              {qaObj.breakdown && qaObj.breakdown.length > 0 && (
-                                <div className="space-y-1.5">
-                                  <strong className="text-slate-700 dark:text-slate-350 block">Uyum Tablosu:</strong>
-                                  <div className="divide-y divide-slate-100 dark:divide-slate-850 border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden">
-                                    {qaObj.breakdown.map((item, idx) => (
-                                      <div key={idx} className="p-2 flex items-start justify-between gap-3 bg-slate-50/20 dark:bg-slate-950/5">
-                                        <div className="space-y-0.5">
-                                          <p className="font-bold text-slate-800 dark:text-slate-300 text-[10px]">{item.question}</p>
-                                          {!item.satisfied && item.reason && (
-                                            <p className="text-[9px] text-primary font-mono">{item.reason}</p>
-                                          )}
-                                        </div>
-                                        <span className={`px-1.5 py-0.2 rounded text-[8px] font-bold shrink-0 uppercase tracking-wide ${
-                                          item.satisfied 
-                                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary" 
-                                            : "bg-rose-50 dark:bg-rose-950/20 text-primary"
-                                        }`}>
-                                          {item.satisfied ? "OK" : `-${item.penalty}`}
-                                        </span>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          );
-                        } catch (e) {
-                          return <p className="text-slate-500 font-medium">{activeSession.qa_report}</p>;
-                        }
-                      })()}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Message Simulator Box */}
-          <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm text-left transition-colors duration-300">
-            <h3 className="text-xs font-extrabold text-slate-850 dark:text-slate-200 uppercase tracking-wider mb-4 flex items-center gap-1.5">
-              <Shield size={14} className="text-primary" /> Mesaj Simülatörü
-            </h3>
-
-            <form onSubmit={handleSimulate} className="space-y-3.5">
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Kanal Seçimi</label>
-                <select
-                  value={simChannel}
-                  onChange={(e) => setSimChannel(e.target.value)}
-                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
-                >
-                  <option value="whatsapp">WhatsApp</option>
-                  <option value="instagram">Instagram</option>
-                  <option value="telegram">Telegram</option>
-                  <option value="facebook">Facebook</option>
-                  <option value="mail">Mail</option>
-                </select>
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Gönderen Bilgisi</label>
-                <input
-                  type="text"
-                  value={simSender}
-                  onChange={(e) => setSimSender(e.target.value)}
-                  required
-                  placeholder="+905554443322 veya user@mail.com"
-                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none font-mono"
-                />
-              </div>
-
-              <div className="flex flex-col gap-1">
-                <label className="text-[10px] text-slate-400 dark:text-slate-550 font-bold uppercase tracking-wider">Müşteri Mesajı</label>
-                <textarea
-                  value={simText}
-                  onChange={(e) => setSimText(e.target.value)}
-                  required
-                  rows={3}
-                  placeholder="Simüle edilecek müşteri mesajı..."
-                  className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={simLoading || !simText.trim()}
-                className="w-full py-2.5 bg-primary hover:bg-primary disabled:bg-primary text-white rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5"
-              >
-                {simLoading ? "Simüle ediliyor..." : "Mesaj Simüle Et"}
-              </button>
-            </form>
-          </div>
-
         </div>
 
       </div>
