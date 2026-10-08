@@ -592,8 +592,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="İsim veya tel no ara..."
-                className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-purple-500 font-medium"
+                 placeholder="İsim veya tel no ara..."
+                className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-purple-500 font-medium placeholder:text-slate-400 dark:placeholder:text-slate-500"
               />
               {searchQuery && (
                 <button
@@ -608,11 +608,11 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             </div>
           </div>
           
-          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-850">
+          <div className="flex-1 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
             {loading.sessions && sessions.length === 0 ? (
               <div className="text-center py-12 text-xs text-slate-400 font-bold animate-pulse">Sohbetler yükleniyor...</div>
             ) : sessions.length === 0 ? (
-              <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-bold">Aktif sohbet bulunmuyor.</div>
+              <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 font-bold">Aktif sohbet bulunmuyor.</div>
             ) : (
               (() => {
                 const filteredSessions = sessions.filter((session) => {
@@ -644,8 +644,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       onClick={() => selectSession(session)}
                       className={`p-4 cursor-pointer transition text-left flex flex-col gap-2.5 relative ${
                         isActive 
-                          ? "bg-purple-50/40 dark:bg-purple-950/15 border-l-[3px] border-purple-500" 
-                          : "hover:bg-slate-50 dark:hover:bg-slate-850/50 border-l-[3px] border-transparent"
+                          ? "bg-purple-50 dark:bg-purple-950/40 border-l-[3px] border-purple-500 shadow-sm" 
+                          : "hover:bg-slate-50 dark:hover:bg-slate-800/60 border-l-[3px] border-transparent"
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -871,7 +871,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       : "Müşteriye yanıt yazın... (Şablonlar için / yazın)"
                   }
                   disabled={activeSession.assigned_agent === "ai" || actionLoading}
-                  className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-purple-500 disabled:opacity-55 disabled:cursor-not-allowed dark:text-slate-200"
+                  className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-purple-500 disabled:opacity-55 disabled:cursor-not-allowed text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500"
                 />
 
                 <div className="relative flex items-center shrink-0">
@@ -882,10 +882,10 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       setShowCannedPopover(!showCannedPopover);
                       setShowSuggestions(false);
                     }}
-                    className={`p-2 rounded-xl border transition hover:bg-slate-55/65 dark:hover:bg-slate-850 disabled:opacity-45 ${
+                    className={`p-2 rounded-xl border transition hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-45 ${
                       showCannedPopover 
                         ? "border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-950/25 text-primary dark:text-purple-400" 
-                        : "border-slate-200 dark:border-slate-805 bg-slate-50/50 dark:bg-slate-950/40 text-slate-400"
+                        : "border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 text-slate-400"
                     }`}
                     title="Hızlı Cevaplar"
                   >
@@ -989,10 +989,10 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 <select
                   value={broadcastTarget}
                   onChange={(e) => setBroadcastTarget(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
                 >
-                  <option value="all_contacts">Rehberdeki Tüm Kayıtlı Kişiler</option>
-                  <option value="custom">Özel Numaralar Listesi (CSV / Manuel)</option>
+                  <option value="all_contacts" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white">Rehberdeki Tüm Kayıtlı Kişiler</option>
+                  <option value="custom" className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white">Özel Numaralar Listesi (CSV / Manuel)</option>
                 </select>
               </div>
 
@@ -1016,7 +1016,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                     onChange={(e) => setBroadcastNumbers(e.target.value)}
                     placeholder="Her satıra bir numara yazın veya yukarıdan CSV/TXT dosyası seçin (Örn: +905554443322)"
                     rows={4}
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-mono text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
                   />
                   {broadcastNumbers && (
                     <span className="text-[9px] text-emerald-600 dark:text-emerald-400 font-bold block mt-1">
@@ -1034,7 +1034,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   required
                   placeholder="Gönderilecek kampanya veya duyuru metnini yazın..."
                   rows={4}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
                 />
               </div>
 
@@ -1045,7 +1045,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   value={broadcastMediaUrl}
                   onChange={(e) => setBroadcastMediaUrl(e.target.value)}
                   placeholder="https://example.com/katalog.pdf veya gorsel.jpg"
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none placeholder:text-slate-400 dark:placeholder:text-slate-500"
                 />
               </div>
 
@@ -1137,7 +1137,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   type="text"
                   readOnly
                   value={activeSession.sender_info}
-                  className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-700 dark:text-slate-300 font-bold"
+                  className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-700 dark:text-slate-200 font-bold"
                 />
               </div>
 
@@ -1149,10 +1149,10 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                     const tpl = availableTemplates.find(t => (t.id || t.name) === e.target.value);
                     if (tpl) handleSelectTemplate(tpl);
                   }}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-semibold"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-semibold"
                 >
                   {availableTemplates.map((t) => (
-                    <option key={t.id || t.name} value={t.id || t.name}>
+                    <option key={t.id || t.name} value={t.id || t.name} className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white">
                       {t.display_name || t.name} ({t.category || "UTILITY"})
                     </option>
                   ))}
@@ -1160,12 +1160,12 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
               </div>
 
               {selectedTemplate && (
-                <div className="p-3 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-2">
+                <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-2">
                   <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 dark:text-slate-500">
                     <span>Canlı Şablon Önizleme</span>
                     <span className="uppercase text-indigo-500">{selectedTemplate.language || "tr"}</span>
                   </div>
-                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium leading-relaxed bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
+                  <p className="text-xs text-slate-700 dark:text-slate-200 font-medium leading-relaxed bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                     {(() => {
                       let preview = selectedTemplate.body_text || selectedTemplate.name;
                       (selectedTemplate.parameters || []).forEach((_, idx) => {
@@ -1196,7 +1196,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                           setTemplateParamValues(newVals);
                         }}
                         placeholder={`${paramLabel} değerini giriniz...`}
-                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium placeholder:text-slate-400 dark:placeholder:text-slate-500"
                       />
                     </div>
                   ))}
