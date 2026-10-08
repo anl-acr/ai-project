@@ -6637,11 +6637,44 @@ async def release_chat_to_ai(session_id: str):
         })
         return {"status": "success", "message": "Sohbet yapay zekaya devredildi."}
 
+@app.post("/api/omnichannel/chats/upload-media")
+async def upload_chat_media(file: UploadFile = File(...), user_info: dict = Depends(get_user_info)):
+    os.makedirs("uploads/chat_media", exist_ok=True)
+    ext = os.path.splitext(file.filename)[1].lower()
+    
+    content_type = file.content_type or ""
+    if content_type.startswith("image/") or ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+        media_type = "image"
+    elif content_type.startswith("video/") or ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]:
+        media_type = "video"
+    elif content_type.startswith("audio/") or ext in [".mp3", ".wav", ".ogg", ".m4a", ".aac"]:
+        media_type = "audio"
+    else:
+        media_type = "document"
+
+    safe_filename = f"{uuid.uuid4().hex[:8]}_{re.sub(r'[^a-zA-Z0-9_.-]', '_', file.filename)}"
+    filepath = os.path.join("uploads/chat_media", safe_filename)
+    
+    contents = await file.read()
+    with open(filepath, "wb") as f:
+        f.write(contents)
+        
+    public_url = f"/uploads/chat_media/{safe_filename}"
+    return {
+        "status": "success",
+        "url": public_url,
+        "media_type": media_type,
+        "filename": file.filename
+    }
+
 class ChatMessageSendSchema(BaseModel):
-    text: str
+    text: Optional[str] = ""
+    media_url: Optional[str] = None
+    media_type: Optional[str] = None
+    media_filename: Optional[str] = None
 
 @app.post("/api/omnichannel/chats/{session_id}/send")
-async def send_representative_message(session_id: str, payload: ChatMessageSendSchema):
+async def send_representative_message(session_id: str, payload: ChatMessageSendSchema, request: Request):
     import datetime
     async with AsyncSessionLocal() as session:
         stmt = select(ChatSession).where(ChatSession.id == session_id)
@@ -6664,12 +6697,22 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         else:
             sender_name = resolve_contact_name_by_phone(contacts, chat.sender_info)
         
+        # Determine stored text & format if media is present
+        text_content = payload.text or ""
+        if payload.media_url:
+            fname = payload.media_filename or payload.media_url.split("/")[-1]
+            m_tag = f"[MEDIA:{payload.media_type or 'document'}|{payload.media_url}|{fname}]"
+            if text_content:
+                text_content = f"{text_content}\n{m_tag}"
+            else:
+                text_content = m_tag
+
         # Save the message
         db_message = ChatMessage(
             session_id=session_id,
             direction="outbound",
             sender="human",
-            text=payload.text
+            text=text_content
         )
         session.add(db_message)
         await session.commit()
@@ -6711,7 +6754,7 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         dispatch_res = None
         ch_lower = chat.channel.lower()
         if ch_lower == "whatsapp":
-            from backend.services.whatsapp_service import send_whatsapp_message, load_settings
+            from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_media, load_settings
             ch_settings = settings_db.get("channels", {})
             if not ch_settings or not (ch_settings.get("whatsapp_token") or ch_settings.get("whatsapp_accounts")):
                 disk_settings = load_settings()
@@ -6768,19 +6811,37 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                 chat.recipient_info = f"ID:{resolved_phone_id}"
                 await session.commit()
 
-            # Execute background task for outbound dispatch (exact AI response pattern) to eliminate client timeouts
-            asyncio.create_task(
-                send_whatsapp_message(
-                    chat.sender_info, 
-                    payload.text, 
-                    phone_number_id=resolved_phone_id, 
-                    token=resolved_token
+            # Dispatch text or media
+            if payload.media_url:
+                full_url = payload.media_url
+                if full_url.startswith("/"):
+                    host_hdr = request.headers.get("host") or "localhost:8000"
+                    scheme = "https" if "443" in host_hdr or "https" in request.headers.get("x-forwarded-proto", "") else "http"
+                    full_url = f"{scheme}://{host_hdr}{payload.media_url}"
+                
+                asyncio.create_task(
+                    send_whatsapp_media(
+                        chat.sender_info,
+                        payload.media_type or "document",
+                        full_url,
+                        caption=payload.text or "",
+                        phone_number_id=resolved_phone_id,
+                        token=resolved_token
+                    )
                 )
-            )
+            else:
+                asyncio.create_task(
+                    send_whatsapp_message(
+                        chat.sender_info, 
+                        payload.text or "", 
+                        phone_number_id=resolved_phone_id, 
+                        token=resolved_token
+                    )
+                )
             add_system_log(
                 "REPRESENTATIVE_OUTBOUND",
                 "INFO",
-                f"Temsilci Yanıtı Gönderim Görevi Başlatıldı: Alıcı={chat.sender_info}, PhoneID={resolved_phone_id}"
+                f"Temsilci Yanıtı Gönderim Görevi Başlatıldı: Alıcı={chat.sender_info}, PhoneID={resolved_phone_id}, Media={bool(payload.media_url)}"
             )
             dispatch_res = {"status": "success", "message": "Gönderim görevi başlatıldı"}
 

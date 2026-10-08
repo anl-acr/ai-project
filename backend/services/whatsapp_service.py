@@ -316,11 +316,11 @@ async def send_whatsapp_media(to_phone: str, media_type: str, media_url: str, ca
     }
 
     m_type = media_type.lower()
-    if m_type not in ["image", "document", "audio"]:
+    if m_type not in ["image", "document", "audio", "video"]:
         m_type = "document"
 
     media_obj = { "link": media_url }
-    if caption and m_type in ["image", "document"]:
+    if caption and m_type in ["image", "document", "video"]:
         media_obj["caption"] = caption
     if m_type == "document":
         media_obj["filename"] = media_url.split("/")[-1] or "dokuman.pdf"
