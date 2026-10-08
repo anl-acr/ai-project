@@ -1105,6 +1105,8 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
             </form>
           </div>
         </div>
+      )}
+
       {/* 4. WhatsApp HSM Template Message Modal */}
       {showTemplateModal && activeSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
