@@ -72,8 +72,10 @@ Yanıtını kesinlikle şu JSON formatında ver:
 }}
 """
             try:
+                import asyncio
                 client = get_genai_client()
-                qa_response = client.models.generate_content(
+                qa_response = await asyncio.to_thread(
+                    client.models.generate_content,
                     model="gemini-2.5-flash",
                     contents=qa_prompt
                 )
@@ -150,7 +152,8 @@ Yanıtını kesinlikle şu JSON formatında ver:
   "sentiment": "kategori"
 }}
 """
-            response = client.models.generate_content(
+            response = await asyncio.to_thread(
+                client.models.generate_content,
                 model="gemini-2.5-flash",
                 contents=prompt
             )
@@ -206,7 +209,8 @@ Yanıtını kesinlikle şu JSON formatında ver:
 }}
 """
                 try:
-                    qa_response = client.models.generate_content(
+                    qa_response = await asyncio.to_thread(
+                        client.models.generate_content,
                         model="gemini-2.5-flash",
                         contents=qa_prompt
                     )

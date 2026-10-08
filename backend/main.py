@@ -6705,11 +6705,6 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             }
         })
         
-        # Trigger background QA evaluation
-        import asyncio
-        from backend.services.call_analyzer import analyze_chat_session
-        asyncio.create_task(analyze_chat_session(session_id))
-
         # Trigger outbound channel message
         dispatch_res = None
         ch_lower = chat.channel.lower()
@@ -6786,6 +6781,7 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                 f"Temsilci Yanıtı Gönderim Görevi Başlatıldı: Alıcı={chat.sender_info}, PhoneID={resolved_phone_id}"
             )
             dispatch_res = {"status": "success", "message": "Gönderim görevi başlatıldı"}
+
         elif ch_lower == "telegram":
             from backend.services.telegram_service import send_telegram_message
             dispatch_res = await send_telegram_message(chat.sender_info, payload.text)
@@ -6795,6 +6791,11 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
         elif ch_lower == "email":
             from backend.services.email_service import send_email_message
             dispatch_res = await send_email_message(chat.sender_info, "AIDA Müşteri Hizmetleri Yanıtı", payload.text)
+        
+        # Trigger background QA evaluation AFTER message dispatch
+        import asyncio
+        from backend.services.call_analyzer import analyze_chat_session
+        asyncio.create_task(analyze_chat_session(session_id))
         
         if dispatch_res and dispatch_res.get("status") in ["dry_run", "error"]:
             err_detail = dispatch_res.get("detail") or dispatch_res.get("message") or "Meta servisine ulaşılamadı veya erişim jetonu eksik."
