@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import re
+import asyncio
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
@@ -6794,7 +6795,6 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             dispatch_res = await send_email_message(chat.sender_info, "AIDA Müşteri Hizmetleri Yanıtı", payload.text)
         
         # Trigger background QA evaluation AFTER message dispatch
-        import asyncio
         from backend.services.call_analyzer import analyze_chat_session
         asyncio.create_task(analyze_chat_session(session_id))
         
