@@ -188,12 +188,12 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
               setActiveSession(prev => ({ ...prev, ...updatedSess }));
             }
           } else if (data.type === "takeover_changed") {
-            const { session_id, assigned_agent } = data;
+            const { session_id, assigned_agent, assigned_user } = data;
             setSessions(prev => 
-              prev.map(s => String(s.id) === String(session_id) ? { ...s, assigned_agent } : s)
+              prev.map(s => String(s.id) === String(session_id) ? { ...s, assigned_agent, assigned_user } : s)
             );
             if (activeSessionRef.current && String(activeSessionRef.current.id) === String(session_id)) {
-              setActiveSession(prev => ({ ...prev, assigned_agent }));
+              setActiveSession(prev => ({ ...prev, assigned_agent, assigned_user }));
             }
           }
         } catch (err) {
@@ -267,16 +267,27 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   // Human Takeover action
   const handleTakeover = async () => {
     if (!activeSession) return;
+    const sessionId = activeSession.id;
+    const activeUserId = localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id") || "";
+    const activeUserName = activeUserId || "Temsilci";
+
+    // Immediate Optimistic State Update
+    setActiveSession(prev => prev ? { ...prev, assigned_agent: "human", assigned_user: activeUserName } : prev);
+    setSessions(prev => prev.map(s => String(s.id) === String(sessionId) ? { ...s, assigned_agent: "human", assigned_user: activeUserName } : s));
+
     setActionLoading(true);
     try {
-      const activeUserId = localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id") || "";
-      const res = await fetch(`${API_BASE}/api/omnichannel/chats/${activeSession.id}/takeover`, {
+      const res = await fetch(`${API_BASE}/api/omnichannel/chats/${sessionId}/takeover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ assigned_user: activeUserId || "Temsilci" })
+        body: JSON.stringify({ assigned_user: activeUserName })
       });
       if (res.ok) {
-        // Status will be updated via websocket event
+        const data = await res.json().catch(() => ({}));
+        const assignedName = data.assigned_user || activeUserName;
+        setActiveSession(prev => prev ? { ...prev, assigned_agent: "human", assigned_user: assignedName } : prev);
+        setSessions(prev => prev.map(s => String(s.id) === String(sessionId) ? { ...s, assigned_agent: "human", assigned_user: assignedName } : s));
+        fetchMessages(sessionId, false);
       }
     } catch (err) {
       console.error("[Omnichannel] Takeover error:", err);
@@ -288,13 +299,19 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   // Return control back to AI
   const handleTransferToAI = async () => {
     if (!activeSession) return;
+    const sessionId = activeSession.id;
+
+    // Immediate Optimistic State Update
+    setActiveSession(prev => prev ? { ...prev, assigned_agent: "ai", assigned_user: null } : prev);
+    setSessions(prev => prev.map(s => String(s.id) === String(sessionId) ? { ...s, assigned_agent: "ai", assigned_user: null } : s));
+
     setActionLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/omnichannel/chats/${activeSession.id}/transfer_to_ai`, {
+      const res = await fetch(`${API_BASE}/api/omnichannel/chats/${sessionId}/transfer_to_ai`, {
         method: "POST"
       });
       if (res.ok) {
-        // Status will be updated via websocket event
+        fetchMessages(sessionId, false);
       }
     } catch (err) {
       console.error("[Omnichannel] Transfer to AI error:", err);

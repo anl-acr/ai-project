@@ -213,16 +213,26 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   // Human Takeover action
   const handleTakeover = async (sessionId) => {
     if (!sessionId) return;
+    const activeUser = currentUser?.full_name || currentUser?.username || "Temsilci";
+
+    // Immediate Optimistic State Update
+    setApiCustomerSessions(prev =>
+      prev.map(s => String(s.id) === String(sessionId) ? { ...s, assigned_agent: "human", assigned_user: activeUser } : s)
+    );
+
     try {
-      const activeUser = currentUser?.full_name || currentUser?.username || "Temsilci";
       const res = await fetch(`${API_BASE}/api/omnichannel/chats/${sessionId}/takeover`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ assigned_user: activeUser })
       });
       if (res.ok) {
-        fetchCustomerSessions(true);
-        fetchCustomerMessages(sessionId, true);
+        const data = await res.json().catch(() => ({}));
+        const assignedName = data.assigned_user || activeUser;
+        setApiCustomerSessions(prev =>
+          prev.map(s => String(s.id) === String(sessionId) ? { ...s, assigned_agent: "human", assigned_user: assignedName } : s)
+        );
+        fetchCustomerMessages(sessionId, false);
       }
     } catch (err) {
       console.error("[AgentChatTab] Takeover error:", err);
@@ -232,13 +242,18 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   // Transfer Customer Chat back to AI Assistant
   const handleTransferToAI = async (sessionId) => {
     if (!sessionId) return;
+
+    // Immediate Optimistic State Update
+    setApiCustomerSessions(prev =>
+      prev.map(s => String(s.id) === String(sessionId) ? { ...s, assigned_agent: "ai", assigned_user: null } : s)
+    );
+
     try {
       const res = await fetch(`${API_BASE}/api/omnichannel/chats/${sessionId}/transfer_to_ai`, {
         method: "POST"
       });
       if (res.ok) {
-        fetchCustomerSessions(true);
-        fetchCustomerMessages(sessionId, true);
+        fetchCustomerMessages(sessionId, false);
       }
     } catch (err) {
       console.error("[AgentChatTab] Error transferring session back to AI:", err);
