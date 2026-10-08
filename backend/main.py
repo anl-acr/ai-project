@@ -6965,6 +6965,114 @@ async def send_whatsapp_buttons_endpoint(payload: WhatsAppButtonsSchema):
     res = await send_whatsapp_buttons(payload.to_phone, payload.body_text, payload.buttons)
     return res
 
+class WhatsAppTemplateSendSchema(BaseModel):
+    to_phone: str
+    template_name: str
+    language_code: Optional[str] = "tr"
+    parameters: Optional[List[str]] = []
+    session_id: Optional[str] = None
+
+@app.get("/api/omnichannel/whatsapp/templates")
+async def get_whatsapp_templates_endpoint():
+    from backend.services.whatsapp_service import DEFAULT_WHATSAPP_TEMPLATES, load_settings
+    st = load_settings()
+    custom_tpls = st.get("whatsapp_templates", [])
+    merged = custom_tpls if custom_tpls else DEFAULT_WHATSAPP_TEMPLATES
+    return {"status": "success", "templates": merged}
+
+@app.post("/api/omnichannel/whatsapp/send-template")
+async def send_whatsapp_template_endpoint(payload: WhatsAppTemplateSendSchema, user_info: dict = Depends(get_user_info)):
+    from backend.services.whatsapp_service import send_whatsapp_template, DEFAULT_WHATSAPP_TEMPLATES, load_settings, sanitize_phone_number
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    clean_phone = sanitize_phone_number(payload.to_phone)
+    if not clean_phone:
+        raise HTTPException(status_code=400, detail="Geçersiz telefon numarası.")
+
+    st = load_settings()
+    all_tpls = st.get("whatsapp_templates", []) or DEFAULT_WHATSAPP_TEMPLATES
+    matched_tpl = next((t for t in all_tpls if t.get("name") == payload.template_name or t.get("id") == payload.template_name), None)
+
+    components = []
+    body_text_preview = payload.template_name
+    if payload.parameters:
+        body_params = [{"type": "text", "text": str(p)} for p in payload.parameters]
+        components.append({
+            "type": "body",
+            "parameters": body_params
+        })
+        if matched_tpl and matched_tpl.get("body_text"):
+            t_text = matched_tpl.get("body_text")
+            for idx, p_val in enumerate(payload.parameters):
+                t_text = t_text.replace(f"{{{{{idx+1}}}}}", str(p_val))
+            body_text_preview = t_text
+    elif matched_tpl and matched_tpl.get("body_text"):
+        body_text_preview = matched_tpl.get("body_text")
+
+    res = await send_whatsapp_template(
+        to_phone=clean_phone,
+        template_name=payload.template_name,
+        language_code=payload.language_code or "tr",
+        components=components if components else None
+    )
+
+    if res.get("status") in ["dry_run", "error"]:
+        err_msg = res.get("detail") or res.get("message") or "Meta Şablon mesajı gönderilemedi."
+        raise HTTPException(status_code=400, detail=f"Şablon mesajı gönderilemedi: {err_msg}")
+
+    async with AsyncSessionLocal() as session:
+        session_id = payload.session_id
+        chat_sess = None
+        if session_id:
+            chat_sess = await session.get(ChatSession, session_id)
+        if not chat_sess:
+            stmt = select(ChatSession).where(
+                ChatSession.channel == "whatsapp",
+                ChatSession.sender_info == clean_phone,
+                ChatSession.status == "active"
+            )
+            r_sess = await session.execute(stmt)
+            chat_sess = r_sess.scalar_one_or_none()
+
+        if not chat_sess:
+            chat_sess = ChatSession(
+                id=str(uuid.uuid4()),
+                channel="whatsapp",
+                sender_info=clean_phone,
+                status="active",
+                assigned_agent="human",
+                tenant_id=target_tenant
+            )
+            session.add(chat_sess)
+            await session.commit()
+            await session.refresh(chat_sess)
+
+        chat_sess.last_message_time = datetime.datetime.utcnow()
+        db_msg = ChatMessage(
+            session_id=chat_sess.id,
+            direction="outbound",
+            sender="human",
+            text=f"[Şablon Mesajı - {payload.template_name}]: {body_text_preview}"
+        )
+        session.add(db_msg)
+        await session.commit()
+        await session.refresh(db_msg)
+
+        msg_payload = {
+            "id": db_msg.id,
+            "session_id": chat_sess.id,
+            "direction": db_msg.direction,
+            "sender": db_msg.sender,
+            "text": db_msg.text,
+            "timestamp": db_msg.timestamp.isoformat() + "Z"
+        }
+        await ws_manager.broadcast_omnichannel_event({
+            "type": "message",
+            "message": msg_payload
+        })
+
+    add_system_log("WHATSAPP_TEMPLATE", "INFO", f"Şablon Mesajı Gönderildi ({clean_phone} - {payload.template_name})")
+    return {"status": "success", "message": "Şablon mesajı başarıyla gönderildi.", "data": res}
+
 @app.websocket("/ws/omnichannel")
 async def websocket_omnichannel(websocket: WebSocket):
     await ws_manager.connect_omnichannel(websocket)

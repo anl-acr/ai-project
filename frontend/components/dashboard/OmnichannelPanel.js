@@ -18,6 +18,15 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [showQAReport, setShowQAReport] = useState(false);
   const [sendError, setSendError] = useState("");
 
+  // WhatsApp HSM Template Modal State
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [availableTemplates, setAvailableTemplates] = useState([]);
+  const [selectedTemplate, setSelectedTemplate] = useState(null);
+  const [templateParamValues, setTemplateParamValues] = useState([]);
+  const [templateLoading, setTemplateLoading] = useState(false);
+  const [templateError, setTemplateError] = useState("");
+  const [templateSuccess, setTemplateSuccess] = useState("");
+
   // Broadcast Campaign Modal State
   const [broadcastTarget, setBroadcastTarget] = useState("all_contacts");
   const [broadcastNumbers, setBroadcastNumbers] = useState("");
@@ -66,6 +75,75 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     };
     fetchCanned();
   }, [backendHost]);
+
+  useEffect(() => {
+    if (showTemplateModal) {
+      const fetchTemplates = async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/omnichannel/whatsapp/templates`);
+          if (res.ok) {
+            const data = await res.json();
+            const tpls = data.templates || [];
+            setAvailableTemplates(tpls);
+            if (tpls.length > 0) {
+              setSelectedTemplate(tpls[0]);
+              setTemplateParamValues(new Array(tpls[0].parameters?.length || 0).fill(""));
+            }
+          }
+        } catch (err) {
+          console.error("[Omnichannel] Error fetching templates:", err);
+        }
+      };
+      fetchTemplates();
+    }
+  }, [showTemplateModal, backendHost]);
+
+  const handleSelectTemplate = (tpl) => {
+    setSelectedTemplate(tpl);
+    setTemplateParamValues(new Array(tpl.parameters?.length || 0).fill(""));
+    setTemplateError("");
+    setTemplateSuccess("");
+  };
+
+  const handleSendTemplateSubmit = async (e) => {
+    e.preventDefault();
+    if (!selectedTemplate || !activeSession) return;
+
+    setTemplateLoading(true);
+    setTemplateError("");
+    setTemplateSuccess("");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/omnichannel/whatsapp/send-template`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to_phone: activeSession.sender_info,
+          template_name: selectedTemplate.name || selectedTemplate.id,
+          language_code: selectedTemplate.language || "tr",
+          parameters: templateParamValues,
+          session_id: activeSession.id
+        })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        setTemplateSuccess("Meta Şablon Mesajı (HSM) başarıyla müşteriye gönderildi!");
+        setTimeout(() => {
+          setShowTemplateModal(false);
+          setTemplateSuccess("");
+          fetchMessages(activeSession.id, true);
+        }, 1500);
+      } else {
+        setTemplateError(data.detail || "Şablon mesajı gönderilemedi.");
+      }
+    } catch (err) {
+      console.error("[Omnichannel] Error sending template:", err);
+      setTemplateError("Sunucu bağlantı hatası.");
+    } finally {
+      setTemplateLoading(false);
+    }
+  };
 
   // Fetch all chat sessions
   const fetchSessions = async (showSpinner = false) => {
@@ -676,6 +754,17 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                       </button>
                     </>
                   )}
+
+                  {activeSession.channel.toLowerCase() === "whatsapp" && (
+                    <button
+                      type="button"
+                      onClick={() => setShowTemplateModal(true)}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-sm"
+                      title="Meta Onaylı Şablon Mesajı Gönder (24h Dışı İletişim)"
+                    >
+                      <FileText size={13} /> Şablon (HSM)
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1011,6 +1100,136 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 >
                   <Send size={14} />
                   {broadcastLoading ? "Gönderiliyor..." : "Kampanyayı Başlat"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      {/* 4. WhatsApp HSM Template Message Modal */}
+      {showTemplateModal && activeSession && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl max-w-lg w-full p-6 shadow-2xl transition-all">
+            <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-2xl bg-indigo-50 dark:bg-indigo-950/50 border border-indigo-200/50 dark:border-indigo-800/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                  <FileText size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">Meta Onaylı Şablon Mesajı (HSM)</h3>
+                  <p className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">24 saatlik müşteri iletişim penceresi dışında mesaj başlatın</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTemplateModal(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSendTemplateSubmit} className="mt-4 space-y-4">
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">Müşteri Telefon Numarası</label>
+                <input
+                  type="text"
+                  readOnly
+                  value={activeSession.sender_info}
+                  className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-700 dark:text-slate-300 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block mb-1.5">Şablon Seçin</label>
+                <select
+                  value={selectedTemplate?.id || selectedTemplate?.name || ""}
+                  onChange={(e) => {
+                    const tpl = availableTemplates.find(t => (t.id || t.name) === e.target.value);
+                    if (tpl) handleSelectTemplate(tpl);
+                  }}
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-semibold"
+                >
+                  {availableTemplates.map((t) => (
+                    <option key={t.id || t.name} value={t.id || t.name}>
+                      {t.display_name || t.name} ({t.category || "UTILITY"})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {selectedTemplate && (
+                <div className="p-3 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-2">
+                  <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                    <span>Canlı Şablon Önizleme</span>
+                    <span className="uppercase text-indigo-500">{selectedTemplate.language || "tr"}</span>
+                  </div>
+                  <p className="text-xs text-slate-700 dark:text-slate-300 font-medium leading-relaxed bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-100 dark:border-slate-850">
+                    {(() => {
+                      let preview = selectedTemplate.body_text || selectedTemplate.name;
+                      (selectedTemplate.parameters || []).forEach((_, idx) => {
+                        const val = templateParamValues[idx] || `{{${idx + 1}}}`;
+                        preview = preview.replace(`{{${idx + 1}}}`, val);
+                      });
+                      return preview;
+                    })()}
+                  </p>
+                </div>
+              )}
+
+              {selectedTemplate && selectedTemplate.parameters && selectedTemplate.parameters.length > 0 && (
+                <div className="space-y-3">
+                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">Şablon Parametreleri</label>
+                  {selectedTemplate.parameters.map((paramLabel, idx) => (
+                    <div key={idx}>
+                      <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 block mb-1">
+                        {paramLabel} <span className="text-indigo-500">({`{{${idx+1}}}`})</span>
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={templateParamValues[idx] || ""}
+                        onChange={(e) => {
+                          const newVals = [...templateParamValues];
+                          newVals[idx] = e.target.value;
+                          setTemplateParamValues(newVals);
+                        }}
+                        placeholder={`${paramLabel} değerini giriniz...`}
+                        className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-medium"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {templateError && (
+                <div className="p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-xs flex items-center gap-2 text-rose-700 dark:text-rose-400">
+                  <AlertCircle size={16} className="shrink-0" />
+                  <span className="font-medium">{templateError}</span>
+                </div>
+              )}
+
+              {templateSuccess && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900/50 rounded-xl text-xs flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                  <CheckCircle size={16} className="shrink-0" />
+                  <span className="font-medium">{templateSuccess}</span>
+                </div>
+              )}
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowTemplateModal(false)}
+                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  disabled={templateLoading || !selectedTemplate}
+                  className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                >
+                  <Send size={14} />
+                  {templateLoading ? "Gönderiliyor..." : "Şablonu Gönder (HSM)"}
                 </button>
               </div>
             </form>

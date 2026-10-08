@@ -342,3 +342,112 @@ async def send_whatsapp_media(to_phone: str, media_type: str, media_url: str, ca
                 return {"status": "error", "detail": resp.text}
     except Exception as e:
         return {"status": "error", "detail": str(e)}
+
+
+DEFAULT_WHATSAPP_TEMPLATES = [
+    {
+        "id": "randevu_hatirlatma",
+        "name": "randevu_hatirlatma",
+        "display_name": "Randevu Hatırlatma Şablonu",
+        "language": "tr",
+        "category": "UTILITY",
+        "body_text": "Sayın {{1}}, {{2}} tarihindeki randevunuzu hatırlatırız. Değişiklik için bize bu hattan ulaşabilirsiniz.",
+        "parameters": ["Müşteri Adı Soyadı", "Tarih ve Saat"]
+    },
+    {
+        "id": "bilgilendirme_mesaji",
+        "name": "bilgilendirme_mesaji",
+        "display_name": "Genel Bilgilendirme Şablonu",
+        "language": "tr",
+        "category": "UTILITY",
+        "body_text": "Sayın {{1}}, talebiniz işleme alınmıştır. Detaylar ve sorularınız için bizimle iletişime geçebilirsiniz.",
+        "parameters": ["Müşteri Adı Soyadı"]
+    },
+    {
+        "id": "kampanya_duyuru",
+        "name": "kampanya_duyuru",
+        "display_name": "Kampanya & Fırsat Duyurusu",
+        "language": "tr",
+        "category": "MARKETING",
+        "body_text": "Sayın {{1}}, işletmemize özel yeni kampanya ve fırsatlarımız başladı! Ayrıntılı bilgi almak için mesaj yazabilirsiniz.",
+        "parameters": ["Müşteri Adı Soyadı"]
+    }
+]
+
+async def send_whatsapp_template(
+    to_phone: str, 
+    template_name: str, 
+    language_code: str = "tr", 
+    components: list = None, 
+    phone_number_id: str = None, 
+    token: str = None
+) -> dict:
+    """
+    Dispatches a Meta Approved HSM Template Message to Meta WhatsApp Cloud API.
+    Required for initiating conversations outside the 24-hour customer service window.
+    """
+    clean_phone = sanitize_phone_number(to_phone)
+    if not clean_phone or not template_name:
+        return {"status": "error", "message": "Invalid recipient or template name"}
+
+    whatsapp_token, whatsapp_phone_number_id = resolve_whatsapp_credentials(token, phone_number_id)
+
+    if not whatsapp_token or not whatsapp_phone_number_id:
+        return {"status": "dry_run", "message": "WhatsApp API credentials missing"}
+
+    url = f"https://graph.facebook.com/v18.0/{whatsapp_phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {whatsapp_token}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "messaging_product": "whatsapp",
+        "recipient_type": "individual",
+        "to": clean_phone,
+        "type": "template",
+        "template": {
+            "name": template_name,
+            "language": {
+                "code": language_code or "tr"
+            }
+        }
+    }
+
+    if components:
+        payload["template"]["components"] = components
+
+    try:
+        async with httpx.AsyncClient(timeout=25.0) as client:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp_data = None
+            try:
+                resp_data = resp.json()
+            except Exception:
+                resp_data = resp.text
+
+            print(f"[WhatsApp Template Service] Response for {clean_phone} template '{template_name}' (HTTP {resp.status_code}): {resp_data}")
+
+            try:
+                from backend.main import add_system_log
+                add_system_log("WHATSAPP_TEMPLATE", "INFO" if resp.status_code in [200, 201] else "ERROR", f"Şablon Mesajı ({clean_phone} - '{template_name}'): HTTP {resp.status_code} - {str(resp_data)[:300]}")
+            except Exception:
+                pass
+
+            if isinstance(resp_data, dict) and ("error" in resp_data or "errors" in resp_data):
+                err_info = resp_data.get("error") or resp_data.get("errors")
+                err_msg = err_info.get("message") if isinstance(err_info, dict) else str(err_info)
+                err_code = err_info.get("code") if isinstance(err_info, dict) else ""
+                return {
+                    "status": "error",
+                    "code": resp.status_code,
+                    "meta_code": err_code,
+                    "detail": f"Meta Reddi ({err_code}): {err_msg}"
+                }
+
+            if resp.status_code in [200, 201]:
+                return {"status": "success", "data": resp_data, "phone_number_id": whatsapp_phone_number_id}
+            else:
+                return {"status": "error", "code": resp.status_code, "detail": f"Meta API HTTP {resp.status_code}: {resp.text}"}
+    except Exception as e:
+        return {"status": "error", "detail": str(e)}
