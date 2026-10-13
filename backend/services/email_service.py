@@ -4,13 +4,14 @@ import imaplib
 import email
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.application import MIMEApplication
 from typing import Dict, Any, List
 import asyncio
 from backend.services.audit_logger import log_event
 
-async def send_email_message(to_email: str, subject: str, body_text: str) -> Dict[str, Any]:
+async def send_email_message(to_email: str, subject: str, body_text: str, media_url: str = None, filename: str = None) -> Dict[str, Any]:
     """
-    Sends an outbound email via SMTP.
+    Sends an outbound email via SMTP with optional file attachment.
     """
     try:
         from backend.main import settings_db
@@ -26,12 +27,12 @@ async def send_email_message(to_email: str, subject: str, body_text: str) -> Dic
             print("[Email Service] SMTP sunucu veya kullanıcı bilgisi bulunamadı. E-posta gönderilemedi.")
             return {"status": "error", "message": "SMTP server credentials are not configured."}
 
-        msg = MIMEMultipart("alternative")
+        msg = MIMEMultipart("mixed")
         msg["From"] = smtp_user
         msg["To"] = to_email
         msg["Subject"] = subject or "AIDA Destek Yanıtı"
 
-        # Plain text and HTML version
+        alt_part = MIMEMultipart("alternative")
         part1 = MIMEText(body_text, "plain", "utf-8")
         html_content = f"""
         <html>
@@ -46,8 +47,22 @@ async def send_email_message(to_email: str, subject: str, body_text: str) -> Dic
         </html>
         """
         part2 = MIMEText(html_content, "html", "utf-8")
-        msg.attach(part1)
-        msg.attach(part2)
+        alt_part.attach(part1)
+        alt_part.attach(part2)
+        msg.attach(alt_part)
+
+        if media_url and "/uploads/" in media_url:
+            rel_part = "uploads/" + media_url.split("/uploads/", 1)[1]
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            project_root = os.path.dirname(base_dir)
+            for cand in [os.path.join(project_root, rel_part), os.path.join(base_dir, rel_part), rel_part]:
+                if os.path.exists(cand) and os.path.isfile(cand):
+                    doc_fname = filename or os.path.basename(cand)
+                    with open(cand, "rb") as f:
+                        att = MIMEApplication(f.read(), Name=doc_fname)
+                    att["Content-Disposition"] = f'attachment; filename="{doc_fname}"'
+                    msg.attach(att)
+                    break
 
         def _send():
             if smtp_port == 465:

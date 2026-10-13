@@ -295,11 +295,12 @@ async def send_whatsapp_buttons(to_phone: str, body_text: str, buttons: list, ph
         return {"status": "error", "detail": str(e)}
 
 
-async def send_whatsapp_media(to_phone: str, media_type: str, media_url: str, caption: str = "", phone_number_id: str = None, token: str = None) -> dict:
+async def send_whatsapp_media(to_phone: str, media_type: str, media_url: str, caption: str = "", phone_number_id: str = None, token: str = None, filename: str = None) -> dict:
     """
-    Dispatches media files (image, document, audio) to Meta WhatsApp Cloud API.
-    media_type: 'image', 'document', 'audio'
+    Dispatches media files (image, video, document, audio) to Meta WhatsApp Cloud API.
+    Automatically uploads local /uploads/ files to Meta's /media endpoint for guaranteed delivery.
     """
+    import mimetypes
     clean_phone = sanitize_phone_number(to_phone)
     if not clean_phone or not media_url:
         return {"status": "error", "message": "Invalid recipient or empty media URL"}
@@ -309,38 +310,109 @@ async def send_whatsapp_media(to_phone: str, media_type: str, media_url: str, ca
     if not whatsapp_token or not whatsapp_phone_number_id:
         return {"status": "dry_run", "message": "WhatsApp API credentials missing"}
 
-    url = f"https://graph.facebook.com/v18.0/{whatsapp_phone_number_id}/messages"
-    headers = {
-        "Authorization": f"Bearer {whatsapp_token}",
-        "Content-Type": "application/json"
-    }
-
-    m_type = media_type.lower()
+    m_type = (media_type or "document").lower()
     if m_type not in ["image", "document", "audio", "video"]:
         m_type = "document"
 
-    media_obj = { "link": media_url }
-    if caption and m_type in ["image", "document", "video"]:
-        media_obj["caption"] = caption
-    if m_type == "document":
-        media_obj["filename"] = media_url.split("/")[-1] or "dokuman.pdf"
+    # Check if media_url points to a local file in uploads/
+    local_filepath = None
+    if "/uploads/" in media_url:
+        rel_part = "uploads/" + media_url.split("/uploads/", 1)[1]
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        project_root = os.path.dirname(base_dir)
+        candidates = [
+            os.path.join(project_root, rel_part),
+            os.path.join(base_dir, rel_part),
+            rel_part
+        ]
+        for cand in candidates:
+            if os.path.exists(cand) and os.path.isfile(cand):
+                local_filepath = cand
+                break
 
-    payload = {
-        "messaging_product": "whatsapp",
-        "recipient_type": "individual",
-        "to": clean_phone,
-        "type": m_type,
-        m_type: media_obj
-    }
+    doc_filename = filename or media_url.split("/")[-1] or "dokuman.pdf"
+    meta_media_id = None
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # 1. If local file exists, upload binary directly to Meta /media endpoint
+            if local_filepath:
+                mime_type, _ = mimetypes.guess_type(local_filepath)
+                if not mime_type:
+                    if m_type == "image":
+                        mime_type = "image/jpeg"
+                    elif m_type == "video":
+                        mime_type = "video/mp4"
+                    elif m_type == "audio":
+                        mime_type = "audio/mpeg"
+                    else:
+                        mime_type = "application/pdf"
+
+                upload_url = f"https://graph.facebook.com/v18.0/{whatsapp_phone_number_id}/media"
+                with open(local_filepath, "rb") as f:
+                    file_bytes = f.read()
+
+                files = {
+                    "file": (doc_filename, file_bytes, mime_type)
+                }
+                data_form = {
+                    "messaging_product": "whatsapp",
+                    "type": mime_type
+                }
+                up_resp = await client.post(
+                    upload_url,
+                    headers={"Authorization": f"Bearer {whatsapp_token}"},
+                    data=data_form,
+                    files=files
+                )
+                if up_resp.status_code in [200, 201]:
+                    up_json = up_resp.json()
+                    meta_media_id = up_json.get("id")
+                    print(f"[WhatsApp Media Upload] Uploaded {doc_filename} -> media_id={meta_media_id}")
+                else:
+                    print(f"[WhatsApp Media Upload Warning] HTTP {up_resp.status_code}: {up_resp.text}")
+
+            # 2. Construct message payload using media_id (preferred) or link
+            if meta_media_id:
+                media_obj = {"id": meta_media_id}
+            else:
+                media_obj = {"link": media_url}
+
+            if caption and m_type in ["image", "document", "video"]:
+                media_obj["caption"] = caption
+            if m_type == "document":
+                media_obj["filename"] = doc_filename
+
+            url = f"https://graph.facebook.com/v18.0/{whatsapp_phone_number_id}/messages"
+            headers = {
+                "Authorization": f"Bearer {whatsapp_token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "messaging_product": "whatsapp",
+                "recipient_type": "individual",
+                "to": clean_phone,
+                "type": m_type,
+                m_type: media_obj
+            }
+
             resp = await client.post(url, headers=headers, json=payload)
+            try:
+                from backend.main import add_system_log
+                add_system_log(
+                    "WHATSAPP_MEDIA",
+                    "INFO" if resp.status_code in [200, 201] else "ERROR",
+                    f"Medya Gönderimi ({clean_phone} - {doc_filename}): HTTP {resp.status_code} - {resp.text[:250]}"
+                )
+            except Exception:
+                pass
+
             if resp.status_code in [200, 201]:
                 return {"status": "success", "data": resp.json()}
             else:
                 return {"status": "error", "detail": resp.text}
     except Exception as e:
+        print(f"[WhatsApp Media Error]: {e}")
         return {"status": "error", "detail": str(e)}
 
 

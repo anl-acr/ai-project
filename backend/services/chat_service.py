@@ -398,6 +398,9 @@ Yanıtını kesinlikle Türkçe olarak yaz.
 - Müşterinin son mesajında küfür, hakaret, tehdit, taciz veya bariz bir dolandırıcılık teşebbüsü (AI Abuse) tespit ederseniz, cevabınızın en başına '[ABUSE_DETECTED: <sebebi>]' ifadesini ekleyin (örn: '[ABUSE_DETECTED: Küfür ve Hakaret'] veya '[ABUSE_DETECTED: Dolandırıcılık Teşebbüsü]'). Bu kod sistem tarafından otomatik engelleme tetiklemek için kullanılacaktır.
 - Sadece müşteriye gönderilecek cevap metnini geri döndür. Ekstra açıklama veya önek ekleme.
 """
+                queued_media_items = []
+                rag_media_library = settings_data.get("rag_media_library", [])
+
                 try:
                     from google.genai import types
                     from backend.services.tool_executor import execute_custom_api, execute_book_appointment, execute_query_knowledge_base
@@ -441,6 +444,19 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                             }
                         }
                     ]
+
+                    if rag_media_library:
+                        base_declarations.append({
+                            "name": "send_media_file",
+                            "description": "Müşteriye bilgi bankasındaki paylaşılabilir medya kütüphanesinden PDF katalog, fiyat listesi, broşür, görsel, video veya ses dosyası gönderir.",
+                            "parameters": {
+                                "type": "OBJECT",
+                                "properties": {
+                                    "media_id": { "type": "STRING", "description": "Gönderilecek medya dosyasının ID kodu (örn: media_abc123)" }
+                                },
+                                "required": ["media_id"]
+                            }
+                        })
                     
                     # Compile dynamic custom APIs
                     custom_declarations = []
@@ -485,9 +501,21 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                                     "required": required_params
                                 }
                             })
+
+                    media_instructions = ""
+                    if rag_media_library:
+                        media_instructions += "\n--- PAYLAŞILABİLİR AI MEDYA VE KATALOG KÜTÜPHANESİ (OTOMATİK DOSYA GÖNDERİMİ) ---\n"
+                        media_instructions += "Müşterinin talebi aşağıdaki dosyalardan biriyle eşleşiyorsa (örneğin katalog, fiyat listesi, broşür, görsel, video vb. istediğinde), `send_media_file` fonksiyonunu ilgili `media_id` parametresiyle çağırarak dosyayı müşteriye gönderebilirsin:\n"
+                        for m_item in rag_media_library:
+                            m_id = m_item.get("id")
+                            m_title = m_item.get("title", "")
+                            m_type = m_item.get("media_type", "document")
+                            m_fname = m_item.get("filename", "")
+                            m_desc = m_item.get("description", "")
+                            media_instructions += f"- media_id: \"{m_id}\" | Başlık: {m_title} (Tür: {m_type}, Dosya: {m_fname}) | Gönderim Koşulu / Açıklama: {m_desc}\n"
                     
                     # Add instructions to prompt
-                    full_prompt = prompt + api_instructions
+                    full_prompt = prompt + api_instructions + media_instructions
                     
                     tools_config = [
                         {
@@ -548,6 +576,18 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                                     tool_result = {"status": "success", "message": "Sohbet canlı müşteri temsilcisine aktarıldı."}
                                 elif call_name == "query_knowledge_base":
                                     tool_result = await execute_query_knowledge_base(call_args.get("query"))
+                                elif call_name == "send_media_file":
+                                    req_media_id = call_args.get("media_id", "")
+                                    found_media = next((m for m in rag_media_library if m.get("id") == req_media_id), None)
+                                    if found_media:
+                                        if not any(qm.get("id") == found_media.get("id") for qm in queued_media_items):
+                                            queued_media_items.append(found_media)
+                                        tool_result = {
+                                            "status": "success",
+                                            "message": f"'{found_media.get('title')}' ({found_media.get('filename')}) dosyası müşteriye gönderilmek üzere eklendi. Lütfen müşteriye dosyayı paylaştığını belirten kısa ve nazik bir açıklama mesajı yaz."
+                                        }
+                                    else:
+                                        tool_result = {"status": "error", "message": f"Medya dosyası bulunamadı: {req_media_id}"}
                                 else:
                                     tool_result = {"status": "error", "message": f"Tanımsız fonksiyon: {call_name}"}
                                     
@@ -561,7 +601,10 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                             contents.append(types.Content(role="user", parts=tool_response_parts))
                         else:
                             has_function_calls = False
-                            ai_reply_text = response.text.strip()
+                            ai_reply_text = (response.text or "").strip()
+
+                    if not ai_reply_text and queued_media_items:
+                        ai_reply_text = f"İstemiş olduğunuz {queued_media_items[0].get('title', 'dosyayı')} ekte bilgilerinize sunarım."
                     
                     # Check for AI Abuse detection trigger code
                     if "[ABUSE_DETECTED:" in ai_reply_text:
@@ -575,16 +618,24 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                         await session.commit()
                         
                         ai_reply_text = "Görüşmeniz suistimal tespiti nedeniyle sistem tarafından otomatik olarak sonlandırılmıştır."
+                        queued_media_items = []
                 except Exception as e:
                     print(f"[Chat Service] Gemini error: {e}")
                     ai_reply_text = "Şu anda mesajınızı işlerken geçici bir hata oluştu. Lütfen biraz sonra tekrar deneyin veya temsilcimizin bağlanmasını bekleyin."
+
+                # Build stored text including [MEDIA:...] tags if AI sent any files
+                stored_reply_text = ai_reply_text
+                for m_item in queued_media_items:
+                    m_tag = f"[MEDIA:{m_item.get('media_type', 'document')}|{m_item.get('url', '')}|{m_item.get('filename', 'dosya')}]"
+                    if m_tag not in stored_reply_text:
+                        stored_reply_text = f"{m_tag}\n{stored_reply_text}" if stored_reply_text else m_tag
 
                 # Save the AI reply
                 db_reply = ChatMessage(
                     session_id=session_id,
                     direction="outbound",
                     sender="ai",
-                    text=ai_reply_text
+                    text=stored_reply_text
                 )
                 session.add(db_reply)
                 
@@ -620,7 +671,7 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                         "assigned_agent": assigned_agent,
                         "assigned_user": chat_session.assigned_user,
                         "last_message_time": chat_session.last_message_time.isoformat(),
-                        "last_message_text": ai_reply_text
+                        "last_message_text": stored_reply_text
                     }
                 })
                 
@@ -628,7 +679,7 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                 ch_lower = channel.lower()
                 if ch_lower == "whatsapp":
                     import asyncio
-                    from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_buttons
+                    from backend.services.whatsapp_service import send_whatsapp_message, send_whatsapp_buttons, send_whatsapp_media
                     
                     outbound_phone_id = (matched_account.get("phone_number_id") if matched_account else None) or recipient_phone_id
                     outbound_token = (matched_account.get("access_token") if matched_account else None)
@@ -639,7 +690,21 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                     else:
                         welcome_menu_enabled = ch_settings.get("whatsapp_welcome_menu_enabled", True)
 
-                    if is_new and welcome_menu_enabled:
+                    if queued_media_items:
+                        for idx, m_item in enumerate(queued_media_items):
+                            caption_to_send = ai_reply_text if idx == 0 else m_item.get("title", "")
+                            asyncio.create_task(
+                                send_whatsapp_media(
+                                    sender_info,
+                                    m_item.get("media_type", "document"),
+                                    m_item.get("url", ""),
+                                    caption=caption_to_send,
+                                    filename=m_item.get("filename", "dosya"),
+                                    phone_number_id=outbound_phone_id,
+                                    token=outbound_token
+                                )
+                            )
+                    elif is_new and welcome_menu_enabled:
                         buttons = [
                             {"id": "btn_info", "title": "Fiyat ve Bilgi"},
                             {"id": "btn_appoint", "title": "Randevu Al"},
@@ -650,18 +715,43 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                         asyncio.create_task(send_whatsapp_message(sender_info, ai_reply_text, phone_number_id=outbound_phone_id, token=outbound_token))
                 elif ch_lower == "telegram":
                     import asyncio
-                    from backend.services.telegram_service import send_telegram_message
-                    asyncio.create_task(send_telegram_message(sender_info, ai_reply_text))
+                    from backend.services.telegram_service import send_telegram_message, send_telegram_media
+                    if queued_media_items:
+                        for idx, m_item in enumerate(queued_media_items):
+                            caption_to_send = ai_reply_text if idx == 0 else m_item.get("title", "")
+                            asyncio.create_task(
+                                send_telegram_media(
+                                    sender_info,
+                                    m_item.get("media_type", "document"),
+                                    m_item.get("url", ""),
+                                    caption=caption_to_send,
+                                    filename=m_item.get("filename", "dosya")
+                                )
+                            )
+                    else:
+                        asyncio.create_task(send_telegram_message(sender_info, ai_reply_text))
                 elif ch_lower in ["instagram", "facebook"]:
                     import asyncio
                     from backend.services.meta_service import send_meta_message
                     asyncio.create_task(send_meta_message(sender_info, ai_reply_text, channel=ch_lower))
-                elif ch_lower == "email":
+                elif ch_lower in ["email", "mail"]:
                     import asyncio
                     from backend.services.email_service import send_email_message
-                    asyncio.create_task(send_email_message(sender_info, "AIDA Yanıtı", ai_reply_text))
+                    if queued_media_items:
+                        first_m = queued_media_items[0]
+                        asyncio.create_task(
+                            send_email_message(
+                                sender_info,
+                                "AIDA Yanıtı",
+                                ai_reply_text,
+                                media_url=first_m.get("url", ""),
+                                filename=first_m.get("filename", "dosya")
+                            )
+                        )
+                    else:
+                        asyncio.create_task(send_email_message(sender_info, "AIDA Yanıtı", ai_reply_text))
 
-                return ai_reply_text
+                return stored_reply_text
 
     except Exception as exc:
         import traceback

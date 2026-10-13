@@ -13,7 +13,12 @@ import {
   Plus,
   RefreshCw,
   Sparkles,
-  HelpCircle
+  HelpCircle,
+  FolderOpen,
+  Image as ImageIcon,
+  Film,
+  Music,
+  ExternalLink
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -42,8 +47,17 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
   const [searchResults, setSearchResults] = useState("");
   
   const [status, setStatus] = useState({ type: "", message: "" });
-  const [loading, setLoading] = useState({ upload: false, crawl: false, search: false, saveParams: false, manual: false });
+  const [loading, setLoading] = useState({ upload: false, crawl: false, search: false, saveParams: false, manual: false, media: false });
   const [sources, setSources] = useState([]);
+
+  // AI Shareable Media Library states
+  const [mediaItems, setMediaItems] = useState([]);
+  const [mediaTitle, setMediaTitle] = useState("");
+  const [mediaDesc, setMediaDesc] = useState("");
+  const [mediaFile, setMediaFile] = useState(null);
+  const [alsoIndexPdf, setAlsoIndexPdf] = useState(true);
+  const [deleteMediaTarget, setDeleteMediaTarget] = useState(null);
+  const [isDeleteMediaModalOpen, setIsDeleteMediaModalOpen] = useState(false);
   
   // Delete Modal states
   const [deleteTargetName, setDeleteTargetName] = useState(null);
@@ -65,6 +79,19 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
       .catch((err) => console.error("[RAG] Kaynak listesi alinamadi:", err));
   };
 
+  // Fetch AI Shareable Media Library
+  const fetchMediaLibrary = () => {
+    const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+    fetch(`${API_BASE}/api/rag/media?tenant_id=${activeTenantId}`, {
+      headers: { "X-Tenant-ID": activeTenantId }
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (Array.isArray(data)) setMediaItems(data);
+      })
+      .catch((err) => console.error("[RAG] Medya kutuphanesi alinamadi:", err));
+  };
+
   // Fetch tuning parameters
   const fetchParams = () => {
     const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
@@ -81,10 +108,12 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
   useEffect(() => {
     fetchSources();
     fetchParams();
+    fetchMediaLibrary();
 
     const handleTenantChange = () => {
       fetchSources();
       fetchParams();
+      fetchMediaLibrary();
     };
 
     if (typeof window !== "undefined") {
@@ -274,6 +303,78 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
     }
   };
 
+  // Handle adding a shareable AI media item
+  const handleAddMedia = async (e) => {
+    e.preventDefault();
+    if (!mediaTitle || !mediaDesc || !mediaFile) return;
+
+    setLoading((prev) => ({ ...prev, media: true }));
+    setStatus({ type: "", message: "" });
+
+    const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+    const formData = new FormData();
+    formData.append("title", mediaTitle);
+    formData.append("description", mediaDesc);
+    formData.append("file", mediaFile);
+    formData.append("also_index_pdf", alsoIndexPdf ? "true" : "false");
+
+    try {
+      const res = await fetch(`${API_BASE}/api/rag/media?tenant_id=${activeTenantId}`, {
+        method: "POST",
+        headers: { "X-Tenant-ID": activeTenantId },
+        body: formData
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStatus({
+          type: "success",
+          message: `"${mediaTitle}" AI Medya Kütüphanesine eklendi! Yapay zeka artık WhatsApp, Telegram ve E-Posta üzerinden bu dosyayı otomatik gönderebilir.`
+        });
+        setMediaTitle("");
+        setMediaDesc("");
+        setMediaFile(null);
+        fetchMediaLibrary();
+        if (alsoIndexPdf && mediaFile.name.toLowerCase().endsWith(".pdf")) {
+          fetchSources();
+        }
+      } else {
+        setStatus({ type: "error", message: data.detail || "Medya yüklenemedi." });
+      }
+    } catch (err) {
+      setStatus({ type: "error", message: "Ağ hatası oluştu." });
+    } finally {
+      setLoading((prev) => ({ ...prev, media: false }));
+    }
+  };
+
+  const triggerDeleteMedia = (item) => {
+    setDeleteMediaTarget(item);
+    setIsDeleteMediaModalOpen(true);
+  };
+
+  const handleConfirmDeleteMedia = async () => {
+    if (!deleteMediaTarget) return;
+    const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+    try {
+      const res = await fetch(`${API_BASE}/api/rag/media/${deleteMediaTarget.id}?tenant_id=${activeTenantId}`, {
+        method: "DELETE",
+        headers: { "X-Tenant-ID": activeTenantId }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setStatus({ type: "success", message: `"${deleteMediaTarget.title}" medya kütüphanesinden silindi.` });
+        fetchMediaLibrary();
+      } else {
+        setStatus({ type: "error", message: data.detail || "Medya silinemedi." });
+      }
+    } catch (err) {
+      setStatus({ type: "error", message: "Ağ hatası oluştu." });
+    } finally {
+      setIsDeleteMediaModalOpen(false);
+      setDeleteMediaTarget(null);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-6 text-slate-800 dark:text-slate-100 w-full font-sans transition-colors duration-300">
       
@@ -286,7 +387,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
           <div>
             <h2 className="text-lg font-extrabold text-slate-900 dark:text-white">Bilgi Bankası (RAG) Kurulumu & Yönetimi</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-              Yapay zekanın çağrılarda kullanacağı dökümanları, web sitelerini ve SSS soru-cevaplarını yerel veritabanına indeksleyin.
+              Yapay zekanın çağrılarda kullanacağı dökümanları, web sitelerini ve omnichannel kanallarda göndereceği medya/katalog dosyalarını yönetin.
             </p>
           </div>
         </div>
@@ -495,6 +596,179 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
             </div>
           )}
 
+          {/* AI Shareable Media & Catalog Library Section */}
+          <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4 border-b border-slate-100 dark:border-slate-800/60 pb-3">
+              <div className="flex items-center gap-2">
+                <FolderOpen className="text-primary" size={18} />
+                <div>
+                  <h3 className="font-bold text-xs uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-2">
+                    AI Medya & Katalog Kütüphanesi (Otomatik Dosya Gönderimi)
+                    <span className="px-2 py-0.5 text-[9px] font-extrabold rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      WhatsApp • Telegram • Mail
+                    </span>
+                  </h3>
+                  <p className="text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-0.5">
+                    Müşteri sohbet sırasında katalog, fiyat listesi, broşür, görsel veya video istediğinde yapay zeka buradaki dosyaları otomatik olarak gönderir.
+                  </p>
+                </div>
+              </div>
+              <span className="text-[10px] bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 px-2.5 py-1 rounded-lg font-bold text-slate-500 font-mono">
+                Kayıtlı Medya: {mediaItems.length}
+              </span>
+            </div>
+
+            {/* Add Media Form */}
+            <form onSubmit={handleAddMedia} className="grid grid-cols-1 md:grid-cols-12 gap-3 bg-slate-50/70 dark:bg-slate-950/50 p-3.5 rounded-xl border border-slate-200/60 dark:border-slate-800/80 mb-4">
+              <div className="md:col-span-3 flex flex-col gap-1">
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Dosya / Katalog Adı</label>
+                <input
+                  type="text"
+                  value={mediaTitle}
+                  onChange={(e) => setMediaTitle(e.target.value)}
+                  placeholder="Örn: 2026 Fiyat Kataloğu"
+                  required
+                  className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary font-semibold"
+                />
+              </div>
+
+              <div className="md:col-span-5 flex flex-col gap-1">
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">AI Gönderim Koşulu (Ne Zaman Gönderilsin?)</label>
+                <input
+                  type="text"
+                  value={mediaDesc}
+                  onChange={(e) => setMediaDesc(e.target.value)}
+                  placeholder="Örn: Müşteri fiyat listesi, katalog veya broşür sorduğunda gönder"
+                  required
+                  className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-primary font-medium"
+                />
+              </div>
+
+              <div className="md:col-span-4 flex flex-col gap-1">
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Medya Dosyası (PDF, Görsel, Video, Ses)</label>
+                <div className="flex gap-2 items-center">
+                  <label className="flex-1 flex items-center justify-between px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-500 dark:text-slate-400 cursor-pointer hover:border-slate-300 dark:hover:border-slate-700 transition font-medium overflow-hidden">
+                    <span className="truncate mr-2">{mediaFile ? mediaFile.name : "Dosya seçin..."}</span>
+                    <Upload size={14} className="text-slate-400 shrink-0" />
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png,.webp,.mp4,.mp3,.wav,.ogg,.doc,.docx,.xls,.xlsx"
+                      onChange={(e) => setMediaFile(e.target.files[0])}
+                      className="hidden"
+                      required
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={loading.media}
+                    title="Kütüphaneye Ekle"
+                    className="bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition shadow-sm"
+                  >
+                    {loading.media ? <RefreshCw size={14} className="animate-spin" /> : <Plus size={16} />}
+                  </button>
+                </div>
+              </div>
+
+              {/* Quick Condition Templates & PDF Index Toggle */}
+              <div className="md:col-span-12 flex flex-wrap items-center justify-between gap-2 pt-1">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[9px] text-slate-400 dark:text-slate-500 font-bold uppercase">Hızlı Koşul:</span>
+                  {[
+                    "Müşteri fiyat listesi veya katalog istediğinde gönder",
+                    "Müşteri ürün görseli veya örnek fotoğraf istediğinde gönder",
+                    "Müşteri tanıtım videosu veya kurulum videosu istediğinde gönder",
+                    "Müşteri konum krokisi veya teknik şartname istediğinde gönder"
+                  ].map((tpl, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setMediaDesc(tpl)}
+                      className="px-2 py-0.5 bg-white dark:bg-slate-900 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 dark:text-slate-400 border border-slate-200/70 dark:border-slate-800 rounded-md text-[9px] font-medium transition"
+                    >
+                      {tpl.replace("Müşteri ", "").replace(" istediğinde gönder", "")}
+                    </button>
+                  ))}
+                </div>
+
+                {mediaFile && mediaFile.name.toLowerCase().endsWith(".pdf") && (
+                  <label className="flex items-center gap-1.5 text-[10px] text-slate-600 dark:text-slate-300 font-semibold cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={alsoIndexPdf}
+                      onChange={(e) => setAlsoIndexPdf(e.target.checked)}
+                      className="rounded accent-primary"
+                    />
+                    <span>PDF içindeki metinleri de Bilgi Bankasına (RAG) indeksle</span>
+                  </label>
+                )}
+              </div>
+            </form>
+
+            {/* Media Items Table */}
+            {mediaItems.length === 0 ? (
+              <p className="text-xs text-slate-450 dark:text-slate-500 text-center py-5 font-semibold">
+                Henüz paylaşılabilir medya veya katalog eklenmedi. Yukarıdaki formdan PDF katalog, fiyat listesi, görsel veya video ekleyebilirsiniz.
+              </p>
+            ) : (
+              <div className="overflow-x-auto max-h-[320px] overflow-y-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-450 dark:text-slate-500 font-bold uppercase tracking-wider sticky top-0 bg-white dark:bg-slate-900 z-10 py-2">
+                      <th className="py-2.5">Tür & Başlık</th>
+                      <th className="py-2.5">AI Gönderim Koşulu</th>
+                      <th className="py-2.5">Dosya</th>
+                      <th className="py-2.5 text-center w-20">Aksiyon</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mediaItems.map((item) => {
+                      const mType = item.media_type || "document";
+                      return (
+                        <tr key={item.id} className="border-b border-slate-100 dark:border-slate-800/40 hover:bg-slate-50/50 dark:hover:bg-slate-950/20 text-slate-700 dark:text-slate-300 font-medium">
+                          <td className="py-2.5 pr-3">
+                            <div className="flex items-center gap-2">
+                              <span className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-primary shrink-0">
+                                {mType === "image" ? <ImageIcon size={14} /> : mType === "video" ? <Film size={14} /> : mType === "audio" ? <Music size={14} /> : <FileText size={14} />}
+                              </span>
+                              <div>
+                                <div className="font-bold text-xs text-slate-800 dark:text-slate-100">{item.title}</div>
+                                <div className="text-[9px] text-slate-400 font-mono uppercase">{mType}</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-2.5 pr-3 text-[11px] text-slate-600 dark:text-slate-400 max-w-xs">
+                            {item.description}
+                          </td>
+                          <td className="py-2.5 pr-3">
+                            <a
+                              href={item.url?.startsWith("http") ? item.url : `${API_BASE}${item.url}`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 text-[10px] font-mono text-primary hover:underline truncate max-w-[160px]"
+                              title={item.filename}
+                            >
+                              <span className="truncate">{item.filename}</span>
+                              <ExternalLink size={11} className="shrink-0" />
+                            </a>
+                          </td>
+                          <td className="py-2.5 text-center">
+                            <button
+                              onClick={() => triggerDeleteMedia(item)}
+                              className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg transition"
+                              title="Medyayı Sil"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
           {/* Sources List Table */}
           <div className="flex flex-col p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-colors duration-300">
             <div className="flex items-center justify-between mb-3 border-b border-slate-100 dark:border-slate-800/60 pb-3">
@@ -633,7 +907,7 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
 
       </div>
 
-      {/* Custom Delete Confirmation Modal */}
+      {/* Custom Delete Confirmation Modal for RAG Sources */}
       <ConfirmDeleteModal
         isOpen={isDeleteModalOpen}
         onClose={() => {
@@ -643,6 +917,18 @@ export default function KnowledgeBase({ backendHost = "localhost:8000" }) {
         onConfirm={handleConfirmDelete}
         title="Veri Kaynağını Sil"
         message={`"${deleteTargetName}" kaynağını ve buna ait tüm indekslenmiş anlam vektörü chunk'larını silmek istediğinize emin misiniz? Yapay zeka artık bu verilere erişemez.`}
+      />
+
+      {/* Custom Delete Confirmation Modal for AI Media Items */}
+      <ConfirmDeleteModal
+        isOpen={isDeleteMediaModalOpen}
+        onClose={() => {
+          setIsDeleteMediaModalOpen(false);
+          setDeleteMediaTarget(null);
+        }}
+        onConfirm={handleConfirmDeleteMedia}
+        title="Medya Dosyasını Sil"
+        message={`"${deleteMediaTarget?.title}" dosyasını AI Medya Kütüphanesinden silmek istediğinize emin misiniz? Yapay zeka artık bu dosyayı müşterilere gönderemeyecektir.`}
       />
 
     </div>

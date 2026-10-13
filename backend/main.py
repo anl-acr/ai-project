@@ -3915,6 +3915,119 @@ async def save_rag_settings_endpoint(payload: RAGSettingsSchema, user_info: dict
     save_settings(settings_db)
     return {"status": "success", "message": "Bilgi Bankası (RAG) ayarları kaydedildi."}
 
+# ----------------------------------------------------
+# API Routes: RAG Shareable Media & Catalog Library
+# ----------------------------------------------------
+@app.get("/api/rag/media")
+async def get_rag_media_library(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    all_media = settings_db.get("rag_media_library", [])
+    if is_global_tenant(target_tenant):
+        return all_media
+    if is_default_tenant(target_tenant):
+        return [m for m in all_media if not m.get("tenant_id") or m.get("tenant_id") in ["tenant-default", "default"]]
+    return [m for m in all_media if m.get("tenant_id") == target_tenant]
+
+@app.post("/api/rag/media")
+async def add_rag_media_item(
+    title: str = Form(...),
+    description: str = Form(...),
+    file: Optional[UploadFile] = File(None),
+    external_url: Optional[str] = Form(None),
+    also_index_pdf: Optional[str] = Form("true"),
+    user_info: dict = Depends(get_user_info)
+):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    os.makedirs("uploads/rag_media", exist_ok=True)
+
+    if not file and not (external_url and external_url.strip()):
+        raise HTTPException(status_code=400, detail="Lütfen bir dosya yükleyin veya harici bir medya URL'si girin.")
+
+    media_url = ""
+    media_type = "document"
+    filename = ""
+
+    if file and file.filename:
+        filename = file.filename
+        ext = os.path.splitext(filename)[1].lower()
+        content_type = file.content_type or ""
+        if content_type.startswith("image/") or ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+            media_type = "image"
+        elif content_type.startswith("video/") or ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]:
+            media_type = "video"
+        elif content_type.startswith("audio/") or ext in [".mp3", ".wav", ".ogg", ".m4a", ".aac"]:
+            media_type = "audio"
+        else:
+            media_type = "document"
+
+        safe_filename = f"{uuid.uuid4().hex[:8]}_{re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)}"
+        filepath = os.path.join("uploads/rag_media", safe_filename)
+        contents = await file.read()
+        with open(filepath, "wb") as f:
+            f.write(contents)
+
+        media_url = f"/uploads/rag_media/{safe_filename}"
+
+        # Optional: if PDF and also_index_pdf is true, index text into pgvector as well
+        if ext == ".pdf" and str(also_index_pdf).lower() == "true":
+            try:
+                await index_pdf_file(filepath, filename, tenant_id=target_tenant)
+            except Exception as idx_err:
+                print(f"[RAG Media PDF Index Warning]: {idx_err}")
+    else:
+        media_url = external_url.strip()
+        filename = media_url.split("/")[-1] or "medya_dosyasi"
+        ext = os.path.splitext(filename)[1].lower()
+        if ext in [".jpg", ".jpeg", ".png", ".gif", ".webp"]:
+            media_type = "image"
+        elif ext in [".mp4", ".mov", ".avi", ".mkv", ".webm"]:
+            media_type = "video"
+        elif ext in [".mp3", ".wav", ".ogg", ".m4a", ".aac"]:
+            media_type = "audio"
+        else:
+            media_type = "document"
+
+    new_item = {
+        "id": f"media_{uuid.uuid4().hex[:8]}",
+        "title": title.strip(),
+        "description": description.strip(),
+        "url": media_url,
+        "media_type": media_type,
+        "filename": filename,
+        "tenant_id": target_tenant,
+        "created_at": datetime.datetime.utcnow().isoformat() + "Z"
+    }
+
+    if "rag_media_library" not in settings_db or not isinstance(settings_db.get("rag_media_library"), list):
+        settings_db["rag_media_library"] = []
+
+    settings_db["rag_media_library"].append(new_item)
+    save_settings(settings_db)
+    add_system_log("RAG_MEDIA", "INFO", f"AI Medya Kütüphanesine yeni dosya eklendi: {title} ({filename})")
+    return {"status": "success", "item": new_item, "message": f"'{title}' AI medya kütüphanesine eklendi."}
+
+@app.delete("/api/rag/media/{media_id}")
+async def delete_rag_media_item(media_id: str, user_info: dict = Depends(get_user_info)):
+    all_media = settings_db.get("rag_media_library", [])
+    target_item = next((m for m in all_media if m.get("id") == media_id), None)
+    if not target_item:
+        raise HTTPException(status_code=404, detail="Medya kaydı bulunamadı.")
+
+    # Delete physical file if stored locally in uploads/rag_media
+    url_val = target_item.get("url", "")
+    if url_val.startswith("/uploads/rag_media/"):
+        rel_path = url_val.lstrip("/")
+        if os.path.exists(rel_path):
+            try:
+                os.remove(rel_path)
+            except Exception:
+                pass
+
+    settings_db["rag_media_library"] = [m for m in all_media if m.get("id") != media_id]
+    save_settings(settings_db)
+    add_system_log("RAG_MEDIA", "INFO", f"AI Medya Kütüphanesinden dosya silindi: {target_item.get('title')}")
+    return {"status": "success", "message": "Medya dosyası kütüphaneden silindi."}
+
 @app.get("/api/settings/ai-providers")
 async def get_ai_providers(user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
@@ -6826,7 +6939,8 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
                         full_url,
                         caption=payload.text or "",
                         phone_number_id=resolved_phone_id,
-                        token=resolved_token
+                        token=resolved_token,
+                        filename=payload.media_filename
                     )
                 )
             else:
@@ -6846,14 +6960,30 @@ async def send_representative_message(session_id: str, payload: ChatMessageSendS
             dispatch_res = {"status": "success", "message": "Gönderim görevi başlatıldı"}
 
         elif ch_lower == "telegram":
-            from backend.services.telegram_service import send_telegram_message
-            dispatch_res = await send_telegram_message(chat.sender_info, payload.text)
+            if payload.media_url:
+                from backend.services.telegram_service import send_telegram_media
+                dispatch_res = await send_telegram_media(
+                    chat.sender_info,
+                    payload.media_type or "document",
+                    payload.media_url,
+                    caption=payload.text or "",
+                    filename=payload.media_filename
+                )
+            else:
+                from backend.services.telegram_service import send_telegram_message
+                dispatch_res = await send_telegram_message(chat.sender_info, payload.text)
         elif ch_lower in ["instagram", "facebook"]:
             from backend.services.meta_service import send_meta_message
             dispatch_res = await send_meta_message(chat.sender_info, payload.text, channel=ch_lower)
-        elif ch_lower == "email":
+        elif ch_lower in ["email", "mail"]:
             from backend.services.email_service import send_email_message
-            dispatch_res = await send_email_message(chat.sender_info, "AIDA Müşteri Hizmetleri Yanıtı", payload.text)
+            dispatch_res = await send_email_message(
+                chat.sender_info,
+                "AIDA Müşteri Hizmetleri Yanıtı",
+                payload.text or "Ekteki dosyayı bilgilerinize sunarız.",
+                media_url=payload.media_url,
+                filename=payload.media_filename
+            )
         
         # Trigger background QA evaluation AFTER message dispatch
         from backend.services.call_analyzer import analyze_chat_session
