@@ -19,7 +19,9 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [sendError, setSendError] = useState("");
   const [attachedFile, setAttachedFile] = useState(null);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [isDraggingFile, setIsDraggingFile] = useState(false);
   const mediaFileInputRef = useRef(null);
+  const dragCounterRef = useRef(0);
 
   // WhatsApp HSM Template Modal State
   const [showTemplateModal, setShowTemplateModal] = useState(false);
@@ -313,6 +315,9 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
   const selectSession = (session) => {
     setActiveSession(session);
+    setAttachedFile(null);
+    setIsDraggingFile(false);
+    dragCounterRef.current = 0;
     fetchMessages(session.id, true);
   };
 
@@ -351,8 +356,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
-  const handleMediaUpload = async (e) => {
-    const file = e.target.files?.[0];
+  const uploadMediaFile = async (file) => {
     if (!file) return;
 
     setUploadingMedia(true);
@@ -380,7 +384,73 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
       setSendError("Dosya sunucuya yüklenemedi.");
     } finally {
       setUploadingMedia(false);
-      if (e.target) e.target.value = "";
+    }
+  };
+
+  const handleMediaUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadMediaFile(file);
+    if (e.target) e.target.value = "";
+  };
+
+  const handleChatDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!activeSession) return;
+    dragCounterRef.current += 1;
+    if (e.dataTransfer?.items && e.dataTransfer.items.length > 0) {
+      setIsDraggingFile(true);
+    }
+  };
+
+  const handleChatDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!activeSession) return;
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDraggingFile(false);
+    }
+  };
+
+  const handleChatDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleChatDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDraggingFile(false);
+    if (!activeSession) return;
+
+    if (activeSession.assigned_agent === "ai") {
+      setSendError("Dosya göndermek için önce sağ üstteki 'Sohbeti Devral' butonuna basınız.");
+      return;
+    }
+
+    const droppedFiles = e.dataTransfer?.files;
+    if (droppedFiles && droppedFiles.length > 0) {
+      await uploadMediaFile(droppedFiles[0]);
+    }
+  };
+
+  const handleChatPaste = async (e) => {
+    if (!activeSession || activeSession.assigned_agent === "ai") return;
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].kind === "file") {
+        const pastedFile = items[i].getAsFile();
+        if (pastedFile) {
+          e.preventDefault();
+          await uploadMediaFile(pastedFile);
+          break;
+        }
+      }
     }
   };
 
@@ -778,7 +848,30 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
         </div>
 
         {/* 2. Middle Message Thread (75% width on large screens - Expanded) */}
-        <div className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm h-[600px] flex flex-col transition-colors duration-300">
+        <div
+          onDragEnter={handleChatDragEnter}
+          onDragLeave={handleChatDragLeave}
+          onDragOver={handleChatDragOver}
+          onDrop={handleChatDrop}
+          className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm h-[600px] flex flex-col transition-colors duration-300 relative"
+        >
+          {/* Drag & Drop File Overlay */}
+          {isDraggingFile && activeSession && (
+            <div className="absolute inset-0 z-40 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-6 animate-in fade-in duration-150 pointer-events-none">
+              <div className="w-full h-full border-2 border-dashed border-purple-400 dark:border-purple-500 rounded-2xl bg-purple-950/30 flex flex-col items-center justify-center text-center p-6 gap-3">
+                <div className="w-16 h-16 rounded-3xl bg-purple-500/20 border border-purple-400/40 flex items-center justify-center text-purple-300 animate-bounce">
+                  <Upload size={32} />
+                </div>
+                <h4 className="text-base font-extrabold text-white tracking-wide">
+                  Dosyayı Göndermek İçin Buraya Bırakın
+                </h4>
+                <p className="text-xs text-slate-300 font-medium max-w-xs">
+                  Görsel (JPG, PNG), Video (MP4), Ses veya Belge (PDF, DOCX, XLSX) dosyalarınızı doğrudan sohbete sürükleyip bırakabilirsiniz.
+                </p>
+              </div>
+            </div>
+          )}
+
           {activeSession ? (
             <>
               {/* Active Header */}
@@ -976,6 +1069,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                 <input
                   type="text"
                   value={inputText}
+                  onPaste={handleChatPaste}
                   onChange={(e) => {
                     const val = e.target.value;
                     setInputText(val);
@@ -988,7 +1082,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   placeholder={
                     activeSession.assigned_agent === "ai"
                       ? "Canlı sohbet yapay zekada. Mesaj göndermek için 'Sohbeti Devral' butonuna basın..."
-                      : "Müşteriye yanıt yazın... (Şablonlar için / yazın)"
+                      : "Müşteriye yanıt yazın veya dosya sürükleyip bırakın... (Şablonlar için / yazın)"
                   }
                   disabled={activeSession.assigned_agent === "ai" || actionLoading}
                   className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-purple-500 disabled:opacity-55 disabled:cursor-not-allowed text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500"
@@ -1050,7 +1144,7 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
 
                 <button
                   type="submit"
-                  disabled={activeSession.assigned_agent === "ai" || !inputText.trim() || actionLoading}
+                  disabled={activeSession.assigned_agent === "ai" || (!inputText.trim() && !attachedFile) || actionLoading}
                   className="p-2.5 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition disabled:opacity-55 flex items-center justify-center shrink-0"
                 >
                   <Send size={14} />
