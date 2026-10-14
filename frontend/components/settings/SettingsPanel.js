@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network, GitCommit } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network, GitCommit, Mail } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NATSettings from "./NATSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
@@ -27,6 +27,7 @@ import APIBudgetSettings from "./APIBudgetSettings";
 import TenantManagementPanel from "./TenantManagementPanel";
 import LicenseSettingsPanel from "./LicenseSettingsPanel";
 import ChangelogPanel from "./ChangelogPanel";
+import EmailNotificationsPanel from "./EmailNotificationsPanel";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
@@ -482,6 +483,18 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           </button>
 
           <button
+            onClick={() => setActiveSubTab("email-notifications")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "email-notifications"
+                ? "bg-blue-50/50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 border-blue-100/50 dark:border-blue-900/30 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <Mail size={14} className={activeSubTab === "email-notifications" ? "text-blue-600 dark:text-blue-400" : ""} />
+            <span>E-Mail Bildirimleri</span>
+          </button>
+
+          <button
             onClick={() => setActiveSubTab("version")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "version"
@@ -529,6 +542,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           )}
           {activeSubTab === "license" && (
             <LicenseSettingsPanel backendHost={backendHost} />
+          )}
+          {activeSubTab === "email-notifications" && (
+            <EmailNotificationsPanel backendHost={backendHost} />
           )}
           {activeSubTab === "version" && (
             <ChangelogPanel backendHost={backendHost} />

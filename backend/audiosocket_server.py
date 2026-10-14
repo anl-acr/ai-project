@@ -76,7 +76,18 @@ async def stream_elevenlabs_tts_to_asterisk(text: str, voice_id: str, stability:
             async with client.stream("POST", url, json=payload, headers=headers) as response:
                 if response.status_code != 200:
                     error_body = await response.aread()
-                    print(f"[ElevenLabs Stream Error] Status {response.status_code}: {error_body.decode(errors='ignore')}")
+                    err_str = error_body.decode(errors='ignore')
+                    print(f"[ElevenLabs Stream Error] Status {response.status_code}: {err_str}")
+                    try:
+                        from backend.services.notification_service import trigger_notification_bg
+                        trigger_notification_bg(
+                            "ai_provider_error_or_quota",
+                            f"ElevenLabs TTS Bağlantı / Kota Sorunu (HTTP {response.status_code})",
+                            f"ElevenLabs ses sentezleme (TTS) servisi yanıt vermedi veya kredi kotası doldu.\nDurum Kodu: {response.status_code}\nDetay: {err_str[:220]}",
+                            severity="critical"
+                        )
+                    except Exception:
+                        pass
                     return
                     
                 async for chunk in response.aiter_bytes():
@@ -104,6 +115,16 @@ async def stream_elevenlabs_tts_to_asterisk(text: str, voice_id: str, stability:
             print(f"[ElevenLabs Stream Finish] '{text[:30]}...' canlı yayını tamamlandı.")
     except Exception as e:
         print(f"[ElevenLabs Stream Exception] {e}")
+        try:
+            from backend.services.notification_service import trigger_notification_bg
+            trigger_notification_bg(
+                "ai_provider_error_or_quota",
+                "ElevenLabs TTS Bağlantı Hatası",
+                f"ElevenLabs TTS canlı ses akışı sırasında bağlantı hatası oluştu: {str(e)}",
+                severity="critical"
+            )
+        except Exception:
+            pass
 
 async def execute_async_tool_and_feed_context(tool_name: str, args_dict: dict, call_id: str, gemini_ws: any, tenant_id: str = "tenant-default"):
     """Executes background tools asynchronously (appointments, CRM query, webhooks) and feeds results back to Gemini Live."""
@@ -583,6 +604,16 @@ async def auto_blacklist_call(call_id: str, reason: str):
                 await session.commit()
                 print(f"[Abuse Shield] Auto-blacklisted phone number: {caller} (Reason: {reason})")
                 add_system_log("ABUSE_SHIELD", "WARNING", f"Arayan Kara Listeye Alındı: {caller} (Sebep: {reason})")
+                try:
+                    from backend.services.notification_service import trigger_notification_bg
+                    trigger_notification_bg(
+                        "abuse_blacklist_triggered",
+                        f"Suistimal Kalkanı: {caller} Kara Listeye Alındı",
+                        f"Çağrı esnasında (Call ID: {call_id}) küfür/hakaret veya suistimal tespit edildiği için '{caller}' numarası otomatik olarak kara listeye alındı ve çağrı sonlandırıldı.\nSebep: {reason}",
+                        severity="warning"
+                    )
+                except Exception:
+                    pass
                 
                 # Drop/hangup call instantly
                 asyncio.create_task(hangup_call(call_id))
@@ -709,6 +740,17 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                 )
                 if call_info["used_concurrent_calls"] >= call_info["max_concurrent_calls"]:
                     print(f"[AudioSocket Concurrent Limit Block] Tenant '{target_tenant.get('name')}' reached max_concurrent_calls ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']}). Terminating call {call_id}.")
+                    try:
+                        from backend.services.notification_service import trigger_notification_bg
+                        trigger_notification_bg(
+                            "concurrent_channels_full",
+                            f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']} Kanal)",
+                            f"AI Agent sesli yanıt akışı başlatılırken eş zamanlı çağrı kanalı limiti ({call_info['max_concurrent_calls']} Kanal) tamamen dolu olduğu için çağrı ({call_id}) reddedildi.",
+                            severity="warning",
+                            tenant_id=target_tenant.get("id", "tenant-default")
+                        )
+                    except Exception:
+                        pass
                     from backend.services.ami_manager import hangup_call
                     await hangup_call(call_id)
                     writer.close()
@@ -793,6 +835,16 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         # 2. Connect to Google Gemini Multimodal Live API via WebSocket
         if not GEMINI_API_KEY:
             print("Hata: GEMINI_API_KEY tanimlanmamis!")
+            try:
+                from backend.services.notification_service import trigger_notification_bg
+                trigger_notification_bg(
+                    "ai_provider_error_or_quota",
+                    "Gemini AI API Anahtarı Eksik",
+                    "Sesli AI çağrısı alındı ancak GEMINI_API_KEY tanımlı olmadığı için yapay zeka bağlantısı başlatılamadı.",
+                    severity="critical"
+                )
+            except Exception:
+                pass
             writer.close()
             await writer.wait_closed()
             return
@@ -805,17 +857,29 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         # The connection must stay alive during silence.
         print("Gemini Multimodal Live API WebSocket baglantisi kuruluyor...")
         
+        last_gemini_err = ""
         for attempt in range(3):
             try:
                 gemini_ws = await websockets.connect(gemini_url)
                 break
             except Exception as e:
+                last_gemini_err = str(e)
                 print(f"Gemini baglanti denemesi {attempt+1} basarisiz: {e}")
                 if attempt < 2:
                     await asyncio.sleep(0.5)
                     
         if not gemini_ws:
             print("Hata: Gemini WebSocket sunucusuna baglanilamadi!")
+            try:
+                from backend.services.notification_service import trigger_notification_bg
+                trigger_notification_bg(
+                    "ai_provider_error_or_quota",
+                    "Gemini Live AI Bağlantı / Kota Hatası",
+                    f"AI Agent sesli görüşmesi için Google Gemini Multimodal Live API WebSocket sunucusuna 3 denemede de bağlanılamadı.\nHata Detayı: {last_gemini_err}",
+                    severity="critical"
+                )
+            except Exception:
+                pass
             if silence_task:
                 silence_task.cancel()
                 try:

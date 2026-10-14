@@ -57,6 +57,7 @@ export const SUBTAB_TURKISH_SLUGS = {
   "ai_providers": "yapay-zeka-saglayicilari",
   "api_budgets": "api-butceleri",
   "nat": "nat-ayarlari",
+  "email-notifications": "email-bildirimleri",
   "version": "sistem-versiyonu"
 };
 

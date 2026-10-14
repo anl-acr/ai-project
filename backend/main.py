@@ -739,7 +739,8 @@ DEFAULT_SETTINGS = {
                 "backup_restore:read", "backup_restore:write",
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
                 "security:read", "security:write", "security:delete",
-                "api_budgets:read", "api_budgets:write"
+                "api_budgets:read", "api_budgets:write",
+                "email_notifications:read", "email_notifications:write", "email_notifications:delete"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -759,7 +760,8 @@ DEFAULT_SETTINGS = {
                 "mobile_transfer:read", "mobile_transfer:write",
                 "qa:read", "qa:write", "qa:delete",
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
-                "security:read", "security:write", "security:delete"
+                "security:read", "security:write", "security:delete",
+                "email_notifications:read", "email_notifications:write"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -1033,7 +1035,7 @@ def load_settings():
                 if "reports:access" not in new_perms:
                     new_perms.append("reports:access")
 
-            # Auto assign security permissions if missing
+            # Auto assign security & email_notifications permissions if missing
             if r.get("role_code") in ["admin", "supervisor"]:
                 if "security:read" not in new_perms:
                     new_perms.append("security:read")
@@ -1041,6 +1043,10 @@ def load_settings():
                     new_perms.append("security:write")
                 if "security:delete" not in new_perms:
                     new_perms.append("security:delete")
+                if "email_notifications:read" not in new_perms:
+                    new_perms.append("email_notifications:read")
+                if "email_notifications:write" not in new_perms:
+                    new_perms.append("email_notifications:write")
 
             # Auto assign all system permissions to admin and superadmin roles
             if r.get("role_code") in ["admin", "superadmin"]:
@@ -2348,6 +2354,17 @@ async def control_dialer_campaign(campaign_id: str, payload: CampaignControlPayl
         call_info = get_tenant_concurrent_call_info(t_id)
         req_ch = int(target.get("concurrent_calls") or 1)
         if call_info["available_channels"] <= 0:
+            try:
+                from backend.services.notification_service import trigger_notification_bg
+                trigger_notification_bg(
+                    "concurrent_channels_full",
+                    f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']})",
+                    f"'{target.get('name')}' dış arama kampanyası başlatılmak istendi ancak eş zamanlı çağrı kanalı kapasitesi ({call_info['max_concurrent_calls']} Kanal) tamamen dolu olduğu için reddedildi.",
+                    severity="warning",
+                    tenant_id=t_id
+                )
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=400,
                 detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({call_info['max_concurrent_calls']} Kanal) şu an dolu ({call_info['used_concurrent_calls']} aktif çağrı). Kampanya başlatılamaz."
@@ -2355,8 +2372,31 @@ async def control_dialer_campaign(campaign_id: str, payload: CampaignControlPayl
         if req_ch > call_info["available_channels"]:
             target["concurrent_calls"] = call_info["available_channels"]
         target["status"] = "running"
+        try:
+            from backend.services.notification_service import trigger_notification_bg
+            trigger_notification_bg(
+                "dialer_campaign_status",
+                f"Dialer Kampanyası Başlatıldı: {target.get('name')}",
+                f"'{target.get('name')}' isimli otomatik dış arama kampanyası {target.get('concurrent_calls')} kanal ile başlatıldı.",
+                severity="info",
+                tenant_id=t_id
+            )
+        except Exception:
+            pass
     elif action == "pause":
         target["status"] = "paused"
+        try:
+            from backend.services.notification_service import trigger_notification_bg
+            t_id = target.get("tenant_id") or user_info.get("tenant_id") or "tenant-default"
+            trigger_notification_bg(
+                "dialer_campaign_status",
+                f"Dialer Kampanyası Durduruldu: {target.get('name')}",
+                f"'{target.get('name')}' isimli otomatik dış arama kampanyası duraklatıldı.",
+                severity="info",
+                tenant_id=t_id
+            )
+        except Exception:
+            pass
     elif action == "reset":
         target["status"] = "paused"
         for r in target.get("records", []):
@@ -2521,6 +2561,17 @@ async def control_dialer(payload: DialerControlPayload, user_info: dict = Depend
         t_id = user_info.get("tenant_id") or "tenant-default"
         call_info = get_tenant_concurrent_call_info(t_id)
         if call_info["available_channels"] <= 0:
+            try:
+                from backend.services.notification_service import trigger_notification_bg
+                trigger_notification_bg(
+                    "concurrent_channels_full",
+                    f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']})",
+                    f"Otomatik arama (Dialer) başlatılmak istendi ancak eş zamanlı çağrı kanalı kapasitesi ({call_info['max_concurrent_calls']} Kanal) tamamen dolu.",
+                    severity="warning",
+                    tenant_id=t_id
+                )
+            except Exception:
+                pass
             raise HTTPException(
                 status_code=400,
                 detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({call_info['max_concurrent_calls']} Kanal) şu an dolu ({call_info['used_concurrent_calls']} aktif çağrı). Otomatik arama başlatılamaz."
@@ -4722,6 +4773,17 @@ def check_and_update_tenant_expiration(tenants):
                 t["status"] = "passive"
                 changed = True
                 add_system_log("TENANT_MANAGEMENT", "LICENSE_EXPIRED", f"Kiracı Lisansı Geçersiz/Doldu (Pasif Yapıldı): {t.get('name')} ({t.get('id')}) - Nedeni: {verification.get('reason')}")
+                try:
+                    from backend.services.notification_service import trigger_notification_bg
+                    trigger_notification_bg(
+                        "license_limit_reached",
+                        f"Lisans Süresi Doldu / Pasif Yapıldı: {t.get('name')}",
+                        f"'{t.get('name')}' ({t.get('id')}) müşterisinin lisans süresi sona erdi veya doğrulama başarısız oldu ({verification.get('reason')}). Hesap otomatik olarak pasife alındı.",
+                        severity="critical",
+                        tenant_id=t.get("id") or "tenant-default"
+                    )
+                except Exception:
+                    pass
         else:
             # If valid and previously passive due to old expiration, reactivate automatically
             verified_expiry = verification.get("expires_at")
@@ -4830,6 +4892,17 @@ def check_tenant_quota_limit(tenant_id: str, resource_type: str, current_count: 
             "dialers": "Dış Arama Dialer"
         }
         label = resource_labels.get(resource_type, resource_type)
+        try:
+            from backend.services.notification_service import trigger_notification_bg
+            trigger_notification_bg(
+                "license_limit_reached",
+                f"Lisans Kotası Son Limite Ulaştı: {label}",
+                f"'{matched.get('name')}' müşterisi için {label} lisans kotası ({current_count}/{max_allowed}) son limite ulaştı ve yeni kayıt engellendi.",
+                severity="warning",
+                tenant_id=tenant_id
+            )
+        except Exception:
+            pass
         raise HTTPException(
             status_code=400,
             detail=f"Lisans adetiniz yetersiz. '{matched.get('name')}' müşterisi için {label} lisans kotası ({max_allowed}) dolmuştur. Lütfen lisans paketinizi veya kotanızı yükseltiniz."
@@ -5108,6 +5181,17 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
     save_settings(current)
     settings_db["tenants"] = tenants
     add_system_log("TENANT_MANAGEMENT", "UPDATE", f"Kiracı Lisansı Güncellendi: {target_tenant['name']} ({tenant_id}) [Paket: {target_tenant['plan_tier']}]")
+    try:
+        from backend.services.notification_service import trigger_notification_bg
+        trigger_notification_bg(
+            "license_updated",
+            f"Lisans Bilgileri Güncellendi: {target_tenant.get('name')}",
+            f"'{target_tenant.get('name')}' müşterisinin lisans paketi ({target_tenant.get('plan_tier')}), eş zamanlı çağrı kanalı ({target_tenant.get('max_concurrent_calls')} Kanal) ve kota parametreleri güncellendi.",
+            severity="info",
+            tenant_id=tenant_id
+        )
+    except Exception:
+        pass
     return target_tenant
 
 
@@ -5273,6 +5357,18 @@ async def renew_license_key(payload: LicenseRenewSchema):
 
     
     add_system_log("TENANT_MANAGEMENT", "LICENSE_RENEW", f"Lisans Anahtarı Yenilendi: {target.get('name')} [Geçerlilik: {target.get('license_expires_at', 'Süresiz')}]")
+    try:
+        from backend.services.notification_service import trigger_notification_bg
+        trigger_notification_bg(
+            "license_updated",
+            f"Lisans Anahtarı Yenilendi: {target.get('name')}",
+            f"'{target.get('name')}' müşterisi için yeni kriptografik lisans anahtarı doğrulandı ve aktive edildi. (Geçerlilik: {target.get('license_expires_at') or 'Süresiz'}, Eş Zamanlı Kanal: {target.get('max_concurrent_calls', 4)})",
+            severity="info",
+            tenant_id=target.get("id") or "tenant-default",
+            force=True
+        )
+    except Exception:
+        pass
     
     return {
         "success": True,
@@ -5518,6 +5614,17 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     from backend.services.ami_manager import hangup_call
                     print(f"[License Concurrent Call Block] Tenant '{call_tenant}' reached concurrent channel limit ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']}). Rejecting call {call_id} ({caller} -> {did}).")
                     add_system_log("LICENSE", "WARNING", f"Eş Zamanlı Çağrı Kanalı Limiti Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']} Kanal): Çağrı reddedildi ({caller} -> {did})")
+                    try:
+                        from backend.services.notification_service import trigger_notification_bg
+                        trigger_notification_bg(
+                            "concurrent_channels_full",
+                            f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']} Kanal)",
+                            f"Gelen/giden çağrı ({caller} -> {did}) sırasında eş zamanlı çağrı kanalı limiti ({call_info['max_concurrent_calls']} Kanal) tamamen dolu olduğu için çağrı reddedildi.\nAktif Ses Kanalı: {call_info['active_voice_calls']} | Aktif Dialer Kanalı: {call_info['active_dialer_calls']}",
+                            severity="warning",
+                            tenant_id=call_tenant
+                        )
+                    except Exception:
+                        pass
                     new_call = Call(
                         id=call_id,
                         caller_number=caller or "Bilinmeyen",
@@ -8147,6 +8254,197 @@ async def startup_event():
         print("[Startup] AudioSocket TCP Sunucusu (Port 9092) başarıyla arka planda başlatıldı.")
     except Exception as e_audio:
         print(f"[Startup Error] AudioSocket TCP sunucusu başlatılamadı: {e_audio}")
+
+    try:
+        from backend.services.notification_service import monitor_system_health_and_notify, trigger_notification_bg
+        asyncio.create_task(monitor_system_health_and_notify())
+        trigger_notification_bg(
+            "system_reboot",
+            "Sistem Reboot / Servisler Yeniden Başlatıldı",
+            "AIDA Santral, Yapay Zeka ve AudioSocket arka plan servisleri yeniden başlatıldı ve aktif durumda.",
+            severity="info",
+            tenant_id="tenant-default"
+        )
+        print("[Startup] E-Mail ve WhatsApp Kritik Bildirim İzleyici servisi başlatıldı.")
+    except Exception as e_notif:
+        print(f"[Startup Error] Bildirim servisi başlatılamadı: {e_notif}")
+
+
+# ==============================================================================
+# E-MAIL & WHATSAPP CRITICAL SYSTEM NOTIFICATIONS ENDPOINTS
+# ==============================================================================
+
+@app.get("/api/settings/notifications")
+@app.get("/settings/notifications")
+async def get_notification_settings_endpoint(user_info: dict = Depends(get_user_info)):
+    from backend.services.notification_service import get_tenant_notification_settings, DEFAULT_NOTIFICATION_EVENTS
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    cfg = get_tenant_notification_settings(settings_db, target_tenant)
+    return {
+        "settings": cfg,
+        "event_metadata": DEFAULT_NOTIFICATION_EVENTS
+    }
+
+@app.post("/api/settings/notifications")
+@app.post("/settings/notifications")
+async def save_notification_settings_endpoint(payload: dict, user_info: dict = Depends(get_user_info)):
+    from backend.services.notification_service import get_tenant_notification_settings
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    existing = get_tenant_notification_settings(settings_db, target_tenant)
+    history_keep = existing.get("history", [])
+
+    updated_cfg = {
+        "email_enabled": bool(payload.get("email_enabled", True)),
+        "recipient_emails": str(payload.get("recipient_emails", "")).strip(),
+        "whatsapp_enabled": bool(payload.get("whatsapp_enabled", False)),
+        "recipient_whatsapp_numbers": str(payload.get("recipient_whatsapp_numbers", "")).strip(),
+        "use_custom_smtp": bool(payload.get("use_custom_smtp", False)),
+        "smtp_host": str(payload.get("smtp_host", "")).strip(),
+        "smtp_port": int(payload.get("smtp_port") or 587),
+        "smtp_user": str(payload.get("smtp_user", "")).strip(),
+        "smtp_password": str(payload.get("smtp_password", "")).strip(),
+        "smtp_from_name": str(payload.get("smtp_from_name", "AIDA Sistem Bildirimleri")).strip(),
+        "cooldown_minutes": int(payload.get("cooldown_minutes") or 5),
+        "events": payload.get("events", existing.get("events", {})),
+        "history": history_keep
+    }
+
+    if "tenant_notifications" not in settings_db or not isinstance(settings_db.get("tenant_notifications"), dict):
+        settings_db["tenant_notifications"] = {}
+    settings_db["tenant_notifications"][target_tenant] = updated_cfg
+    if is_default_tenant(target_tenant):
+        settings_db["notifications"] = updated_cfg
+    save_settings(settings_db)
+    add_system_log("NOTIFICATIONS", "INFO", f"E-Mail ve WhatsApp bildirim ayarları güncellendi ({target_tenant})")
+    return {"status": "success", "message": "E-Mail ve WhatsApp bildirim ayarları başarıyla kaydedildi.", "settings": updated_cfg}
+
+@app.post("/api/settings/notifications/test")
+@app.post("/settings/notifications/test")
+async def test_notification_endpoint(payload: dict, user_info: dict = Depends(get_user_info)):
+    from backend.services.notification_service import (
+        get_tenant_notification_settings,
+        _parse_recipients,
+        _resolve_smtp_config,
+        _send_alert_email_sync,
+        _format_html_alert,
+        _format_whatsapp_alert
+    )
+    from backend.services.whatsapp_service import send_whatsapp_message
+    import datetime
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    channel = payload.get("channel", "both")  # "email", "whatsapp", "both"
+
+    # Merge any unsaved form overrides passed in payload
+    cfg = get_tenant_notification_settings(settings_db, target_tenant)
+    if "settings" in payload and isinstance(payload["settings"], dict):
+        cfg.update(payload["settings"])
+
+    title = "Test Bildirimi — AIDA Kritik Sistem Uyarısı"
+    message = (
+        "Bu mesaj, AIDA Sistem Ayarları > E-Mail ve WhatsApp Bildirimleri ekranından gönderilen bir test bildirimidir.\n"
+        "Dış hat kopmaları, eş zamanlı çağrı kanalı dolulukları, AI sağlayıcı kota/bağlantı sorunları ve lisans uyarıları bu kanal üzerinden tarafınıza anlık iletilecektir."
+    )
+
+    email_ok = False
+    wa_ok = False
+    errors = []
+
+    if channel in ["email", "both"]:
+        recipients = _parse_recipients(cfg.get("recipient_emails", ""))
+        if not recipients:
+            errors.append("Alıcı e-posta adresi girilmemiş.")
+        else:
+            smtp_cfg = _resolve_smtp_config(settings_db, cfg, target_tenant)
+            if not smtp_cfg.get("host") or not smtp_cfg.get("user") or not smtp_cfg.get("password"):
+                errors.append("SMTP sunucu ayarları eksik (Özel SMTP ayarlarını doldurun veya Çoklu Kanal > E-Posta SMTP ayarlarını yapılandırın).")
+            else:
+                html_body = _format_html_alert(title, message, "info", "Test Bildirimi", target_tenant)
+                loop = asyncio.get_event_loop()
+                email_ok = await loop.run_in_executor(
+                    None,
+                    _send_alert_email_sync,
+                    smtp_cfg,
+                    recipients,
+                    f"ℹ️ [AIDA TEST] {title}",
+                    html_body
+                )
+                if not email_ok:
+                    errors.append("SMTP üzerinden e-posta gönderilemedi. Sunucu/şifre bilgilerini kontrol edin.")
+
+    if channel in ["whatsapp", "both"]:
+        wa_numbers = _parse_recipients(cfg.get("recipient_whatsapp_numbers", ""))
+        if not wa_numbers:
+            errors.append("Alıcı WhatsApp numarası girilmemiş.")
+        else:
+            wa_text = _format_whatsapp_alert(title, message, "info", "Test Bildirimi", target_tenant)
+            any_wa_sent = False
+            for num in wa_numbers:
+                clean_num = "".join(ch for ch in num if ch.isdigit())
+                if clean_num.startswith("0") and len(clean_num) == 11:
+                    clean_num = "90" + clean_num[1:]
+                elif len(clean_num) == 10 and clean_num.startswith("5"):
+                    clean_num = "90" + clean_num
+                if len(clean_num) >= 10:
+                    sent = await send_whatsapp_message(to_phone=clean_num, text=wa_text)
+                    if sent:
+                        any_wa_sent = True
+            wa_ok = any_wa_sent
+            if not wa_ok:
+                errors.append("WhatsApp mesajı gönderilemedi. WhatsApp Cloud API Token / Phone ID ayarlarını kontrol edin.")
+
+    # Record in history if at least one succeeded
+    if email_ok or wa_ok:
+        real_cfg = get_tenant_notification_settings(settings_db, target_tenant)
+        hist = real_cfg.get("history", [])
+        if not isinstance(hist, list):
+            hist = []
+        tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+        hist.insert(0, {
+            "id": f"test_{int(datetime.datetime.utcnow().timestamp() * 1000)}",
+            "event_key": "test_notification",
+            "event_label": "Test Bildirimi",
+            "category": "Test",
+            "title": title,
+            "message": message,
+            "severity": "info",
+            "email_sent": email_ok,
+            "whatsapp_sent": wa_ok,
+            "timestamp": tr_now
+        })
+        real_cfg["history"] = hist[:40]
+        if "tenant_notifications" not in settings_db:
+            settings_db["tenant_notifications"] = {}
+        settings_db["tenant_notifications"][target_tenant] = real_cfg
+        if is_default_tenant(target_tenant):
+            settings_db["notifications"] = real_cfg
+        save_settings(settings_db)
+
+    if errors and not (email_ok or wa_ok):
+        raise HTTPException(status_code=400, detail=" | ".join(errors))
+
+    return {
+        "status": "success",
+        "email_sent": email_ok,
+        "whatsapp_sent": wa_ok,
+        "warnings": errors,
+        "message": "Test bildirimi başarıyla gönderildi."
+    }
+
+@app.delete("/api/settings/notifications/history")
+@app.delete("/settings/notifications/history")
+async def clear_notification_history_endpoint(user_info: dict = Depends(get_user_info)):
+    from backend.services.notification_service import get_tenant_notification_settings
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    cfg = get_tenant_notification_settings(settings_db, target_tenant)
+    cfg["history"] = []
+    if "tenant_notifications" not in settings_db:
+        settings_db["tenant_notifications"] = {}
+    settings_db["tenant_notifications"][target_tenant] = cfg
+    if is_default_tenant(target_tenant):
+        settings_db["notifications"] = cfg
+    save_settings(settings_db)
+    return {"status": "success", "message": "Bildirim geçmişi temizlendi."}
 
 
 # --- REFACTORED ENDPOINTS ---
