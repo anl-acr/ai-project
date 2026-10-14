@@ -60,6 +60,10 @@ export default function MasterDashboard() {
   const [hardwareId, setHardwareId] = useState("");
   const [expiryDate, setExpiryDate] = useState("2027-12-31");
   const [planTier, setPlanTier] = useState("professional");
+  const [newMaxConcurrentCalls, setNewMaxConcurrentCalls] = useState(4);
+  const [newAllowedStt, setNewAllowedStt] = useState(["google", "deepgram", "openai", "elevenlabs"]);
+  const [newAllowedTts, setNewAllowedTts] = useState(["google", "elevenlabs", "openai"]);
+  const [newAllowedLlm, setNewAllowedLlm] = useState(["google", "elevenlabs", "openai", "anthropic", "groq"]);
 
   // Search & Filter
   const [searchTerm, setSearchTerm] = useState("");
@@ -149,6 +153,16 @@ export default function MasterDashboard() {
     }
   };
 
+  const toggleNewProvider = (listState, setListState, providerId) => {
+    setListState((prev) => {
+      if (prev.includes(providerId)) {
+        if (prev.length <= 1) return prev;
+        return prev.filter((id) => id !== providerId);
+      }
+      return [...prev, providerId];
+    });
+  };
+
   const handleCreateClient = async (e) => {
     e.preventDefault();
     if (!companyName || !tenantCode) return;
@@ -165,7 +179,13 @@ export default function MasterDashboard() {
           tenant_code: tenantCode.toLowerCase().trim(),
           hardware_id: hardwareId.trim() || "UNBOUND",
           license_expires_at: expiryDate,
-          plan_tier: planTier
+          plan_tier: planTier,
+          custom_quotas: {
+            max_concurrent_calls: parseInt(newMaxConcurrentCalls, 10) || 4,
+            allowed_stt_providers: newAllowedStt,
+            allowed_tts_providers: newAllowedTts,
+            allowed_llm_providers: newAllowedLlm
+          }
         })
       });
 
@@ -174,6 +194,7 @@ export default function MasterDashboard() {
         setCompanyName("");
         setTenantCode("");
         setHardwareId("");
+        setNewMaxConcurrentCalls(4);
         fetchData();
       }
     } catch (e) {
@@ -647,6 +668,45 @@ export default function MasterDashboard() {
                   </div>
                 </div>
 
+                {/* Licensed Channel & AI Engines Summary on Card */}
+                <div className="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/60 rounded-2xl space-y-2 text-[11px]">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                      <PhoneCall size={13} className="text-blue-500" />
+                      Eş Zamanlı Çağrı Kanalı:
+                    </span>
+                    <span className="font-mono font-extrabold text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-lg">
+                      {client.custom_quotas?.max_concurrent_calls ?? 4} Kanal (AI+Dialer+User)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
+                    <div>
+                      <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-0.5">STT</div>
+                      <div className="flex flex-wrap gap-1">
+                        {(client.custom_quotas?.allowed_stt_providers || ["google", "deepgram", "openai", "elevenlabs"]).map((p) => (
+                          <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-0.5">TTS</div>
+                      <div className="flex flex-wrap gap-1">
+                        {(client.custom_quotas?.allowed_tts_providers || ["google", "elevenlabs", "openai"]).map((p) => (
+                          <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[9px] font-extrabold text-slate-400 uppercase mb-0.5">LLM</div>
+                      <div className="flex flex-wrap gap-1">
+                        {(client.custom_quotas?.allowed_llm_providers || ["google", "elevenlabs", "openai", "anthropic", "groq"]).map((p) => (
+                          <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">{p}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
                 {/* License Expiration Info */}
                 <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-200/80 dark:border-slate-800/80">
                   <div className="space-y-0.5">
@@ -723,46 +783,61 @@ export default function MasterDashboard() {
       {/* CREATE NEW CLIENT MODAL */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-md space-y-5 shadow-2xl text-slate-900 dark:text-slate-100">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto space-y-5 shadow-2xl text-slate-900 dark:text-slate-100">
             <h3 className="text-base font-extrabold text-slate-900 dark:text-white flex items-center gap-2">
               <Building2 size={18} className="text-rose-600 dark:text-rose-500" />
               Yeni Müşteri & On-Premise Sunucu Kaydı
             </h3>
 
             <form onSubmit={handleCreateClient} className="space-y-4 text-xs font-semibold">
-              <div>
-                <label className="block text-slate-600 dark:text-slate-400 mb-1">Firma / Müşteri Adı</label>
-                <input
-                  type="text"
-                  required
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  placeholder="Örn: Nolto Teknoloji A.Ş."
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-slate-900 dark:text-white"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 mb-1">Firma / Müşteri Adı</label>
+                  <input
+                    type="text"
+                    required
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    placeholder="Örn: Nolto Teknoloji A.Ş."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 mb-1">Tenant Kodu (Tekil Kod)</label>
+                  <input
+                    type="text"
+                    required
+                    value={tenantCode}
+                    onChange={(e) => setTenantCode(e.target.value)}
+                    placeholder="Örn: nolto"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 font-mono text-slate-900 dark:text-white"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-slate-600 dark:text-slate-400 mb-1">Tenant Kodu (Tekil Kod)</label>
-                <input
-                  type="text"
-                  required
-                  value={tenantCode}
-                  onChange={(e) => setTenantCode(e.target.value)}
-                  placeholder="Örn: nolto"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 font-mono text-slate-900 dark:text-white"
-                />
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-600 dark:text-slate-400 mb-1">Sunucu Donanım ID (Opsiyonel / UNBOUND)</label>
+                  <input
+                    type="text"
+                    value={hardwareId}
+                    onChange={(e) => setHardwareId(e.target.value)}
+                    placeholder="Örn: HW-361B-F973"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 font-mono text-slate-900 dark:text-white"
+                  />
+                </div>
 
-              <div>
-                <label className="block text-slate-600 dark:text-slate-400 mb-1">Sunucu Donanım ID (Opsiyonel / UNBOUND)</label>
-                <input
-                  type="text"
-                  value={hardwareId}
-                  onChange={(e) => setHardwareId(e.target.value)}
-                  placeholder="Örn: HW-361B-F973 (Boş bırakılırsa serbest kalır)"
-                  className="w-full px-3.5 py-2.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl focus:outline-none focus:border-rose-500 font-mono text-slate-900 dark:text-white"
-                />
+                <div>
+                  <label className="block text-blue-600 dark:text-blue-400 font-extrabold mb-1">Eş Zamanlı Çağrı Kanalı Limiti (AI+Dialer+User)</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newMaxConcurrentCalls}
+                    onChange={(e) => setNewMaxConcurrentCalls(parseInt(e.target.value, 10) || 1)}
+                    className="w-full px-3.5 py-2.5 bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl focus:outline-none focus:border-blue-500 font-mono font-extrabold text-slate-900 dark:text-white"
+                  />
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -787,6 +862,58 @@ export default function MasterDashboard() {
                     <option value="professional">Professional Paket</option>
                     <option value="enterprise">Enterprise Paket</option>
                   </select>
+                </div>
+              </div>
+
+              {/* Allowed STT, TTS, LLM Providers in Add Modal */}
+              <div className="p-3.5 bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200/60 dark:border-purple-900/40 rounded-2xl space-y-2.5">
+                <div className="text-[11px] font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider flex items-center gap-1.5">
+                  <Bot size={15} />
+                  <span>Lisanslı Yapay Zeka Motorları (STT / TTS / LLM Seçimi)</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-2.5">
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40 space-y-1">
+                    <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase">STT (Ses Tanıma)</div>
+                    {STT_PROVIDER_LIST.map((p) => (
+                      <label key={p.id} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newAllowedStt.includes(p.id)}
+                          onChange={() => toggleNewProvider(newAllowedStt, setNewAllowedStt, p.id)}
+                          className="rounded accent-purple-600 cursor-pointer"
+                        />
+                        <span className="truncate">{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40 space-y-1">
+                    <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase">TTS (Seslendirme)</div>
+                    {TTS_PROVIDER_LIST.map((p) => (
+                      <label key={p.id} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newAllowedTts.includes(p.id)}
+                          onChange={() => toggleNewProvider(newAllowedTts, setNewAllowedTts, p.id)}
+                          className="rounded accent-purple-600 cursor-pointer"
+                        />
+                        <span className="truncate">{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                  <div className="bg-white dark:bg-slate-900 p-2.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40 space-y-1">
+                    <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase">LLM (Dil Modeli)</div>
+                    {LLM_PROVIDER_LIST.map((p) => (
+                      <label key={p.id} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newAllowedLlm.includes(p.id)}
+                          onChange={() => toggleNewProvider(newAllowedLlm, setNewAllowedLlm, p.id)}
+                          className="rounded accent-purple-600 cursor-pointer"
+                        />
+                        <span className="truncate">{p.label}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -851,14 +978,14 @@ export default function MasterDashboard() {
                 )}
               </div>
 
-              {/* Key Controls: Plan Tier, Status, Expiry, HW ID */}
+              {/* Key Controls: Plan Tier, Status, Expiry, HW ID & Concurrent Call Limit */}
               <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-4">
                 <div className="text-xs font-extrabold uppercase text-slate-500 dark:text-slate-400 tracking-wider flex items-center gap-1.5">
                   <Shield size={16} className="text-rose-500" />
                   <span>Lisans Paketi, Durum & Geçerlilik Yapılandırması</span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   {/* Lisans Paketi / Planı */}
                   <div>
                     <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Lisans Paketi / Planı</label>
@@ -886,6 +1013,20 @@ export default function MasterDashboard() {
                       <option value="active">🟢 Aktif (Erişim & AI Açık)</option>
                       <option value="passive">🔴 Pasif (Erişim & AI Kapalı)</option>
                     </select>
+                  </div>
+
+                  {/* Eş Zamanlı Çağrı Kanalı Limiti */}
+                  <div>
+                    <label className="block text-blue-600 dark:text-blue-400 font-extrabold mb-1" title="AI Agent + Otomatik Arama (Dialer) + Kullanıcı Gelen/Giden Çağrı Kanalı">
+                      Eş Zamanlı Çağrı Kanalı (AI+Dialer+User)
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={genCustomQuotas.max_concurrent_calls !== undefined ? genCustomQuotas.max_concurrent_calls : 4}
+                      onChange={(e) => handleQuotaChange("max_concurrent_calls", e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-extrabold text-slate-900 dark:text-white text-xs"
+                    />
                   </div>
                 </div>
 
