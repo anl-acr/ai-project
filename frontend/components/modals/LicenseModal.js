@@ -247,15 +247,15 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
                   );
                 })()}
 
-                {/* SIP Kanal Kotası */}
+                {/* Eş Zamanlı Çağrı Kanalı Kotası */}
                 {(() => {
-                  const used = licenseStatus.usage.used_channels || 0;
-                  const max = licenseStatus.limits.max_channels || 1;
+                  const used = licenseStatus.usage.used_concurrent_calls ?? licenseStatus.usage.used_channels ?? 0;
+                  const max = licenseStatus.max_concurrent_calls ?? licenseStatus.limits.max_concurrent_calls ?? licenseStatus.limits.channels ?? 4;
                   const pct = Math.min(100, Math.round((used / max) * 100));
                   return (
                     <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-1.5">
                       <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-slate-300">
-                        <span className="flex items-center gap-1"><PhoneCall size={13} className="text-blue-500" /> SIP Çağrı Kanalı</span>
+                        <span className="flex items-center gap-1" title="AI + Otomatik Arama + Kullanıcı Çağrı Kanalı"><PhoneCall size={13} className="text-blue-500" /> Eş Zamanlı Kanal</span>
                         <span className="font-mono text-slate-900 dark:text-white font-extrabold">{used} / {max >= 999 ? "♾️" : max}</span>
                       </div>
                       <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -300,6 +300,40 @@ export default function LicenseModal({ isOpen, onClose, backendHost, onLicenseUp
                     </div>
                   );
                 })()}
+              </div>
+
+              {/* Read-only Lisanslı AI Sağlayıcıları (STT / TTS / LLM) */}
+              <div className="p-3 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-2">
+                <div className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>Lisanslı AI Motorları (STT / TTS / LLM)</span>
+                  <span className="text-[9px] text-slate-400">Salt Okunur</span>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <div className="text-[9px] font-bold text-slate-400 uppercase mb-1">STT</div>
+                    <div className="flex flex-wrap gap-1">
+                      {(licenseStatus.allowed_stt_providers || licenseStatus.limits?.allowed_stt_providers || ["google", "deepgram", "openai", "elevenlabs"]).map((p) => (
+                        <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-bold text-slate-400 uppercase mb-1">TTS</div>
+                    <div className="flex flex-wrap gap-1">
+                      {(licenseStatus.allowed_tts_providers || licenseStatus.limits?.allowed_tts_providers || ["google", "elevenlabs", "openai"]).map((p) => (
+                        <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-bold text-slate-400 uppercase mb-1">LLM</div>
+                    <div className="flex flex-wrap gap-1">
+                      {(licenseStatus.allowed_llm_providers || licenseStatus.limits?.allowed_llm_providers || ["google", "elevenlabs", "openai", "anthropic", "groq"]).map((p) => (
+                        <span key={p} className="px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">{p}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}

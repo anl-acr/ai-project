@@ -221,7 +221,29 @@ export default function MasterDashboard() {
     { key: "max_scenarios", label: "Senaryo Editörü", defaultVal: 30, unit: "Akış" }
   ];
 
+  const STT_PROVIDER_LIST = [
+    { id: "google", label: "Google Gemini STT (Dahili)" },
+    { id: "deepgram", label: "Deepgram Nova-2 STT" },
+    { id: "openai", label: "OpenAI Whisper STT" },
+    { id: "elevenlabs", label: "ElevenLabs Scribe / ConvAI STT" }
+  ];
+
+  const TTS_PROVIDER_LIST = [
+    { id: "google", label: "Google Gemini Dahili Ses Motoru" },
+    { id: "elevenlabs", label: "ElevenLabs TTS (Kütüphane & Klon Ses)" },
+    { id: "openai", label: "OpenAI TTS (Alloy / Nova / Shimmer)" }
+  ];
+
+  const LLM_PROVIDER_LIST = [
+    { id: "google", label: "Google Gemini (Multimodal Live)" },
+    { id: "elevenlabs", label: "ElevenLabs (Conversational AI)" },
+    { id: "openai", label: "OpenAI (GPT-4o / Realtime)" },
+    { id: "anthropic", label: "Anthropic (Claude 3.5 Sonnet)" },
+    { id: "groq", label: "Groq (Fast LLM - Llama 3)" }
+  ];
+
   const PBX_QUOTA_FIELDS = [
+    { key: "max_concurrent_calls", label: "Eş Zamanlı Çağrı Kanalı (AI+Dialer+User)", defaultVal: 4, unit: "Kanal" },
     { key: "max_users", label: "Kullanıcılar", defaultVal: 50, unit: "Kişi" },
     { key: "max_trunks", label: "Dış Hat (SIP Trunk)", defaultVal: 10, unit: "Hat" },
     { key: "max_queues", label: "Kuyruklar", defaultVal: 20, unit: "Kuyruk" },
@@ -267,7 +289,29 @@ export default function MasterDashboard() {
     [...AI_QUOTA_FIELDS, ...PBX_QUOTA_FIELDS, ...FLOW_QUOTA_FIELDS].forEach(f => {
       initQ[f.key] = existingQuotas[f.key] !== undefined ? existingQuotas[f.key] : f.defaultVal;
     });
+    initQ.allowed_stt_providers = Array.isArray(existingQuotas.allowed_stt_providers) && existingQuotas.allowed_stt_providers.length > 0
+      ? existingQuotas.allowed_stt_providers
+      : STT_PROVIDER_LIST.map(p => p.id);
+    initQ.allowed_tts_providers = Array.isArray(existingQuotas.allowed_tts_providers) && existingQuotas.allowed_tts_providers.length > 0
+      ? existingQuotas.allowed_tts_providers
+      : TTS_PROVIDER_LIST.map(p => p.id);
+    initQ.allowed_llm_providers = Array.isArray(existingQuotas.allowed_llm_providers) && existingQuotas.allowed_llm_providers.length > 0
+      ? existingQuotas.allowed_llm_providers
+      : LLM_PROVIDER_LIST.map(p => p.id);
+
     setGenCustomQuotas(initQ);
+  };
+
+  const toggleProviderOption = (quotaKey, providerId) => {
+    setGenCustomQuotas(prev => {
+      const currentList = Array.isArray(prev[quotaKey]) ? prev[quotaKey] : [];
+      if (currentList.includes(providerId)) {
+        if (currentList.length <= 1) return prev; // Keep at least 1 selected
+        return { ...prev, [quotaKey]: currentList.filter(id => id !== providerId) };
+      } else {
+        return { ...prev, [quotaKey]: [...currentList, providerId] };
+      }
+    });
   };
 
   const handleGenerateCustomKey = async (e) => {
@@ -917,6 +961,78 @@ export default function MasterDashboard() {
                         />
                       </div>
                     ))}
+                  </div>
+
+                  {/* Allowed STT, TTS, and LLM Engines Selection */}
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-2 border-t border-purple-200/50 dark:border-purple-900/40">
+                    {/* STT Providers */}
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs space-y-2">
+                      <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                        İzin Verilen STT (Ses Tanıma)
+                      </div>
+                      <div className="space-y-1.5">
+                        {STT_PROVIDER_LIST.map(p => {
+                          const checked = (genCustomQuotas.allowed_stt_providers || []).includes(p.id);
+                          return (
+                            <label key={p.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleProviderOption("allowed_stt_providers", p.id)}
+                                className="rounded accent-purple-600 cursor-pointer"
+                              />
+                              <span className="truncate">{p.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* TTS Providers */}
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs space-y-2">
+                      <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                        İzin Verilen TTS (Seslendirme)
+                      </div>
+                      <div className="space-y-1.5">
+                        {TTS_PROVIDER_LIST.map(p => {
+                          const checked = (genCustomQuotas.allowed_tts_providers || []).includes(p.id);
+                          return (
+                            <label key={p.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleProviderOption("allowed_tts_providers", p.id)}
+                                className="rounded accent-purple-600 cursor-pointer"
+                              />
+                              <span className="truncate">{p.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* LLM Providers */}
+                    <div className="bg-white dark:bg-slate-900 p-3 rounded-xl border border-purple-200/60 dark:border-purple-900/40 shadow-xs space-y-2">
+                      <div className="text-[10px] font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
+                        İzin Verilen LLM (Dil Modeli)
+                      </div>
+                      <div className="space-y-1.5">
+                        {LLM_PROVIDER_LIST.map(p => {
+                          const checked = (genCustomQuotas.allowed_llm_providers || []).includes(p.id);
+                          return (
+                            <label key={p.id} className="flex items-center gap-2 text-[11px] font-bold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleProviderOption("allowed_llm_providers", p.id)}
+                                className="rounded accent-purple-600 cursor-pointer"
+                              />
+                              <span className="truncate">{p.label}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
                   </div>
                 </div>
 

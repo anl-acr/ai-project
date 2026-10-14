@@ -682,9 +682,10 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         print(f"Arama Basladi. Benzersiz ID (call_id): {call_id}")
         await register_call_db(call_id)
         
-        # Check License verification before initiating AI voice streams
+        # Check License verification and Concurrent Call Channel Limit before initiating AI voice streams
         try:
             from backend.services.license_service import verify_license_key
+            from backend.main import get_tenant_concurrent_call_info
             settings_data = load_settings()
             tenants_list = settings_data.get("tenants", [])
             target_tenant = tenants_list[0] if tenants_list else None
@@ -694,6 +695,20 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                 lic_res = verify_license_key(t_code, t_key)
                 if not lic_res.get("valid") or target_tenant.get("status") == "passive":
                     print(f"[AudioSocket License Block] Tenant '{target_tenant.get('name')}' license expired or invalid ({lic_res.get('reason')}). Terminating call.")
+                    from backend.services.ami_manager import hangup_call
+                    await hangup_call(call_id)
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+
+                # Concurrent Call Channel Limit Check (AI + Dialer + User)
+                call_info = get_tenant_concurrent_call_info(
+                    tenant_id=target_tenant.get("id", "tenant-default"),
+                    current_settings=settings_data,
+                    exclude_call_id=call_id
+                )
+                if call_info["used_concurrent_calls"] >= call_info["max_concurrent_calls"]:
+                    print(f"[AudioSocket Concurrent Limit Block] Tenant '{target_tenant.get('name')}' reached max_concurrent_calls ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']}). Terminating call {call_id}.")
                     from backend.services.ami_manager import hangup_call
                     await hangup_call(call_id)
                     writer.close()

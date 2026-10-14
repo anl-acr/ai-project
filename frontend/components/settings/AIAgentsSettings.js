@@ -62,8 +62,12 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const [agentVoice, setAgentVoice] = useState("Aoede (Dişi - Türkçe / İngilizce)");
   const [agentTone, setAgentTone] = useState("normal"); // normal, calm, attractive, firm
   const [agentProvider, setAgentProvider] = useState("google");
+  const [sttProvider, setSttProvider] = useState("google");
   const [llmProvider, setLlmProvider] = useState("google");
   const [ttsProvider, setTtsProvider] = useState("google");
+  const [allowedSttProviders, setAllowedSttProviders] = useState(["google", "deepgram", "openai", "elevenlabs"]);
+  const [allowedTtsProviders, setAllowedTtsProviders] = useState(["google", "elevenlabs", "openai"]);
+  const [allowedLlmProviders, setAllowedLlmProviders] = useState(["google", "elevenlabs", "openai", "anthropic", "groq"]);
   const [agentModel, setAgentModel] = useState("models/gemini-2.5-flash-native-audio-latest");
   const [agentTemperature, setAgentTemperature] = useState(0.7);
   const [agentMaxTokens, setAgentMaxTokens] = useState(300);
@@ -91,9 +95,16 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
 
   const API_BASE = getApiBaseUrl(backendHost);
 
+  // STT Provider options
+  const ALL_STT_PROVIDER_OPTIONS = [
+    { id: "google", name: "Google Gemini STT (Multimodal Native)" },
+    { id: "deepgram", name: "Deepgram Nova-2 (Ultra Düşük Gecikmeli STT)" },
+    { id: "openai", name: "OpenAI Whisper (Yüksek Doğruluklu STT)" },
+    { id: "elevenlabs", name: "ElevenLabs Scribe STT" }
+  ];
 
   // LLM Provider options
-  const LLM_PROVIDER_OPTIONS = [
+  const ALL_LLM_PROVIDER_OPTIONS = [
     { id: "google", name: "Google Gemini (Multimodal Live)" },
     { id: "elevenlabs", name: "ElevenLabs (Conversational AI)" },
     { id: "openai", name: "OpenAI (GPT-4o / Realtime)" },
@@ -102,10 +113,22 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   ];
 
   // TTS Provider options
-  const TTS_PROVIDER_OPTIONS = [
+  const ALL_TTS_PROVIDER_OPTIONS = [
     { id: "google", name: "Google Gemini Dahili Ses Motoru" },
-    { id: "elevenlabs", name: "ElevenLabs TTS (Ses Kütüphanesi & Klonlanmış Ses)" }
+    { id: "elevenlabs", name: "ElevenLabs TTS (Ses Kütüphanesi & Klonlanmış Ses)" },
+    { id: "openai", name: "OpenAI TTS (Alloy / Nova / Shimmer)" }
   ];
+
+  // Filter options strictly by active tenant's licensed providers
+  const STT_PROVIDER_OPTIONS = ALL_STT_PROVIDER_OPTIONS.filter((opt) =>
+    !Array.isArray(allowedSttProviders) || allowedSttProviders.length === 0 || allowedSttProviders.includes(opt.id)
+  );
+  const TTS_PROVIDER_OPTIONS = ALL_TTS_PROVIDER_OPTIONS.filter((opt) =>
+    !Array.isArray(allowedTtsProviders) || allowedTtsProviders.length === 0 || allowedTtsProviders.includes(opt.id)
+  );
+  const LLM_PROVIDER_OPTIONS = ALL_LLM_PROVIDER_OPTIONS.filter((opt) =>
+    !Array.isArray(allowedLlmProviders) || allowedLlmProviders.length === 0 || allowedLlmProviders.includes(opt.id)
+  );
 
   // Gemini Prebuilt Voice options
   const GEMINI_VOICE_OPTIONS = [
@@ -167,6 +190,31 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       .catch((err) => console.error("[AI-Providers] Load error:", err));
   };
 
+  const fetchLicenseAllowedProviders = () => {
+    tenantFetch(`${API_BASE}/api/settings/license/status`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data) {
+          if (Array.isArray(data.allowed_stt_providers) && data.allowed_stt_providers.length > 0) {
+            setAllowedSttProviders(data.allowed_stt_providers);
+          } else {
+            setAllowedSttProviders(["google", "deepgram", "openai", "elevenlabs"]);
+          }
+          if (Array.isArray(data.allowed_tts_providers) && data.allowed_tts_providers.length > 0) {
+            setAllowedTtsProviders(data.allowed_tts_providers);
+          } else {
+            setAllowedTtsProviders(["google", "elevenlabs", "openai"]);
+          }
+          if (Array.isArray(data.allowed_llm_providers) && data.allowed_llm_providers.length > 0) {
+            setAllowedLlmProviders(data.allowed_llm_providers);
+          } else {
+            setAllowedLlmProviders(["google", "elevenlabs", "openai", "anthropic", "groq"]);
+          }
+        }
+      })
+      .catch((err) => console.error("[License Allowed Providers] Load error:", err));
+  };
+
   const fetchElevenLabsVoices = () => {
     tenantFetch(`${API_BASE}/api/settings/ai-providers/elevenlabs-voices`)
       .then((res) => res.json())
@@ -191,10 +239,12 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     fetchAgents();
     fetchProviders();
     fetchElevenLabsVoices();
+    fetchLicenseAllowedProviders();
     const handleTenantChange = () => {
       fetchAgents();
       fetchProviders();
       fetchElevenLabsVoices();
+      fetchLicenseAllowedProviders();
     };
     window.addEventListener("tenantChanged", handleTenantChange);
     return () => window.removeEventListener("tenantChanged", handleTenantChange);
@@ -202,14 +252,19 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
 
   const handleCreateNewAgent = () => {
     setError("");
+    const defaultStt = allowedSttProviders[0] || "google";
+    const defaultTts = allowedTtsProviders[0] || "google";
+    const defaultLlm = allowedLlmProviders[0] || "google";
+
     setAgentId(`agent-${Date.now()}`);
     setAgentName("Yeni Yapay Zeka Asistanı");
     setAgentVoice("Aoede (Dişi - Türkçe / İngilizce)");
     setAgentTone("normal");
-    setLlmProvider("google");
-    setTtsProvider("google");
-    setAgentProvider("google");
-    setAgentModel("models/gemini-2.5-flash-native-audio-latest");
+    setSttProvider(defaultStt);
+    setLlmProvider(defaultLlm);
+    setTtsProvider(defaultTts);
+    setAgentProvider(defaultLlm);
+    setAgentModel(MODEL_OPTIONS[defaultLlm] ? MODEL_OPTIONS[defaultLlm][0] : "models/gemini-2.5-flash-native-audio-latest");
     setAgentTemperature(0.7);
     setAgentMaxTokens(300);
     setAgentInstruction("Sen yardımsever bir müşteri temsilcisisin.");
@@ -231,9 +286,15 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setAgentId(agent.id);
     setAgentName(agent.name);
     
-    const resolvedLlm = agent.llm_provider || agent.provider || "google";
-    const resolvedTts = agent.tts_provider || (agent.provider === "elevenlabs" || agent.elevenlabs_voice_id ? "elevenlabs" : "google");
+    const rawStt = agent.stt_provider || "google";
+    const rawLlm = agent.llm_provider || agent.provider || "google";
+    const rawTts = agent.tts_provider || (agent.provider === "elevenlabs" || agent.elevenlabs_voice_id ? "elevenlabs" : "google");
 
+    const resolvedStt = allowedSttProviders.includes(rawStt) ? rawStt : (allowedSttProviders[0] || "google");
+    const resolvedLlm = allowedLlmProviders.includes(rawLlm) ? rawLlm : (allowedLlmProviders[0] || "google");
+    const resolvedTts = allowedTtsProviders.includes(rawTts) ? rawTts : (allowedTtsProviders[0] || "google");
+
+    setSttProvider(resolvedStt);
     setLlmProvider(resolvedLlm);
     setTtsProvider(resolvedTts);
     setAgentProvider(resolvedLlm);
@@ -284,6 +345,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       voice: ttsProvider === "elevenlabs" ? (elevenlabsVoiceId || "ElevenLabs Custom Voice") : agentVoice,
       tone: agentTone,
       provider: llmProvider,
+      stt_provider: sttProvider,
       llm_provider: llmProvider,
       tts_provider: ttsProvider,
       model: agentModel,
@@ -301,7 +363,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     };
 
     try {
-      const res = await fetch(`${API_BASE}/api/settings/ai-agents`, {
+      const res = await tenantFetch(`${API_BASE}/api/settings/ai-agents`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -702,10 +764,23 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
           <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm space-y-4">
             <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
               <Volume2 size={16} className="text-primary" />
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">TTS Ses Profili Seçimi</h3>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">STT & TTS Ses Profili Seçimi</h3>
             </div>
 
             <div className="flex flex-col gap-1.5">
+              <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Ses Tanıma Motoru (STT Provider)</label>
+              <select
+                value={sttProvider}
+                onChange={(e) => setSttProvider(e.target.value)}
+                className="px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-indigo-500 font-bold"
+              >
+                {STT_PROVIDER_OPTIONS.map((s) => (
+                  <option key={s.id} value={s.id}>{s.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-col gap-1.5 pt-2 border-t border-slate-100 dark:border-slate-800/60">
               <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Seslendirme Motoru (TTS Provider)</label>
               <select
                 value={ttsProvider}

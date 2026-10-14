@@ -377,12 +377,16 @@ class TenantSchema(BaseModel):
     license_key: Optional[str] = ""
     plan_tier: Optional[str] = "professional"
     
-    # 1. Yapay Zeka Kotaları
+    # 1. Yapay Zeka Kotaları & Sağlayıcı İzinleri
     max_agents: Optional[int] = 20
     max_rag_docs: Optional[int] = 100
     max_scenarios: Optional[int] = 20
+    allowed_stt_providers: Optional[List[str]] = ["google", "deepgram", "openai", "elevenlabs"]
+    allowed_tts_providers: Optional[List[str]] = ["google", "elevenlabs", "openai"]
+    allowed_llm_providers: Optional[List[str]] = ["google", "elevenlabs", "openai", "anthropic", "groq"]
     
-    # 2. Santral Kotaları
+    # 2. Santral Kotaları & Eş Zamanlı Kanal Limiti
+    max_concurrent_calls: Optional[int] = 4
     max_users: Optional[int] = 50
     max_announcements: Optional[int] = 20
     max_queues: Optional[int] = 10
@@ -410,12 +414,16 @@ class TenantCreateSchema(BaseModel):
     license_key: Optional[str] = ""
     plan_tier: Optional[str] = "professional"
     
-    # 1. Yapay Zeka Kotaları
+    # 1. Yapay Zeka Kotaları & Sağlayıcı İzinleri
     max_agents: Optional[int] = 20
     max_rag_docs: Optional[int] = 100
     max_scenarios: Optional[int] = 20
+    allowed_stt_providers: Optional[List[str]] = None
+    allowed_tts_providers: Optional[List[str]] = None
+    allowed_llm_providers: Optional[List[str]] = None
     
-    # 2. Santral Kotaları
+    # 2. Santral Kotaları & Eş Zamanlı Kanal Limiti
+    max_concurrent_calls: Optional[int] = 4
     max_users: Optional[int] = 50
     max_announcements: Optional[int] = 20
     max_queues: Optional[int] = 10
@@ -452,6 +460,7 @@ class AIAgentSchema(BaseModel):
     voice: str
     tone: str
     provider: Optional[str] = "google"
+    stt_provider: Optional[str] = "google"
     llm_provider: Optional[str] = "google"
     tts_provider: Optional[str] = "google"
     model: str
@@ -479,8 +488,12 @@ DEFAULT_SETTINGS = {
             "code": "default",
             "status": "active",
             "created_at": "2026-01-01T00:00:00",
+            "max_concurrent_calls": 4,
             "max_agents": 10,
-            "max_trunks": 5
+            "max_trunks": 5,
+            "allowed_stt_providers": ["google", "deepgram", "openai", "elevenlabs"],
+            "allowed_tts_providers": ["google", "elevenlabs", "openai"],
+            "allowed_llm_providers": ["google", "elevenlabs", "openai", "anthropic", "groq"]
         }
     ],
     "pbx": {
@@ -2231,6 +2244,13 @@ async def get_dialer_settings(user_info: dict = Depends(get_user_info)):
 @app.post("/settings/dialer")
 async def save_smart_dialer_settings(payload: DialerSettingsSchema, user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
+    call_info = get_tenant_concurrent_call_info(target_tenant)
+    max_allowed = call_info["max_concurrent_calls"]
+    if payload.concurrent_calls > max_allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({max_allowed} Kanal) aşılamaz. Lütfen eş zamanlı arama sayısını en fazla {max_allowed} olarak belirleyiniz."
+        )
     if "tenant_dialer" not in settings_db:
         settings_db["tenant_dialer"] = {}
     settings_db["tenant_dialer"][target_tenant] = payload.model_dump()
@@ -2257,6 +2277,15 @@ async def save_dialer_campaign(request: Request, user_info: dict = Depends(get_u
     data["name"] = c_name
     data["tenant_id"] = target_tenant
     c_id = data.get("id")
+    
+    call_info = get_tenant_concurrent_call_info(target_tenant)
+    max_allowed = call_info["max_concurrent_calls"]
+    req_concurrent = int(data.get("concurrent_calls") or 1)
+    if req_concurrent > max_allowed:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({max_allowed} Kanal) aşılamaz. Kampanya kanal sayısını en fazla {max_allowed} yapabilirsiniz."
+        )
     
     check_name_uniqueness(c_name, "dialer_campaigns", c_id, label="Dış Arama Kampanyası", name_field="name")
     
@@ -2302,7 +2331,7 @@ class CampaignControlPayload(BaseModel):
 
 @app.post("/api/settings/dialer/campaigns/{campaign_id}/control")
 @app.post("/settings/dialer/campaigns/{campaign_id}/control")
-async def control_dialer_campaign(campaign_id: str, payload: CampaignControlPayload):
+async def control_dialer_campaign(campaign_id: str, payload: CampaignControlPayload, user_info: dict = Depends(get_user_info)):
     campaigns = settings_db.get("dialer_campaigns", [])
     target = None
     for c in campaigns:
@@ -2315,6 +2344,16 @@ async def control_dialer_campaign(campaign_id: str, payload: CampaignControlPayl
         
     action = payload.action
     if action == "start":
+        t_id = target.get("tenant_id") or user_info.get("tenant_id") or "tenant-default"
+        call_info = get_tenant_concurrent_call_info(t_id)
+        req_ch = int(target.get("concurrent_calls") or 1)
+        if call_info["available_channels"] <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({call_info['max_concurrent_calls']} Kanal) şu an dolu ({call_info['used_concurrent_calls']} aktif çağrı). Kampanya başlatılamaz."
+            )
+        if req_ch > call_info["available_channels"]:
+            target["concurrent_calls"] = call_info["available_channels"]
         target["status"] = "running"
     elif action == "pause":
         target["status"] = "paused"
@@ -2475,12 +2514,20 @@ class DialerControlPayload(BaseModel):
     action: str
 
 @app.post("/api/dialer/control")
-async def control_dialer(payload: DialerControlPayload):
+async def control_dialer(payload: DialerControlPayload, user_info: dict = Depends(get_user_info)):
     global DIALER_STATE, DIALER_RECORDS
     action = payload.action
     if action == "start":
+        t_id = user_info.get("tenant_id") or "tenant-default"
+        call_info = get_tenant_concurrent_call_info(t_id)
+        if call_info["available_channels"] <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({call_info['max_concurrent_calls']} Kanal) şu an dolu ({call_info['used_concurrent_calls']} aktif çağrı). Otomatik arama başlatılamaz."
+            )
+        req_calls = int(settings_db.get("dialer", {}).get("concurrent_calls", 3))
         DIALER_STATE["status"] = "running"
-        DIALER_STATE["current_calls"] = settings_db.get("dialer", {}).get("concurrent_calls", 3)
+        DIALER_STATE["current_calls"] = min(req_calls, call_info["available_channels"])
     elif action == "pause":
         DIALER_STATE["status"] = "paused"
         DIALER_STATE["current_calls"] = 0
@@ -4103,6 +4150,26 @@ async def save_ai_agent(payload: AIAgentSchema, user_info: dict = Depends(get_us
         payload.id = f"agent-{int(time.time() * 1000)}"
     check_name_uniqueness(payload.name, "ai_agents", payload.id, label="Yapay Zeka Asistanı", name_field="name", tenant_id=target_tenant)
 
+    # Validate licensed STT, TTS, LLM providers for this tenant
+    tenants = settings_db.get("tenants", DEFAULT_SETTINGS["tenants"])
+    matched_tenant = next((t for t in tenants if t.get("id") == target_tenant), tenants[0] if tenants else None)
+    if matched_tenant:
+        allowed_stt = matched_tenant.get("allowed_stt_providers")
+        if isinstance(allowed_stt, list) and len(allowed_stt) > 0:
+            req_stt = payload.stt_provider or "google"
+            if req_stt not in allowed_stt:
+                raise HTTPException(status_code=403, detail=f"Seçilen STT sağlayıcısı ({req_stt}) bu müşteri lisansında aktif değildir.")
+        allowed_tts = matched_tenant.get("allowed_tts_providers")
+        if isinstance(allowed_tts, list) and len(allowed_tts) > 0:
+            req_tts = payload.tts_provider or "google"
+            if req_tts not in allowed_tts:
+                raise HTTPException(status_code=403, detail=f"Seçilen TTS sağlayıcısı ({req_tts}) bu müşteri lisansında aktif değildir.")
+        allowed_llm = matched_tenant.get("allowed_llm_providers")
+        if isinstance(allowed_llm, list) and len(allowed_llm) > 0:
+            req_llm = payload.llm_provider or payload.provider or "google"
+            if req_llm not in allowed_llm:
+                raise HTTPException(status_code=403, detail=f"Seçilen LLM sağlayıcısı ({req_llm}) bu müşteri lisansında aktif değildir.")
+
     data = payload.model_dump()
     data["tenant_id"] = target_tenant
 
@@ -4114,6 +4181,8 @@ async def save_ai_agent(payload: AIAgentSchema, user_info: dict = Depends(get_us
             exists = True
             break
     if not exists:
+        tenant_agents_count = len([a for a in agents if a.get("tenant_id") == target_tenant or (is_default_tenant(target_tenant) and not a.get("tenant_id"))])
+        check_tenant_quota_limit(target_tenant, "agents", tenant_agents_count)
         agents.append(data)
     settings_db["ai_agents"] = agents
     save_settings(settings_db)
@@ -4673,9 +4742,56 @@ def check_and_update_tenant_expiration(tenants):
                         if t.get(q_key) != int(q_val):
                             t[q_key] = int(q_val)
                             changed = True
+                    elif isinstance(q_val, list):
+                        if t.get(q_key) != q_val:
+                            t[q_key] = q_val
+                            changed = True
 
     return changed
 
+
+def get_tenant_concurrent_call_info(tenant_id: str = "tenant-default", current_settings: dict = None, exclude_call_id: str = None, exclude_asterisk_id: str = None) -> dict:
+    """Computes total active concurrent call channels across AI Agents, Outbound Dialer, and Real Users (inbound & outbound) against the tenant's licensed max_concurrent_calls."""
+    from backend.services.ami_manager import active_channels, call_id_to_asterisk_id
+    if current_settings is None:
+        current_settings = load_settings()
+    tenants = current_settings.get("tenants", DEFAULT_SETTINGS["tenants"])
+    matched = next((t for t in tenants if t.get("id") == tenant_id or t.get("code") == tenant_id), tenants[0] if tenants else {})
+    max_calls = int(matched.get("max_concurrent_calls") or 4)
+
+    # 1. Active voice calls (AI Agent + Real User Inbound/Outbound)
+    active_voice_count = 0
+    if active_channels:
+        excluded_ast_ids = set()
+        if exclude_asterisk_id:
+            excluded_ast_ids.add(str(exclude_asterisk_id))
+        if exclude_call_id:
+            excluded_ast_ids.add(str(exclude_call_id))
+            mapped_ast = call_id_to_asterisk_id.get(exclude_call_id)
+            if mapped_ast:
+                excluded_ast_ids.add(str(mapped_ast))
+        for ch_id in active_channels.keys():
+            if str(ch_id) not in excluded_ast_ids:
+                active_voice_count += 1
+
+    # 2. Active Outbound Dialer channels
+    dialer_channels = 0
+    if DIALER_STATE.get("status") == "running":
+        dialer_channels += int(DIALER_STATE.get("current_calls") or 0)
+    for camp in current_settings.get("dialer_campaigns", []):
+        if isinstance(camp, dict) and camp.get("status") == "running":
+            camp_t = camp.get("tenant_id") or "tenant-default"
+            if tenant_id in ["tenant-default", "default", "all", "global"] or camp_t == tenant_id:
+                dialer_channels += int(camp.get("concurrent_calls") or 1)
+
+    used_total = active_voice_count + dialer_channels
+    return {
+        "max_concurrent_calls": max_calls,
+        "used_concurrent_calls": used_total,
+        "active_voice_calls": active_voice_count,
+        "active_dialer_calls": dialer_channels,
+        "available_channels": max(0, max_calls - used_total)
+    }
 
 
 def check_tenant_quota_limit(tenant_id: str, resource_type: str, current_count: int):
@@ -4721,7 +4837,7 @@ def check_tenant_quota_limit(tenant_id: str, resource_type: str, current_count: 
 
 
 def compute_tenant_usage_dict(current_settings: dict, t_id: str) -> dict:
-    """Calculates live usage counts for all 19 feature quotas for a specific tenant."""
+    """Calculates live usage counts for all 20 feature quotas (including concurrent call channels) for a specific tenant."""
     def count_items(keys):
         if isinstance(keys, str):
             keys = [keys]
@@ -4742,7 +4858,10 @@ def compute_tenant_usage_dict(current_settings: dict, t_id: str) -> dict:
                         total += 1
         return total
 
+    call_info = get_tenant_concurrent_call_info(t_id, current_settings)
+
     return {
+        "max_concurrent_calls": call_info["used_concurrent_calls"],
         "max_agents": count_items(["ai_agents"]),
         "max_rag_docs": count_items(["rag_docs", "documents"]),
         "max_scenarios": count_items(["scenarios", "ai_scenarios"]),
@@ -4791,6 +4910,14 @@ async def get_tenants():
     result = []
     for t in tenants:
         t_copy = dict(t)
+        if "max_concurrent_calls" not in t_copy or t_copy["max_concurrent_calls"] is None:
+            t_copy["max_concurrent_calls"] = 4
+        if "allowed_stt_providers" not in t_copy or not isinstance(t_copy["allowed_stt_providers"], list):
+            t_copy["allowed_stt_providers"] = ["google", "deepgram", "openai", "elevenlabs"]
+        if "allowed_tts_providers" not in t_copy or not isinstance(t_copy["allowed_tts_providers"], list):
+            t_copy["allowed_tts_providers"] = ["google", "elevenlabs", "openai"]
+        if "allowed_llm_providers" not in t_copy or not isinstance(t_copy["allowed_llm_providers"], list):
+            t_copy["allowed_llm_providers"] = ["google", "elevenlabs", "openai", "anthropic", "groq"]
         t_copy["usage"] = compute_tenant_usage_dict(current, t.get("id", "tenant-default"))
         result.append(t_copy)
 
@@ -4803,7 +4930,7 @@ async def get_tenants():
 @app.post("/api/settings/tenants")
 @app.post("/api/settings/tenants/")
 async def create_tenant(payload: TenantCreateSchema):
-    """Creates a new Tenant with cryptographic license key and 19 quota limits across 3 categories."""
+    """Creates a new Tenant with cryptographic license key and quota limits across 3 categories."""
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
     
@@ -4840,12 +4967,16 @@ async def create_tenant(payload: TenantCreateSchema):
         "license_key": generated_key,
         "plan_tier": payload.plan_tier or "professional",
         
-        # 1. Yapay Zeka Kotaları
+        # 1. Yapay Zeka Kotaları & Sağlayıcı İzinleri
         "max_agents": payload.max_agents or 20,
         "max_rag_docs": payload.max_rag_docs or 100,
         "max_scenarios": payload.max_scenarios or 20,
+        "allowed_stt_providers": payload.allowed_stt_providers if isinstance(payload.allowed_stt_providers, list) else ["google", "deepgram", "openai", "elevenlabs"],
+        "allowed_tts_providers": payload.allowed_tts_providers if isinstance(payload.allowed_tts_providers, list) else ["google", "elevenlabs", "openai"],
+        "allowed_llm_providers": payload.allowed_llm_providers if isinstance(payload.allowed_llm_providers, list) else ["google", "elevenlabs", "openai", "anthropic", "groq"],
         
-        # 2. Santral Kotaları
+        # 2. Santral Kotaları & Eş Zamanlı Kanal Limiti
+        "max_concurrent_calls": payload.max_concurrent_calls or 4,
         "max_users": payload.max_users or 50,
         "max_announcements": payload.max_announcements or 20,
         "max_queues": payload.max_queues or 10,
@@ -4866,6 +4997,16 @@ async def create_tenant(payload: TenantCreateSchema):
         "max_dialers": payload.max_dialers or 5
     }
     
+    # Apply embedded quotas if license_key was provided
+    if payload.license_key:
+        v_init = verify_license_key(tenant_code, generated_key)
+        if v_init.get("valid") and isinstance(v_init.get("custom_quotas"), dict):
+            for q_k, q_v in v_init["custom_quotas"].items():
+                if isinstance(q_v, (int, float)):
+                    new_tenant[q_k] = int(q_v)
+                elif isinstance(q_v, list):
+                    new_tenant[q_k] = q_v
+
     tenants.append(new_tenant)
     current["tenants"] = tenants
     
@@ -4897,7 +5038,7 @@ async def create_tenant(payload: TenantCreateSchema):
 @app.put("/api/settings/tenants/{tenant_id}")
 @app.put("/api/settings/tenants/{tenant_id}/")
 async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
-    """Updates tenant metadata, license key, package tier, and all 19 quota limits."""
+    """Updates tenant metadata, license key, package tier, and quota limits."""
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
     
@@ -4909,6 +5050,7 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
     target_tenant["status"] = payload.status or target_tenant.get("status", "active")
     target_tenant["license_expires_at"] = payload.license_expires_at if payload.license_expires_at is not None else target_tenant.get("license_expires_at", "")
     t_code = target_tenant.get("code") or tenant_id.replace("tenant-", "")
+    has_embedded_quotas = False
     if payload.license_key:
         clean_key = payload.license_key.strip()
         target_tenant["license_key"] = clean_key
@@ -4919,37 +5061,48 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
             target_tenant["status"] = "active"
             custom_q = verification.get("custom_quotas")
             if custom_q and isinstance(custom_q, dict):
+                has_embedded_quotas = True
                 for q_key, q_val in custom_q.items():
                     if isinstance(q_val, (int, float)):
                         target_tenant[q_key] = int(q_val)
+                    elif isinstance(q_val, list):
+                        target_tenant[q_key] = q_val
     elif payload.license_expires_at and str(payload.license_expires_at).strip() and str(payload.license_expires_at).lower() not in ["unlimited", "limitsiz", "suresiz"]:
         target_tenant["license_key"] = generate_license_key(t_code, payload.license_expires_at)
     target_tenant["plan_tier"] = payload.plan_tier or target_tenant.get("plan_tier", "professional")
     
-    # 1. Yapay Zeka Kotaları
-    target_tenant["max_agents"] = payload.max_agents or target_tenant.get("max_agents", 20)
-    target_tenant["max_rag_docs"] = payload.max_rag_docs or target_tenant.get("max_rag_docs", 100)
-    target_tenant["max_scenarios"] = payload.max_scenarios or target_tenant.get("max_scenarios", 20)
-    
-    # 2. Santral Kotaları
-    target_tenant["max_users"] = payload.max_users or target_tenant.get("max_users", 50)
-    target_tenant["max_announcements"] = payload.max_announcements or target_tenant.get("max_announcements", 20)
-    target_tenant["max_queues"] = payload.max_queues or target_tenant.get("max_queues", 10)
-    target_tenant["max_inbound_rules"] = payload.max_inbound_rules or target_tenant.get("max_inbound_rules", 25)
-    target_tenant["max_outbound_rules"] = payload.max_outbound_rules or target_tenant.get("max_outbound_rules", 25)
-    target_tenant["max_pickup_groups"] = payload.max_pickup_groups or target_tenant.get("max_pickup_groups", 10)
-    target_tenant["max_subscriber_groups"] = payload.max_subscriber_groups or target_tenant.get("max_subscriber_groups", 10)
-    target_tenant["max_phonebook_contacts"] = payload.max_phonebook_contacts or target_tenant.get("max_phonebook_contacts", 500)
-    target_tenant["max_trunks"] = payload.max_trunks or target_tenant.get("max_trunks", 5)
-    target_tenant["max_conference_rooms"] = payload.max_conference_rooms or target_tenant.get("max_conference_rooms", 5)
-    target_tenant["max_speed_dials"] = payload.max_speed_dials or target_tenant.get("max_speed_dials", 50)
-    target_tenant["max_blacklist_entries"] = payload.max_blacklist_entries or target_tenant.get("max_blacklist_entries", 100)
-    target_tenant["max_locations"] = payload.max_locations or target_tenant.get("max_locations", 5)
-    target_tenant["max_departments"] = payload.max_departments or target_tenant.get("max_departments", 10)
-    
-    # 3. Çağrı Yönlendirme & Akış Kotaları
-    target_tenant["max_call_flows"] = payload.max_call_flows or target_tenant.get("max_call_flows", 10)
-    target_tenant["max_dialers"] = payload.max_dialers or target_tenant.get("max_dialers", 5)
+    if not has_embedded_quotas:
+        # 1. Yapay Zeka Kotaları & Sağlayıcı İzinleri
+        target_tenant["max_agents"] = payload.max_agents or target_tenant.get("max_agents", 20)
+        target_tenant["max_rag_docs"] = payload.max_rag_docs or target_tenant.get("max_rag_docs", 100)
+        target_tenant["max_scenarios"] = payload.max_scenarios or target_tenant.get("max_scenarios", 20)
+        if isinstance(payload.allowed_stt_providers, list):
+            target_tenant["allowed_stt_providers"] = payload.allowed_stt_providers
+        if isinstance(payload.allowed_tts_providers, list):
+            target_tenant["allowed_tts_providers"] = payload.allowed_tts_providers
+        if isinstance(payload.allowed_llm_providers, list):
+            target_tenant["allowed_llm_providers"] = payload.allowed_llm_providers
+        
+        # 2. Santral Kotaları & Eş Zamanlı Kanal Limiti
+        target_tenant["max_concurrent_calls"] = payload.max_concurrent_calls or target_tenant.get("max_concurrent_calls", 4)
+        target_tenant["max_users"] = payload.max_users or target_tenant.get("max_users", 50)
+        target_tenant["max_announcements"] = payload.max_announcements or target_tenant.get("max_announcements", 20)
+        target_tenant["max_queues"] = payload.max_queues or target_tenant.get("max_queues", 10)
+        target_tenant["max_inbound_rules"] = payload.max_inbound_rules or target_tenant.get("max_inbound_rules", 25)
+        target_tenant["max_outbound_rules"] = payload.max_outbound_rules or target_tenant.get("max_outbound_rules", 25)
+        target_tenant["max_pickup_groups"] = payload.max_pickup_groups or target_tenant.get("max_pickup_groups", 10)
+        target_tenant["max_subscriber_groups"] = payload.max_subscriber_groups or target_tenant.get("max_subscriber_groups", 10)
+        target_tenant["max_phonebook_contacts"] = payload.max_phonebook_contacts or target_tenant.get("max_phonebook_contacts", 500)
+        target_tenant["max_trunks"] = payload.max_trunks or target_tenant.get("max_trunks", 5)
+        target_tenant["max_conference_rooms"] = payload.max_conference_rooms or target_tenant.get("max_conference_rooms", 5)
+        target_tenant["max_speed_dials"] = payload.max_speed_dials or target_tenant.get("max_speed_dials", 50)
+        target_tenant["max_blacklist_entries"] = payload.max_blacklist_entries or target_tenant.get("max_blacklist_entries", 100)
+        target_tenant["max_locations"] = payload.max_locations or target_tenant.get("max_locations", 5)
+        target_tenant["max_departments"] = payload.max_departments or target_tenant.get("max_departments", 10)
+        
+        # 3. Çağrı Yönlendirme & Akış Kotaları
+        target_tenant["max_call_flows"] = payload.max_call_flows or target_tenant.get("max_call_flows", 10)
+        target_tenant["max_dialers"] = payload.max_dialers or target_tenant.get("max_dialers", 5)
     
     current["tenants"] = tenants
     save_settings(current)
@@ -4992,14 +5145,16 @@ async def get_license_status(request: Request):
     """Returns cryptographic license status, days remaining, hardware fingerprint, capacities and live usage metrics."""
     from backend.services.hardware_info import get_system_hardware_fingerprint
     from backend.services.license_service import get_plan_limits
-    from backend.services.ami_manager import active_channels
 
     user_info = get_user_info(request)
     tenant_id = user_info.get("tenant_id", "tenant-default")
     current = load_settings()
     tenants = current.get("tenants", DEFAULT_SETTINGS["tenants"])
     
-    check_and_update_tenant_expiration(tenants)
+    if check_and_update_tenant_expiration(tenants):
+        current["tenants"] = tenants
+        save_settings(current)
+        settings_db["tenants"] = tenants
     
     matched = next((t for t in tenants if t.get("id") == tenant_id), tenants[0] if tenants else None)
     if not matched:
@@ -5022,11 +5177,26 @@ async def get_license_status(request: Request):
     if verification.get("expires_at") == "unlimited":
         plan_tier = "unlimited"
 
-    limits = get_plan_limits(plan_tier)
+    limits = dict(get_plan_limits(plan_tier))
+    call_info = get_tenant_concurrent_call_info(matched.get("id", "tenant-default"), current)
+    limits["max_concurrent_calls"] = call_info["max_concurrent_calls"]
+    limits["channels"] = call_info["max_concurrent_calls"]
+    limits["users"] = matched.get("max_users", limits.get("users", 50))
+    limits["ai_agents"] = matched.get("max_agents", limits.get("ai_agents", 20))
+
+    allowed_stt = matched.get("allowed_stt_providers")
+    if not isinstance(allowed_stt, list):
+        allowed_stt = ["google", "deepgram", "openai", "elevenlabs"]
+    allowed_tts = matched.get("allowed_tts_providers")
+    if not isinstance(allowed_tts, list):
+        allowed_tts = ["google", "elevenlabs", "openai"]
+    allowed_llm = matched.get("allowed_llm_providers")
+    if not isinstance(allowed_llm, list):
+        allowed_llm = ["google", "elevenlabs", "openai", "anthropic", "groq"]
 
     # Live Usage Metrics
     used_users = len(current.get("users", []))
-    used_channels = len(active_channels) if active_channels else 0
+    used_channels = call_info["used_concurrent_calls"]
     used_ai_agents = len(current.get("ai_agents", []))
     used_tenants = len(current.get("tenants", []))
 
@@ -5044,10 +5214,15 @@ async def get_license_status(request: Request):
         "days_left": days_left,
         "is_unlimited": verification.get("expires_at") == "unlimited" or not matched.get("license_expires_at"),
         "server_hardware_id": hw_info.get("hardware_id"),
+        "max_concurrent_calls": call_info["max_concurrent_calls"],
+        "allowed_stt_providers": allowed_stt,
+        "allowed_tts_providers": allowed_tts,
+        "allowed_llm_providers": allowed_llm,
         "limits": limits,
         "usage": {
             "used_users": used_users,
             "used_channels": used_channels,
+            "used_concurrent_calls": used_channels,
             "used_ai_agents": used_ai_agents,
             "used_tenants": used_tenants
         }
@@ -5089,6 +5264,8 @@ async def renew_license_key(payload: LicenseRenewSchema):
                 target[q_key] = bool(q_val)
             elif isinstance(q_val, (int, float)):
                 target[q_key] = int(q_val)
+            elif isinstance(q_val, list):
+                target[q_key] = q_val
 
     current["tenants"] = tenants
     save_settings(current)
@@ -5328,6 +5505,34 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     return {"status": "blocked", "message": "Caller is blacklisted."}
             except Exception as e_bl:
                 print(f"[Call Register Blacklist Error]: {e_bl}")
+
+            # Enforce shared concurrent call channel limit (AI Agent + Dialer + Real User Inbound/Outbound)
+            try:
+                call_info = get_tenant_concurrent_call_info(
+                    tenant_id=call_tenant,
+                    exclude_call_id=call_id,
+                    exclude_asterisk_id=asterisk_id
+                )
+                if call_info["used_concurrent_calls"] >= call_info["max_concurrent_calls"]:
+                    import asyncio
+                    from backend.services.ami_manager import hangup_call
+                    print(f"[License Concurrent Call Block] Tenant '{call_tenant}' reached concurrent channel limit ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']}). Rejecting call {call_id} ({caller} -> {did}).")
+                    add_system_log("LICENSE", "WARNING", f"Eş Zamanlı Çağrı Kanalı Limiti Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']} Kanal): Çağrı reddedildi ({caller} -> {did})")
+                    new_call = Call(
+                        id=call_id,
+                        caller_number=caller or "Bilinmeyen",
+                        callee_number=did or "s",
+                        status="rejected_limit",
+                        tenant_id=call_tenant,
+                        start_time=datetime.datetime.utcnow(),
+                        end_time=datetime.datetime.utcnow()
+                    )
+                    session.add(new_call)
+                    await session.commit()
+                    asyncio.create_task(hangup_call(call_id))
+                    return {"status": "blocked", "message": f"Concurrent call channel limit ({call_info['max_concurrent_calls']}) reached."}
+            except Exception as e_conc:
+                print(f"[Call Register Concurrent Limit Check Error]: {e_conc}")
 
             db_call = await session.get(Call, call_id)
             if not db_call:

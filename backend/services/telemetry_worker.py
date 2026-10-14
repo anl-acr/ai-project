@@ -121,6 +121,10 @@ async def start_telemetry_heartbeat_loop():
                                     if target_t.get(q_key) != int(q_val):
                                         target_t[q_key] = int(q_val)
                                         settings_changed = True
+                                elif isinstance(q_val, list):
+                                    if target_t.get(q_key) != q_val:
+                                        target_t[q_key] = q_val
+                                        settings_changed = True
 
                         # Remote License Auto-Renewal Enforcement per tenant
                         latest_key = t_res.get("latest_license_key")
@@ -138,6 +142,8 @@ async def start_telemetry_heartbeat_loop():
                                 for q_k, q_v in v_key["custom_quotas"].items():
                                     if isinstance(q_v, (int, float)):
                                         target_t[q_k] = int(q_v)
+                                    elif isinstance(q_v, list):
+                                        target_t[q_k] = q_v
 
                             settings_changed = True
 

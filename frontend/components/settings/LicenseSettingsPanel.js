@@ -277,21 +277,24 @@ export default function LicenseSettingsPanel({ backendHost }) {
               );
             })()}
 
-            {/* SIP Kanal Kotası */}
+            {/* Eş Zamanlı Çağrı Kanalı Kotası */}
             {(() => {
-              const used = licenseStatus.usage.used_channels || 0;
-              const max = licenseStatus.limits.max_channels || 1;
+              const used = licenseStatus.usage.used_concurrent_calls ?? licenseStatus.usage.used_channels ?? 0;
+              const max = licenseStatus.max_concurrent_calls ?? licenseStatus.limits.max_concurrent_calls ?? licenseStatus.limits.channels ?? 4;
               const pct = Math.min(100, Math.round((used / max) * 100));
               return (
                 <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-2">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
-                    <span className="flex items-center gap-1.5"><PhoneCall size={14} className="text-blue-500" /> SIP Çağrı Kanalı</span>
+                    <span className="flex items-center gap-1.5" title="AI Agent + Otomatik Arama (Dialer) + Kullanıcı Gelen/Giden Çağrı Kanalı"><PhoneCall size={14} className="text-blue-500" /> Eş Zamanlı Çağrı Kanalı</span>
                     <span className="font-mono text-slate-900 dark:text-white font-extrabold">{used} / {max >= 999 ? "♾️" : max}</span>
                   </div>
                   <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
                     <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-rose-600" : pct >= 80 ? "bg-amber-500" : "bg-blue-500"}`} style={{ width: `${pct}%` }} />
                   </div>
-                  <div className="text-[11px] font-semibold text-slate-400 text-right">%{pct} Kullanıldı</div>
+                  <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400">
+                    <span>AI + Dialer + Dahili</span>
+                    <span>%{pct} Aktif</span>
+                  </div>
                 </div>
               );
             })()}
@@ -333,6 +336,49 @@ export default function LicenseSettingsPanel({ backendHost }) {
                 </div>
               );
             })()}
+          </div>
+
+          {/* Read-only Lisanslı AI Sağlayıcıları (STT / TTS / LLM) */}
+          <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-extrabold uppercase text-slate-500 dark:text-slate-400 tracking-wider flex items-center gap-1.5">
+                <Cpu size={14} className="text-indigo-500" />
+                Lisanslı Yapay Zeka Motorları (STT / TTS / LLM)
+              </span>
+              <span className="text-[10px] font-bold text-slate-400">Merkezi Lisans Sunucusu Tarafından Belirlenir</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800">
+                <div className="text-[10px] font-extrabold text-slate-400 uppercase mb-1.5">İzinli STT (Ses Tanıma)</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(licenseStatus.allowed_stt_providers || licenseStatus.limits?.allowed_stt_providers || ["google", "deepgram", "openai", "elevenlabs"]).map((p) => (
+                    <span key={p} className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 border border-indigo-500/20">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800">
+                <div className="text-[10px] font-extrabold text-slate-400 uppercase mb-1.5">İzinli TTS (Seslendirme)</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(licenseStatus.allowed_tts_providers || licenseStatus.limits?.allowed_tts_providers || ["google", "elevenlabs", "openai"]).map((p) => (
+                    <span key={p} className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800">
+                <div className="text-[10px] font-extrabold text-slate-400 uppercase mb-1.5">İzinli LLM (Dil Modeli)</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {(licenseStatus.allowed_llm_providers || licenseStatus.limits?.allowed_llm_providers || ["google", "elevenlabs", "openai", "anthropic", "groq"]).map((p) => (
+                    <span key={p} className="px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                      {p}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}

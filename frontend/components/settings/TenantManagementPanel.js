@@ -2,16 +2,33 @@ import React, { useState, useEffect } from "react";
 import { Building2, Plus, Trash2, Edit3, Shield, CheckCircle, AlertTriangle, Calendar, Clock, Lock, ShieldAlert, Key, Bot, PhoneCall, Cpu, Network, GitMerge, PhoneOutgoing, Users, Volume2, BookOpen, Ban, MapPin, Briefcase, Zap } from "lucide-react";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
+const PROVIDER_LABELS = {
+  google: "Google Gemini",
+  deepgram: "Deepgram Nova-2",
+  openai: "OpenAI (Whisper / TTS / GPT-4o)",
+  elevenlabs: "ElevenLabs (Scribe / Turbo / ConvAI)",
+  anthropic: "Anthropic Claude",
+  groq: "Groq (Llama 3 / LPU)"
+};
+
 const DEFAULT_TENANTS = [
   { 
     id: "tenant-default", tenant_num_id: 100, name: "Ana Müşteri (Varsayılan)", code: "default", status: "active", license_expires_at: "", license_key: "AIDA-DEFAULT-ENTERPRISE-2026", plan_tier: "enterprise",
+    max_concurrent_calls: 4,
     max_agents: 50, max_rag_docs: 500, max_scenarios: 50,
+    allowed_stt_providers: ["google", "deepgram", "openai", "elevenlabs"],
+    allowed_tts_providers: ["google", "elevenlabs", "openai"],
+    allowed_llm_providers: ["google", "elevenlabs", "openai", "anthropic", "groq"],
     max_users: 100, max_announcements: 50, max_queues: 50, max_inbound_rules: 100, max_outbound_rules: 100, max_pickup_groups: 20, max_subscriber_groups: 20, max_phonebook_contacts: 2000, max_trunks: 20, max_conference_rooms: 20, max_speed_dials: 100, max_blacklist_entries: 500, max_locations: 20, max_departments: 30,
     max_call_flows: 50, max_dialers: 20
   },
   { 
     id: "tenant-test-teknoloji", tenant_num_id: 101, name: "Test Teknoloji", code: "test-teknoloji", status: "active", license_expires_at: "2026-12-31", license_key: "AIDA-78B1-99F4-2026", plan_tier: "professional",
+    max_concurrent_calls: 4,
     max_agents: 20, max_rag_docs: 100, max_scenarios: 20,
+    allowed_stt_providers: ["google", "deepgram", "openai", "elevenlabs"],
+    allowed_tts_providers: ["google", "elevenlabs", "openai"],
+    allowed_llm_providers: ["google", "elevenlabs", "openai", "anthropic", "groq"],
     max_users: 50, max_announcements: 20, max_queues: 10, max_inbound_rules: 25, max_outbound_rules: 25, max_pickup_groups: 10, max_subscriber_groups: 10, max_phonebook_contacts: 500, max_trunks: 5, max_conference_rooms: 5, max_speed_dials: 50, max_blacklist_entries: 100, max_locations: 5, max_departments: 10,
     max_call_flows: 10, max_dialers: 5
   }
@@ -26,6 +43,7 @@ const PLAN_TIERS = {
 
 const PLAN_PRESETS = {
   trial: {
+    max_concurrent_calls: 2,
     max_agents: 1, max_rag_docs: 20, max_scenarios: 5,
     max_users: 5, max_announcements: 5, max_queues: 2, max_inbound_rules: 5, max_outbound_rules: 5,
     max_pickup_groups: 2, max_subscriber_groups: 2, max_phonebook_contacts: 100, max_trunks: 2,
@@ -33,6 +51,7 @@ const PLAN_PRESETS = {
     max_call_flows: 2, max_dialers: 1
   },
   starter: {
+    max_concurrent_calls: 4,
     max_agents: 2, max_rag_docs: 50, max_scenarios: 10,
     max_users: 10, max_announcements: 10, max_queues: 5, max_inbound_rules: 10, max_outbound_rules: 10,
     max_pickup_groups: 5, max_subscriber_groups: 5, max_phonebook_contacts: 500, max_trunks: 3,
@@ -40,6 +59,7 @@ const PLAN_PRESETS = {
     max_call_flows: 5, max_dialers: 2
   },
   professional: {
+    max_concurrent_calls: 10,
     max_agents: 10, max_rag_docs: 200, max_scenarios: 30,
     max_users: 50, max_announcements: 30, max_queues: 20, max_inbound_rules: 50, max_outbound_rules: 50,
     max_pickup_groups: 15, max_subscriber_groups: 15, max_phonebook_contacts: 2000, max_trunks: 10,
@@ -47,6 +67,7 @@ const PLAN_PRESETS = {
     max_call_flows: 20, max_dialers: 10
   },
   enterprise: {
+    max_concurrent_calls: 30,
     max_agents: 50, max_rag_docs: 1000, max_scenarios: 100,
     max_users: 250, max_announcements: 100, max_queues: 50, max_inbound_rules: 200, max_outbound_rules: 200,
     max_pickup_groups: 50, max_subscriber_groups: 50, max_phonebook_contacts: 10000, max_trunks: 30,
@@ -54,6 +75,7 @@ const PLAN_PRESETS = {
     max_call_flows: 50, max_dialers: 25
   },
   unlimited: {
+    max_concurrent_calls: 999,
     max_agents: 999, max_rag_docs: 9999, max_scenarios: 999,
     max_users: 9999, max_announcements: 9999, max_queues: 999, max_inbound_rules: 9999, max_outbound_rules: 9999,
     max_pickup_groups: 999, max_subscriber_groups: 999, max_phonebook_contacts: 99999, max_trunks: 999,
@@ -80,12 +102,16 @@ export default function TenantManagementPanel({ backendHost }) {
 
   const [usage, setUsage] = useState({});
 
-  // 1. Yapay Zeka Kotaları
+  // 1. Yapay Zeka Kotaları & İzinli Motorlar (Read-Only from License Key)
   const [maxAgents, setMaxAgents] = useState(10);
   const [maxRagDocs, setMaxRagDocs] = useState(200);
   const [maxScenarios, setMaxScenarios] = useState(30);
+  const [allowedSttProviders, setAllowedSttProviders] = useState(["google", "deepgram", "openai", "elevenlabs"]);
+  const [allowedTtsProviders, setAllowedTtsProviders] = useState(["google", "elevenlabs", "openai"]);
+  const [allowedLlmProviders, setAllowedLlmProviders] = useState(["google", "elevenlabs", "openai", "anthropic", "groq"]);
 
-  // 2. Santral Kotaları
+  // 2. Santral Kotaları & Eş Zamanlı Çağrı Kanalı Limiti
+  const [maxConcurrentCalls, setMaxConcurrentCalls] = useState(4);
   const [maxUsers, setMaxUsers] = useState(50);
   const [maxAnnouncements, setMaxAnnouncements] = useState(30);
   const [maxQueues, setMaxQueues] = useState(20);
@@ -202,9 +228,13 @@ export default function TenantManagementPanel({ backendHost }) {
   const applyPlanPreset = (tierKey) => {
     setPlanTier(tierKey);
     const p = PLAN_PRESETS[tierKey] || PLAN_PRESETS.professional;
+    setMaxConcurrentCalls(p.max_concurrent_calls || 4);
     setMaxAgents(p.max_agents);
     setMaxRagDocs(p.max_rag_docs);
     setMaxScenarios(p.max_scenarios);
+    setAllowedSttProviders(["google", "deepgram", "openai", "elevenlabs"]);
+    setAllowedTtsProviders(["google", "elevenlabs", "openai"]);
+    setAllowedLlmProviders(["google", "elevenlabs", "openai", "anthropic", "groq"]);
 
     setMaxUsers(p.max_users);
     setMaxAnnouncements(p.max_announcements);
@@ -253,11 +283,15 @@ export default function TenantManagementPanel({ backendHost }) {
     setPlanTier(tier);
     setUsage(t.usage || {});
 
-    // Load or default 19 quota fields
+    // Load or default quota fields & licensed AI providers
     const p = PLAN_PRESETS[tier] || PLAN_PRESETS.professional;
+    setMaxConcurrentCalls(t.max_concurrent_calls || p.max_concurrent_calls || 4);
     setMaxAgents(t.max_agents || p.max_agents);
     setMaxRagDocs(t.max_rag_docs || p.max_rag_docs);
     setMaxScenarios(t.max_scenarios || p.max_scenarios);
+    setAllowedSttProviders(Array.isArray(t.allowed_stt_providers) ? t.allowed_stt_providers : ["google", "deepgram", "openai", "elevenlabs"]);
+    setAllowedTtsProviders(Array.isArray(t.allowed_tts_providers) ? t.allowed_tts_providers : ["google", "elevenlabs", "openai"]);
+    setAllowedLlmProviders(Array.isArray(t.allowed_llm_providers) ? t.allowed_llm_providers : ["google", "elevenlabs", "openai", "anthropic", "groq"]);
 
     setMaxUsers(t.max_users || p.max_users);
     setMaxAnnouncements(t.max_announcements || p.max_announcements);
@@ -408,9 +442,13 @@ export default function TenantManagementPanel({ backendHost }) {
           license_key: licenseKey,
           plan_tier: planTier,
           
+          max_concurrent_calls: parseInt(maxConcurrentCalls) || 4,
           max_agents: parseInt(maxAgents) || 20,
           max_rag_docs: parseInt(maxRagDocs) || 100,
           max_scenarios: parseInt(maxScenarios) || 20,
+          allowed_stt_providers: allowedSttProviders,
+          allowed_tts_providers: allowedTtsProviders,
+          allowed_llm_providers: allowedLlmProviders,
 
           max_users: parseInt(maxUsers) || 50,
           max_announcements: parseInt(maxAnnouncements) || 20,
@@ -485,7 +523,7 @@ export default function TenantManagementPanel({ backendHost }) {
           <div>
             <h3 className="text-base font-bold text-slate-900 dark:text-white">Müşteri (Tenant) Lisans & Kota Yönetim Motoru</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Yapay Zeka, Santral ve Çağrı Yönlendirme kotalarını kategorize bölümler altında yönetin.
+              Yapay Zeka, Santral ve Çağrı Yönlendirme kotalarını kategorize bölümler altında görüntüleyin.
             </p>
           </div>
         </div>
@@ -602,17 +640,17 @@ export default function TenantManagementPanel({ backendHost }) {
                     </span>
                   </div>
 
-                  {/* 2. Santral */}
+                  {/* 2. Santral & Eş Zamanlı Kanal */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="text-[9px] font-extrabold uppercase text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded">PBX</span>
+                    <span className="text-[10px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-blue-300/80 dark:border-blue-800 font-bold">
+                      Eş Zamanlı Kanal: <strong className="text-blue-600 font-mono">{t.max_concurrent_calls || 4}</strong>
+                    </span>
                     <span className="text-[10px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-800 font-bold">
                       Kullanıcı: <strong className="text-blue-600 font-mono">{t.max_users || 50}</strong>
                     </span>
                     <span className="text-[10px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-800 font-bold">
                       Trunk: <strong className="text-blue-600 font-mono">{t.max_trunks || 5}</strong>
-                    </span>
-                    <span className="text-[10px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-800 font-bold">
-                      Kuyruk: <strong className="text-blue-600 font-mono">{t.max_queues || 10}</strong>
                     </span>
                   </div>
 
@@ -643,7 +681,7 @@ export default function TenantManagementPanel({ backendHost }) {
                   <button
                     onClick={() => handleOpenEditModal(t)}
                     className="p-2 hover:bg-slate-200/80 dark:hover:bg-slate-800 rounded-xl text-slate-600 dark:text-slate-300 transition"
-                    title="Lisans ve Kotaları Düzenle"
+                    title="Lisans ve Kotaları Görüntüle"
                   >
                     <Edit3 size={15} />
                   </button>
@@ -669,7 +707,7 @@ export default function TenantManagementPanel({ backendHost }) {
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 lg:p-8 shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto">
             <h4 className="text-base font-extrabold text-slate-900 dark:text-white mb-5 flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-4">
               <Shield size={20} className="text-rose-600" />
-              <span>{editingTenant ? "Müşteri Lisansı ve Limitleri Düzenle" : "Yeni Müşteri Lisansı Oluştur"}</span>
+              <span>{editingTenant ? "Müşteri Lisansı ve Limitleri Görüntüle" : "Yeni Müşteri Lisansı Oluştur"}</span>
             </h4>
 
             {errorMsg && (
@@ -807,7 +845,7 @@ export default function TenantManagementPanel({ backendHost }) {
               <div className="p-3.5 bg-rose-50/50 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40 rounded-2xl flex items-center gap-3 text-xs font-semibold text-rose-700 dark:text-rose-300">
                 <Lock size={16} className="text-rose-500 shrink-0" />
                 <span>
-                  🔐 Lisans paketi, geçerlilik süresi, durum ve 19 adet sistem kotası Lisans Sunucusundan (Control Center) alınan imzalı Key yüklenerek yönetilir.
+                  🔐 Lisans paketi, geçerlilik süresi, izinli AI motorları (STT/TTS/LLM), eş zamanlı çağrı kanalı limiti ve tüm sistem kotaları Merkezi Lisans Sunucusundan (Control Center) belirlenir; bu ekranda salt-okunur (read-only) olarak görüntülenir.
                 </span>
               </div>
 
@@ -816,17 +854,62 @@ export default function TenantManagementPanel({ backendHost }) {
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-extrabold text-purple-700 dark:text-purple-300 uppercase tracking-wider">
                     <Bot size={18} />
-                    <span>1. Yapay Zeka Lisans Hakları & Canlı Kullanım</span>
+                    <span>1. Yapay Zeka Lisans Hakları & İzinli Motorlar</span>
                   </div>
                   <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800/50">
-                    🔒 Lisans Kilitli
+                    🔒 Merkezi Lisans Kilitli (Salt-Okunur)
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {renderQuotaCard("AI Temsilcileri", "max_agents", maxAgents, setMaxAgents, "Hak", "purple")}
-                  {renderQuotaCard("Bilgi Bankası (RAG)", "max_rag_docs", maxRagDocs, setMaxRagDocs, "Doküman", "purple")}
-                  {renderQuotaCard("Senaryo Editörü", "max_scenarios", maxScenarios, setMaxScenarios, "Akış", "purple")}
+                  {renderQuotaCard("AI Temsilcileri", "max_agents", maxAgents, null, "Hak", "purple")}
+                  {renderQuotaCard("Bilgi Bankası (RAG)", "max_rag_docs", maxRagDocs, null, "Doküman", "purple")}
+                  {renderQuotaCard("Senaryo Editörü", "max_scenarios", maxScenarios, null, "Akış", "purple")}
+                </div>
+
+                {/* Read-Only Allowed AI Providers (STT / TTS / LLM) */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-2 border-t border-purple-200/50 dark:border-purple-900/40">
+                  <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-purple-700 dark:text-purple-300">İzinli STT (Ses Tanıma)</span>
+                      <Lock size={11} className="text-purple-400" />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {allowedSttProviders.map((pId) => (
+                        <span key={pId} className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                          {PROVIDER_LABELS[pId] || pId}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-purple-700 dark:text-purple-300">İzinli TTS (Seslendirme)</span>
+                      <Lock size={11} className="text-purple-400" />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {allowedTtsProviders.map((pId) => (
+                        <span key={pId} className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                          {PROVIDER_LABELS[pId] || pId}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 p-3.5 rounded-xl border border-purple-200/60 dark:border-purple-900/40 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-extrabold text-purple-700 dark:text-purple-300">İzinli LLM (Dil Modeli)</span>
+                      <Lock size={11} className="text-purple-400" />
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {allowedLlmProviders.map((pId) => (
+                        <span key={pId} className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-purple-50 dark:bg-purple-950/60 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800">
+                          {PROVIDER_LABELS[pId] || pId}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -838,25 +921,26 @@ export default function TenantManagementPanel({ backendHost }) {
                     <span>2. Santral & Dahili Lisans Hakları & Canlı Kullanım</span>
                   </div>
                   <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/50">
-                    ⚡ Kapasite Ayarları & Canlı Kullanım
+                    🔒 Merkezi Lisans Kilitli (Salt-Okunur)
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
-                  {renderQuotaCard("Kullanıcılar", "max_users", maxUsers, setMaxUsers, "Kişi", "blue")}
-                  {renderQuotaCard("Dış Hat (SIP Trunk)", "max_trunks", maxTrunks, setMaxTrunks, "Hat", "blue")}
-                  {renderQuotaCard("Kuyruklar", "max_queues", maxQueues, setMaxQueues, "Kuyruk", "blue")}
-                  {renderQuotaCard("Anonslar", "max_announcements", maxAnnouncements, setMaxAnnouncements, "Ses", "blue")}
-                  {renderQuotaCard("Gelen Arama Kuralları", "max_inbound_rules", maxInboundRules, setMaxInboundRules, "Kural", "blue")}
-                  {renderQuotaCard("Giden Arama Kuralları", "max_outbound_rules", maxOutboundRules, setMaxOutboundRules, "Kural", "blue")}
-                  {renderQuotaCard("Çağrı Toplama", "max_pickup_groups", maxPickupGroups, setMaxPickupGroups, "Grup", "blue")}
-                  {renderQuotaCard("Abone Grubu", "max_subscriber_groups", maxSubscriberGroups, setMaxSubscriberGroups, "Grup", "blue")}
-                  {renderQuotaCard("Rehber Kişileri", "max_phonebook_contacts", maxPhonebookContacts, setMaxPhonebookContacts, "Kişi", "blue")}
-                  {renderQuotaCard("Konferans Odaları", "max_conference_rooms", maxConferenceRooms, setMaxConferenceRooms, "Oda", "blue")}
-                  {renderQuotaCard("Hızlı Arama", "max_speed_dials", maxSpeedDials, setMaxSpeedDials, "Kayıt", "blue")}
-                  {renderQuotaCard("Numara Engelleme", "max_blacklist_entries", maxBlacklistEntries, setMaxBlacklistEntries, "Numara", "blue")}
-                  {renderQuotaCard("Lokasyon", "max_locations", maxLocations, setMaxLocations, "Lokasyon", "blue")}
-                  {renderQuotaCard("Departman", "max_departments", maxDepartments, setMaxDepartments, "Departman", "blue")}
+                  {renderQuotaCard("Eş Zamanlı Çağrı Kanalı (AI+Dialer+User)", "max_concurrent_calls", maxConcurrentCalls, null, "Kanal", "blue")}
+                  {renderQuotaCard("Kullanıcılar", "max_users", maxUsers, null, "Kişi", "blue")}
+                  {renderQuotaCard("Dış Hat (SIP Trunk)", "max_trunks", maxTrunks, null, "Hat", "blue")}
+                  {renderQuotaCard("Kuyruklar", "max_queues", maxQueues, null, "Kuyruk", "blue")}
+                  {renderQuotaCard("Anonslar", "max_announcements", maxAnnouncements, null, "Ses", "blue")}
+                  {renderQuotaCard("Gelen Arama Kuralları", "max_inbound_rules", maxInboundRules, null, "Kural", "blue")}
+                  {renderQuotaCard("Giden Arama Kuralları", "max_outbound_rules", maxOutboundRules, null, "Kural", "blue")}
+                  {renderQuotaCard("Çağrı Toplama", "max_pickup_groups", maxPickupGroups, null, "Grup", "blue")}
+                  {renderQuotaCard("Abone Grubu", "max_subscriber_groups", maxSubscriberGroups, null, "Grup", "blue")}
+                  {renderQuotaCard("Rehber Kişileri", "max_phonebook_contacts", maxPhonebookContacts, null, "Kişi", "blue")}
+                  {renderQuotaCard("Konferans Odaları", "max_conference_rooms", maxConferenceRooms, null, "Oda", "blue")}
+                  {renderQuotaCard("Hızlı Arama", "max_speed_dials", maxSpeedDials, null, "Kayıt", "blue")}
+                  {renderQuotaCard("Numara Engelleme", "max_blacklist_entries", maxBlacklistEntries, null, "Numara", "blue")}
+                  {renderQuotaCard("Lokasyon", "max_locations", maxLocations, null, "Lokasyon", "blue")}
+                  {renderQuotaCard("Departman", "max_departments", maxDepartments, null, "Departman", "blue")}
                 </div>
               </div>
 
@@ -868,13 +952,13 @@ export default function TenantManagementPanel({ backendHost }) {
                     <span>3. Çağrı Yönlendirme & Akış Lisans Hakları & Canlı Kullanım</span>
                   </div>
                   <span className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
-                    ⚡ Kapasite Ayarları & Canlı Kullanım
+                    🔒 Merkezi Lisans Kilitli (Salt-Okunur)
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {renderQuotaCard("Arama Akış Yönetimi (Workflows)", "max_call_flows", maxCallFlows, setMaxCallFlows, "Akış", "emerald")}
-                  {renderQuotaCard("Dış Arama Dialer", "max_dialers", maxDialers, setMaxDialers, "Dialer", "emerald")}
+                  {renderQuotaCard("Arama Akış Yönetimi (Workflows)", "max_call_flows", maxCallFlows, null, "Akış", "emerald")}
+                  {renderQuotaCard("Dış Arama Dialer", "max_dialers", maxDialers, null, "Dialer", "emerald")}
                 </div>
               </div>
 
