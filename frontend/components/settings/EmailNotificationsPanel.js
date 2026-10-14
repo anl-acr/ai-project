@@ -36,8 +36,8 @@ const DEFAULT_EVENTS_META = [
   },
   {
     key: "concurrent_channels_full",
-    title: "Eş Zamanlı Çağrı Kanalı Dolduğunda",
-    description: "Lisansınızda tanımlı eş zamanlı çağrı kanalı (AI Agent + Otomatik Arama Dialer + Kullanıcı) tam kapasiteye (%100) ulaştığında veya çağrı reddedildiğinde uyarır.",
+    title: "Eş Zamanlı Çağrı Kanalı Dolduğunda veya Tolerans Kanalı Devreye Girdiğinde",
+    description: "Lisansınızda tanımlı eş zamanlı çağrı kanalı (AI Agent + Otomatik Arama Dialer + Kullanıcı) tam kapasiteye ulaştığında, +Tolerans Eş Zamanlı Çağrı Kanalı devreye girdiğinde veya çağrı reddedildiğinde E-Posta / WhatsApp ile uyarır.",
     category: "Kapasite & Çağrı",
     severity: "critical",
     icon: PhoneCall

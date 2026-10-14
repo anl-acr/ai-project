@@ -732,21 +732,26 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                     await writer.wait_closed()
                     return
 
-                # Concurrent Call Channel Limit Check (AI + Dialer + User)
+                # Concurrent Call Channel Limit Check (AI + Dialer + User + Tolerance)
                 call_info = get_tenant_concurrent_call_info(
                     tenant_id=target_tenant.get("id", "tenant-default"),
                     current_settings=settings_data,
                     exclude_call_id=call_id
                 )
-                if call_info["used_concurrent_calls"] >= call_info["max_concurrent_calls"]:
-                    print(f"[AudioSocket Concurrent Limit Block] Tenant '{target_tenant.get('name')}' reached max_concurrent_calls ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']}). Terminating call {call_id}.")
+                base_max = call_info["max_concurrent_calls"]
+                tol_max = call_info.get("tolerance_concurrent_calls", 0)
+                eff_max = call_info.get("effective_max_concurrent_calls", base_max + tol_max)
+                used_now = call_info["used_concurrent_calls"]
+
+                if used_now >= eff_max:
+                    print(f"[AudioSocket Concurrent Limit Block] Tenant '{target_tenant.get('name')}' reached effective_max_concurrent_calls ({used_now}/{eff_max}, Base: {base_max}, Tolerance: +{tol_max}). Terminating call {call_id}.")
                     try:
                         from backend.services.notification_service import trigger_notification_bg
                         trigger_notification_bg(
                             "concurrent_channels_full",
-                            f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']} Kanal)",
-                            f"AI Agent sesli yanıt akışı başlatılırken eş zamanlı çağrı kanalı limiti ({call_info['max_concurrent_calls']} Kanal) tamamen dolu olduğu için çağrı ({call_id}) reddedildi.",
-                            severity="warning",
+                            f"Eş Zamanlı Çağrı Kanalı & Tolerans Limiti Doldu ({used_now}/{eff_max} Kanal)",
+                            f"AI Agent sesli yanıt akışı başlatılırken eş zamanlı çağrı kanalı ({base_max} Ana Kanal + {tol_max} Tolerans Kanalı = {eff_max} Kanal) tamamen dolu olduğu için çağrı ({call_id}) reddedildi.",
+                            severity="critical",
                             tenant_id=target_tenant.get("id", "tenant-default")
                         )
                     except Exception:
@@ -756,6 +761,20 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                     writer.close()
                     await writer.wait_closed()
                     return
+                elif used_now >= base_max and tol_max > 0:
+                    tol_used_now = (used_now - base_max) + 1
+                    print(f"[AudioSocket Concurrent Tolerance Active] Tenant '{target_tenant.get('name')}' using tolerance channel ({tol_used_now}/{tol_max}) for call {call_id}.")
+                    try:
+                        from backend.services.notification_service import trigger_notification_bg
+                        trigger_notification_bg(
+                            "concurrent_channels_full",
+                            f"Eş Zamanlı Çağrı Kanalı Doldu — Tolerans Kanalı Devrede ({used_now + 1}/{eff_max} Kanal)",
+                            f"AI Agent sesli çağrısı ({call_id}) sırasında ana eş zamanlı çağrı kanalı limiti ({base_max} Kanal) doldu. Çağrı kesilmedi ve +{tol_max} Tolerans Eş Zamanlı Çağrı Kanalı devreye alınarak ({tol_used_now}/{tol_max} tolerans kullanımda) görüşme sürdürüldü.",
+                            severity="warning",
+                            tenant_id=target_tenant.get("id", "tenant-default")
+                        )
+                    except Exception:
+                        pass
         except Exception as lic_err:
             print(f"[AudioSocket License Check Error]: {lic_err}")
 

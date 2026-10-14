@@ -387,6 +387,7 @@ class TenantSchema(BaseModel):
     
     # 2. Santral Kotaları & Eş Zamanlı Kanal Limiti
     max_concurrent_calls: Optional[int] = 4
+    tolerance_concurrent_calls: Optional[int] = 0
     max_users: Optional[int] = 50
     max_announcements: Optional[int] = 20
     max_queues: Optional[int] = 10
@@ -424,6 +425,7 @@ class TenantCreateSchema(BaseModel):
     
     # 2. Santral Kotaları & Eş Zamanlı Kanal Limiti
     max_concurrent_calls: Optional[int] = 4
+    tolerance_concurrent_calls: Optional[int] = 0
     max_users: Optional[int] = 50
     max_announcements: Optional[int] = 20
     max_queues: Optional[int] = 10
@@ -489,6 +491,7 @@ DEFAULT_SETTINGS = {
             "status": "active",
             "created_at": "2026-01-01T00:00:00",
             "max_concurrent_calls": 4,
+            "tolerance_concurrent_calls": 0,
             "max_agents": 10,
             "max_trunks": 5,
             "allowed_stt_providers": ["google", "deepgram", "openai", "elevenlabs"],
@@ -2251,11 +2254,11 @@ async def get_dialer_settings(user_info: dict = Depends(get_user_info)):
 async def save_smart_dialer_settings(payload: DialerSettingsSchema, user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     call_info = get_tenant_concurrent_call_info(target_tenant)
-    max_allowed = call_info["max_concurrent_calls"]
+    max_allowed = call_info.get("effective_max_concurrent_calls") or call_info["max_concurrent_calls"]
     if payload.concurrent_calls > max_allowed:
         raise HTTPException(
             status_code=400,
-            detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({max_allowed} Kanal) aşılamaz. Lütfen eş zamanlı arama sayısını en fazla {max_allowed} olarak belirleyiniz."
+            detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({call_info['max_concurrent_calls']} Ana + {call_info.get('tolerance_concurrent_calls', 0)} Tolerans = {max_allowed} Kanal) aşılamaz. Lütfen eş zamanlı arama sayısını en fazla {max_allowed} olarak belirleyiniz."
         )
     if "tenant_dialer" not in settings_db:
         settings_db["tenant_dialer"] = {}
@@ -2285,12 +2288,12 @@ async def save_dialer_campaign(request: Request, user_info: dict = Depends(get_u
     c_id = data.get("id")
     
     call_info = get_tenant_concurrent_call_info(target_tenant)
-    max_allowed = call_info["max_concurrent_calls"]
+    max_allowed = call_info.get("effective_max_concurrent_calls") or call_info["max_concurrent_calls"]
     req_concurrent = int(data.get("concurrent_calls") or 1)
     if req_concurrent > max_allowed:
         raise HTTPException(
             status_code=400,
-            detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({max_allowed} Kanal) aşılamaz. Kampanya kanal sayısını en fazla {max_allowed} yapabilirsiniz."
+            detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({call_info['max_concurrent_calls']} Ana + {call_info.get('tolerance_concurrent_calls', 0)} Tolerans = {max_allowed} Kanal) aşılamaz. Kampanya kanal sayısını en fazla {max_allowed} yapabilirsiniz."
         )
     
     check_name_uniqueness(c_name, "dialer_campaigns", c_id, label="Dış Arama Kampanyası", name_field="name")
@@ -2353,24 +2356,39 @@ async def control_dialer_campaign(campaign_id: str, payload: CampaignControlPayl
         t_id = target.get("tenant_id") or user_info.get("tenant_id") or "tenant-default"
         call_info = get_tenant_concurrent_call_info(t_id)
         req_ch = int(target.get("concurrent_calls") or 1)
-        if call_info["available_channels"] <= 0:
+        base_max = call_info["max_concurrent_calls"]
+        tol_max = call_info["tolerance_concurrent_calls"]
+        eff_avail = call_info["effective_available_channels"]
+        if eff_avail <= 0:
             try:
                 from backend.services.notification_service import trigger_notification_bg
                 trigger_notification_bg(
                     "concurrent_channels_full",
-                    f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']})",
-                    f"'{target.get('name')}' dış arama kampanyası başlatılmak istendi ancak eş zamanlı çağrı kanalı kapasitesi ({call_info['max_concurrent_calls']} Kanal) tamamen dolu olduğu için reddedildi.",
-                    severity="warning",
+                    f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{base_max}" + (f"+{tol_max}" if tol_max > 0 else "") + " Kanal)",
+                    f"'{target.get('name')}' dış arama kampanyası başlatılmak istendi ancak eş zamanlı çağrı kanalı kapasitesi ({base_max} Ana + {tol_max} Tolerans Kanal) tamamen dolu olduğu için reddedildi.",
+                    severity="critical" if tol_max > 0 else "warning",
                     tenant_id=t_id
                 )
             except Exception:
                 pass
             raise HTTPException(
                 status_code=400,
-                detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({call_info['max_concurrent_calls']} Kanal) şu an dolu ({call_info['used_concurrent_calls']} aktif çağrı). Kampanya başlatılamaz."
+                detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({base_max}" + (f"+{tol_max} Tolerans" if tol_max > 0 else "") + f" Kanal) şu an dolu ({call_info['used_concurrent_calls']} aktif çağrı). Kampanya başlatılamaz."
             )
-        if req_ch > call_info["available_channels"]:
-            target["concurrent_calls"] = call_info["available_channels"]
+        if req_ch > eff_avail:
+            target["concurrent_calls"] = eff_avail
+        if (call_info["used_concurrent_calls"] + int(target["concurrent_calls"])) > base_max and tol_max > 0:
+            try:
+                from backend.services.notification_service import trigger_notification_bg
+                trigger_notification_bg(
+                    "concurrent_channels_full",
+                    f"Tolerans Çağrı Kanalı Devreye Girdi ({call_info['used_concurrent_calls'] + int(target['concurrent_calls'])}/{base_max} +{tol_max} Tolerans)",
+                    f"'{target.get('name')}' dış arama kampanyası başlatılırken ana eş zamanlı çağrı kanalı ({base_max} Kanal) doldu ve +{tol_max} Tolerans Kanalı kullanılarak çalışmaya devam etti.",
+                    severity="warning",
+                    tenant_id=t_id
+                )
+            except Exception:
+                pass
         target["status"] = "running"
         try:
             from backend.services.notification_service import trigger_notification_bg
@@ -2560,25 +2578,41 @@ async def control_dialer(payload: DialerControlPayload, user_info: dict = Depend
     if action == "start":
         t_id = user_info.get("tenant_id") or "tenant-default"
         call_info = get_tenant_concurrent_call_info(t_id)
-        if call_info["available_channels"] <= 0:
+        base_max = call_info["max_concurrent_calls"]
+        tol_max = call_info["tolerance_concurrent_calls"]
+        eff_avail = call_info["effective_available_channels"]
+        if eff_avail <= 0:
             try:
                 from backend.services.notification_service import trigger_notification_bg
                 trigger_notification_bg(
                     "concurrent_channels_full",
-                    f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']})",
-                    f"Otomatik arama (Dialer) başlatılmak istendi ancak eş zamanlı çağrı kanalı kapasitesi ({call_info['max_concurrent_calls']} Kanal) tamamen dolu.",
-                    severity="warning",
+                    f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{base_max}" + (f"+{tol_max}" if tol_max > 0 else "") + " Kanal)",
+                    f"Otomatik arama (Dialer) başlatılmak istendi ancak eş zamanlı çağrı kanalı kapasitesi ({base_max} Ana + {tol_max} Tolerans Kanal) tamamen dolu.",
+                    severity="critical" if tol_max > 0 else "warning",
                     tenant_id=t_id
                 )
             except Exception:
                 pass
             raise HTTPException(
                 status_code=400,
-                detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({call_info['max_concurrent_calls']} Kanal) şu an dolu ({call_info['used_concurrent_calls']} aktif çağrı). Otomatik arama başlatılamaz."
+                detail=f"Eş zamanlı çağrı kanalı lisans limitiniz ({base_max}" + (f"+{tol_max} Tolerans" if tol_max > 0 else "") + f" Kanal) şu an dolu ({call_info['used_concurrent_calls']} aktif çağrı). Otomatik arama başlatılamaz."
             )
         req_calls = int(settings_db.get("dialer", {}).get("concurrent_calls", 3))
+        assigned_calls = min(req_calls, eff_avail)
+        if (call_info["used_concurrent_calls"] + assigned_calls) > base_max and tol_max > 0:
+            try:
+                from backend.services.notification_service import trigger_notification_bg
+                trigger_notification_bg(
+                    "concurrent_channels_full",
+                    f"Tolerans Çağrı Kanalı Devreye Girdi ({call_info['used_concurrent_calls'] + assigned_calls}/{base_max} +{tol_max} Tolerans)",
+                    f"Otomatik arama (Dialer) başlatılırken ana eş zamanlı çağrı kanalı ({base_max} Kanal) doldu ve +{tol_max} Tolerans Kanalı kullanılarak çalışmaya devam etti.",
+                    severity="warning",
+                    tenant_id=t_id
+                )
+            except Exception:
+                pass
         DIALER_STATE["status"] = "running"
-        DIALER_STATE["current_calls"] = min(req_calls, call_info["available_channels"])
+        DIALER_STATE["current_calls"] = assigned_calls
     elif action == "pause":
         DIALER_STATE["status"] = "paused"
         DIALER_STATE["current_calls"] = 0
@@ -4813,13 +4847,18 @@ def check_and_update_tenant_expiration(tenants):
 
 
 def get_tenant_concurrent_call_info(tenant_id: str = "tenant-default", current_settings: dict = None, exclude_call_id: str = None, exclude_asterisk_id: str = None) -> dict:
-    """Computes total active concurrent call channels across AI Agents, Outbound Dialer, and Real Users (inbound & outbound) against the tenant's licensed max_concurrent_calls."""
+    """Computes total active concurrent call channels across AI Agents, Outbound Dialer, and Real Users (inbound & outbound) against the tenant's licensed max_concurrent_calls and tolerance_concurrent_calls."""
     from backend.services.ami_manager import active_channels, call_id_to_asterisk_id
     if current_settings is None:
         current_settings = load_settings()
     tenants = current_settings.get("tenants", DEFAULT_SETTINGS["tenants"])
     matched = next((t for t in tenants if t.get("id") == tenant_id or t.get("code") == tenant_id), tenants[0] if tenants else {})
     max_calls = int(matched.get("max_concurrent_calls") or 4)
+    raw_tol = matched.get("tolerance_concurrent_calls")
+    if raw_tol is None:
+        raw_tol = matched.get("concurrent_call_tolerance", 0)
+    tolerance_calls = max(0, int(raw_tol or 0))
+    effective_max_calls = max_calls + tolerance_calls
 
     # 1. Active voice calls (AI Agent + Real User Inbound/Outbound)
     active_voice_count = 0
@@ -4849,10 +4888,14 @@ def get_tenant_concurrent_call_info(tenant_id: str = "tenant-default", current_s
     used_total = active_voice_count + dialer_channels
     return {
         "max_concurrent_calls": max_calls,
+        "tolerance_concurrent_calls": tolerance_calls,
+        "effective_max_concurrent_calls": effective_max_calls,
         "used_concurrent_calls": used_total,
         "active_voice_calls": active_voice_count,
         "active_dialer_calls": dialer_channels,
-        "available_channels": max(0, max_calls - used_total)
+        "available_channels": max(0, max_calls - used_total),
+        "effective_available_channels": max(0, effective_max_calls - used_total),
+        "in_tolerance_mode": used_total >= max_calls and tolerance_calls > 0
     }
 
 
@@ -4935,6 +4978,7 @@ def compute_tenant_usage_dict(current_settings: dict, t_id: str) -> dict:
 
     return {
         "max_concurrent_calls": call_info["used_concurrent_calls"],
+        "tolerance_concurrent_calls": max(0, call_info["used_concurrent_calls"] - call_info["max_concurrent_calls"]),
         "max_agents": count_items(["ai_agents"]),
         "max_rag_docs": count_items(["rag_docs", "documents"]),
         "max_scenarios": count_items(["scenarios", "ai_scenarios"]),
@@ -4985,6 +5029,8 @@ async def get_tenants():
         t_copy = dict(t)
         if "max_concurrent_calls" not in t_copy or t_copy["max_concurrent_calls"] is None:
             t_copy["max_concurrent_calls"] = 4
+        if "tolerance_concurrent_calls" not in t_copy or t_copy["tolerance_concurrent_calls"] is None:
+            t_copy["tolerance_concurrent_calls"] = 0
         if "allowed_stt_providers" not in t_copy or not isinstance(t_copy["allowed_stt_providers"], list):
             t_copy["allowed_stt_providers"] = ["google", "deepgram", "openai", "elevenlabs"]
         if "allowed_tts_providers" not in t_copy or not isinstance(t_copy["allowed_tts_providers"], list):
@@ -5050,6 +5096,7 @@ async def create_tenant(payload: TenantCreateSchema):
         
         # 2. Santral Kotaları & Eş Zamanlı Kanal Limiti
         "max_concurrent_calls": payload.max_concurrent_calls or 4,
+        "tolerance_concurrent_calls": int(payload.tolerance_concurrent_calls or 0),
         "max_users": payload.max_users or 50,
         "max_announcements": payload.max_announcements or 20,
         "max_queues": payload.max_queues or 10,
@@ -5158,6 +5205,8 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
         
         # 2. Santral Kotaları & Eş Zamanlı Kanal Limiti
         target_tenant["max_concurrent_calls"] = payload.max_concurrent_calls or target_tenant.get("max_concurrent_calls", 4)
+        if payload.tolerance_concurrent_calls is not None:
+            target_tenant["tolerance_concurrent_calls"] = int(payload.tolerance_concurrent_calls)
         target_tenant["max_users"] = payload.max_users or target_tenant.get("max_users", 50)
         target_tenant["max_announcements"] = payload.max_announcements or target_tenant.get("max_announcements", 20)
         target_tenant["max_queues"] = payload.max_queues or target_tenant.get("max_queues", 10)
@@ -5186,7 +5235,7 @@ async def update_tenant(tenant_id: str, payload: TenantCreateSchema):
         trigger_notification_bg(
             "license_updated",
             f"Lisans Bilgileri Güncellendi: {target_tenant.get('name')}",
-            f"'{target_tenant.get('name')}' müşterisinin lisans paketi ({target_tenant.get('plan_tier')}), eş zamanlı çağrı kanalı ({target_tenant.get('max_concurrent_calls')} Kanal) ve kota parametreleri güncellendi.",
+            f"'{target_tenant.get('name')}' müşterisinin lisans paketi ({target_tenant.get('plan_tier')}), eş zamanlı çağrı kanalı ({target_tenant.get('max_concurrent_calls')} +{target_tenant.get('tolerance_concurrent_calls', 0)} Tolerans Kanal) ve kota parametreleri güncellendi.",
             severity="info",
             tenant_id=tenant_id
         )
@@ -5264,6 +5313,8 @@ async def get_license_status(request: Request):
     limits = dict(get_plan_limits(plan_tier))
     call_info = get_tenant_concurrent_call_info(matched.get("id", "tenant-default"), current)
     limits["max_concurrent_calls"] = call_info["max_concurrent_calls"]
+    limits["tolerance_concurrent_calls"] = call_info["tolerance_concurrent_calls"]
+    limits["effective_max_concurrent_calls"] = call_info["effective_max_concurrent_calls"]
     limits["channels"] = call_info["max_concurrent_calls"]
     limits["users"] = matched.get("max_users", limits.get("users", 50))
     limits["ai_agents"] = matched.get("max_agents", limits.get("ai_agents", 20))
@@ -5299,6 +5350,8 @@ async def get_license_status(request: Request):
         "is_unlimited": verification.get("expires_at") == "unlimited" or not matched.get("license_expires_at"),
         "server_hardware_id": hw_info.get("hardware_id"),
         "max_concurrent_calls": call_info["max_concurrent_calls"],
+        "tolerance_concurrent_calls": call_info["tolerance_concurrent_calls"],
+        "effective_max_concurrent_calls": call_info["effective_max_concurrent_calls"],
         "allowed_stt_providers": allowed_stt,
         "allowed_tts_providers": allowed_tts,
         "allowed_llm_providers": allowed_llm,
@@ -5307,6 +5360,7 @@ async def get_license_status(request: Request):
             "used_users": used_users,
             "used_channels": used_channels,
             "used_concurrent_calls": used_channels,
+            "used_tolerance_calls": max(0, used_channels - call_info["max_concurrent_calls"]),
             "used_ai_agents": used_ai_agents,
             "used_tenants": used_tenants
         }
@@ -5362,7 +5416,7 @@ async def renew_license_key(payload: LicenseRenewSchema):
         trigger_notification_bg(
             "license_updated",
             f"Lisans Anahtarı Yenilendi: {target.get('name')}",
-            f"'{target.get('name')}' müşterisi için yeni kriptografik lisans anahtarı doğrulandı ve aktive edildi. (Geçerlilik: {target.get('license_expires_at') or 'Süresiz'}, Eş Zamanlı Kanal: {target.get('max_concurrent_calls', 4)})",
+            f"'{target.get('name')}' müşterisi için yeni kriptografik lisans anahtarı doğrulandı ve aktive edildi. (Geçerlilik: {target.get('license_expires_at') or 'Süresiz'}, Eş Zamanlı Kanal: {target.get('max_concurrent_calls', 4)} +{target.get('tolerance_concurrent_calls', 0)} Tolerans)",
             severity="info",
             tenant_id=target.get("id") or "tenant-default",
             force=True
@@ -5602,25 +5656,30 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
             except Exception as e_bl:
                 print(f"[Call Register Blacklist Error]: {e_bl}")
 
-            # Enforce shared concurrent call channel limit (AI Agent + Dialer + Real User Inbound/Outbound)
+            # Enforce shared concurrent call channel limit & Tolerance Channels (AI Agent + Dialer + Real User Inbound/Outbound)
             try:
                 call_info = get_tenant_concurrent_call_info(
                     tenant_id=call_tenant,
                     exclude_call_id=call_id,
                     exclude_asterisk_id=asterisk_id
                 )
-                if call_info["used_concurrent_calls"] >= call_info["max_concurrent_calls"]:
+                base_max = call_info["max_concurrent_calls"]
+                tol_max = call_info["tolerance_concurrent_calls"]
+                eff_max = call_info["effective_max_concurrent_calls"]
+                used_now = call_info["used_concurrent_calls"]
+
+                if used_now >= eff_max:
                     import asyncio
                     from backend.services.ami_manager import hangup_call
-                    print(f"[License Concurrent Call Block] Tenant '{call_tenant}' reached concurrent channel limit ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']}). Rejecting call {call_id} ({caller} -> {did}).")
-                    add_system_log("LICENSE", "WARNING", f"Eş Zamanlı Çağrı Kanalı Limiti Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']} Kanal): Çağrı reddedildi ({caller} -> {did})")
+                    print(f"[License Concurrent Call Block] Tenant '{call_tenant}' reached total concurrent channel limit ({used_now}/{base_max}+{tol_max}). Rejecting call {call_id} ({caller} -> {did}).")
+                    add_system_log("LICENSE", "WARNING", f"Eş Zamanlı Çağrı Kanalı Limiti Doldu ({used_now}/{base_max}" + (f"+{tol_max} Tolerans" if tol_max > 0 else "") + f" Kanal): Çağrı reddedildi ({caller} -> {did})")
                     try:
                         from backend.services.notification_service import trigger_notification_bg
                         trigger_notification_bg(
                             "concurrent_channels_full",
-                            f"Eş Zamanlı Çağrı Kanalı Doldu ({call_info['used_concurrent_calls']}/{call_info['max_concurrent_calls']} Kanal)",
-                            f"Gelen/giden çağrı ({caller} -> {did}) sırasında eş zamanlı çağrı kanalı limiti ({call_info['max_concurrent_calls']} Kanal) tamamen dolu olduğu için çağrı reddedildi.\nAktif Ses Kanalı: {call_info['active_voice_calls']} | Aktif Dialer Kanalı: {call_info['active_dialer_calls']}",
-                            severity="warning",
+                            f"Eş Zamanlı Çağrı Kanalı Doldu ({used_now}/{base_max}" + (f"+{tol_max}" if tol_max > 0 else "") + " Kanal)",
+                            f"Gelen/giden çağrı ({caller} -> {did}) sırasında eş zamanlı çağrı kanalı limiti ({base_max} Ana Kanal" + (f" + {tol_max} Tolerans Kanalı = {eff_max} Kanal" if tol_max > 0 else " - Tolerans: 0") + f") tamamen dolu olduğu için çağrı reddedildi.\nAktif Ses Kanalı: {call_info['active_voice_calls']} | Aktif Dialer Kanalı: {call_info['active_dialer_calls']}",
+                            severity="critical" if tol_max > 0 else "warning",
                             tenant_id=call_tenant
                         )
                     except Exception:
@@ -5637,7 +5696,23 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     session.add(new_call)
                     await session.commit()
                     asyncio.create_task(hangup_call(call_id))
-                    return {"status": "blocked", "message": f"Concurrent call channel limit ({call_info['max_concurrent_calls']}) reached."}
+                    return {"status": "blocked", "message": f"Concurrent call channel limit ({eff_max}) reached."}
+                elif used_now >= base_max and tol_max > 0:
+                    # Base concurrent channels are full, but Tolerance Channel allows the call to continue!
+                    used_tol = (used_now - base_max) + 1
+                    print(f"[License Tolerance Channel Active] Tenant '{call_tenant}' base limit ({base_max}) full; allowing call {call_id} ({caller} -> {did}) via Tolerance Channel ({used_tol}/{tol_max}, total active: {used_now + 1}/{eff_max}).")
+                    add_system_log("LICENSE", "WARNING", f"Tolerans Eş Zamanlı Çağrı Kanalı Devreye Girdi ({used_now + 1}/{base_max}+{tol_max} Kanal): Çağrı kesilmeden devam ettirildi ({caller} -> {did})")
+                    try:
+                        from backend.services.notification_service import trigger_notification_bg
+                        trigger_notification_bg(
+                            "concurrent_channels_full",
+                            f"Tolerans Eş Zamanlı Çağrı Kanalı Devrede ({used_now + 1}/{base_max} +{tol_max} Tolerans)",
+                            f"Lisanslı eş zamanlı çağrı kanalı sayısı ({base_max} Kanal) doldu.\nSistem çağrıyı durdurmadı ve lisans sunucusunda tanımlı +{tol_max} Tolerans Çağrı Kanalını devreye alarak görüşmeyi ({caller} -> {did}) devam ettirdi.\nAnlık Aktif Kanal: {used_now + 1} / {eff_max} (Kullanılan Tolerans: +{used_tol}/{tol_max})",
+                            severity="warning",
+                            tenant_id=call_tenant
+                        )
+                    except Exception:
+                        pass
             except Exception as e_conc:
                 print(f"[Call Register Concurrent Limit Check Error]: {e_conc}")
 
@@ -8280,10 +8355,10 @@ async def get_notification_settings_endpoint(user_info: dict = Depends(get_user_
     from backend.services.notification_service import get_tenant_notification_settings, DEFAULT_NOTIFICATION_EVENTS
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     cfg = get_tenant_notification_settings(settings_db, target_tenant)
-    return {
-        "settings": cfg,
-        "event_metadata": DEFAULT_NOTIFICATION_EVENTS
-    }
+    res_data = dict(cfg)
+    res_data["settings"] = cfg
+    res_data["event_metadata"] = DEFAULT_NOTIFICATION_EVENTS
+    return res_data
 
 @app.post("/api/settings/notifications")
 @app.post("/settings/notifications")
@@ -8293,16 +8368,26 @@ async def save_notification_settings_endpoint(payload: dict, user_info: dict = D
     existing = get_tenant_notification_settings(settings_db, target_tenant)
     history_keep = existing.get("history", [])
 
+    emails_val = str(payload.get("email_recipients") or payload.get("recipient_emails") or "").strip()
+    wa_val = str(payload.get("whatsapp_recipients") or payload.get("recipient_whatsapp_numbers") or "").strip()
+    use_custom = bool(payload.get("use_custom_smtp") or payload.get("smtp_override_enabled"))
+    smtp_pw = str(payload.get("smtp_password") or payload.get("smtp_pass") or "").strip()
+
     updated_cfg = {
+        "enabled": bool(payload.get("enabled", True)),
         "email_enabled": bool(payload.get("email_enabled", True)),
-        "recipient_emails": str(payload.get("recipient_emails", "")).strip(),
+        "email_recipients": emails_val,
+        "recipient_emails": emails_val,
         "whatsapp_enabled": bool(payload.get("whatsapp_enabled", False)),
-        "recipient_whatsapp_numbers": str(payload.get("recipient_whatsapp_numbers", "")).strip(),
-        "use_custom_smtp": bool(payload.get("use_custom_smtp", False)),
+        "whatsapp_recipients": wa_val,
+        "recipient_whatsapp_numbers": wa_val,
+        "use_custom_smtp": use_custom,
+        "smtp_override_enabled": use_custom,
         "smtp_host": str(payload.get("smtp_host", "")).strip(),
         "smtp_port": int(payload.get("smtp_port") or 587),
         "smtp_user": str(payload.get("smtp_user", "")).strip(),
-        "smtp_password": str(payload.get("smtp_password", "")).strip(),
+        "smtp_password": smtp_pw,
+        "smtp_pass": smtp_pw,
         "smtp_from_name": str(payload.get("smtp_from_name", "AIDA Sistem Bildirimleri")).strip(),
         "cooldown_minutes": int(payload.get("cooldown_minutes") or 5),
         "events": payload.get("events", existing.get("events", {})),
@@ -8314,6 +8399,7 @@ async def save_notification_settings_endpoint(payload: dict, user_info: dict = D
     settings_db["tenant_notifications"][target_tenant] = updated_cfg
     if is_default_tenant(target_tenant):
         settings_db["notifications"] = updated_cfg
+        settings_db["system_notifications"] = updated_cfg
     save_settings(settings_db)
     add_system_log("NOTIFICATIONS", "INFO", f"E-Mail ve WhatsApp bildirim ayarları güncellendi ({target_tenant})")
     return {"status": "success", "message": "E-Mail ve WhatsApp bildirim ayarları başarıyla kaydedildi.", "settings": updated_cfg}
@@ -8323,11 +8409,7 @@ async def save_notification_settings_endpoint(payload: dict, user_info: dict = D
 async def test_notification_endpoint(payload: dict, user_info: dict = Depends(get_user_info)):
     from backend.services.notification_service import (
         get_tenant_notification_settings,
-        _parse_recipients,
-        _resolve_smtp_config,
-        _send_alert_email_sync,
-        _format_html_alert,
-        _format_whatsapp_alert
+        _send_notification_email
     )
     from backend.services.whatsapp_service import send_whatsapp_message
     import datetime
@@ -8335,49 +8417,70 @@ async def test_notification_endpoint(payload: dict, user_info: dict = Depends(ge
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     channel = payload.get("channel", "both")  # "email", "whatsapp", "both"
 
-    # Merge any unsaved form overrides passed in payload
     cfg = get_tenant_notification_settings(settings_db, target_tenant)
     if "settings" in payload and isinstance(payload["settings"], dict):
         cfg.update(payload["settings"])
+    if payload.get("email_recipients"):
+        cfg["email_recipients"] = str(payload.get("email_recipients")).strip()
+        cfg["recipient_emails"] = cfg["email_recipients"]
+    if payload.get("whatsapp_recipients"):
+        cfg["whatsapp_recipients"] = str(payload.get("whatsapp_recipients")).strip()
+        cfg["recipient_whatsapp_numbers"] = cfg["whatsapp_recipients"]
 
     title = "Test Bildirimi — AIDA Kritik Sistem Uyarısı"
     message = (
         "Bu mesaj, AIDA Sistem Ayarları > E-Mail ve WhatsApp Bildirimleri ekranından gönderilen bir test bildirimidir.\n"
-        "Dış hat kopmaları, eş zamanlı çağrı kanalı dolulukları, AI sağlayıcı kota/bağlantı sorunları ve lisans uyarıları bu kanal üzerinden tarafınıza anlık iletilecektir."
+        "Dış hat kopmaları, eş zamanlı çağrı kanalı dolulukları (veya +Tolerans kanalı devreye girmesi), AI sağlayıcı kota/bağlantı sorunları ve lisans uyarıları bu kanal üzerinden tarafınıza anlık iletilecektir."
     )
 
+    tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
     email_ok = False
     wa_ok = False
     errors = []
 
     if channel in ["email", "both"]:
-        recipients = _parse_recipients(cfg.get("recipient_emails", ""))
+        raw_emails = str(cfg.get("email_recipients") or cfg.get("recipient_emails") or "").strip()
+        recipients = [e.strip() for e in raw_emails.replace(";", ",").split(",") if e.strip() and "@" in e]
         if not recipients:
             errors.append("Alıcı e-posta adresi girilmemiş.")
         else:
-            smtp_cfg = _resolve_smtp_config(settings_db, cfg, target_tenant)
-            if not smtp_cfg.get("host") or not smtp_cfg.get("user") or not smtp_cfg.get("password"):
-                errors.append("SMTP sunucu ayarları eksik (Özel SMTP ayarlarını doldurun veya Çoklu Kanal > E-Posta SMTP ayarlarını yapılandırın).")
+            plain_body = f"AIDA TEST BİLDİRİMİ\nTarih/Saat: {tr_now}\n\n{message}"
+            html_body = f"""
+            <html>
+              <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif; background-color: #f8fafc; padding: 24px; color: #0f172a;">
+                <div style="max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; overflow: hidden;">
+                  <div style="background: #2563eb; color: #ffffff; padding: 18px 24px; font-weight: 800; font-size: 16px;">
+                    ℹ️ AIDA Sistem Bildirimi — TEST
+                  </div>
+                  <div style="padding: 24px; line-height: 1.6; font-size: 14px;">
+                    <h3 style="margin-top: 0; color: #0f172a; font-size: 17px;">{title}</h3>
+                    <div style="background: #f1f5f9; border-left: 4px solid #2563eb; padding: 14px 16px; border-radius: 8px; margin: 16px 0; white-space: pre-wrap;">{message}</div>
+                    <p style="font-size: 12px; color: #64748b;">Zaman (TR): {tr_now} | Tenant: {target_tenant}</p>
+                  </div>
+                </div>
+              </body>
+            </html>
+            """
+            channels_cfg = settings_db.get("channels", {})
+            email_res = await _send_notification_email(cfg, channels_cfg, recipients, f"ℹ️ [AIDA TEST] {title}", html_body, plain_body)
+            if email_res.get("status") == "success":
+                email_ok = True
             else:
-                html_body = _format_html_alert(title, message, "info", "Test Bildirimi", target_tenant)
-                loop = asyncio.get_event_loop()
-                email_ok = await loop.run_in_executor(
-                    None,
-                    _send_alert_email_sync,
-                    smtp_cfg,
-                    recipients,
-                    f"ℹ️ [AIDA TEST] {title}",
-                    html_body
-                )
-                if not email_ok:
-                    errors.append("SMTP üzerinden e-posta gönderilemedi. Sunucu/şifre bilgilerini kontrol edin.")
+                errors.append(email_res.get("message") or "E-posta gönderilemedi.")
 
     if channel in ["whatsapp", "both"]:
-        wa_numbers = _parse_recipients(cfg.get("recipient_whatsapp_numbers", ""))
+        raw_wa = str(cfg.get("whatsapp_recipients") or cfg.get("recipient_whatsapp_numbers") or "").strip()
+        wa_numbers = [n.strip() for n in raw_wa.replace(";", ",").split(",") if n.strip()]
         if not wa_numbers:
             errors.append("Alıcı WhatsApp numarası girilmemiş.")
         else:
-            wa_text = _format_whatsapp_alert(title, message, "info", "Test Bildirimi", target_tenant)
+            wa_text = (
+                f"ℹ️ *AIDA SİSTEM BİLDİRİMİ (TEST)*\n\n"
+                f"📌 *Olay:* {title}\n"
+                f"🕒 *Zaman:* {tr_now}\n"
+                f"🏢 *Tenant:* `{target_tenant}`\n\n"
+                f"📝 *Detay:*\n{message}"
+            )
             any_wa_sent = False
             for num in wa_numbers:
                 clean_num = "".join(ch for ch in num if ch.isdigit())
@@ -8387,37 +8490,38 @@ async def test_notification_endpoint(payload: dict, user_info: dict = Depends(ge
                     clean_num = "90" + clean_num
                 if len(clean_num) >= 10:
                     sent = await send_whatsapp_message(to_phone=clean_num, text=wa_text)
-                    if sent:
+                    if (isinstance(sent, dict) and sent.get("status") == "success") or (isinstance(sent, bool) and sent):
                         any_wa_sent = True
             wa_ok = any_wa_sent
             if not wa_ok:
                 errors.append("WhatsApp mesajı gönderilemedi. WhatsApp Cloud API Token / Phone ID ayarlarını kontrol edin.")
 
-    # Record in history if at least one succeeded
     if email_ok or wa_ok:
         real_cfg = get_tenant_notification_settings(settings_db, target_tenant)
         hist = real_cfg.get("history", [])
         if not isinstance(hist, list):
             hist = []
-        tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M:%S")
+        ch_list = []
+        if email_ok:
+            ch_list.append("email")
+        if wa_ok:
+            ch_list.append("whatsapp")
         hist.insert(0, {
             "id": f"test_{int(datetime.datetime.utcnow().timestamp() * 1000)}",
             "event_key": "test_notification",
-            "event_label": "Test Bildirimi",
-            "category": "Test",
             "title": title,
             "message": message,
             "severity": "info",
+            "channels": ch_list,
             "email_sent": email_ok,
             "whatsapp_sent": wa_ok,
             "timestamp": tr_now
         })
         real_cfg["history"] = hist[:40]
-        if "tenant_notifications" not in settings_db:
-            settings_db["tenant_notifications"] = {}
-        settings_db["tenant_notifications"][target_tenant] = real_cfg
+        settings_db.setdefault("tenant_notifications", {})[target_tenant] = real_cfg
         if is_default_tenant(target_tenant):
             settings_db["notifications"] = real_cfg
+            settings_db["system_notifications"] = real_cfg
         save_settings(settings_db)
 
     if errors and not (email_ok or wa_ok):

@@ -61,6 +61,7 @@ export default function MasterDashboard() {
   const [expiryDate, setExpiryDate] = useState("2027-12-31");
   const [planTier, setPlanTier] = useState("professional");
   const [newMaxConcurrentCalls, setNewMaxConcurrentCalls] = useState(4);
+  const [newToleranceConcurrentCalls, setNewToleranceConcurrentCalls] = useState(0);
   const [newAllowedStt, setNewAllowedStt] = useState(["google", "deepgram", "openai", "elevenlabs"]);
   const [newAllowedTts, setNewAllowedTts] = useState(["google", "elevenlabs", "openai"]);
   const [newAllowedLlm, setNewAllowedLlm] = useState(["google", "elevenlabs", "openai", "anthropic", "groq"]);
@@ -182,6 +183,7 @@ export default function MasterDashboard() {
           plan_tier: planTier,
           custom_quotas: {
             max_concurrent_calls: parseInt(newMaxConcurrentCalls, 10) || 4,
+            tolerance_concurrent_calls: Math.max(0, parseInt(newToleranceConcurrentCalls, 10) || 0),
             allowed_stt_providers: newAllowedStt,
             allowed_tts_providers: newAllowedTts,
             allowed_llm_providers: newAllowedLlm
@@ -195,6 +197,7 @@ export default function MasterDashboard() {
         setTenantCode("");
         setHardwareId("");
         setNewMaxConcurrentCalls(4);
+        setNewToleranceConcurrentCalls(0);
         fetchData();
       }
     } catch (e) {
@@ -265,6 +268,7 @@ export default function MasterDashboard() {
 
   const PBX_QUOTA_FIELDS = [
     { key: "max_concurrent_calls", label: "Eş Zamanlı Çağrı Kanalı (AI+Dialer+User)", defaultVal: 4, unit: "Kanal" },
+    { key: "tolerance_concurrent_calls", label: "Tolerans Eş Zamanlı Çağrı (+Kanal)", defaultVal: 0, unit: "+Kanal" },
     { key: "max_users", label: "Kullanıcılar", defaultVal: 50, unit: "Kişi" },
     { key: "max_trunks", label: "Dış Hat (SIP Trunk)", defaultVal: 10, unit: "Hat" },
     { key: "max_queues", label: "Kuyruklar", defaultVal: 20, unit: "Kuyruk" },
@@ -670,14 +674,23 @@ export default function MasterDashboard() {
 
                 {/* Licensed Channel & AI Engines Summary on Card */}
                 <div className="p-3 bg-slate-50 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800/60 rounded-2xl space-y-2 text-[11px]">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between flex-wrap gap-1.5">
                     <span className="font-bold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
                       <PhoneCall size={13} className="text-blue-500" />
                       Eş Zamanlı Çağrı Kanalı:
                     </span>
-                    <span className="font-mono font-extrabold text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-lg">
-                      {client.custom_quotas?.max_concurrent_calls ?? 4} Kanal (AI+Dialer+User)
-                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono font-extrabold text-blue-600 dark:text-blue-400 bg-blue-500/10 border border-blue-500/20 px-2 py-0.5 rounded-lg">
+                        {client.custom_quotas?.max_concurrent_calls ?? 4} Kanal
+                      </span>
+                      <span className={`font-mono font-extrabold px-2 py-0.5 rounded-lg border ${
+                        (client.custom_quotas?.tolerance_concurrent_calls ?? 0) > 0
+                          ? "text-amber-600 dark:text-amber-400 bg-amber-500/10 border-amber-500/25"
+                          : "text-slate-500 dark:text-slate-400 bg-slate-200/60 dark:bg-slate-800 border-slate-300 dark:border-slate-700"
+                      }`} title="Ana kanal limiti dolduğunda çağrıyı durdurmadan devreye girecek tolerans kanal adeti">
+                        +{client.custom_quotas?.tolerance_concurrent_calls ?? 0} Tolerans
+                      </span>
+                    </div>
                   </div>
                   <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
                     <div>
@@ -816,7 +829,7 @@ export default function MasterDashboard() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-slate-600 dark:text-slate-400 mb-1">Sunucu Donanım ID (Opsiyonel / UNBOUND)</label>
                   <input
@@ -829,13 +842,26 @@ export default function MasterDashboard() {
                 </div>
 
                 <div>
-                  <label className="block text-blue-600 dark:text-blue-400 font-extrabold mb-1">Eş Zamanlı Çağrı Kanalı Limiti (AI+Dialer+User)</label>
+                  <label className="block text-blue-600 dark:text-blue-400 font-extrabold mb-1">Eş Zamanlı Çağrı Kanalı (AI+Dialer+User)</label>
                   <input
                     type="number"
                     min="1"
                     value={newMaxConcurrentCalls}
                     onChange={(e) => setNewMaxConcurrentCalls(parseInt(e.target.value, 10) || 1)}
                     className="w-full px-3.5 py-2.5 bg-blue-50/50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-2xl focus:outline-none focus:border-blue-500 font-mono font-extrabold text-slate-900 dark:text-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-amber-600 dark:text-amber-400 font-extrabold mb-1" title="0 girilirse limit dolunca durur. 1 veya üstü girilirse +N tolerans kanalı devreye girer ve bildirim gönderir.">
+                    Tolerans Eş Zamanlı Çağrı (+Kanal)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={newToleranceConcurrentCalls}
+                    onChange={(e) => setNewToleranceConcurrentCalls(Math.max(0, parseInt(e.target.value, 10) || 0))}
+                    className="w-full px-3.5 py-2.5 bg-amber-50/50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-2xl focus:outline-none focus:border-amber-500 font-mono font-extrabold text-slate-900 dark:text-white"
                   />
                 </div>
               </div>
@@ -985,7 +1011,7 @@ export default function MasterDashboard() {
                   <span>Lisans Paketi, Durum & Geçerlilik Yapılandırması</span>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   {/* Lisans Paketi / Planı */}
                   <div>
                     <label className="block text-slate-700 dark:text-slate-300 font-bold mb-1">Lisans Paketi / Planı</label>
@@ -1018,7 +1044,7 @@ export default function MasterDashboard() {
                   {/* Eş Zamanlı Çağrı Kanalı Limiti */}
                   <div>
                     <label className="block text-blue-600 dark:text-blue-400 font-extrabold mb-1" title="AI Agent + Otomatik Arama (Dialer) + Kullanıcı Gelen/Giden Çağrı Kanalı">
-                      Eş Zamanlı Çağrı Kanalı (AI+Dialer+User)
+                      Eş Zamanlı Çağrı Kanalı
                     </label>
                     <input
                       type="number"
@@ -1026,6 +1052,20 @@ export default function MasterDashboard() {
                       value={genCustomQuotas.max_concurrent_calls !== undefined ? genCustomQuotas.max_concurrent_calls : 4}
                       onChange={(e) => handleQuotaChange("max_concurrent_calls", e.target.value)}
                       className="w-full px-3.5 py-2.5 bg-blue-50/60 dark:bg-blue-950/30 border border-blue-300 dark:border-blue-800 rounded-xl focus:outline-none focus:border-blue-500 font-mono font-extrabold text-slate-900 dark:text-white text-xs"
+                    />
+                  </div>
+
+                  {/* Tolerans Eş Zamanlı Çağrı Adeti (+Kanal) */}
+                  <div>
+                    <label className="block text-amber-600 dark:text-amber-400 font-extrabold mb-1" title="0 girilirse ana limit dolduğunda çağrı durdurulur. 1 veya üstü girilirse çağrı kesilmez, +N tolerans kanalı devreye girer ve E-Posta / WhatsApp bildirimi gönderilir.">
+                      Tolerans Çağrı Kanalı (+Adet)
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={genCustomQuotas.tolerance_concurrent_calls !== undefined ? genCustomQuotas.tolerance_concurrent_calls : 0}
+                      onChange={(e) => handleQuotaChange("tolerance_concurrent_calls", e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-amber-50/60 dark:bg-amber-950/30 border border-amber-300 dark:border-amber-800 rounded-xl focus:outline-none focus:border-amber-500 font-mono font-extrabold text-slate-900 dark:text-white text-xs"
                     />
                   </div>
                 </div>

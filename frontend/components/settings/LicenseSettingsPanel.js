@@ -281,19 +281,36 @@ export default function LicenseSettingsPanel({ backendHost }) {
             {(() => {
               const used = licenseStatus.usage.used_concurrent_calls ?? licenseStatus.usage.used_channels ?? 0;
               const max = licenseStatus.max_concurrent_calls ?? licenseStatus.limits.max_concurrent_calls ?? licenseStatus.limits.channels ?? 4;
+              const tol = licenseStatus.tolerance_concurrent_calls ?? licenseStatus.limits.tolerance_concurrent_calls ?? 0;
+              const effMax = max + tol;
               const pct = Math.min(100, Math.round((used / max) * 100));
+              const inTolerance = used > max && tol > 0;
               return (
                 <div className="p-4 bg-slate-50 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-2">
                   <div className="flex items-center justify-between text-xs font-bold text-slate-600 dark:text-slate-300">
                     <span className="flex items-center gap-1.5" title="AI Agent + Otomatik Arama (Dialer) + Kullanıcı Gelen/Giden Çağrı Kanalı"><PhoneCall size={14} className="text-blue-500" /> Eş Zamanlı Çağrı Kanalı</span>
-                    <span className="font-mono text-slate-900 dark:text-white font-extrabold">{used} / {max >= 999 ? "♾️" : max}</span>
+                    <div className="flex items-center gap-1">
+                      <span className="font-mono text-slate-900 dark:text-white font-extrabold">{used} / {max >= 999 ? "♾️" : max}</span>
+                      <span
+                        className={`text-[10px] font-mono font-extrabold px-1.5 py-0.5 rounded-md border ${
+                          tol > 0
+                            ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25"
+                            : "bg-slate-200/70 dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-300 dark:border-slate-700"
+                        }`}
+                        title={`Tolerans Eş Zamanlı Çağrı Kanalı: +${tol} Kanal (Toplam Efektif Kapasite: ${effMax} Kanal)`}
+                      >
+                        +{tol} Tolerans
+                      </span>
+                    </div>
                   </div>
                   <div className="w-full bg-slate-200 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
-                    <div className={`h-full rounded-full transition-all ${pct >= 100 ? "bg-rose-600" : pct >= 80 ? "bg-amber-500" : "bg-blue-500"}`} style={{ width: `${pct}%` }} />
+                    <div className={`h-full rounded-full transition-all ${inTolerance ? "bg-amber-500 animate-pulse" : pct >= 100 ? "bg-rose-600" : pct >= 80 ? "bg-amber-500" : "bg-blue-500"}`} style={{ width: `${pct}%` }} />
                   </div>
                   <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400">
-                    <span>AI + Dialer + Dahili</span>
-                    <span>%{pct} Aktif</span>
+                    <span>AI + Dialer + Dahili {tol > 0 ? `(Tolerans: +${tol})` : "(Tolerans: 0)"}</span>
+                    <span className={inTolerance ? "text-amber-600 dark:text-amber-400 font-extrabold" : ""}>
+                      {inTolerance ? `⚡ Tolerans Devrede (${used}/${effMax})` : `%${pct} Aktif`}
+                    </span>
                   </div>
                 </div>
               );

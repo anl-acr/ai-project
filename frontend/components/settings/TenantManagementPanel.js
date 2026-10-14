@@ -112,6 +112,7 @@ export default function TenantManagementPanel({ backendHost }) {
 
   // 2. Santral Kotaları & Eş Zamanlı Çağrı Kanalı Limiti
   const [maxConcurrentCalls, setMaxConcurrentCalls] = useState(4);
+  const [toleranceConcurrentCalls, setToleranceConcurrentCalls] = useState(0);
   const [maxUsers, setMaxUsers] = useState(50);
   const [maxAnnouncements, setMaxAnnouncements] = useState(30);
   const [maxQueues, setMaxQueues] = useState(20);
@@ -229,6 +230,7 @@ export default function TenantManagementPanel({ backendHost }) {
     setPlanTier(tierKey);
     const p = PLAN_PRESETS[tierKey] || PLAN_PRESETS.professional;
     setMaxConcurrentCalls(p.max_concurrent_calls || 4);
+    setToleranceConcurrentCalls(0);
     setMaxAgents(p.max_agents);
     setMaxRagDocs(p.max_rag_docs);
     setMaxScenarios(p.max_scenarios);
@@ -286,6 +288,7 @@ export default function TenantManagementPanel({ backendHost }) {
     // Load or default quota fields & licensed AI providers
     const p = PLAN_PRESETS[tier] || PLAN_PRESETS.professional;
     setMaxConcurrentCalls(t.max_concurrent_calls || p.max_concurrent_calls || 4);
+    setToleranceConcurrentCalls(t.tolerance_concurrent_calls !== undefined ? t.tolerance_concurrent_calls : 0);
     setMaxAgents(t.max_agents || p.max_agents);
     setMaxRagDocs(t.max_rag_docs || p.max_rag_docs);
     setMaxScenarios(t.max_scenarios || p.max_scenarios);
@@ -443,6 +446,7 @@ export default function TenantManagementPanel({ backendHost }) {
           plan_tier: planTier,
           
           max_concurrent_calls: parseInt(maxConcurrentCalls) || 4,
+          tolerance_concurrent_calls: Math.max(0, parseInt(toleranceConcurrentCalls) || 0),
           max_agents: parseInt(maxAgents) || 20,
           max_rag_docs: parseInt(maxRagDocs) || 100,
           max_scenarios: parseInt(maxScenarios) || 20,
@@ -645,6 +649,13 @@ export default function TenantManagementPanel({ backendHost }) {
                     <span className="text-[9px] font-extrabold uppercase text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-1.5 py-0.5 rounded">PBX</span>
                     <span className="text-[10px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-blue-300/80 dark:border-blue-800 font-bold">
                       Eş Zamanlı Kanal: <strong className="text-blue-600 font-mono">{t.max_concurrent_calls || 4}</strong>
+                      <span className={`ml-1 font-mono font-extrabold ${
+                        (t.tolerance_concurrent_calls || 0) > 0
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-slate-400"
+                      }`} title="Tolerans Eş Zamanlı Çağrı Kanalı">
+                        (+{t.tolerance_concurrent_calls || 0} Tolerans)
+                      </span>
                     </span>
                     <span className="text-[10px] bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded border border-slate-200/60 dark:border-slate-800 font-bold">
                       Kullanıcı: <strong className="text-blue-600 font-mono">{t.max_users || 50}</strong>
@@ -845,7 +856,7 @@ export default function TenantManagementPanel({ backendHost }) {
               <div className="p-3.5 bg-rose-50/50 dark:bg-rose-950/30 border border-rose-200/60 dark:border-rose-900/40 rounded-2xl flex items-center gap-3 text-xs font-semibold text-rose-700 dark:text-rose-300">
                 <Lock size={16} className="text-rose-500 shrink-0" />
                 <span>
-                  🔐 Lisans paketi, geçerlilik süresi, izinli AI motorları (STT/TTS/LLM), eş zamanlı çağrı kanalı limiti ve tüm sistem kotaları Merkezi Lisans Sunucusundan (Control Center) belirlenir; bu ekranda salt-okunur (read-only) olarak görüntülenir.
+                  🔐 Lisans paketi, geçerlilik süresi, izinli AI motorları (STT/TTS/LLM), eş zamanlı çağrı kanalı limiti (+Tolerans) ve tüm sistem kotaları Merkezi Lisans Sunucusundan (Control Center) belirlenir; bu ekranda salt-okunur (read-only) olarak görüntülenir.
                 </span>
               </div>
 
@@ -927,6 +938,7 @@ export default function TenantManagementPanel({ backendHost }) {
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5">
                   {renderQuotaCard("Eş Zamanlı Çağrı Kanalı (AI+Dialer+User)", "max_concurrent_calls", maxConcurrentCalls, null, "Kanal", "blue")}
+                  {renderQuotaCard("Tolerans Eş Zamanlı Çağrı (+Kanal)", "tolerance_concurrent_calls", toleranceConcurrentCalls, null, "+Kanal", "blue")}
                   {renderQuotaCard("Kullanıcılar", "max_users", maxUsers, null, "Kişi", "blue")}
                   {renderQuotaCard("Dış Hat (SIP Trunk)", "max_trunks", maxTrunks, null, "Hat", "blue")}
                   {renderQuotaCard("Kuyruklar", "max_queues", maxQueues, null, "Kuyruk", "blue")}

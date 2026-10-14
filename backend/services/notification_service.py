@@ -25,8 +25,8 @@ DEFAULT_NOTIFICATION_EVENTS: Dict[str, Dict[str, Any]] = {
         "enabled": True,
         "email": True,
         "whatsapp": True,
-        "title": "Eş Zamanlı Çağrı Kanalı Dolduğunda",
-        "description": "Lisanslı eş zamanlı çağrı kanalı limiti (AI Agent + Otomatik Arama Dialer + Kullanıcı Gelen/Giden) tamamen dolduğunda ve çağrı reddedildiğinde uyarır.",
+        "title": "Eş Zamanlı Çağrı Kanalı Dolduğunda / Tolerans Kanalı Devreye Girdiğinde",
+        "description": "Lisanslı eş zamanlı çağrı kanalı dolup +N Tolerans Kanalı devreye girdiğinde veya maksimum kapasite aşılıp çağrı durdurulduğunda E-Mail ve WhatsApp ile uyarır.",
         "category": "Kapasite & Lisans",
         "severity": "warning"
     },
@@ -123,15 +123,21 @@ DEFAULT_NOTIFICATION_EVENTS: Dict[str, Dict[str, Any]] = {
 }
 
 DEFAULT_NOTIFICATION_SETTINGS: Dict[str, Any] = {
+    "enabled": True,
     "email_enabled": True,
+    "email_recipients": "",
     "recipient_emails": "",
     "whatsapp_enabled": False,
+    "whatsapp_recipients": "",
     "recipient_whatsapp_numbers": "",
+    "use_custom_smtp": False,
     "smtp_override_enabled": False,
     "smtp_host": "",
     "smtp_port": 587,
     "smtp_user": "",
+    "smtp_password": "",
     "smtp_pass": "",
+    "smtp_from_name": "AIDA Sistem Bildirimi",
     "smtp_use_tls": True,
     "cooldown_minutes": 5,
     "events": DEFAULT_NOTIFICATION_EVENTS,
@@ -147,16 +153,33 @@ _LAST_AMI_CONNECTED: Optional[bool] = None
 def get_tenant_notification_settings(settings_db: dict, tenant_id: str = "tenant-default") -> Dict[str, Any]:
     """Returns merged notification settings for the specified tenant."""
     tenant_map = settings_db.get("tenant_notifications", {})
-    if tenant_id and tenant_id not in ["tenant-default", "default", "all", "global"] and tenant_id in tenant_map:
+    if tenant_id and tenant_id in tenant_map and isinstance(tenant_map.get(tenant_id), dict):
         raw = tenant_map.get(tenant_id, {})
     else:
-        raw = settings_db.get("system_notifications", {})
+        raw = settings_db.get("notifications") or settings_db.get("system_notifications") or {}
 
     merged = dict(DEFAULT_NOTIFICATION_SETTINGS)
     if isinstance(raw, dict):
         for k, v in raw.items():
             if k != "events":
                 merged[k] = v
+
+    # Synchronize alias fields so both frontend & backend keys always match
+    emails_val = str(merged.get("email_recipients") or merged.get("recipient_emails") or "").strip()
+    merged["email_recipients"] = emails_val
+    merged["recipient_emails"] = emails_val
+
+    wa_val = str(merged.get("whatsapp_recipients") or merged.get("recipient_whatsapp_numbers") or "").strip()
+    merged["whatsapp_recipients"] = wa_val
+    merged["recipient_whatsapp_numbers"] = wa_val
+
+    custom_smtp = bool(merged.get("use_custom_smtp") or merged.get("smtp_override_enabled"))
+    merged["use_custom_smtp"] = custom_smtp
+    merged["smtp_override_enabled"] = custom_smtp
+
+    smtp_pw = str(merged.get("smtp_password") or merged.get("smtp_pass") or "").strip()
+    merged["smtp_password"] = smtp_pw
+    merged["smtp_pass"] = smtp_pw
 
     # Deep merge events
     merged_events = {}
@@ -185,11 +208,12 @@ async def _send_notification_email(
     plain_body: str
 ) -> Dict[str, Any]:
     """Sends notification email using either custom SMTP override or system channels SMTP."""
-    if cfg.get("smtp_override_enabled") and cfg.get("smtp_host") and cfg.get("smtp_user"):
+    use_custom = bool(cfg.get("use_custom_smtp") or cfg.get("smtp_override_enabled"))
+    if use_custom and cfg.get("smtp_host") and cfg.get("smtp_user"):
         smtp_host = str(cfg.get("smtp_host", "")).strip()
         smtp_port = int(cfg.get("smtp_port") or 587)
         smtp_user = str(cfg.get("smtp_user", "")).strip()
-        smtp_pass = str(cfg.get("smtp_pass", "")).strip()
+        smtp_pass = str(cfg.get("smtp_password") or cfg.get("smtp_pass") or "").strip()
         use_tls = bool(cfg.get("smtp_use_tls", True))
     else:
         smtp_host = str(channels_cfg.get("email_smtp_host", "")).strip()
@@ -245,6 +269,9 @@ async def dispatch_system_notification(
     try:
         from backend.main import settings_db, save_settings
         cfg = get_tenant_notification_settings(settings_db, tenant_id)
+        if not force and not cfg.get("enabled", True):
+            return {"status": "skipped", "reason": "Bildirim motoru devre dışı."}
+
         events_cfg = cfg.get("events", {})
         ev = events_cfg.get(event_key, DEFAULT_NOTIFICATION_EVENTS.get(event_key, {
             "enabled": True,
@@ -256,9 +283,9 @@ async def dispatch_system_notification(
         if not force and not ev.get("enabled", False):
             return {"status": "skipped", "reason": f"'{event_key}' bildirimi devre dışı."}
 
-        # Check anti-spam cooldown
+        # Check anti-spam cooldown (use title hash in key if tolerance vs reject differs)
         cooldown_mins = int(cfg.get("cooldown_minutes") or 5)
-        cooldown_key = f"{tenant_id}:{event_key}"
+        cooldown_key = f"{tenant_id}:{event_key}:{severity}"
         now_ts = time.time()
         if not force and cooldown_mins > 0:
             last_ts = _LAST_NOTIFICATION_TIMES.get(cooldown_key, 0)
@@ -283,7 +310,7 @@ async def dispatch_system_notification(
         channels_sent = []
 
         # 1. Dispatch Email if enabled
-        raw_emails = str(cfg.get("recipient_emails") or "").strip()
+        raw_emails = str(cfg.get("email_recipients") or cfg.get("recipient_emails") or "").strip()
         email_list = [e.strip() for e in raw_emails.replace(";", ",").split(",") if e.strip() and "@" in e]
         if cfg.get("email_enabled", True) and ev.get("email", True) and email_list:
             subject = f"{sev_icon} [AIDA {sev_label}] {title}"
@@ -322,10 +349,10 @@ async def dispatch_system_notification(
             email_res = await _send_notification_email(cfg, channels_cfg, email_list, subject, html_body, plain_body)
             results["email"] = email_res
             if email_res.get("status") == "success":
-                channels_sent.append(f"E-Mail ({', '.join(email_list)})")
+                channels_sent.append("email")
 
         # 2. Dispatch WhatsApp if enabled
-        raw_wa = str(cfg.get("recipient_whatsapp_numbers") or "").strip()
+        raw_wa = str(cfg.get("whatsapp_recipients") or cfg.get("recipient_whatsapp_numbers") or "").strip()
         wa_list = [n.strip() for n in raw_wa.replace(";", ",").split(",") if n.strip()]
         if cfg.get("whatsapp_enabled", False) and ev.get("whatsapp", True) and wa_list:
             wa_text = (
@@ -336,11 +363,20 @@ async def dispatch_system_notification(
                 f"📝 *Detay:*\n{message}"
             )
             wa_results = []
+            any_wa_ok = False
             for wa_num in wa_list:
-                w_res = await send_whatsapp_message(wa_num, wa_text)
-                wa_results.append(w_res)
-                if w_res.get("status") == "success":
-                    channels_sent.append(f"WhatsApp ({wa_num})")
+                clean_num = "".join(ch for ch in wa_num if ch.isdigit())
+                if clean_num.startswith("0") and len(clean_num) == 11:
+                    clean_num = "90" + clean_num[1:]
+                elif len(clean_num) == 10 and clean_num.startswith("5"):
+                    clean_num = "90" + clean_num
+                if len(clean_num) >= 10:
+                    w_res = await send_whatsapp_message(clean_num, wa_text)
+                    wa_results.append(w_res)
+                    if (isinstance(w_res, dict) and w_res.get("status") == "success") or (isinstance(w_res, bool) and w_res):
+                        any_wa_ok = True
+            if any_wa_ok:
+                channels_sent.append("whatsapp")
             results["whatsapp"] = wa_results
 
         # Record in history (keep last 40 items)
@@ -359,9 +395,9 @@ async def dispatch_system_notification(
         cfg_history.insert(0, history_entry)
         cfg["history"] = cfg_history[:40]
 
-        if tenant_id and tenant_id not in ["tenant-default", "default", "all", "global"]:
-            settings_db.setdefault("tenant_notifications", {})[tenant_id] = cfg
-        else:
+        settings_db.setdefault("tenant_notifications", {})[tenant_id] = cfg
+        if tenant_id in ["tenant-default", "default", "all", "global"]:
+            settings_db["notifications"] = cfg
             settings_db["system_notifications"] = cfg
         save_settings(settings_db)
 
