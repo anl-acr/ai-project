@@ -26,9 +26,17 @@ async def compile_system_prompt(agent: dict = None) -> str:
         
     if agent and agent.get("system_instruction"):
         base_prompt = agent["system_instruction"]
+        role_title = agent.get("role_title", "")
+        if role_title:
+            base_prompt = f"[TEMSİLCİ UNVANI / GÖREVİ: {role_title}]\n" + base_prompt
+
         greeting_text = agent.get("greeting_prompt", "")
         if greeting_text:
             base_prompt += f"\n\nÖNEMLİ: Müşteri telefonu açıp ilk sinyali/sesi ('Merhaba' vb.) gönderdiğinde, İLK CÜMLE OLARAK tam olarak şu şekilde yanıt ver: '{greeting_text}'"
+
+        farewell_text = agent.get("farewell_prompt", "")
+        if farewell_text:
+            base_prompt += f"\n\n[KAPANIŞ VE VEDALAŞMA CÜMLESİ]: Görüşme tamamlandığında ve vedalaşırken şu kapanış ifadesini kullan: '{farewell_text}'"
             
         tone = agent.get("tone", "normal")
         tone_map = {
@@ -39,13 +47,24 @@ async def compile_system_prompt(agent: dict = None) -> str:
         }
         tone_instruction = tone_map.get(tone, tone_map["normal"])
         base_prompt += f"\n\n[KONUŞMA ÜSLUBU VE TONU]: {tone_instruction}"
+
+        speaking_rate = float(agent.get("speaking_rate", 1.0) or 1.0)
+        if speaking_rate < 0.92:
+            base_prompt += "\n[KONUŞMA HIZI]: Normalden daha yavaş, tane tane ve anlaşılır bir tempoda konuş."
+        elif speaking_rate > 1.08:
+            base_prompt += "\n[KONUŞMA HIZI]: Dinamik, seri ve akıcı bir tempoda konuş."
     else:
         base_prompt = DEFAULT_SYSTEM_PROMPT.replace("{time_farewell}", time_farewell)
         
     prompt = base_prompt
     
-    # Human Conversational Realism & Verbal Fillers
-    human_realism_prompt = """
+    # Human Conversational Realism & Verbal Fillers (Configurable per Agent)
+    human_fillers_enabled = True if not agent else agent.get("human_fillers_enabled", True)
+    backchannel_enabled = True if not agent else agent.get("backchannel_enabled", True)
+    allow_directory_transfer = True if not agent else agent.get("allow_directory_transfer", True)
+
+    if human_fillers_enabled:
+        human_realism_prompt = """
 
 [DOĞAL İNSAN KONUŞMA VE GERÇEKÇİLİK KURALLARI]:
 - Yapay zeka gibi kusursuz, soğuk veya kalıplaşmış yanıtlar verme. Tıpkı canlı bir insan müşteri temsilcisi gibi doğal konuş.
@@ -53,7 +72,10 @@ async def compile_system_prompt(agent: dict = None) -> str:
 - Bir bilgiye bakacağın veya sorgulama yapacağın zaman doğrudan cevaba atlama, önce 'Hemen sistemden kontrol ediyorum...', 'Bir saniye bakayım...' diyerek müşteriyle canlı iletişimde kal.
 - Duraksamak istediğin veya nefes alacağın yerlere '...' (üç nokta) koy. Bu sayede ses motoru gerçekçi insan nefes arası verecektir.
 """
-    prompt += human_realism_prompt
+        prompt += human_realism_prompt
+
+    if backchannel_enabled:
+        prompt += "\n[AKTİF DİNLEME VE ONAYLAMA (BACKCHANNELING)]: Müşterinin söylediklerini dikkatle dinlediğini hissettirmek için yanıtlarına doğal onaylama ifadeleriyle ('Anlıyorum', 'Tabii ki', 'Çok haklısınız', 'Memnuniyetle') başla.\n"
     
     try:
         async with AsyncSessionLocal() as session:
@@ -90,41 +112,42 @@ async def compile_system_prompt(agent: dict = None) -> str:
                     prompt += "\n".join(routings) + "\n"
 
         # Inject active system users directory for dynamic name-based extension transfer
-        try:
-            from backend.main import load_settings
-            user_list = []
+        if allow_directory_transfer:
             try:
-                from backend.database.models import SystemUser
-                stmt = select(SystemUser).where(SystemUser.is_active == True)
-                res = await session.execute(stmt)
-                db_users = res.scalars().all()
-                if db_users:
-                    for u in db_users:
-                        user_list.append({"full_name": u.full_name, "extension": u.extension, "role": u.role})
-            except Exception:
-                pass
-            
-            if not user_list:
-                s_data = load_settings()
-                for u in s_data.get("users", []):
-                    if u.get("is_active", True):
-                        user_list.append({"full_name": u.get("full_name"), "extension": u.get("extension"), "role": u.get("role")})
+                from backend.main import load_settings
+                user_list = []
+                try:
+                    from backend.database.models import SystemUser
+                    stmt = select(SystemUser).where(SystemUser.is_active == True)
+                    res = await session.execute(stmt)
+                    db_users = res.scalars().all()
+                    if db_users:
+                        for u in db_users:
+                            user_list.append({"full_name": u.full_name, "extension": u.extension, "role": u.role})
+                except Exception:
+                    pass
+                
+                if not user_list:
+                    s_data = load_settings()
+                    for u in s_data.get("users", []):
+                        if u.get("is_active", True):
+                            user_list.append({"full_name": u.get("full_name"), "extension": u.get("extension"), "role": u.get("role")})
 
-            if user_list:
-                dir_prompt = "\n\n--- SİSTEM DAHİLİ VE PERSONEL REHBERİ (İSİMLE TRANSFER) ---\n"
-                dir_prompt += "Arayan kişi sistemdeki bir yöneticinin, temsilcinin veya personelin adını/soyadını söyleyerek aktarılmak isterse (Örn: 'Anıl Acar ile görüşmek istiyorum', 'Ahmet Bey'e bağlar mısın'), aşağıdaki rehberden kişinin dahili numarasını bularak aktar:\n\n"
-                for u in user_list:
-                    fname = u.get("full_name")
-                    ext = u.get("extension")
-                    role = u.get("role", "temsilci")
-                    if fname and ext:
-                        dir_prompt += f"• {fname} -> Dahili: {ext} (Görev: {role})\n"
-                dir_prompt += "\nTALİMAT: Müşteri yukarıdaki kişilerden birini talep ettiğinde:\n"
-                dir_prompt += "1. 'Sizi [Kullanıcı Adı] kişisine yönlendiriyorum, lütfen ayrılmayınız.' cümlesini kur.\n"
-                dir_prompt += "2. Cümlenin sonuna hemen transfer eylemini ekle: '[ACTION: TRANSFER:<DAHILI_NO>]' (örn: '[ACTION: TRANSFER:1000]').\n"
-                prompt += dir_prompt
-        except Exception as u_err:
-            print(f"[Prompt Manager] Dahili rehber yükleme hatası: {u_err}")
+                if user_list:
+                    dir_prompt = "\n\n--- SİSTEM DAHİLİ VE PERSONEL REHBERİ (İSİMLE TRANSFER) ---\n"
+                    dir_prompt += "Arayan kişi sistemdeki bir yöneticinin, temsilcinin veya personelin adını/soyadını söyleyerek aktarılmak isterse (Örn: 'Anıl Acar ile görüşmek istiyorum', 'Ahmet Bey'e bağlar mısın'), aşağıdaki rehberden kişinin dahili numarasını bularak aktar:\n\n"
+                    for u in user_list:
+                        fname = u.get("full_name")
+                        ext = u.get("extension")
+                        role = u.get("role", "temsilci")
+                        if fname and ext:
+                            dir_prompt += f"• {fname} -> Dahili: {ext} (Görev: {role})\n"
+                    dir_prompt += "\nTALİMAT: Müşteri yukarıdaki kişilerden birini talep ettiğinde:\n"
+                    dir_prompt += "1. 'Sizi [Kullanıcı Adı] kişisine yönlendiriyorum, lütfen ayrılmayınız.' cümlesini kur.\n"
+                    dir_prompt += "2. Cümlenin sonuna hemen transfer eylemini ekle: '[ACTION: TRANSFER:<DAHILI_NO>]' (örn: '[ACTION: TRANSFER:1000]').\n"
+                    prompt += dir_prompt
+            except Exception as u_err:
+                print(f"[Prompt Manager] Dahili rehber yükleme hatası: {u_err}")
 
     except Exception as e:
         print(f"[Prompt Manager] Kural derleme hatasi: {e}. Varsayilan prompt kullaniliyor.")

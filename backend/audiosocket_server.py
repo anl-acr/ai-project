@@ -920,16 +920,39 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         # Compile dynamic system instruction from database rules
         system_instruction = await compile_system_prompt(ai_agent)
         
-        # Inject RAG Knowledge Base directly into system prompt for sub-second native voice responses
-        kb_context = await get_all_knowledge_base_context()
-        if kb_context:
-            system_instruction += kb_context
-            print(f"[RAG Live Inject] Bilgi bankası dökümanları doğrudan zeka motoruna yüklendi ({len(kb_context)} karakter).")
+        # Extract per-agent advanced voice, ambient noise, barge-in, and guardrail configurations
+        bg_noise_enabled = bool(ai_agent.get("bg_noise_enabled", False)) if ai_agent else False
+        bg_noise_type = str(ai_agent.get("bg_noise_type", "call_center") or "call_center") if ai_agent else "call_center"
+        bg_noise_volume = float(ai_agent.get("bg_noise_volume", 0.15) or 0.15) if ai_agent else 0.15
+        bg_noise_mode = str(ai_agent.get("bg_noise_mode", "always") or "always") if ai_agent else "always"
         
-        # Check if Dynamic Emotion Management is enabled
+        barge_in_enabled = bool(ai_agent.get("barge_in_enabled", True)) if ai_agent else True
+        barge_in_protect_greeting = bool(ai_agent.get("barge_in_protect_greeting", False)) if ai_agent else False
+        barge_in_threshold_amp = int(ai_agent.get("barge_in_threshold_amp", 250) or 250) if ai_agent else 250
+        barge_in_min_duration_ms = int(ai_agent.get("barge_in_min_duration_ms", 200) or 200) if ai_agent else 200
+        vad_silence_timeout_ms = int(ai_agent.get("vad_silence_timeout_ms", 800) or 800) if ai_agent else 800
+        
+        use_rag_kb = bool(ai_agent.get("use_rag_kb", True)) if ai_agent else True
+        abuse_shield_enabled = bool(ai_agent.get("abuse_shield_enabled", True)) if ai_agent else True
+        auto_emotion_transfer = bool(ai_agent.get("auto_emotion_transfer", True)) if ai_agent else True
+        silence_reminder_enabled = bool(ai_agent.get("silence_reminder_enabled", True)) if ai_agent else True
+        silence_timeout_sec = int(ai_agent.get("silence_timeout_sec", 8) or 8) if ai_agent else 8
+        max_silence_retries = int(ai_agent.get("max_silence_retries", 2) or 2) if ai_agent else 2
+        max_call_duration_sec = int(ai_agent.get("max_call_duration_sec", 600) or 600) if ai_agent else 600
+
+        # Inject RAG Knowledge Base directly into system prompt if enabled for this agent
+        if use_rag_kb:
+            kb_context = await get_all_knowledge_base_context()
+            if kb_context:
+                system_instruction += kb_context
+                print(f"[RAG Live Inject] Bilgi bankası dökümanları doğrudan zeka motoruna yüklendi ({len(kb_context)} karakter).")
+        else:
+            print("[RAG Live Inject] Bu AI temsilcisi için Bilgi Bankası (RAG) kullanımı devre dışı bırakıldı.")
+        
+        # Check if Dynamic Emotion Management is enabled (either globally or per-agent)
         try:
             settings_data = load_settings()
-            if settings_data.get("pbx", {}).get("auto_emotion_management", False):
+            if auto_emotion_transfer or settings_data.get("pbx", {}).get("auto_emotion_management", False):
                 emotion_instruction = """
 \n[DINAMIK DUYGU YONETIMI AKTIF]
 Müşterinin konuşmalarındaki duygu durumunu takip et. 
@@ -997,7 +1020,8 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         system_instruction += "Görüşme sırasında aşağıdaki durumlar gerçekleştiğinde cümlenin sonuna ilgili EYLEM VEYA ARAÇ KODUNU ekle:\n"
         system_instruction += "1. Görüşmeyi sonlandırmak / kapatmak için (müşteri vedalaştığında veya işlemler bittiğinde): Cümlenin sonuna '[ACTION: HANGUP]' yaz.\n"
         system_instruction += "2. Canlı temsilciye veya belirli bir dahiliye transfer etmek için (müşteri temsilci veya kişiyi istediğinde): Cümlenin sonuna '[ACTION: TRANSFER]' veya hedef dahili için '[ACTION: TRANSFER:1000]' yaz.\n"
-        system_instruction += "3. Küfür/hakaret durumunda: Cümlenin sonuna '[ACTION: ABUSE]' yaz.\n"
+        if abuse_shield_enabled:
+            system_instruction += "3. Küfür/hakaret durumunda: Cümlenin sonuna '[ACTION: ABUSE]' yaz.\n"
         system_instruction += "4. Randevu kaydı, müşteri sorgulama veya webhook çalıştırmak için: Cümlenin sonuna '[ACTION: TOOL_CALL name=\"randevu_olustur\" date=\"YYYY-MM-DD\" time=\"HH:MM\" customer_name=\"...\"]' yaz.\n"
         system_instruction += "Bu eylem ve araç kodlarını sesli okuma, sadece metne ekle.\n"
         print(f"Sistem talimatlari derlendi: {len(system_instruction)} karakter.")
@@ -1025,7 +1049,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         agent_max_tokens = max(raw_max_tokens, 2048)  # Audio tokens in live stream require ~60 tokens/sec; minimum 2048 ensures full responses without mid-sentence cutoff
         agent_name = ai_agent.get("name", "Varsayılan Temsilci") if ai_agent else "Varsayılan Temsilci"
         
-        print(f"[AI Agent Active Config] Temsilci: '{agent_name}' | LLM Sağlayıcı: '{llm_provider.upper()}' (Model: '{formatted_model}') | TTS Sağlayıcı: '{tts_provider.upper()}' (Ses Tonu: '{agent_voice}', Ham: '{agent_voice_raw}') | Sıcaklık: {agent_temperature}")
+        print(f"[AI Agent Active Config] Temsilci: '{agent_name}' | LLM Sağlayıcı: '{llm_provider.upper()}' (Model: '{formatted_model}') | TTS Sağlayıcı: '{tts_provider.upper()}' (Ses Tonu: '{agent_voice}', Ham: '{agent_voice_raw}') | Sıcaklık: {agent_temperature} | Barge-In: {barge_in_enabled} (Eşik: {barge_in_threshold_amp}) | Ortam Gürültüsü: {bg_noise_enabled} ({bg_noise_type}, vol={bg_noise_volume})")
 
         generation_config = {
             "responseModalities": ["AUDIO"],
@@ -1079,7 +1103,70 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         print("Ilk karsilama tetikleme mesaji Gemini'ye gonderildi.")
 
         # 3. Tasks for handling bidirectional audio streams
-        call_state = {"tool_call_in_progress": False, "should_hangup": False, "max_avg_amplitude": 0, "model_is_speaking": False, "language_detected": False}
+        call_state = {
+            "tool_call_in_progress": False,
+            "should_hangup": False,
+            "max_avg_amplitude": 0,
+            "model_is_speaking": False,
+            "language_detected": False,
+            "ai_turns_completed": 0,
+            "consecutive_voice_chunks": 0,
+            "last_activity_ts": asyncio.get_event_loop().time(),
+            "call_start_ts": asyncio.get_event_loop().time(),
+            "silence_retries_used": 0,
+        }
+        
+        # Pre-generate 6-second (300 frames of 20ms = 48000 samples at 8kHz) ambient noise loop if enabled
+        ambient_frames_loop = []
+        if bg_noise_enabled:
+            import math, random, array
+            num_frames = 300
+            samples_per_frame = 160 # 20ms at 8000Hz = 160 int16 samples (320 bytes)
+            total_samples = num_frames * samples_per_frame
+            raw_ambient = array.array('h', [0] * total_samples)
+            lp_prev = 0.0
+            lp2_prev = 0.0
+            rng = random.Random(42)
+            # Base peak amplitude at 100% volume = 2600 (out of 32767), scaled by bg_noise_volume (0.05..0.50)
+            vol_scale = max(0.02, min(0.80, bg_noise_volume)) * 2800.0
+            for idx in range(total_samples):
+                t = idx / 8000.0
+                w = rng.uniform(-1.0, 1.0)
+                if bg_noise_type == "call_center":
+                    # Warm call center floor murmur + subtle voice-band formant modulation
+                    lp_prev = 0.88 * lp_prev + 0.12 * w
+                    mod = 0.65 + 0.35 * math.sin(2.0 * math.pi * 2.3 * t) * math.cos(2.0 * math.pi * 0.7 * t)
+                    chatter = 0.25 * math.sin(2.0 * math.pi * (340.0 + 60.0 * math.sin(t * 3.1)) * t) * max(0.0, math.sin(t * 5.7))
+                    val = (lp_prev * mod + chatter * 0.35) * vol_scale
+                elif bg_noise_type == "office_keyboard":
+                    # Soft office room tone + crisp periodic keyboard keystroke clicks
+                    lp_prev = 0.93 * lp_prev + 0.07 * w
+                    # Keystroke click burst every ~140-260ms
+                    click_phase = (idx % 1350)
+                    click_env = math.exp(-click_phase / 18.0) if click_phase < 65 and ((idx // 1350) % 3 != 0) else 0.0
+                    click_sig = w * click_env * 2.1
+                    val = (lp_prev * 0.45 + click_sig) * vol_scale
+                elif bg_noise_type == "cafe_lounge":
+                    # Warm cafe acoustics with lively mid-band murmur
+                    lp_prev = 0.84 * lp_prev + 0.16 * w
+                    lp2_prev = 0.75 * lp2_prev + 0.25 * lp_prev
+                    lively = 0.7 + 0.3 * math.sin(2.0 * math.pi * 3.8 * t + math.sin(t * 1.9))
+                    val = (lp2_prev * lively) * vol_scale * 1.15
+                elif bg_noise_type == "soft_rain":
+                    # Gentle rainfall patter
+                    lp_prev = 0.78 * lp_prev + 0.22 * w
+                    droplet = w * 1.4 if (idx % 980 < 12) else 0.0
+                    val = (lp_prev * 0.75 + droplet * 0.35) * vol_scale
+                else: # analog_warmth
+                    # Classic PBX warm 50Hz/100Hz hum + gentle analog tape hiss
+                    lp_prev = 0.90 * lp_prev + 0.10 * w
+                    hum = 0.35 * math.sin(2.0 * math.pi * 50.0 * t) + 0.18 * math.sin(2.0 * math.pi * 100.0 * t)
+                    val = (lp_prev * 0.55 + hum) * vol_scale * 0.9
+                ival = int(max(-32000, min(32000, val)))
+                raw_ambient[idx] = ival
+            raw_bytes = raw_ambient.tobytes()
+            for f_i in range(num_frames):
+                ambient_frames_loop.append(raw_bytes[f_i * 320 : (f_i + 1) * 320])
         
         async def receive_from_asterisk_and_send_to_gemini():
             """Reads audio frames from Asterisk, buffers to 100ms (1600 bytes at 8kHz), resamples to 16kHz, streams to Gemini, and writes output back to Asterisk in sync with incoming frames (receiver-driven clock sync)."""
@@ -1088,9 +1175,8 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                 user_is_speaking = False
                 silence_frames = 0
                 audio_buffer = bytearray()
-                
-                silence_frame = b'\x00' * 320 # 20ms of silence (8kHz SLIN)
-                header_out = b'\x10' + (320).to_bytes(2, byteorder='big')
+                vad_target_frames = max(10, int(vad_silence_timeout_ms / 20))
+                min_barge_chunks = max(1, int(round(barge_in_min_duration_ms / 100.0)))
                 
                 while True:
                     # Read Audiosocket frame: 3 bytes header (type + length)
@@ -1125,9 +1211,17 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             buf_avg_amp = sum(abs(s) for s in samples_16) / len(samples_16) if samples_16 else 0
                             call_state["last_buf_amp"] = buf_avg_amp
                             
-                            # Suppress line noise/echo while AI is speaking unless user speaks with clear voice (amp >= 250)
+                            if buf_avg_amp >= barge_in_threshold_amp:
+                                call_state["consecutive_voice_chunks"] = call_state.get("consecutive_voice_chunks", 0) + 1
+                                call_state["last_activity_ts"] = asyncio.get_event_loop().time()
+                            else:
+                                call_state["consecutive_voice_chunks"] = 0
+                            
+                            # Evaluate Barge-in & Echo Suppression while AI is speaking
                             is_speaking = call_state.get("model_is_speaking", False)
-                            if is_speaking and buf_avg_amp < 250:
+                            barge_in_blocked = (not barge_in_enabled) or (barge_in_protect_greeting and call_state.get("ai_turns_completed", 0) == 0)
+                            
+                            if is_speaking and (barge_in_blocked or buf_avg_amp < barge_in_threshold_amp or call_state.get("consecutive_voice_chunks", 0) < min_barge_chunks):
                                 pcm_16k = b'\x00' * 3200
                             else:
                                 pcm_16k = resample_8k_to_16k(buf_bytes)
@@ -1150,11 +1244,12 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                         if avg_amplitude > 40:
                             user_is_speaking = True
                             silence_frames = 0
+                            call_state["last_activity_ts"] = asyncio.get_event_loop().time()
                         else:
                             if user_is_speaking:
                                 silence_frames += 1
-                                if silence_frames >= 40:
-                                    print("[DEBUG] Musteri konusmasini bitirdi (800ms sessizlik).")
+                                if silence_frames >= vad_target_frames:
+                                    print(f"[DEBUG] Musteri konusmasini bitirdi ({vad_silence_timeout_ms}ms sessizlik).")
                                     user_is_speaking = False
                                     silence_frames = 0
                                     
@@ -1169,9 +1264,36 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
             
             loop = asyncio.get_event_loop()
             next_time = loop.time()
+            ambient_idx = 0
             
             try:
                 while True:
+                    now_check = loop.time()
+                    # Check Max Call Duration Guardrail
+                    if max_call_duration_sec > 0 and (now_check - call_state["call_start_ts"]) >= max_call_duration_sec and not call_state["should_hangup"]:
+                        print(f"[Guardrail] Maksimum çağrı süresi ({max_call_duration_sec} sn) doldu. Çağrı sonlandırılıyor.")
+                        call_state["should_hangup"] = True
+                        
+                    # Check Silence Reminder ("Orada mısınız?")
+                    if silence_reminder_enabled and not call_state.get("model_is_speaking", False) and not call_state.get("should_hangup", False):
+                        idle_sec = now_check - call_state.get("last_activity_ts", now_check)
+                        if idle_sec >= max(4, silence_timeout_sec):
+                            call_state["last_activity_ts"] = now_check
+                            if call_state["silence_retries_used"] < max_silence_retries:
+                                call_state["silence_retries_used"] += 1
+                                print(f"[Silence Reminder] Müşteri {silence_timeout_sec} sn sessiz kaldı ({call_state['silence_retries_used']}/{max_silence_retries}). Hatırlatma tetikleniyor...")
+                                reminder_msg = {
+                                    "clientContent": {
+                                        "turns": [{"role": "user", "parts": [{"text": "[SİSTEM NOTU: Müşteriden uzun süredir ses gelmiyor. Lütfen nazikçe 'Alo, beni duyabiliyor musunuz? Size nasıl yardımcı olabilirim?' diyerek hatta olup olmadığını sor.]"}]}],
+                                        "turnComplete": True
+                                    }
+                                }
+                                asyncio.create_task(gemini_ws.send(json.dumps(reminder_msg)))
+                            else:
+                                print("[Silence Reminder] Maksimum sessizlik tekrar sayısı aşıldı, çağrı kapatılıyor.")
+                                call_state["should_hangup"] = True
+
+                    is_voice_frame = False
                     try:
                         audio_out = asterisk_write_queue.get_nowait()
                         if len(audio_out) < 320:
@@ -1179,6 +1301,8 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                         elif len(audio_out) > 320:
                             audio_out = audio_out[:320]
                         asterisk_write_queue.task_done()
+                        is_voice_frame = True
+                        call_state["last_activity_ts"] = now_check
                     except asyncio.QueueEmpty:
                         if call_state["should_hangup"] and not call_state["model_is_speaking"]:
                             print("Görüşme sonlandırma aracı çağrıldı ve ses kuyruğu boşaldı. Çağrı sonlandırılıyor...")
@@ -1187,6 +1311,31 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                 asyncio.create_task(ami_hangup_call(call_id))
                             break
                         audio_out = silence_frame
+                    
+                    # Mix Ambient Background Noise if enabled for this agent
+                    if bg_noise_enabled and ambient_frames_loop:
+                        should_mix = (
+                            bg_noise_mode == "always"
+                            or (bg_noise_mode == "while_speaking" and is_voice_frame)
+                            or (bg_noise_mode == "while_thinking" and not is_voice_frame)
+                        )
+                        if should_mix:
+                            amb_frame = ambient_frames_loop[ambient_idx % len(ambient_frames_loop)]
+                            ambient_idx += 1
+                            if is_voice_frame:
+                                import array
+                                v_arr = array.array('h', audio_out)
+                                a_arr = array.array('h', amb_frame)
+                                for s_i in range(len(v_arr)):
+                                    mixed = v_arr[s_i] + a_arr[s_i]
+                                    if mixed > 32767:
+                                        mixed = 32767
+                                    elif mixed < -32768:
+                                        mixed = -32768
+                                    v_arr[s_i] = mixed
+                                audio_out = v_arr.tobytes()
+                            else:
+                                audio_out = amb_frame
                     
                     writer.write(header_out + audio_out)
                     await writer.drain()
@@ -1232,6 +1381,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             call_state["tool_call_in_progress"] = False
                         if resp["serverContent"].get("turnComplete"):
                             call_state["tool_call_in_progress"] = False
+                            call_state["ai_turns_completed"] = call_state.get("ai_turns_completed", 0) + 1
                             print("[DEBUG] turnComplete sinyali alindi. Ses kuyrugu bosalana kadar kilit tutuluyor...")
                             async def release_lock_after_drain(state, q):
                                 try:
@@ -1241,6 +1391,7 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                                 await asyncio.sleep(0.15)
                                 if q.empty():
                                     state["model_is_speaking"] = False
+                                    state["last_activity_ts"] = asyncio.get_event_loop().time()
                                     print("[DEBUG] AI konusmasi Asterisk uzerinde tamamen bitti, kilit acildi.")
                             asyncio.create_task(release_lock_after_drain(call_state, asterisk_write_queue))
 
@@ -1274,23 +1425,24 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                             user_phrase = current_user_text.strip()
                             await write_db_transcript(call_id, "customer", user_phrase)
                             
-                            # Check for block words (swearing, insult detection)
-                            from sqlalchemy import select
-                            async with AsyncSessionLocal() as session:
-                                res_bw = await session.execute(select(BlockWord))
-                                block_words = [bw.word.lower() for bw in res_bw.scalars().all()]
-                            
-                            user_phrase_lower = user_phrase.lower()
-                            matched_word = None
-                            for w in block_words:
-                                if w in user_phrase_lower:
-                                    matched_word = w
-                                    break
-                                    
-                            if matched_word:
-                                print(f"[Abuse Shield] Block word '{matched_word}' matched in user phrase: '{user_phrase}'")
-                                await auto_blacklist_call(call_id, f"Yasaklı Kelime Tespiti: '{matched_word}'")
-                                call_state["should_hangup"] = True
+                            # Check for block words (swearing, insult detection) if Abuse Shield is enabled
+                            if abuse_shield_enabled:
+                                from sqlalchemy import select
+                                async with AsyncSessionLocal() as session:
+                                    res_bw = await session.execute(select(BlockWord))
+                                    block_words = [bw.word.lower() for bw in res_bw.scalars().all()]
+                                
+                                user_phrase_lower = user_phrase.lower()
+                                matched_word = None
+                                for w in block_words:
+                                    if w in user_phrase_lower:
+                                        matched_word = w
+                                        break
+                                        
+                                if matched_word:
+                                    print(f"[Abuse Shield] Block word '{matched_word}' matched in user phrase: '{user_phrase}'")
+                                    await auto_blacklist_call(call_id, f"Yasaklı Kelime Tespiti: '{matched_word}'")
+                                    call_state["should_hangup"] = True
                             
                             if auto_detect_lang and not call_state.get("language_detected", False):
                                 call_state["language_detected"] = True
@@ -1320,9 +1472,9 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                     # Check for Interruption/Barge-in (Musteri lafa girdi)
                     if "serverContent" in resp and resp["serverContent"].get("interrupted"):
                         last_amp = call_state.get("last_buf_amp", 0)
-                        if last_amp < 250:
-                            print(f"[Barge-in Guard] Ignored false Gemini interruption event (low amp: {last_amp:.1f}).")
-                            call_state["model_is_speaking"] = False
+                        barge_in_blocked = (not barge_in_enabled) or (barge_in_protect_greeting and call_state.get("ai_turns_completed", 0) == 0)
+                        if barge_in_blocked or last_amp < barge_in_threshold_amp:
+                            print(f"[Barge-in Guard] Ignored interruption event (blocked={barge_in_blocked}, amp={last_amp:.1f}, threshold={barge_in_threshold_amp}).")
                             continue
                         print(f"Musteri lafa girdi (Barge-in/Interruption algilandi, amp: {last_amp:.1f}). Ses durduruluyor!")
                         call_state["model_is_speaking"] = False

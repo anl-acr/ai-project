@@ -459,8 +459,10 @@ class AIAgentSchema(BaseModel):
     id: str
     tenant_id: Optional[str] = None
     name: str
+    role_title: Optional[str] = "Müşteri Temsilcisi"
     voice: str
     tone: str
+    speaking_rate: Optional[float] = 1.0
     provider: Optional[str] = "google"
     stt_provider: Optional[str] = "google"
     llm_provider: Optional[str] = "google"
@@ -470,6 +472,7 @@ class AIAgentSchema(BaseModel):
     max_tokens: int
     system_instruction: str
     greeting_prompt: Optional[str] = ""
+    farewell_prompt: Optional[str] = ""
     status: str
     transfer_target: Optional[str] = "200"
     elevenlabs_agent_id: Optional[str] = ""
@@ -477,6 +480,28 @@ class AIAgentSchema(BaseModel):
     elevenlabs_stability: Optional[float] = 0.5
     elevenlabs_similarity: Optional[float] = 0.75
     elevenlabs_style: Optional[float] = 0.0
+    # Background Ambient Noise Settings
+    bg_noise_enabled: Optional[bool] = False
+    bg_noise_type: Optional[str] = "call_center"  # call_center, office_keyboard, cafe_lounge, soft_rain, analog_warmth
+    bg_noise_volume: Optional[float] = 0.15       # 0.05 to 0.50
+    bg_noise_mode: Optional[str] = "always"       # always, while_speaking, while_thinking
+    # Barge-In (Interruption) & VAD Listening Settings
+    barge_in_enabled: Optional[bool] = True
+    barge_in_protect_greeting: Optional[bool] = True
+    barge_in_threshold_amp: Optional[int] = 250   # 100 to 800
+    barge_in_min_duration_ms: Optional[int] = 200 # 60 to 1000 ms
+    vad_silence_timeout_ms: Optional[int] = 800   # 300 to 2500 ms
+    # Conversational Realism, Silence & Guardrail Settings
+    use_rag_kb: Optional[bool] = True
+    allow_directory_transfer: Optional[bool] = True
+    human_fillers_enabled: Optional[bool] = True
+    backchannel_enabled: Optional[bool] = True
+    silence_reminder_enabled: Optional[bool] = True
+    silence_timeout_sec: Optional[int] = 10
+    max_silence_retries: Optional[int] = 2
+    max_call_duration_sec: Optional[int] = 600
+    abuse_shield_enabled: Optional[bool] = True
+    auto_emotion_transfer: Optional[bool] = True
 
 
 import json
@@ -4262,6 +4287,10 @@ async def save_ai_agent(payload: AIAgentSchema, user_info: dict = Depends(get_us
     exists = False
     for idx, agent in enumerate(agents):
         if str(agent.get("id")) == str(payload.id):
+            if "scenario_flow" in agent and "scenario_flow" not in data:
+                data["scenario_flow"] = agent["scenario_flow"]
+            if "compiled_scenario_instruction" in agent and "compiled_scenario_instruction" not in data:
+                data["compiled_scenario_instruction"] = agent["compiled_scenario_instruction"]
             agents[idx] = data
             exists = True
             break
@@ -5500,39 +5529,81 @@ async def tts_test_endpoint(payload: dict):
     text = payload.get("text", "")
     voice = payload.get("voice", "")
     tone = payload.get("tone", "normal")
+    speaking_rate = float(payload.get("speaking_rate", 1.0) or 1.0)
+    tts_provider = str(payload.get("tts_provider", "google") or "google").lower()
+    elevenlabs_voice_id = payload.get("elevenlabs_voice_id", "")
+    elevenlabs_stability = float(payload.get("elevenlabs_stability", 0.5) or 0.5)
+    elevenlabs_similarity = float(payload.get("elevenlabs_similarity", 0.75) or 0.75)
+    elevenlabs_style = float(payload.get("elevenlabs_style", 0.0) or 0.0)
     
     if not text:
         raise HTTPException(status_code=400, detail="Test metni boş olamaz.")
+
+    # 1. If ElevenLabs is selected and API key is configured, try ElevenLabs synthesis first
+    if tts_provider == "elevenlabs":
+        el_key = settings_db.get("ai_providers", {}).get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", "")
+        target_vid = elevenlabs_voice_id or "EXAVITQu4vr4xnSDxMaL"
+        if el_key and target_vid:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    el_res = await client.post(
+                        f"https://api.elevenlabs.io/v1/text-to-speech/{target_vid}",
+                        headers={
+                            "xi-api-key": el_key,
+                            "Content-Type": "application/json",
+                            "Accept": "audio/mpeg"
+                        },
+                        json={
+                            "text": text,
+                            "model_id": "eleven_multilingual_v2",
+                            "voice_settings": {
+                                "stability": elevenlabs_stability,
+                                "similarity_boost": elevenlabs_similarity,
+                                "style": elevenlabs_style,
+                                "use_speaker_boost": True
+                            }
+                        }
+                    )
+                    if el_res.status_code == 200 and len(el_res.content) > 200:
+                        fp = io.BytesIO(el_res.content)
+                        fp.seek(0)
+                        return StreamingResponse(fp, media_type="audio/mpeg")
+            except Exception as el_err:
+                print(f"[TTS Test ElevenLabs Fallback]: {el_err}")
         
     try:
-        # Try using premium edge-tts
+        # 2. Try using premium edge-tts
         import edge_tts
         
-        edge_voice = "tr-TR-DilaraNeural"
-        if "ahmet" in voice.lower():
+        v_lower = str(voice).lower()
+        edge_voice = "tr-TR-EmelNeural"
+        if any(m in v_lower for m in ["ahmet", "eser", "puck", "charon", "fenrir", "erkek", "male", "josh", "antoni", "adam", "arnold", "sam", "george"]):
             edge_voice = "tr-TR-AhmetNeural"
-        elif "selin" in voice.lower():
-            edge_voice = "tr-TR-DilaraNeural"
-        elif "eser" in voice.lower():
-            edge_voice = "tr-TR-AhmetNeural"
-        elif "sophia" in voice.lower():
+        elif any(f in v_lower for f in ["selin", "dilara", "aoede", "kore", "dişi", "female"]):
+            edge_voice = "tr-TR-EmelNeural"
+        elif "sophia" in v_lower:
             edge_voice = "en-US-AriaNeural"
-        elif "john" in voice.lower():
+        elif "john" in v_lower:
             edge_voice = "en-US-GuyNeural"
             
-        rate = "+0%"
-        pitch = "+0Hz"
+        base_rate_pct = int(round((speaking_rate - 1.0) * 100))
+        pitch_hz = 0
         if tone == "calm":
-            rate = "-15%"
-            pitch = "-3Hz"
+            base_rate_pct -= 12
+            pitch_hz = -3
         elif tone == "attractive":
-            rate = "+5%"
-            pitch = "+4Hz"
+            base_rate_pct += 5
+            pitch_hz = 4
         elif tone == "firm":
-            rate = "+10%"
-            pitch = "-2Hz"
+            base_rate_pct += 8
+            pitch_hz = -2
             
-        communicate = edge_tts.Communicate(text, edge_voice, rate=rate, pitch=pitch)
+        base_rate_pct = max(-50, min(60, base_rate_pct))
+        rate_str = f"{'+' if base_rate_pct >= 0 else ''}{base_rate_pct}%"
+        pitch_str = f"{'+' if pitch_hz >= 0 else ''}{pitch_hz}Hz"
+            
+        communicate = edge_tts.Communicate(text, edge_voice, rate=rate_str, pitch=pitch_str)
         fp = io.BytesIO()
         
         async def gather_audio():
@@ -5546,7 +5617,7 @@ async def tts_test_endpoint(payload: dict):
         fp.write(audio_bytes)
         fp.seek(0)
         
-        print(f"[TTS] Synthesized successfully using edge-tts (voice={edge_voice}, tone={tone})")
+        print(f"[TTS] Synthesized successfully using edge-tts (voice={edge_voice}, tone={tone}, rate={rate_str})")
         return StreamingResponse(fp, media_type="audio/mpeg")
         
     except (ImportError, ModuleNotFoundError):
@@ -5558,7 +5629,7 @@ async def tts_test_endpoint(payload: dict):
         if any(w in voice.lower() or w in text.lower() for w in ["english", "john", "sophia"]):
             lang = "en"
             
-        slow = True if tone == "calm" else False
+        slow = True if (tone == "calm" or speaking_rate < 0.9) else False
         tts = gTTS(text=text, lang=lang, slow=slow)
         fp = io.BytesIO()
         tts.write_to_fp(fp)
