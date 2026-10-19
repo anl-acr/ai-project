@@ -768,7 +768,8 @@ DEFAULT_SETTINGS = {
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
                 "security:read", "security:write", "security:delete",
                 "api_budgets:read", "api_budgets:write",
-                "email_notifications:read", "email_notifications:write", "email_notifications:delete"
+                "email_notifications:read", "email_notifications:write", "email_notifications:delete",
+                "restore_points:read", "restore_points:write", "restore_points:delete"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -789,7 +790,8 @@ DEFAULT_SETTINGS = {
                 "qa:read", "qa:write", "qa:delete",
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
                 "security:read", "security:write", "security:delete",
-                "email_notifications:read", "email_notifications:write"
+                "email_notifications:read", "email_notifications:write",
+                "restore_points:read", "restore_points:write"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -1063,7 +1065,7 @@ def load_settings():
                 if "reports:access" not in new_perms:
                     new_perms.append("reports:access")
 
-            # Auto assign security & email_notifications permissions if missing
+            # Auto assign security, email_notifications & restore_points permissions if missing
             if r.get("role_code") in ["admin", "supervisor"]:
                 if "security:read" not in new_perms:
                     new_perms.append("security:read")
@@ -1075,6 +1077,12 @@ def load_settings():
                     new_perms.append("email_notifications:read")
                 if "email_notifications:write" not in new_perms:
                     new_perms.append("email_notifications:write")
+                if "restore_points:read" not in new_perms:
+                    new_perms.append("restore_points:read")
+                if "restore_points:write" not in new_perms:
+                    new_perms.append("restore_points:write")
+                if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
+                    new_perms.append("restore_points:delete")
 
             # Auto assign all system permissions to admin and superadmin roles
             if r.get("role_code") in ["admin", "superadmin"]:
@@ -10057,6 +10065,660 @@ async def restore_backup(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Geri yükleme başarısız: {str(e)}")
 
+
+# ==============================================================================
+# SYSTEM SETTINGS RESTORE POINTS (GERİ YÜKLEME NOKTASI - TENANT BAZLI)
+# ==============================================================================
+import copy
+
+RESTORE_CATEGORIES_META = [
+    {
+        "id": "ai_agents",
+        "title": "AI Temsilciler & Senaryolar",
+        "description": "Yapay zeka temsilcileri, ses/LLM/STT/TTS ayarları, arka plan gürültüsü, Barge-In/VAD, koruma kalkanları ve görsel diyalog senaryoları."
+    },
+    {
+        "id": "call_flows_rules",
+        "title": "Çağrı Akışları, IVR & Kurallar",
+        "description": "Görsel arama akışları (Workflows), IVR menüleri, çalışma saatleri, gelen/giden arama kuralları, Dialer ve Akıllı Geri Arama."
+    },
+    {
+        "id": "pbx_routing",
+        "title": "Santral, Dış Hatlar & Kuyruklar",
+        "description": "Santral genel ayarları, SIP Trunk dış hatları, ACD kuyrukları, çağrı toplama/abone grupları, hızlı arama, konferans ve anonslar."
+    },
+    {
+        "id": "users_roles",
+        "title": "Kullanıcılar, Roller & Molalar",
+        "description": "Dahili aboneler, çağrı yönlendirme kuralları, sesli posta, rol/yetki profilleri, mola tanımları, lokasyon ve departmanlar."
+    },
+    {
+        "id": "channels_omnichannel",
+        "title": "Omnichannel Kanallar & Hızlı Cevaplar",
+        "description": "WhatsApp çoklu hat tanımları, Telegram, Instagram, Facebook, E-Posta (SMTP/IMAP) kanal ayarları ve hızlı cevap taslakları."
+    },
+    {
+        "id": "integrations_notifications",
+        "title": "Entegrasyonlar, Bildirimler & Kalite Kontrol",
+        "description": "E-Mail/WhatsApp sistem bildirimleri, Evrensel API & Webhook sihirbazı, QA kalite kriterleri, ses biyometrisi ve saklama politikaları."
+    }
+]
+
+DEFAULT_RESTORE_POLICY = {
+    "auto_create_enabled": False,
+    "auto_create_interval_hours": 24,  # 6, 12, 24, 72, 168
+    "auto_cleanup_enabled": True,
+    "max_restore_points": 20,          # 5, 10, 15, 20, 30, 50
+    "retention_days": 30,              # 7, 14, 30, 60, 90
+    "last_auto_created_at": None
+}
+
+def _rp_belongs_to_tenant(item: dict, tenant_id: str) -> bool:
+    if not isinstance(item, dict):
+        return False
+    item_t = item.get("tenant_id")
+    if is_default_tenant(tenant_id):
+        return not item_t or item_t in ["tenant-default", "default"]
+    return item_t == tenant_id
+
+def _rp_get_tenant_list(key: str, tenant_id: str) -> list:
+    raw_list = settings_db.get(key, DEFAULT_SETTINGS.get(key, []))
+    if not isinstance(raw_list, list):
+        return []
+    return [copy.deepcopy(item) for item in raw_list if _rp_belongs_to_tenant(item, tenant_id)]
+
+def _rp_set_tenant_list(key: str, tenant_id: str, new_items: list):
+    raw_list = settings_db.get(key, DEFAULT_SETTINGS.get(key, []))
+    if not isinstance(raw_list, list):
+        raw_list = []
+    other_tenant_items = [item for item in raw_list if not _rp_belongs_to_tenant(item, tenant_id)]
+    prepared_items = []
+    for item in (new_items or []):
+        if isinstance(item, dict):
+            cloned = copy.deepcopy(item)
+            cloned["tenant_id"] = tenant_id
+            prepared_items.append(cloned)
+    settings_db[key] = other_tenant_items + prepared_items
+
+def _rp_get_tenant_dict(key: str, tenant_id: str) -> dict:
+    if key == "ai_providers":
+        t_map = settings_db.get("tenant_ai_providers", {})
+        if isinstance(t_map, dict) and tenant_id in t_map:
+            return copy.deepcopy(t_map[tenant_id])
+    if key == "email_notifications":
+        t_map = settings_db.get("tenant_email_notifications", {})
+        if isinstance(t_map, dict) and tenant_id in t_map:
+            return copy.deepcopy(t_map[tenant_id])
+    t_settings = settings_db.get("tenant_settings", {})
+    if isinstance(t_settings, dict) and tenant_id in t_settings and isinstance(t_settings[tenant_id], dict):
+        if key in t_settings[tenant_id]:
+            return copy.deepcopy(t_settings[tenant_id][key])
+    if is_default_tenant(tenant_id):
+        val = settings_db.get(key, DEFAULT_SETTINGS.get(key, {}))
+        return copy.deepcopy(val) if isinstance(val, dict) else {}
+    default_val = DEFAULT_SETTINGS.get(key, {})
+    return copy.deepcopy(default_val) if isinstance(default_val, dict) else {}
+
+def _rp_set_tenant_dict(key: str, tenant_id: str, val: dict):
+    if not isinstance(val, dict):
+        return
+    cloned = copy.deepcopy(val)
+    if "tenant_settings" not in settings_db or not isinstance(settings_db.get("tenant_settings"), dict):
+        settings_db["tenant_settings"] = {}
+    if tenant_id not in settings_db["tenant_settings"] or not isinstance(settings_db["tenant_settings"].get(tenant_id), dict):
+        settings_db["tenant_settings"][tenant_id] = {}
+    settings_db["tenant_settings"][tenant_id][key] = cloned
+
+    if key == "ai_providers":
+        if "tenant_ai_providers" not in settings_db or not isinstance(settings_db.get("tenant_ai_providers"), dict):
+            settings_db["tenant_ai_providers"] = {}
+        settings_db["tenant_ai_providers"][tenant_id] = cloned
+    elif key == "email_notifications":
+        if "tenant_email_notifications" not in settings_db or not isinstance(settings_db.get("tenant_email_notifications"), dict):
+            settings_db["tenant_email_notifications"] = {}
+        settings_db["tenant_email_notifications"][tenant_id] = cloned
+
+    if is_default_tenant(tenant_id):
+        settings_db[key] = copy.deepcopy(cloned)
+
+def get_tenant_restore_policy(tenant_id: str) -> dict:
+    norm_tenant = "tenant-default" if is_default_tenant(tenant_id) else tenant_id
+    policies = settings_db.get("restore_point_policies", {})
+    if not isinstance(policies, dict):
+        policies = {}
+    saved = policies.get(norm_tenant, {})
+    policy = DEFAULT_RESTORE_POLICY.copy()
+    if isinstance(saved, dict):
+        policy.update(saved)
+    return policy
+
+def save_tenant_restore_policy(tenant_id: str, policy_data: dict) -> dict:
+    norm_tenant = "tenant-default" if is_default_tenant(tenant_id) else tenant_id
+    if "restore_point_policies" not in settings_db or not isinstance(settings_db.get("restore_point_policies"), dict):
+        settings_db["restore_point_policies"] = {}
+    current = get_tenant_restore_policy(norm_tenant)
+    for k in ["auto_create_enabled", "auto_create_interval_hours", "auto_cleanup_enabled", "max_restore_points", "retention_days", "last_auto_created_at"]:
+        if k in policy_data and policy_data[k] is not None:
+            current[k] = policy_data[k]
+    current["auto_create_interval_hours"] = max(1, int(current.get("auto_create_interval_hours") or 24))
+    current["max_restore_points"] = max(2, min(200, int(current.get("max_restore_points") or 20)))
+    current["retention_days"] = max(1, min(365, int(current.get("retention_days") or 30)))
+    settings_db["restore_point_policies"][norm_tenant] = current
+    save_settings(settings_db)
+    return current
+
+def capture_tenant_snapshot(tenant_id: str) -> dict:
+    norm_tenant = "tenant-default" if is_default_tenant(tenant_id) else tenant_id
+
+    ai_agents = _rp_get_tenant_list("ai_agents", norm_tenant)
+    workflows = _rp_get_tenant_list("workflows", norm_tenant)
+    inbound_rules = _rp_get_tenant_list("inbound_rules", norm_tenant)
+    outbound_rules = _rp_get_tenant_list("outbound_rules", norm_tenant)
+    trunks = _rp_get_tenant_list("trunks", norm_tenant)
+    queues = _rp_get_tenant_list("queues", norm_tenant)
+    call_pickup_groups = _rp_get_tenant_list("call_pickup_groups", norm_tenant)
+    subscriber_groups = _rp_get_tenant_list("subscriber_groups", norm_tenant)
+    speed_dials = _rp_get_tenant_list("speed_dials", norm_tenant)
+    conferences = _rp_get_tenant_list("conferences", norm_tenant)
+    announcements = _rp_get_tenant_list("announcements", norm_tenant)
+    users = _rp_get_tenant_list("users", norm_tenant)
+    roles = _rp_get_tenant_list("roles", norm_tenant)
+    breaks = _rp_get_tenant_list("breaks", norm_tenant)
+    locations = _rp_get_tenant_list("locations", norm_tenant)
+    departments = _rp_get_tenant_list("departments", norm_tenant)
+    canned_responses = _rp_get_tenant_list("canned_responses", norm_tenant)
+    custom_apis = _rp_get_tenant_list("custom_apis", norm_tenant)
+
+    snapshot_data = {
+        "ai_agents": {
+            "ai_agents": ai_agents,
+            "rag": _rp_get_tenant_dict("rag", norm_tenant),
+            "ai_providers": _rp_get_tenant_dict("ai_providers", norm_tenant)
+        },
+        "call_flows_rules": {
+            "workflows": workflows,
+            "call_flow": _rp_get_tenant_dict("call_flow", norm_tenant),
+            "inbound_rules": inbound_rules,
+            "outbound_rules": outbound_rules,
+            "smart_callback": _rp_get_tenant_dict("smart_callback", norm_tenant),
+            "dialer": _rp_get_tenant_dict("dialer", norm_tenant)
+        },
+        "pbx_routing": {
+            "pbx": _rp_get_tenant_dict("pbx", norm_tenant),
+            "trunks": trunks,
+            "queues": queues,
+            "call_pickup_groups": call_pickup_groups,
+            "subscriber_groups": subscriber_groups,
+            "speed_dials": speed_dials,
+            "conferences": conferences,
+            "announcements": announcements
+        },
+        "users_roles": {
+            "users": users,
+            "roles": roles,
+            "breaks": breaks,
+            "locations": locations,
+            "departments": departments
+        },
+        "channels_omnichannel": {
+            "channels": _rp_get_tenant_dict("channels", norm_tenant),
+            "canned_responses": canned_responses
+        },
+        "integrations_notifications": {
+            "email_notifications": _rp_get_tenant_dict("email_notifications", norm_tenant),
+            "custom_apis": custom_apis,
+            "voice_biometrics": _rp_get_tenant_dict("voice_biometrics", norm_tenant),
+            "recording_retention": _rp_get_tenant_dict("recording_retention", norm_tenant),
+            "roi_settings": _rp_get_tenant_dict("roi_settings", norm_tenant)
+        }
+    }
+
+    channels_dict = snapshot_data["channels_omnichannel"]["channels"] or {}
+    wa_lines = len(channels_dict.get("whatsapp_accounts", [])) if isinstance(channels_dict.get("whatsapp_accounts"), list) else (1 if channels_dict.get("whatsapp_token") else 0)
+
+    summary = {
+        "ai_agents_count": len(ai_agents),
+        "workflows_count": len(workflows),
+        "rules_count": len(inbound_rules) + len(outbound_rules),
+        "trunks_count": len(trunks),
+        "queues_count": len(queues),
+        "users_count": len(users),
+        "roles_count": len(roles),
+        "whatsapp_lines_count": wa_lines,
+        "custom_apis_count": len(custom_apis)
+    }
+
+    return {"snapshot_data": snapshot_data, "summary": summary}
+
+def apply_tenant_snapshot(tenant_id: str, snapshot_data: dict, categories: Optional[List[str]] = None):
+    norm_tenant = "tenant-default" if is_default_tenant(tenant_id) else tenant_id
+    all_cats = [c["id"] for c in RESTORE_CATEGORIES_META]
+    selected_cats = [c for c in (categories or all_cats) if c in all_cats]
+    if not selected_cats:
+        selected_cats = all_cats
+
+    # 1. AI Agents & Scenarios
+    if "ai_agents" in selected_cats and "ai_agents" in snapshot_data:
+        cat_data = snapshot_data["ai_agents"]
+        if "ai_agents" in cat_data:
+            _rp_set_tenant_list("ai_agents", norm_tenant, cat_data["ai_agents"])
+        if "rag" in cat_data:
+            _rp_set_tenant_dict("rag", norm_tenant, cat_data["rag"])
+        if "ai_providers" in cat_data:
+            _rp_set_tenant_dict("ai_providers", norm_tenant, cat_data["ai_providers"])
+
+    # 2. Call Flows, IVR & Rules
+    if "call_flows_rules" in selected_cats and "call_flows_rules" in snapshot_data:
+        cat_data = snapshot_data["call_flows_rules"]
+        if "workflows" in cat_data:
+            _rp_set_tenant_list("workflows", norm_tenant, cat_data["workflows"])
+        if "call_flow" in cat_data:
+            _rp_set_tenant_dict("call_flow", norm_tenant, cat_data["call_flow"])
+        if "inbound_rules" in cat_data:
+            _rp_set_tenant_list("inbound_rules", norm_tenant, cat_data["inbound_rules"])
+        if "outbound_rules" in cat_data:
+            _rp_set_tenant_list("outbound_rules", norm_tenant, cat_data["outbound_rules"])
+        if "smart_callback" in cat_data:
+            _rp_set_tenant_dict("smart_callback", norm_tenant, cat_data["smart_callback"])
+        if "dialer" in cat_data:
+            _rp_set_tenant_dict("dialer", norm_tenant, cat_data["dialer"])
+
+    # 3. PBX, Trunks & Queues
+    if "pbx_routing" in selected_cats and "pbx_routing" in snapshot_data:
+        cat_data = snapshot_data["pbx_routing"]
+        if "pbx" in cat_data:
+            _rp_set_tenant_dict("pbx", norm_tenant, cat_data["pbx"])
+        for list_key in ["trunks", "queues", "call_pickup_groups", "subscriber_groups", "speed_dials", "conferences", "announcements"]:
+            if list_key in cat_data:
+                _rp_set_tenant_list(list_key, norm_tenant, cat_data[list_key])
+
+    # 4. Users, Roles & Breaks
+    if "users_roles" in selected_cats and "users_roles" in snapshot_data:
+        cat_data = snapshot_data["users_roles"]
+        for list_key in ["users", "roles", "breaks", "locations", "departments"]:
+            if list_key in cat_data:
+                _rp_set_tenant_list(list_key, norm_tenant, cat_data[list_key])
+
+        # Also synchronize SystemUser and SystemRole in PostgreSQL for this tenant
+        try:
+            from backend.database.config import SyncSessionLocal
+            session = SyncSessionLocal()
+            try:
+                if "users" in cat_data:
+                    db_users = session.query(SystemUser).all()
+                    for u in db_users:
+                        u_dict = {"tenant_id": getattr(u, "tenant_id", None)}
+                        if _rp_belongs_to_tenant(u_dict, norm_tenant):
+                            session.delete(u)
+                    session.flush()
+                    valid_u_cols = {c.name for c in SystemUser.__table__.columns}
+                    for u_data in cat_data["users"]:
+                        if isinstance(u_data, dict):
+                            filtered = {k: v for k, v in u_data.items() if k in valid_u_cols and k != "id"}
+                            filtered["tenant_id"] = norm_tenant
+                            session.add(SystemUser(**filtered))
+                if "roles" in cat_data:
+                    db_roles = session.query(SystemRole).all()
+                    for r in db_roles:
+                        r_dict = {"tenant_id": getattr(r, "tenant_id", None)}
+                        if _rp_belongs_to_tenant(r_dict, norm_tenant):
+                            session.delete(r)
+                    session.flush()
+                    valid_r_cols = {c.name for c in SystemRole.__table__.columns}
+                    for r_data in cat_data["roles"]:
+                        if isinstance(r_data, dict):
+                            filtered = {k: v for k, v in r_data.items() if k in valid_r_cols and k != "id"}
+                            filtered["tenant_id"] = norm_tenant
+                            session.add(SystemRole(**filtered))
+                session.commit()
+            except Exception as sync_err:
+                session.rollback()
+                print(f"[Restore Point DB Sync Warning]: {sync_err}")
+            finally:
+                session.close()
+        except Exception as outer_err:
+            print(f"[Restore Point Session Warning]: {outer_err}")
+
+    # 5. Channels & Omnichannel
+    if "channels_omnichannel" in selected_cats and "channels_omnichannel" in snapshot_data:
+        cat_data = snapshot_data["channels_omnichannel"]
+        if "channels" in cat_data:
+            _rp_set_tenant_dict("channels", norm_tenant, cat_data["channels"])
+        if "canned_responses" in cat_data:
+            _rp_set_tenant_list("canned_responses", norm_tenant, cat_data["canned_responses"])
+
+    # 6. Integrations & Notifications
+    if "integrations_notifications" in selected_cats and "integrations_notifications" in snapshot_data:
+        cat_data = snapshot_data["integrations_notifications"]
+        if "email_notifications" in cat_data:
+            _rp_set_tenant_dict("email_notifications", norm_tenant, cat_data["email_notifications"])
+        if "custom_apis" in cat_data:
+            _rp_set_tenant_list("custom_apis", norm_tenant, cat_data["custom_apis"])
+        for d_key in ["voice_biometrics", "recording_retention", "roi_settings"]:
+            if d_key in cat_data:
+                _rp_set_tenant_dict(d_key, norm_tenant, cat_data[d_key])
+
+    save_settings(settings_db)
+
+    # Regenerate Asterisk configuration if PBX or Users were restored
+    if "pbx_routing" in selected_cats or "users_roles" in selected_cats or "call_flows_rules" in selected_cats:
+        try:
+            regenerate_pjsip_custom_conf()
+            regenerate_queues_conf()
+        except Exception as ast_err:
+            print(f"[Restore Point Asterisk Sync Warning]: {ast_err}")
+
+    return selected_cats
+
+def enforce_restore_point_retention(tenant_id: str) -> int:
+    norm_tenant = "tenant-default" if is_default_tenant(tenant_id) else tenant_id
+    policy = get_tenant_restore_policy(norm_tenant)
+    if not policy.get("auto_cleanup_enabled", True):
+        return 0
+
+    all_points = settings_db.get("restore_points", [])
+    if not isinstance(all_points, list) or not all_points:
+        return 0
+
+    other_points = [p for p in all_points if not _rp_belongs_to_tenant(p, norm_tenant)]
+    tenant_points = [p for p in all_points if _rp_belongs_to_tenant(p, norm_tenant)]
+    initial_count = len(tenant_points)
+    if initial_count == 0:
+        return 0
+
+    retention_days = max(1, int(policy.get("retention_days") or 30))
+    max_points = max(2, int(policy.get("max_restore_points") or 20))
+    now_utc = datetime.datetime.utcnow()
+    cutoff_dt = now_utc - datetime.timedelta(days=retention_days)
+
+    # Sort newest first
+    tenant_points.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    # 1. Age-based filtering (keep at least 1 newest point even if all are old)
+    age_filtered = []
+    for idx, pt in enumerate(tenant_points):
+        if idx == 0:
+            age_filtered.append(pt)
+            continue
+        created_str = pt.get("created_at", "")
+        try:
+            clean_iso = created_str.replace("Z", "").split("+")[0]
+            pt_dt = datetime.datetime.fromisoformat(clean_iso)
+            if pt_dt >= cutoff_dt:
+                age_filtered.append(pt)
+        except Exception:
+            age_filtered.append(pt)
+
+    # 2. Max count limit filtering
+    final_tenant_points = age_filtered[:max_points]
+    removed_count = initial_count - len(final_tenant_points)
+
+    if removed_count > 0:
+        settings_db["restore_points"] = other_tenant_points_merge(other_points, final_tenant_points)
+        save_settings(settings_db)
+        add_system_log("RESTORE_POINT", "INFO", f"[{norm_tenant}] Otomatik saklama politikası kapsamında {removed_count} eski geri yükleme noktası temizlendi.")
+
+    return removed_count
+
+def other_tenant_points_merge(other_points: list, tenant_points: list) -> list:
+    merged = list(other_points) + list(tenant_points)
+    merged.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    return merged
+
+def create_tenant_restore_point(
+    tenant_id: str,
+    title: str,
+    description: str = "",
+    created_by: str = "Admin",
+    is_auto: bool = False,
+    point_type: str = "manual"
+) -> dict:
+    norm_tenant = "tenant-default" if is_default_tenant(tenant_id) else tenant_id
+    snap = capture_tenant_snapshot(norm_tenant)
+    now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+
+    raw_json = json.dumps(snap["snapshot_data"], ensure_ascii=False)
+    size_kb = round(len(raw_json.encode("utf-8")) / 1024.0, 1)
+
+    point_obj = {
+        "id": f"rp-{int(datetime.datetime.utcnow().timestamp() * 1000)}-{uuid.uuid4().hex[:6]}",
+        "tenant_id": norm_tenant,
+        "title": title.strip() or "Sistem Ayarları Geri Yükleme Noktası",
+        "description": (description or "").strip(),
+        "created_at": now_iso,
+        "created_by": created_by,
+        "is_auto": is_auto,
+        "point_type": point_type,  # manual, auto, pre_restore
+        "size_kb": size_kb,
+        "summary": snap["summary"],
+        "snapshot_data": snap["snapshot_data"]
+    }
+
+    if "restore_points" not in settings_db or not isinstance(settings_db.get("restore_points"), list):
+        settings_db["restore_points"] = []
+
+    settings_db["restore_points"].insert(0, point_obj)
+    save_settings(settings_db)
+
+    # Enforce retention policy so restore points never bloat
+    enforce_restore_point_retention(norm_tenant)
+
+    return point_obj
+
+class CreateRestorePointSchema(BaseModel):
+    title: str
+    description: Optional[str] = ""
+
+class RestorePointPolicySchema(BaseModel):
+    auto_create_enabled: bool = False
+    auto_create_interval_hours: int = 24
+    auto_cleanup_enabled: bool = True
+    max_restore_points: int = 20
+    retention_days: int = 30
+
+class ApplyRestorePointSchema(BaseModel):
+    categories: Optional[List[str]] = None
+    create_safety_point: Optional[bool] = True
+
+@app.get("/api/settings/restore-points")
+async def list_restore_points(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    norm_tenant = "tenant-default" if is_default_tenant(target_tenant) else target_tenant
+
+    all_points = settings_db.get("restore_points", [])
+    if not isinstance(all_points, list):
+        all_points = []
+
+    tenant_points = [p for p in all_points if _rp_belongs_to_tenant(p, norm_tenant)]
+    tenant_points.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+    lightweight_points = []
+    for p in tenant_points:
+        item = {k: v for k, v in p.items() if k != "snapshot_data"}
+        lightweight_points.append(item)
+
+    policy = get_tenant_restore_policy(norm_tenant)
+    return {
+        "status": "success",
+        "tenant_id": norm_tenant,
+        "points": lightweight_points,
+        "policy": policy,
+        "categories_meta": RESTORE_CATEGORIES_META
+    }
+
+@app.post("/api/settings/restore-points")
+async def create_restore_point_endpoint(payload: CreateRestorePointSchema, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    norm_tenant = "tenant-default" if is_default_tenant(target_tenant) else target_tenant
+    creator = user_info.get("user_id") or "Admin"
+
+    if not payload.title or not payload.title.strip():
+        raise HTTPException(status_code=400, detail="Lütfen geri yükleme noktası için bir başlık giriniz.")
+
+    point = create_tenant_restore_point(
+        tenant_id=norm_tenant,
+        title=payload.title.strip(),
+        description=payload.description or "",
+        created_by=str(creator),
+        is_auto=False,
+        point_type="manual"
+    )
+    add_system_log("RESTORE_POINT", "SUCCESS", f"[{norm_tenant}] Yeni geri yükleme noktası oluşturuldu: {point['title']}")
+    lightweight = {k: v for k, v in point.items() if k != "snapshot_data"}
+    return {
+        "status": "success",
+        "message": f"'{point['title']}' geri yükleme noktası başarıyla oluşturuldu.",
+        "point": lightweight
+    }
+
+@app.post("/api/settings/restore-points/policy")
+async def update_restore_point_policy_endpoint(payload: RestorePointPolicySchema, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    norm_tenant = "tenant-default" if is_default_tenant(target_tenant) else target_tenant
+
+    updated_policy = save_tenant_restore_policy(norm_tenant, payload.model_dump())
+    removed = enforce_restore_point_retention(norm_tenant)
+    add_system_log("RESTORE_POINT", "INFO", f"[{norm_tenant}] Otomatik geri yükleme ve saklama politikası güncellendi.")
+    return {
+        "status": "success",
+        "message": f"Otomatik geri yükleme ve saklama ayarları kaydedildi.{f' ({removed} eski kayıt temizlendi)' if removed > 0 else ''}",
+        "policy": updated_policy,
+        "removed_count": removed
+    }
+
+@app.post("/api/settings/restore-points/cleanup-now")
+async def cleanup_restore_points_now_endpoint(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    norm_tenant = "tenant-default" if is_default_tenant(target_tenant) else target_tenant
+    removed = enforce_restore_point_retention(norm_tenant)
+    return {
+        "status": "success",
+        "removed_count": removed,
+        "message": f"{removed} adet eski geri yükleme noktası temizlendi." if removed > 0 else "Temizlenecek süresi dolmuş veya limiti aşan kayıt bulunmadı."
+    }
+
+@app.post("/api/settings/restore-points/{point_id}/restore")
+async def restore_from_point_endpoint(point_id: str, payload: ApplyRestorePointSchema, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    norm_tenant = "tenant-default" if is_default_tenant(target_tenant) else target_tenant
+    creator = user_info.get("user_id") or "Admin"
+
+    all_points = settings_db.get("restore_points", [])
+    target_point = next((p for p in all_points if p.get("id") == point_id and _rp_belongs_to_tenant(p, norm_tenant)), None)
+    if not target_point:
+        raise HTTPException(status_code=404, detail="Geri yükleme noktası bulunamadı veya bu müşteriye (tenant) ait değil.")
+
+    snapshot_data = target_point.get("snapshot_data")
+    if not snapshot_data or not isinstance(snapshot_data, dict):
+        raise HTTPException(status_code=400, detail="Geri yükleme noktası verisi bozuk veya boş.")
+
+    safety_point_info = None
+    if payload.create_safety_point:
+        tr_now = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
+        sp = create_tenant_restore_point(
+            tenant_id=norm_tenant,
+            title=f"Geri Yükleme Öncesi Güvenlik Kopyası ({tr_now})",
+            description=f"'{target_point.get('title')}' noktasına dönülmeden önce sistem tarafından otomatik alınan yedek.",
+            created_by=str(creator),
+            is_auto=True,
+            point_type="pre_restore"
+        )
+        safety_point_info = {k: v for k, v in sp.items() if k != "snapshot_data"}
+
+    restored_cats = apply_tenant_snapshot(norm_tenant, snapshot_data, payload.categories)
+    add_system_log(
+        "RESTORE_POINT",
+        "WARNING",
+        f"[{norm_tenant}] '{target_point.get('title')}' geri yükleme noktasına dönüldü. (Kategoriler: {', '.join(restored_cats)})"
+    )
+    return {
+        "status": "success",
+        "message": f"Sistem ayarları '{target_point.get('title')}' geri yükleme noktasına başarıyla döndürüldü.",
+        "restored_categories": restored_cats,
+        "safety_point": safety_point_info
+    }
+
+@app.delete("/api/settings/restore-points/{point_id}")
+async def delete_restore_point_endpoint(point_id: str, user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    norm_tenant = "tenant-default" if is_default_tenant(target_tenant) else target_tenant
+
+    all_points = settings_db.get("restore_points", [])
+    target_point = next((p for p in all_points if p.get("id") == point_id and _rp_belongs_to_tenant(p, norm_tenant)), None)
+    if not target_point:
+        raise HTTPException(status_code=404, detail="Silinecek geri yükleme noktası bulunamadı.")
+
+    settings_db["restore_points"] = [p for p in all_points if not (p.get("id") == point_id and _rp_belongs_to_tenant(p, norm_tenant))]
+    save_settings(settings_db)
+    add_system_log("RESTORE_POINT", "INFO", f"[{norm_tenant}] Geri yükleme noktası silindi: {target_point.get('title')}")
+    return {
+        "status": "success",
+        "message": f"'{target_point.get('title')}' geri yükleme noktası silindi."
+    }
+
+async def _restore_points_auto_worker():
+    """Periyodik olarak tüm aktif tenant'ların otomatik geri yükleme noktası oluşturma ve otomatik temizleme kurallarını çalıştırır."""
+    await asyncio.sleep(15)
+    while True:
+        try:
+            tenants = settings_db.get("tenants", DEFAULT_SETTINGS.get("tenants", []))
+            tenant_ids = ["tenant-default"]
+            for t in (tenants or []):
+                tid = t.get("id")
+                if tid and tid not in tenant_ids and t.get("status", "active") == "active":
+                    tenant_ids.append(tid)
+
+            now_utc = datetime.datetime.utcnow()
+            for tid in tenant_ids:
+                norm_tid = "tenant-default" if is_default_tenant(tid) else tid
+                policy = get_tenant_restore_policy(norm_tid)
+
+                # 1. Check automatic creation schedule
+                if policy.get("auto_create_enabled", False):
+                    interval_hours = max(1, int(policy.get("auto_create_interval_hours") or 24))
+                    last_iso = policy.get("last_auto_created_at")
+                    should_create = False
+                    if not last_iso:
+                        should_create = True
+                    else:
+                        try:
+                            clean_iso = str(last_iso).replace("Z", "").split("+")[0]
+                            last_dt = datetime.datetime.fromisoformat(clean_iso)
+                            if (now_utc - last_dt).total_seconds() >= interval_hours * 3600:
+                                should_create = True
+                        except Exception:
+                            should_create = True
+
+                    if should_create:
+                        tr_now_str = (now_utc + datetime.timedelta(hours=3)).strftime("%d.%m.%Y %H:%M")
+                        create_tenant_restore_point(
+                            tenant_id=norm_tid,
+                            title=f"Periyodik Otomatik Kayıt ({tr_now_str})",
+                            description=f"Her {interval_hours} saatte bir çalışan otomatik geri yükleme zamanlayıcısı tarafından oluşturuldu.",
+                            created_by="Sistem (Otomatik)",
+                            is_auto=True,
+                            point_type="auto"
+                        )
+                        save_tenant_restore_policy(norm_tid, {"last_auto_created_at": now_utc.isoformat() + "Z"})
+                        add_system_log("RESTORE_POINT", "INFO", f"[{norm_tid}] Periyodik otomatik geri yükleme noktası oluşturuldu.")
+
+                # 2. Check automatic retention cleanup
+                if policy.get("auto_cleanup_enabled", True):
+                    enforce_restore_point_retention(norm_tid)
+        except Exception as worker_err:
+            print(f"[RestorePoints Auto Worker Warning]: {worker_err}")
+
+        await asyncio.sleep(120)
+
+@app.on_event("startup")
+async def on_startup_restore_points_worker():
+    try:
+        asyncio.create_task(_restore_points_auto_worker())
+    except Exception as e:
+        print(f"[RestorePoints Startup Error]: {e}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)
+

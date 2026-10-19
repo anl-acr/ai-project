@@ -58,6 +58,7 @@ export const SUBTAB_TURKISH_SLUGS = {
   "api_budgets": "api-butceleri",
   "nat": "nat-ayarlari",
   "email-notifications": "email-bildirimleri",
+  "restore-points": "geri-yukleme-noktasi",
   "version": "sistem-versiyonu"
 };
 

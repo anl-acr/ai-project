@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network, GitCommit, Mail } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network, GitCommit, Mail, RotateCcw } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NATSettings from "./NATSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
@@ -28,6 +28,7 @@ import TenantManagementPanel from "./TenantManagementPanel";
 import LicenseSettingsPanel from "./LicenseSettingsPanel";
 import ChangelogPanel from "./ChangelogPanel";
 import EmailNotificationsPanel from "./EmailNotificationsPanel";
+import RestorePointsPanel from "./RestorePointsPanel";
 import { getTurkishSlugForSubtab, getSubtabFromTurkishSlug } from "../../utils/slugHelper";
 
 export default function SettingsPanel({ backendHost = "localhost:8000" }) {
@@ -495,6 +496,18 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           </button>
 
           <button
+            onClick={() => setActiveSubTab("restore-points")}
+            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+              activeSubTab === "restore-points"
+                ? "bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/50 dark:border-emerald-900/30 shadow-sm"
+                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+            }`}
+          >
+            <RotateCcw size={14} className={activeSubTab === "restore-points" ? "text-emerald-600 dark:text-emerald-400" : ""} />
+            <span>Geri Yükleme Noktası</span>
+          </button>
+
+          <button
             onClick={() => setActiveSubTab("version")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
               activeSubTab === "version"
@@ -545,6 +558,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           )}
           {activeSubTab === "email-notifications" && (
             <EmailNotificationsPanel backendHost={backendHost} />
+          )}
+          {activeSubTab === "restore-points" && (
+            <RestorePointsPanel backendHost={backendHost} />
           )}
           {activeSubTab === "version" && (
             <ChangelogPanel backendHost={backendHost} />

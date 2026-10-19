@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -48,7 +48,8 @@ const SYSTEM_FEATURES = [
   { id: "nat", name: "NAT ve Dış IP Ayarları", icon: Network, type: "crud", color: "blue" },
   { id: "ai_agent_scenarios", name: "AI Temsilci Senaryo Editörü", icon: GitBranch, type: "crud", color: "purple" },
   { id: "tenant_license", name: "Lisans ve Müşteri Yönetimi", icon: Lock, type: "crud", color: "rose" },
-  { id: "email_notifications", name: "E-Mail ve WhatsApp Sistem Bildirimleri", icon: Mail, type: "crud", color: "blue" }
+  { id: "email_notifications", name: "E-Mail ve WhatsApp Sistem Bildirimleri", icon: Mail, type: "crud", color: "blue" },
+  { id: "restore_points", name: "Geri Yükleme Noktası Yönetimi (Ayarlar)", icon: RotateCcw, type: "crud", color: "emerald" }
 ];
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {
