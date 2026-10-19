@@ -1262,7 +1262,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       {/* POPUP MODAL (Add / Edit Form with Tabs) */}
       {showModal && createPortal(
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-all duration-300">
-          <div className="w-full max-w-4xl max-h-[90vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-full max-w-6xl max-h-[92vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
             {/* Modal Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
               <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
@@ -1335,7 +1335,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
                 {/* Tab Content Area */}
                 <div className="flex-1 overflow-y-auto">
-                    <form onSubmit={handleFormSubmit} className="p-6 space-y-6 h-full flex flex-col justify-between">
+                    <form onSubmit={handleFormSubmit} className="p-7 space-y-6 h-full flex flex-col justify-between">
                         {error && (
                           <div className="p-3.5 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5">
                             <span>{error}</span>
@@ -1489,26 +1489,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             };
 
                             return (
-                                <div className="space-y-5 animate-in fade-in duration-300">
+                                <div className="space-y-6 animate-in fade-in duration-300">
                                     {/* Top Header & Active Profile Selector */}
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
                                         <div>
                                             <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
                                                 Kullanıcı Çağrı Profilleri
                                             </h4>
-                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                                                 Her profil için çalacak cihazları, çalma süresini ve zaman aşımı sonrası aksiyonu önceden kaydedin.
                                             </p>
                                         </div>
-                                        <div className="flex items-center gap-2 shrink-0">
-                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Aktif Profil:</span>
+                                        <div className="flex items-center gap-2.5 shrink-0">
+                                            <span className="text-[11px] font-bold text-slate-400 uppercase">Aktif Profil:</span>
                                             <select
                                                 value={activeProfile}
                                                 onChange={(e) => {
                                                     setActiveProfile(e.target.value);
                                                     setSelectedProfileTab(e.target.value);
                                                 }}
-                                                className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border ${border} ${lightBg} ${text} focus:outline-none`}
+                                                className={`text-xs font-extrabold px-3.5 py-2 rounded-xl border ${border} ${lightBg} ${text} focus:outline-none`}
                                             >
                                                 {userProfiles.map(p => (
                                                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -1517,8 +1517,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </div>
                                     </div>
 
-                                    {/* 4 Profile Sub-Tabs */}
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                    {/* 4 Profile Sub-Tabs (Without device/timeout sub-info) */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
                                         {userProfiles.map((prof) => {
                                             const isSelected = selectedProfileTab === prof.id;
                                             const isCurrentlyActive = activeProfile === prof.id;
@@ -1530,58 +1530,52 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 <div
                                                     key={prof.id}
                                                     onClick={() => setSelectedProfileTab(prof.id)}
-                                                    className={`cursor-pointer p-3 rounded-2xl border-2 transition-all flex flex-col justify-between gap-2 ${
+                                                    className={`cursor-pointer px-4 py-3.5 rounded-2xl border-2 transition-all flex items-center justify-between gap-2 ${
                                                         isSelected
                                                             ? `${border} ${lightBg} shadow-sm`
                                                             : "border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-700"
                                                     }`}
                                                 >
-                                                    <div className="flex items-center justify-between gap-1">
-                                                        <div className="flex items-center gap-2 min-w-0">
-                                                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`}></span>
-                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white truncate">{prof.name}</span>
-                                                        </div>
-                                                        {isCurrentlyActive && (
-                                                            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-emerald-500 text-white shrink-0">
-                                                                AKTİF
-                                                            </span>
-                                                        )}
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`}></span>
+                                                        <span className="text-xs font-extrabold text-slate-800 dark:text-white truncate">{prof.name}</span>
                                                     </div>
-                                                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
-                                                        <span>{(prof.devices || []).length} Cihaz</span>
-                                                        <span>{prof.timeout || 30} sn</span>
-                                                    </div>
+                                                    {isCurrentlyActive && (
+                                                        <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-emerald-500 text-white shrink-0">
+                                                            AKTİF
+                                                        </span>
+                                                    )}
                                                 </div>
                                             );
                                         })}
                                     </div>
 
                                     {/* Selected Profile Configuration Card */}
-                                    <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-5">
-                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/60 dark:border-slate-800">
-                                            <div className="flex items-center gap-2">
+                                    <div className="p-6 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-6">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-200/60 dark:border-slate-800">
+                                            <div className="flex items-center gap-3">
                                                 <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
                                                     {currentProf.name} Profili Ayarları
                                                 </span>
                                                 {activeProfile === currentProf.id ? (
-                                                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                                                    <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
                                                         Şu Anda Kullanımda
                                                     </span>
                                                 ) : (
                                                     <button
                                                         type="button"
                                                         onClick={() => setActiveProfile(currentProf.id)}
-                                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${bg} ${hover} text-white transition-all shadow-sm`}
+                                                        className={`px-3 py-1 rounded-lg text-[10px] font-bold ${bg} ${hover} text-white transition-all shadow-sm`}
                                                     >
                                                         Bu Profili Aktif Yap
                                                     </button>
                                                 )}
                                             </div>
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-3">
                                                 <button
                                                     type="button"
                                                     onClick={() => updateCurrentProfile({ devices: ["desk_phone", "mobile_app", "web_phone", "pc_app"] })}
-                                                    className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
+                                                    className="text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
                                                 >
                                                     Tüm Cihazları Seç
                                                 </button>
@@ -1589,7 +1583,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 <button
                                                     type="button"
                                                     onClick={() => updateCurrentProfile({ devices: [] })}
-                                                    className="text-[10px] font-bold text-slate-500 hover:underline"
+                                                    className="text-[11px] font-bold text-slate-500 hover:underline"
                                                 >
                                                     Tümünü Kaldır
                                                 </button>
@@ -1598,29 +1592,29 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
                                         {/* 1. Ring Devices Selection */}
                                         <div>
-                                            <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-2.5">
+                                            <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-3">
                                                 1. Bu Profilde Çalacak Cihazlar (Device Seçimi)
                                             </label>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                                                 {RING_DEVICES_METADATA.map((dev) => {
                                                     const checked = Array.isArray(currentProf.devices) && currentProf.devices.includes(dev.id);
                                                     return (
                                                         <label
                                                             key={dev.id}
                                                             onClick={() => toggleProfileDevice(dev.id)}
-                                                            className={`cursor-pointer p-3 rounded-xl border transition-all flex items-center justify-between gap-3 select-none ${
+                                                            className={`cursor-pointer p-4 rounded-xl border transition-all flex items-center justify-between gap-3.5 select-none ${
                                                                 checked
                                                                     ? `bg-white dark:bg-slate-900 ${border} shadow-sm`
                                                                     : "bg-white/50 dark:bg-slate-950/40 border-slate-200/70 dark:border-slate-800/70 opacity-75 hover:opacity-100"
                                                             }`}
                                                         >
-                                                            <div className="flex items-center gap-3 min-w-0">
-                                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${checked ? `${lightBg} ${text}` : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}>
-                                                                    {dev.id === "mobile_app" ? <Smartphone size={16} /> : dev.id === "desk_phone" ? <Phone size={16} /> : <Monitor size={16} />}
+                                                            <div className="flex items-center gap-3.5 min-w-0">
+                                                                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${checked ? `${lightBg} ${text}` : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}>
+                                                                    {dev.id === "mobile_app" ? <Smartphone size={18} /> : dev.id === "desk_phone" ? <Phone size={18} /> : <Monitor size={18} />}
                                                                 </div>
                                                                 <div className="min-w-0">
                                                                     <div className="text-xs font-bold text-slate-800 dark:text-white truncate">{dev.label}</div>
-                                                                    <div className="text-[10px] text-slate-400 truncate">{dev.desc}</div>
+                                                                    <div className="text-[11px] text-slate-400 truncate mt-0.5">{dev.desc}</div>
                                                                 </div>
                                                             </div>
                                                             <div className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all ${checked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700"}`}>
@@ -1631,16 +1625,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 })}
                                             </div>
                                             {(!currentProf.devices || currentProf.devices.length === 0) && (
-                                                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-2">
+                                                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-3">
                                                     Hiçbir cihaz seçilmediğinde telefon çalmaz ve gelen çağrı doğrudan aşağıdaki zaman aşımı sonrası işleme yönlendirilir.
                                                 </p>
                                             )}
                                         </div>
 
                                         {/* 2. Timeout & Post-Timeout Action */}
-                                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 pt-2 border-t border-slate-200/60 dark:border-slate-800">
-                                            <div className="sm:col-span-4">
-                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                        <div className="grid grid-cols-1 md:grid-cols-12 gap-5 pt-4 border-t border-slate-200/60 dark:border-slate-800">
+                                            <div className="md:col-span-4">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                                                     2. Çalma Süresi / Zaman Aşımı (sn)
                                                 </label>
                                                 <div className="flex items-center gap-2">
@@ -1650,15 +1644,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         max="120"
                                                         value={currentProf.timeout ?? 30}
                                                         onChange={(e) => updateCurrentProfile({ timeout: Math.max(5, parseInt(e.target.value) || 30) })}
-                                                        className="w-24 text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-20 text-xs font-bold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     />
-                                                    <div className="flex items-center gap-1">
+                                                    <div className="flex items-center gap-1.5">
                                                         {[15, 25, 30, 45].map(sec => (
                                                             <button
                                                                 key={sec}
                                                                 type="button"
                                                                 onClick={() => updateCurrentProfile({ timeout: sec })}
-                                                                className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                                                                className={`px-2.5 py-2 rounded-xl text-[10px] font-bold border transition-all ${
                                                                     Number(currentProf.timeout) === sec
                                                                         ? `${bg} text-white border-transparent`
                                                                         : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300"
@@ -1671,14 +1665,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 </div>
                                             </div>
 
-                                            <div className="sm:col-span-4">
-                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                            <div className="md:col-span-4">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                                                     3. Zaman Aşımı Sonrası İşlem
                                                 </label>
                                                 <select
                                                     value={currentProf.timeout_action || "none"}
                                                     onChange={(e) => updateCurrentProfile({ timeout_action: e.target.value, timeout_target: "" })}
-                                                    className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    className="w-full text-xs font-semibold px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                 >
                                                     <option value="none">Çağrıyı Sonlandır (İşlem Yapma)</option>
                                                     <option value="voicemail">Sesli Mesaja (Voicemail) Aktar</option>
@@ -1689,15 +1683,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 </select>
                                             </div>
 
-                                            <div className="sm:col-span-4">
-                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                            <div className="md:col-span-4">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-2">
                                                     Hedef Seçimi / Numara
                                                 </label>
                                                 {currentProf.timeout_action === "internal" ? (
                                                     <select
                                                         value={currentProf.timeout_target || ""}
                                                         onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
-                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     >
                                                         <option value="">Dahili Seçiniz...</option>
                                                         {users.filter(u => String(u.extension) !== String(extension)).map(u => (
@@ -1712,13 +1706,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         placeholder="Örn: 05321234567"
                                                         value={currentProf.timeout_target || ""}
                                                         onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
-                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     />
                                                 ) : currentProf.timeout_action === "queue" ? (
                                                     <select
                                                         value={currentProf.timeout_target || ""}
                                                         onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
-                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     >
                                                         <option value="">Kuyruk Seçiniz...</option>
                                                         {queuesList.map(q => (
@@ -1731,7 +1725,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                     <select
                                                         value={currentProf.timeout_target || ""}
                                                         onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
-                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                        className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
                                                     >
                                                         <option value="">AI Temsilci Seçiniz...</option>
                                                         {aiAgentsList.map(ag => (
@@ -1741,7 +1735,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         ))}
                                                     </select>
                                                 ) : (
-                                                    <div className="px-3 py-2 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/50 text-[11px] text-slate-400">
+                                                    <div className="px-3.5 py-2.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/50 text-[11px] text-slate-400">
                                                         {currentProf.timeout_action === "voicemail" ? "Sesli mesaj kutusuna aktarılır" : "Ek hedef gerekmiyor"}
                                                     </div>
                                                 )}
