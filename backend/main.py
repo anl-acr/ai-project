@@ -224,6 +224,76 @@ class UserSessionSchema(BaseModel):
     ip_address: str
     last_seen: Optional[str] = None
 
+DEFAULT_USER_PROFILES = [
+    {
+        "id": "available",
+        "name": "Müsait",
+        "devices": ["desk_phone", "mobile_app", "web_phone", "pc_app"],
+        "timeout": 30,
+        "timeout_action": "voicemail",
+        "timeout_target": ""
+    },
+    {
+        "id": "away",
+        "name": "Dışarıda",
+        "devices": ["mobile_app"],
+        "timeout": 25,
+        "timeout_action": "external",
+        "timeout_target": ""
+    },
+    {
+        "id": "meeting",
+        "name": "Toplantı",
+        "devices": [],
+        "timeout": 15,
+        "timeout_action": "voicemail",
+        "timeout_target": ""
+    },
+    {
+        "id": "other",
+        "name": "Diğer",
+        "devices": ["web_phone"],
+        "timeout": 30,
+        "timeout_action": "none",
+        "timeout_target": ""
+    }
+]
+
+def ensure_user_profiles(u: dict) -> dict:
+    if not isinstance(u, dict):
+        return u
+    if not u.get("active_profile"):
+        u["active_profile"] = "available"
+    raw_profiles = u.get("profiles")
+    if isinstance(raw_profiles, str):
+        try:
+            import json
+            raw_profiles = json.loads(raw_profiles)
+        except Exception:
+            raw_profiles = None
+    import copy
+    if not raw_profiles or not isinstance(raw_profiles, list) or len(raw_profiles) == 0:
+        u["profiles"] = copy.deepcopy(DEFAULT_USER_PROFILES)
+    else:
+        existing_by_id = {str(p.get("id")): p for p in raw_profiles if isinstance(p, dict) and p.get("id")}
+        merged = []
+        for def_p in DEFAULT_USER_PROFILES:
+            pid = def_p["id"]
+            if pid in existing_by_id:
+                ep = existing_by_id[pid]
+                merged.append({
+                    "id": pid,
+                    "name": ep.get("name") or def_p["name"],
+                    "devices": ep.get("devices") if isinstance(ep.get("devices"), list) else list(def_p["devices"]),
+                    "timeout": int(ep.get("timeout") if ep.get("timeout") is not None else def_p["timeout"]),
+                    "timeout_action": str(ep.get("timeout_action") or def_p["timeout_action"]),
+                    "timeout_target": str(ep.get("timeout_target") or "")
+                })
+            else:
+                merged.append(copy.deepcopy(def_p))
+        u["profiles"] = merged
+    return u
+
 class UserSchema(BaseModel):
     id: Optional[int] = None
     full_name: str
@@ -250,9 +320,12 @@ class UserSchema(BaseModel):
     active_sessions: Optional[List[UserSessionSchema]] = []
     location_id: Optional[str] = None
     department_id: Optional[str] = None
+    active_profile: Optional[str] = "available"
+    profiles: Optional[List[dict]] = None
     two_factor_enabled: Optional[bool] = False
     two_factor_method: str = "app"
     two_factor_secret: Optional[str] = None
+
 
 import string
 import secrets
@@ -1191,8 +1264,12 @@ def load_settings():
             if provider not in db["api_budgets"]:
                 db["api_budgets"][provider] = {"loaded_credit": 0.0, "spent_credit": 0.0}
 
+    for u in db.get("users", []):
+        ensure_user_profiles(u)
+
     save_settings(db)
     return db
+
 
 def save_settings(settings):
     try:
@@ -1873,19 +1950,21 @@ same => n,Playback(ss-noservice)
 same => n,Hangup()
 same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
 
-; 1. Ön Yönlendirme Kontrolü (Offline / Koşulsuz Yönlendirme)
+; 1. Ön Yönlendirme ve Aktif Profil Kontrolü (Offline / Koşulsuz Yönlendirme / Cihaz Seçimi)
 same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL)}})
 same => n,Set(FWD_STATUS=${{CUT(FWD_PRE,:,1)}})
 same => n,Set(FWD_TARGET=${{CUT(FWD_PRE,:,2)}})
+same => n,Set(FWD_TIMEOUT=${{CUT(FWD_PRE,:,3)}})
+same => n,Set(DIAL_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEOUT}}"=""]?30:${{FWD_TIMEOUT}})}})
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
 
-; 2. PJSIP Dahili Arama (30 saniye)
-same => n(dial_pjsip),NoOp(PJSIP Dahiliye Arama Yapiliyor: PJSIP/${{EXTEN}})
-same => n,Dial(PJSIP/${{EXTEN}},30,tT)
+; 2. PJSIP Dahili Arama (Profil veya Yönlendirme Zaman Aşımı Süresi)
+same => n(dial_pjsip),NoOp(PJSIP Dahiliye Arama Yapiliyor: PJSIP/${{EXTEN}} Timeout=${{DIAL_TIMEOUT}}s)
+same => n,Dial(PJSIP/${{EXTEN}},${{DIAL_TIMEOUT}},tT)
 same => n,NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
 
-; 3. Sonrası Yönlendirme Kontrolü (Meşgul / Cevapsız / Ulaşılamıyor Yönlendirmesi)
+; 3. Sonrası Yönlendirme ve Profil Zaman Aşımı Kontrolü (Meşgul / Cevapsız / Ulaşılamıyor Yönlendirmesi)
 same => n,Set(FWD_POST=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=${{DIALSTATUS}})}})
 same => n,Set(FWD_STATUS=${{CUT(FWD_POST,:,1)}})
 same => n,Set(FWD_TARGET=${{CUT(FWD_POST,:,2)}})
@@ -1893,11 +1972,17 @@ same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
 ; 4. Yönlendirme Uygulama Bağlamı
 same => n(forward_call),NoOp(Yonlendirme Aktif! Hedef: ${{FWD_TARGET}})
+same => n,GotoIf($["${{FWD_TARGET}}"="HANGUP" | "${{FWD_TARGET}}"="NONE"]?end_call)
+same => n,GotoIf($["${{FWD_TARGET}}"="VOICEMAIL"]?voicemail_fwd)
 same => n,Set(CALLERID(num)=908503607390)
 same => n,Set(CALLERID(name)=908503607390)
 same => n,Set(RAW_NUM=${{IF($["${{FWD_TARGET:0:1}}"="0"]?90${{FWD_TARGET:1}}:${{FWD_TARGET}})}})
 same => n,Set(CLEAN_TARGET=${{IF($["${{RAW_NUM:0:2}}"="90"]?${{RAW_NUM}}:90${{RAW_NUM}})}})
 same => n,GotoIf($[${{LEN(${{FWD_TARGET}})}} < 6]?dial_internal_fwd:dial_external_fwd)
+
+same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Aktarimi: ${{EXTEN}})
+same => n,Playback(vm-intro)
+same => n,Hangup()
 
 same => n(dial_internal_fwd),NoOp(Ic Dahili Yonlendirme: PJSIP/${{FWD_TARGET}})
 same => n,Dial(PJSIP/${{FWD_TARGET}},30,tT)
@@ -3122,6 +3207,8 @@ class ProfileUpdateSchema(BaseModel):
     forwarding_always: Optional[dict] = None
     forwarding_busy: Optional[dict] = None
     forwarding_no_answer: Optional[dict] = None
+    active_profile: Optional[str] = None
+    profiles: Optional[List[dict]] = None
     auto_logout_enabled: Optional[bool] = None
     auto_logout_duration: Optional[float] = None
     two_factor_enabled: Optional[bool] = None
@@ -3134,7 +3221,7 @@ class ProfileUpdateSchema(BaseModel):
 async def update_agent_profile_endpoint(user_id: Union[int, str], payload: ProfileUpdateSchema):
     user = None
     for u in settings_db.get("users", []):
-        if str(u.get("id")) == str(user_id) or str(u.get("extension")) == str(user_id) or u.get("username") == str(user_id):
+        if str(u.get("id")) == str(user_id) or str(u.get("extension")) == str(user_id) or u.get("username") == str(user_id) or u.get("email") == str(user_id):
             user = u
             break
             
@@ -3158,6 +3245,8 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     if not user:
         raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
     
+    ensure_user_profiles(user)
+
     if payload.avatar is not None:
         user["avatar"] = payload.avatar
     
@@ -3189,6 +3278,12 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         user["forwarding_busy"] = payload.forwarding_busy
     if payload.forwarding_no_answer is not None:
         user["forwarding_no_answer"] = payload.forwarding_no_answer
+
+    if payload.active_profile is not None:
+        user["active_profile"] = payload.active_profile
+    if payload.profiles is not None:
+        user["profiles"] = payload.profiles
+        ensure_user_profiles(user)
 
     if payload.auto_logout_enabled is not None:
         user["auto_logout_enabled"] = payload.auto_logout_enabled
@@ -3241,11 +3336,68 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                     db_u.forwarding_busy = payload.forwarding_busy
                 if payload.forwarding_no_answer is not None:
                     db_u.forwarding_no_answer = payload.forwarding_no_answer
+                if payload.active_profile is not None:
+                    db_u.active_profile = user["active_profile"]
+                if payload.profiles is not None:
+                    db_u.profiles = user["profiles"]
                 session.commit()
     except Exception as e_db_sync:
         print(f"[Profile Update] DB sync notice: {e_db_sync}")
 
     return {"status": "success", "user": user, "message": "Profil ve güvenlik ayarları başarıyla güncellendi."}
+
+@app.post("/api/users/{user_id}/active-profile")
+@app.post("/api/agent/profile/{user_id}/switch")
+async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload: dict):
+    active_profile = str(payload.get("active_profile") or "available").strip()
+    profiles_data = payload.get("profiles")
+
+    user = None
+    for u in settings_db.get("users", []):
+        if str(u.get("id")) == str(user_id) or str(u.get("extension")) == str(user_id) or u.get("username") == str(user_id) or u.get("email") == str(user_id):
+            user = u
+            break
+
+    if not user and str(user_id) in ["admin", "9999"]:
+        user = next((u for u in settings_db.get("users", []) if u.get("role") == "admin"), None)
+
+    if user:
+        ensure_user_profiles(user)
+        user["active_profile"] = active_profile
+        if isinstance(profiles_data, list) and len(profiles_data) > 0:
+            user["profiles"] = profiles_data
+            ensure_user_profiles(user)
+        save_settings(settings_db)
+
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            q_filters = [SystemUser.extension == str(user_id), SystemUser.email == str(user_id)]
+            if str(user_id).isdigit():
+                q_filters.append(SystemUser.id == int(user_id))
+            if user and user.get("id"):
+                q_filters.append(SystemUser.id == int(user.get("id")))
+            if user and user.get("extension"):
+                q_filters.append(SystemUser.extension == str(user.get("extension")))
+            db_u = session.query(SystemUser).filter(or_(*q_filters)).first()
+            if db_u:
+                db_u.active_profile = active_profile
+                if user and user.get("profiles"):
+                    db_u.profiles = user["profiles"]
+                elif isinstance(profiles_data, list) and len(profiles_data) > 0:
+                    db_u.profiles = profiles_data
+                session.commit()
+    except Exception as e_sw:
+        print(f"[Switch Active Profile DB Sync Warning]: {e_sw}")
+
+    return {
+        "status": "success",
+        "active_profile": active_profile,
+        "profiles": user.get("profiles") if user else DEFAULT_USER_PROFILES,
+        "user": user
+    }
+
 
 @app.get("/api/v1_old/settings/roles")
 async def get_roles_endpoint():
@@ -3793,7 +3945,7 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         all_users = settings_db.get("users", [])
         for u in all_users:
             if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("email") == ext_str:
-                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active"]:
+                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active", "active_profile", "profiles"]:
                     val = u.get(k)
                     if val is not None and val != "" and val != {}:
                         user_dict[k] = val
@@ -3801,6 +3953,8 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
 
         if not user_dict:
             return Response(content="DENY:NONE:30", media_type="text/plain")
+
+        ensure_user_profiles(user_dict)
 
         from backend.services.ami_manager import registered_endpoints
         is_registered = (ext_str in registered_endpoints)
@@ -3840,7 +3994,11 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
                 
             return None
 
-        # Extract timeout for no_answer (default 30 seconds)
+        # Extract active profile configuration
+        active_prof_id = str(user_dict.get("active_profile") or "available").strip()
+        active_prof = next((p for p in user_dict.get("profiles", []) if str(p.get("id")) == active_prof_id), None)
+
+        # Extract timeout for no_answer (default 30 seconds, overridden by active profile timeout)
         no_ans_obj = user_dict.get("forwarding_no_answer")
         no_ans_timeout = 30
         if isinstance(no_ans_obj, str) and no_ans_obj.strip().startswith("{"):
@@ -3855,11 +4013,39 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             except Exception:
                 no_ans_timeout = 30
 
+        prof_devices = ["desk_phone", "mobile_app", "web_phone", "pc_app"]
+        prof_action = "none"
+        prof_target = None
+
+        if active_prof and isinstance(active_prof, dict):
+            if active_prof.get("timeout"):
+                try:
+                    no_ans_timeout = max(5, int(active_prof.get("timeout")))
+                except Exception:
+                    pass
+            if isinstance(active_prof.get("devices"), list):
+                prof_devices = active_prof.get("devices")
+            prof_action = str(active_prof.get("timeout_action") or "none").strip()
+            raw_prof_target = str(active_prof.get("timeout_target") or "").strip()
+
+            if prof_action in ["internal", "queue", "ai_agent"] and raw_prof_target:
+                prof_target = raw_prof_target
+            elif prof_action == "external":
+                prof_target = raw_prof_target or str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or "").strip()
+            elif prof_action == "voicemail":
+                prof_target = raw_prof_target or "VOICEMAIL"
+
         # Rule 1: HER ZAMAN (forwarding_always) - Always forwarded unconditionally
         f_always = extract_target(user_dict.get("forwarding_always"))
         if f_always:
             print(f"[Forwarding Resolver] Extension {ext_str} -> 1. HER ZAMAN (Always Forward) to: {f_always}")
             return Response(content=f"ALLOW:{f_always}:{no_ans_timeout}", media_type="text/plain")
+
+        # Rule 1.5: ACTIVE PROFILE WITH 0 RING DEVICES SELECTED (e.g. Toplantı profile)
+        if dialstatus == "BEFORE_DIAL" and len(prof_devices) == 0:
+            imm_target = prof_target if prof_target else "HANGUP"
+            print(f"[Forwarding Resolver] Extension {ext_str} -> Profile '{active_prof_id}' has 0 ring devices. Immediate action: {prof_action} -> {imm_target}")
+            return Response(content=f"ALLOW:{imm_target}:{no_ans_timeout}", media_type="text/plain")
 
         # Extract remaining targets & mobile transfer settings
         f_busy = extract_target(user_dict.get("forwarding_busy"))
@@ -3872,12 +4058,18 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             if f_busy:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 2. MEŞGUL DURUMDA Forward to: {f_busy}")
                 return Response(content=f"ALLOW:{f_busy}:{no_ans_timeout}", media_type="text/plain")
+            if prof_target:
+                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout/Fallback Action ({prof_action}) to: {prof_target}")
+                return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
             if mobile_enabled and gsm_num:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Mobile Transfer GSM: {gsm_num}")
                 return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
 
-        # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer) - When line rings and times out
+        # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer & active_profile timeout_action) - When line rings and times out
         if dialstatus in ["NOANSWER", "CANCEL"]:
+            if prof_target:
+                print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout Action ({prof_action}) to: {prof_target}")
+                return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
             if f_noans:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 3. ZAMAN AŞIMINDA (Cevapsız) Forward to: {f_noans}")
                 return Response(content=f"ALLOW:{f_noans}:{no_ans_timeout}", media_type="text/plain")
@@ -3887,6 +4079,9 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
 
         # Offline / Unreachable check for BEFORE_DIAL when extension is NOT SIP registered
         if dialstatus == "BEFORE_DIAL" and not is_registered:
+            if prof_target:
+                print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Profile '{active_prof_id}' Fallback ({prof_action}) to: {prof_target}")
+                return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
             if f_busy:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> 2. MEŞGUL/OFFLINE Forward to: {f_busy}")
                 return Response(content=f"ALLOW:{f_busy}:{no_ans_timeout}", media_type="text/plain")
@@ -8255,6 +8450,11 @@ async def startup_event():
                     await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;"))
                 except Exception:
                     pass
+                try:
+                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';"))
+                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';"))
+                except Exception:
+                    pass
         await asyncio.wait_for(init_db(), timeout=4.0)
         print("[Database Init] Veritabanı tabloları ve pbx_queues sütunları kontrol edildi / oluşturuldu.")
         try:
@@ -8673,6 +8873,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
     # Attach live SIP WebRTC registration status and IP address to each user object
     from backend.services.agent_presence import get_agent_state
     for u in raw_users:
+        ensure_user_profiles(u)
         ext = str(u.get("extension") or "")
         uid = str(u.get("id") or "")
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
@@ -8729,6 +8930,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
 
         for idx, item in enumerate(items_list):
             data = item.model_dump()
+            ensure_user_profiles(data)
             if not data.get("sip_password") or data.get("sip_password") == "1234":
                 data["sip_password"] = generate_strong_sip_password()
                 

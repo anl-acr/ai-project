@@ -37,6 +37,11 @@ export default function CallChatWidget({
 
   const userAgentRef = useRef(null);
   const audioElRef = useRef(null);
+  const currentUserRef = useRef(currentUser);
+
+  useEffect(() => {
+    currentUserRef.current = currentUser;
+  }, [currentUser]);
 
   useEffect(() => {
     const fetchContacts = async () => {
@@ -295,6 +300,18 @@ export default function CallChatWidget({
       hackIpInContact: true,
       delegate: {
         onInvite: (invite) => {
+          const curU = currentUserRef.current;
+          if (curU && Array.isArray(curU.profiles) && curU.profiles.length > 0) {
+            const actProfId = curU.active_profile || "available";
+            const actProf = curU.profiles.find(p => p.id === actProfId);
+            if (actProf && Array.isArray(actProf.devices) && !actProf.devices.includes("web_phone")) {
+              console.log(`[WebRTC] Aktif profil (${actProf.name}) icinde Web Telefon secili olmadigi icin caldirilmiyor.`);
+              if (actProf.devices.length === 0) {
+                try { invite.reject(); } catch (e) {}
+              }
+              return;
+            }
+          }
           console.log("[WebRTC] Gelen arama alindi!");
           setSession(invite);
           setCallStatus("Ringing");

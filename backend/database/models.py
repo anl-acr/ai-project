@@ -245,6 +245,8 @@ class SystemUser(Base):
     active_sessions = Column(JSON, default=list)
     location_id = Column(String, nullable=True)
     department_id = Column(String, nullable=True)
+    active_profile = Column(String, default="available")
+    profiles = Column(JSON, default=list)
 
 class SystemRole(Base):
     __tablename__ = "system_roles"

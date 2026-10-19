@@ -88,7 +88,7 @@ import ChangelogPanel from "../components/settings/ChangelogPanel";
 import OmnichannelPanel from "../components/dashboard/OmnichannelPanel";
 import ContactsPanel from "../components/dashboard/ContactsPanel";
 import BlacklistSettings from "../components/settings/BlacklistSettings";
-import UserSettings from "../components/settings/UserSettings";
+import UserSettings, { DEFAULT_USER_PROFILES, RING_DEVICES_METADATA, normalizeUserProfiles } from "../components/settings/UserSettings";
 import PBXSettings from "../components/settings/PBXSettings";
 import AnnouncementsPanel from "../components/settings/AnnouncementsPanel";
 import AcdQueuesPanel from "../components/settings/AcdQueuesPanel";
@@ -210,6 +210,11 @@ export default function Home() {
   const [mobileTransferEnabled, setMobileTransferEnabled] = useState(false);
   const [tempThemeColor, setTempThemeColor] = useState("99, 102, 241");
   const [activeModalTab, setActiveModalTab] = useState("profile");
+  const [agentActiveProfile, setAgentActiveProfile] = useState("available");
+  const [agentProfiles, setAgentProfiles] = useState(() => normalizeUserProfiles(null));
+  const [selectedAgentProfileTab, setSelectedAgentProfileTab] = useState("available");
+  const [agentQueuesList, setAgentQueuesList] = useState([]);
+  const [agentAiAgentsList, setAgentAiAgentsList] = useState([]);
   const [openCategories, setOpenCategories] = useState({
     operations: true,
     ai: true,
@@ -498,6 +503,23 @@ export default function Home() {
       setFwdNoAnswerTarget(currentUser.forwarding_no_answer?.target || "");
       setFwdNoAnswerTimeout(currentUser.forwarding_no_answer?.timeout || 30);
 
+      const resolvedProf = currentUser.active_profile || "available";
+      setAgentActiveProfile(resolvedProf);
+      setSelectedAgentProfileTab(resolvedProf);
+      setAgentProfiles(normalizeUserProfiles(currentUser.profiles));
+
+      if (settingsModalOpen) {
+        const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+        fetch(`${protocol}//${backendHost}/api/settings/queues`)
+          .then(r => r.ok ? r.json() : [])
+          .then(d => setAgentQueuesList(Array.isArray(d) ? d : (d?.queues || [])))
+          .catch(() => {});
+        fetch(`${protocol}//${backendHost}/api/settings/ai-agents`)
+          .then(r => r.ok ? r.json() : [])
+          .then(d => setAgentAiAgentsList(Array.isArray(d) ? d : (d?.ai_agents || [])))
+          .catch(() => {});
+      }
+
       setAutoLogoutEnabled(currentUser.auto_logout_enabled ?? (localStorage.getItem("auto_logout_enabled") === "true"));
       setAutoLogoutDuration(currentUser.auto_logout_duration ?? parseInt(localStorage.getItem("auto_logout_duration") || "1"));
       setTwoFactorEnabled(currentUser.two_factor_enabled ?? (localStorage.getItem("two_factor_enabled") === "true"));
@@ -509,6 +531,41 @@ export default function Home() {
       setPasswordStatusMsg(null);
     }
   }, [settingsModalOpen, currentUser]);
+
+  const handleQuickProfileSwitch = async (profileId) => {
+    setAgentActiveProfile(profileId);
+    setSelectedAgentProfileTab(profileId);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("agent_active_profile", profileId);
+    }
+    const profObj = agentProfiles.find(p => p.id === profileId) || DEFAULT_USER_PROFILES.find(p => p.id === profileId);
+    const profName = profObj ? profObj.name : profileId;
+    setCurrentUser(prev => prev ? { ...prev, active_profile: profileId, profiles: agentProfiles } : prev);
+
+    if (currentUser) {
+      try {
+        const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+        const uid = currentUser.id || currentUser.extension || "admin";
+        const res = await fetch(`${protocol}//${backendHost}/api/users/${uid}/active-profile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            active_profile: profileId,
+            profiles: agentProfiles
+          })
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.user) {
+            setCurrentUser(data.user);
+          }
+          showNotification(`Aktif çağrı profiliniz "${profName}" olarak güncellendi.`, "success", "Profil Değiştirildi");
+        }
+      } catch (e) {
+        console.error("Quick profile switch error:", e);
+      }
+    }
+  };
 
   // Activity monitoring for auto logout
   useEffect(() => {
@@ -2064,21 +2121,33 @@ export default function Home() {
                     alt="Profil"
                     className="w-7 h-7 rounded-full border border-slate-100 dark:border-slate-800 object-cover"
                   />
-                  <span className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                  <span className={`absolute bottom-0 right-0 w-2.5 h-2.5 border-2 border-white dark:border-slate-900 rounded-full ${
+                    agentActiveProfile === "away" ? "bg-amber-500" :
+                    agentActiveProfile === "meeting" ? "bg-rose-500" :
+                    agentActiveProfile === "other" ? "bg-indigo-500" : "bg-emerald-500"
+                  }`} />
                 </div>
-                <div className="hidden sm:flex flex-col text-left pr-0.5 max-w-[130px]">
+                <div className="hidden sm:flex flex-col text-left pr-0.5 max-w-[140px]">
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate leading-tight">
                     {currentUser?.full_name || currentUser?.name || currentUser?.username || 'Kullanıcı'}
                   </span>
-                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 capitalize leading-tight">
-                    {currentUser?.role === 'admin' ? 'Yönetici' : currentUser?.role === 'supervisor' ? 'Süpervizör' : 'Temsilci'}
+                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 truncate leading-tight flex items-center gap-1">
+                    <span>{currentUser?.role === 'admin' ? 'Yönetici' : currentUser?.role === 'supervisor' ? 'Süpervizör' : 'Temsilci'}</span>
+                    <span>•</span>
+                    <span className={
+                      agentActiveProfile === "away" ? "text-amber-500 font-bold" :
+                      agentActiveProfile === "meeting" ? "text-rose-500 font-bold" :
+                      agentActiveProfile === "other" ? "text-indigo-500 font-bold" : "text-emerald-500 font-bold"
+                    }>
+                      {(agentProfiles.find(p => p.id === agentActiveProfile) || DEFAULT_USER_PROFILES[0])?.name}
+                    </span>
                   </span>
                 </div>
                 <ChevronDown size={14} className="text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-300 transition-colors shrink-0" />
               </button>
 
               {profileDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
                   {/* Active User Card Header */}
                   <div className="p-3.5 bg-slate-50/90 dark:bg-slate-850/60 border-b border-slate-100 dark:border-slate-800/80">
                     <div className="flex items-start gap-3">
@@ -2088,7 +2157,11 @@ export default function Home() {
                           alt="Profil"
                           className="w-10 h-10 rounded-xl border border-slate-200 dark:border-slate-700 object-cover shadow-sm"
                         />
-                        <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-900 rounded-full" />
+                        <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 border-2 border-white dark:border-slate-900 rounded-full ${
+                          agentActiveProfile === "away" ? "bg-amber-500" :
+                          agentActiveProfile === "meeting" ? "bg-rose-500" :
+                          agentActiveProfile === "other" ? "bg-indigo-500" : "bg-emerald-500"
+                        }`} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <h4 className="text-xs font-extrabold text-slate-900 dark:text-white truncate leading-snug">
@@ -2109,6 +2182,53 @@ export default function Home() {
                           )}
                         </div>
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Quick Profile Switcher (Müsait, Dışarıda, Toplantı, Diğer) */}
+                  <div className="p-3 border-b border-slate-100 dark:border-slate-800/80 space-y-2">
+                    <div className="flex items-center justify-between px-0.5">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Aktif Profil Seçimi
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileDropdownOpen(false);
+                          setActiveModalTab("profiles");
+                          setSettingsModalOpen(true);
+                        }}
+                        className={`text-[10px] font-bold ${text} hover:underline`}
+                      >
+                        Profilleri Özelleştir
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {agentProfiles.map((prof) => {
+                        const isAct = agentActiveProfile === prof.id;
+                        const dotCls =
+                          prof.id === "available" ? "bg-emerald-500" :
+                          prof.id === "away" ? "bg-amber-500" :
+                          prof.id === "meeting" ? "bg-rose-500" : "bg-indigo-500";
+                        return (
+                          <button
+                            key={prof.id}
+                            type="button"
+                            onClick={() => handleQuickProfileSwitch(prof.id)}
+                            className={`px-2.5 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-1.5 ${
+                              isAct
+                                ? `${border} ${lightBg} shadow-sm`
+                                : "border-slate-200/70 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${dotCls}`} />
+                              <span className="text-[11px] font-bold text-slate-800 dark:text-white truncate">{prof.name}</span>
+                            </div>
+                            {isAct && <Check size={12} className={`${text} shrink-0`} />}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
@@ -2377,28 +2497,34 @@ export default function Home() {
               </div>
 
               {/* Modal Tabs */}
-              <div className="flex gap-2 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl mb-4">
+              <div className="flex flex-wrap gap-1.5 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl mb-4">
                 <button 
                   onClick={() => setActiveModalTab("profile")}
-                  className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "profile" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "profile" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
                 >
                   Profil & Tema
                 </button>
                 <button 
+                  onClick={() => setActiveModalTab("profiles")}
+                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "profiles" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                >
+                  Profiller
+                </button>
+                <button 
                   onClick={() => setActiveModalTab("hardware")}
-                  className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "hardware" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "hardware" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
                 >
                   Donanım & Santral
                 </button>
                 <button 
                   onClick={() => setActiveModalTab("forwarding")}
-                  className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "forwarding" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "forwarding" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
                 >
                   Yönlendirme
                 </button>
                 <button 
                   onClick={() => setActiveModalTab("security")}
-                  className={`flex-1 py-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "security" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "security" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
                 >
                   Güvenlik
                 </button>
@@ -2406,6 +2532,256 @@ export default function Home() {
 
               {/* Modal Body */}
               <div className="space-y-4">
+
+                {/* Personal Profiles Tab (Müsait, Dışarıda, Toplantı, Diğer) */}
+                {activeModalTab === "profiles" && (() => {
+                  const curProf = agentProfiles.find(p => p.id === selectedAgentProfileTab) || agentProfiles[0] || DEFAULT_USER_PROFILES[0];
+                  const updateCurProf = (patch) => {
+                    setAgentProfiles(prev => prev.map(p => p.id === curProf.id ? { ...p, ...patch } : p));
+                  };
+                  const toggleProfDevice = (devId) => {
+                    const curDevs = Array.isArray(curProf.devices) ? curProf.devices : [];
+                    const nextDevs = curDevs.includes(devId)
+                      ? curDevs.filter(d => d !== devId)
+                      : [...curDevs, devId];
+                    updateCurProf({ devices: nextDevs });
+                  };
+
+                  return (
+                    <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1">
+                      <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100 dark:border-slate-800">
+                        <div>
+                          <span className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider block">
+                            Çağrı Profillerim
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Her profil için çalacak cihazları ve zaman aşımı davranışını belirleyin.
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-[10px] font-bold text-slate-400 uppercase">Aktif:</span>
+                          <select
+                            value={agentActiveProfile}
+                            onChange={(e) => {
+                              setAgentActiveProfile(e.target.value);
+                              setSelectedAgentProfileTab(e.target.value);
+                            }}
+                            className={`text-xs font-extrabold px-2.5 py-1 rounded-xl border ${border} ${lightBg} ${text} focus:outline-none`}
+                          >
+                            {agentProfiles.map(p => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* 4 Profile Selector Cards */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {agentProfiles.map((prof) => {
+                          const isSel = selectedAgentProfileTab === prof.id;
+                          const isAct = agentActiveProfile === prof.id;
+                          const dotColor =
+                            prof.id === "available" ? "bg-emerald-500" :
+                            prof.id === "away" ? "bg-amber-500" :
+                            prof.id === "meeting" ? "bg-rose-500" : "bg-indigo-500";
+                          return (
+                            <div
+                              key={prof.id}
+                              onClick={() => setSelectedAgentProfileTab(prof.id)}
+                              className={`cursor-pointer p-2.5 rounded-xl border-2 transition-all flex flex-col justify-between gap-1.5 ${
+                                isSel
+                                  ? `${border} ${lightBg} shadow-sm`
+                                  : "border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40"
+                              }`}
+                            >
+                              <div className="flex items-center justify-between gap-1">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
+                                  <span className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">{prof.name}</span>
+                                </div>
+                                {isAct && (
+                                  <span className="px-1.5 py-0.5 rounded text-[8px] font-extrabold bg-emerald-500 text-white shrink-0">
+                                    AKTİF
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-between text-[9px] text-slate-400">
+                                <span>{(prof.devices || []).length} Cihaz</span>
+                                <span>{prof.timeout || 30} sn</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Selected Profile Detail */}
+                      <div className="p-3.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-4">
+                        <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200/60 dark:border-slate-800">
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase">
+                              {curProf.name} Profili Ayarları
+                            </span>
+                            {agentActiveProfile !== curProf.id && (
+                              <button
+                                type="button"
+                                onClick={() => setAgentActiveProfile(curProf.id)}
+                                className={`px-2 py-0.5 rounded-lg text-[9px] font-bold ${bg} ${hover} text-white`}
+                              >
+                                Aktif Profil Yap
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() => updateCurProf({ devices: ["desk_phone", "mobile_app", "web_phone", "pc_app"] })}
+                              className="font-bold text-slate-600 dark:text-slate-300 hover:underline"
+                            >
+                              Tümü
+                            </button>
+                            <span className="text-slate-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() => updateCurProf({ devices: [] })}
+                              className="font-bold text-slate-400 hover:underline"
+                            >
+                              Hiçbiri
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Ring Devices */}
+                        <div>
+                          <label className="block text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-2">
+                            Çalacak Cihazlar (Device)
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {RING_DEVICES_METADATA.map((dev) => {
+                              const checked = Array.isArray(curProf.devices) && curProf.devices.includes(dev.id);
+                              return (
+                                <label
+                                  key={dev.id}
+                                  onClick={() => toggleProfDevice(dev.id)}
+                                  className={`cursor-pointer p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 select-none ${
+                                    checked
+                                      ? `bg-white dark:bg-slate-900 ${border} shadow-sm`
+                                      : "bg-white/50 dark:bg-slate-950/40 border-slate-200/70 dark:border-slate-800/70 opacity-75"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${checked ? `${lightBg} ${text}` : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}>
+                                      {dev.id === "mobile_app" ? <Smartphone size={14} /> : dev.id === "desk_phone" ? <Phone size={14} /> : <Monitor size={14} />}
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-[11px] font-bold text-slate-800 dark:text-white truncate">{dev.label}</div>
+                                      <div className="text-[9px] text-slate-400 truncate">{dev.desc}</div>
+                                    </div>
+                                  </div>
+                                  <div className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${checked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700"}`}>
+                                    {checked && <Check size={11} />}
+                                  </div>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Timeout & Post-Timeout Action */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-slate-200/60 dark:border-slate-800">
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">
+                              Zaman Aşımı (sn)
+                            </label>
+                            <input
+                              type="number"
+                              min="5"
+                              max="120"
+                              value={curProf.timeout ?? 30}
+                              onChange={(e) => updateCurProf({ timeout: Math.max(5, parseInt(e.target.value) || 30) })}
+                              className="w-full text-xs font-bold px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">
+                              Zaman Aşımı Sonrası İşlem
+                            </label>
+                            <select
+                              value={curProf.timeout_action || "none"}
+                              onChange={(e) => updateCurProf({ timeout_action: e.target.value, timeout_target: "" })}
+                              className="w-full text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                            >
+                              <option value="none">Çağrıyı Sonlandır</option>
+                              <option value="voicemail">Sesli Mesaja Aktar</option>
+                              <option value="internal">Başka Dahiliye Yönlendir</option>
+                              <option value="external">Dış Numaraya Yönlendir</option>
+                              <option value="queue">Kuyruğa Aktar</option>
+                              <option value="ai_agent">AI Temsilciye Aktar</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-[9px] font-bold text-slate-500 uppercase mb-1">
+                              Hedef Seçimi / Numara
+                            </label>
+                            {curProf.timeout_action === "internal" ? (
+                              <select
+                                value={curProf.timeout_target || ""}
+                                onChange={(e) => updateCurProf({ timeout_target: e.target.value })}
+                                className="w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                              >
+                                <option value="">Dahili Seçiniz...</option>
+                                {agentDirectory.filter(d => d.type === "user" && String(d.number) !== String(currentUser?.extension)).map(u => (
+                                  <option key={u.id || u.number} value={u.number}>
+                                    {u.name} ({u.number})
+                                  </option>
+                                ))}
+                              </select>
+                            ) : curProf.timeout_action === "external" ? (
+                              <input
+                                type="text"
+                                placeholder="05321234567"
+                                value={curProf.timeout_target || ""}
+                                onChange={(e) => updateCurProf({ timeout_target: e.target.value })}
+                                className="w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                              />
+                            ) : curProf.timeout_action === "queue" ? (
+                              <select
+                                value={curProf.timeout_target || ""}
+                                onChange={(e) => updateCurProf({ timeout_target: e.target.value })}
+                                className="w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                              >
+                                <option value="">Kuyruk Seçiniz...</option>
+                                {agentQueuesList.map(q => (
+                                  <option key={q.id || q.extension} value={q.extension || q.name}>
+                                    {q.name} ({q.extension})
+                                  </option>
+                                ))}
+                              </select>
+                            ) : curProf.timeout_action === "ai_agent" ? (
+                              <select
+                                value={curProf.timeout_target || ""}
+                                onChange={(e) => updateCurProf({ timeout_target: e.target.value })}
+                                className="w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                              >
+                                <option value="">AI Temsilci Seçiniz...</option>
+                                {agentAiAgentsList.map(ag => (
+                                  <option key={ag.id || ag.extension} value={ag.extension || ag.id}>
+                                    {ag.name} {ag.extension ? `(${ag.extension})` : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <div className="px-2.5 py-1.5 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/50 text-[10px] text-slate-400">
+                                {curProf.timeout_action === "voicemail" ? "Sesli mesaja aktarılır" : "Ek hedef gerekmiyor"}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 
                 {/* Avatar Selection */}
                 <div className={`space-y-3 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
@@ -3032,6 +3408,8 @@ export default function Home() {
                             forwarding_always: fwdAlwaysTarget ? { active: fwdAlwaysActive, type: fwdAlwaysType, target: fwdAlwaysTarget } : null,
                             forwarding_busy: fwdBusyTarget ? { active: fwdBusyActive, type: fwdBusyType, target: fwdBusyTarget } : null,
                             forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null,
+                            active_profile: agentActiveProfile,
+                            profiles: agentProfiles,
                             auto_logout_enabled: autoLogoutEnabled,
                             auto_logout_duration: autoLogoutDuration,
                             two_factor_enabled: twoFactorEnabled,

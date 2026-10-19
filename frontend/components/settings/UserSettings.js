@@ -51,6 +51,78 @@ const ANNOUNCEMENTS = [
   "Mesai Dışı Anonsu"
 ];
 
+export const DEFAULT_USER_PROFILES = [
+  {
+    id: "available",
+    name: "Müsait",
+    devices: ["desk_phone", "mobile_app", "web_phone", "pc_app"],
+    timeout: 30,
+    timeout_action: "voicemail",
+    timeout_target: ""
+  },
+  {
+    id: "away",
+    name: "Dışarıda",
+    devices: ["mobile_app"],
+    timeout: 25,
+    timeout_action: "external",
+    timeout_target: ""
+  },
+  {
+    id: "meeting",
+    name: "Toplantı",
+    devices: [],
+    timeout: 15,
+    timeout_action: "voicemail",
+    timeout_target: ""
+  },
+  {
+    id: "other",
+    name: "Diğer",
+    devices: ["web_phone"],
+    timeout: 30,
+    timeout_action: "none",
+    timeout_target: ""
+  }
+];
+
+export const RING_DEVICES_METADATA = [
+  { id: "desk_phone", label: "Masa Telefonu", desc: "IP / SIP masa telefonu cihazı" },
+  { id: "mobile_app", label: "Mobil Uygulama", desc: "iOS / Android mobil softphone" },
+  { id: "web_phone", label: "Web Telefon", desc: "Tarayıcı içi WebRTC telefon" },
+  { id: "pc_app", label: "PC Uygulaması", desc: "Masaüstü softphone uygulaması" }
+];
+
+export const normalizeUserProfiles = (rawProfiles) => {
+  let parsed = rawProfiles;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (e) {
+      parsed = null;
+    }
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    return DEFAULT_USER_PROFILES.map(p => ({ ...p, devices: [...p.devices] }));
+  }
+  const byId = {};
+  parsed.forEach(p => {
+    if (p && p.id) byId[p.id] = p;
+  });
+  return DEFAULT_USER_PROFILES.map(def => {
+    const ex = byId[def.id];
+    if (!ex) return { ...def, devices: [...def.devices] };
+    return {
+      id: def.id,
+      name: ex.name || def.name,
+      devices: Array.isArray(ex.devices) ? [...ex.devices] : [...def.devices],
+      timeout: ex.timeout !== undefined && ex.timeout !== null ? Number(ex.timeout) : def.timeout,
+      timeout_action: ex.timeout_action || def.timeout_action,
+      timeout_target: ex.timeout_target || ""
+    };
+  });
+};
+
 export default function UserSettings({ backendHost = "localhost:8000", currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const isAdmin = currentUser?.role === "admin";
@@ -177,6 +249,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [twoFactorMethod, setTwoFactorMethod] = useState("app");
 
+  // Profiles Fields (Müsait, Dışarıda, Toplantı, Diğer)
+  const [activeProfile, setActiveProfile] = useState("available");
+  const [userProfiles, setUserProfiles] = useState(() => normalizeUserProfiles(null));
+  const [selectedProfileTab, setSelectedProfileTab] = useState("available");
+  const [queuesList, setQueuesList] = useState([]);
+  const [aiAgentsList, setAiAgentsList] = useState([]);
+
   const [systemRoles, setSystemRoles] = useState([]);
 
   // Associations Fields
@@ -279,12 +358,29 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         }
       } catch (e) {}
 
+      try {
+        const resQueues = await safeFetch(`/api/settings/queues`);
+        if (resQueues.ok) {
+          const dataQueues = await resQueues.json();
+          setQueuesList(Array.isArray(dataQueues) ? dataQueues : (dataQueues?.queues || []));
+        }
+      } catch (e) {}
+
+      try {
+        const resAgents = await safeFetch(`/api/settings/ai-agents`);
+        if (resAgents.ok) {
+          const dataAgents = await resAgents.json();
+          setAiAgentsList(Array.isArray(dataAgents) ? dataAgents : (dataAgents?.ai_agents || []));
+        }
+      } catch (e) {}
+
     } catch (err) {
       console.error(`Veriler yüklenemedi:`, err);
     } finally {
       setLoading(false);
     }
   };
+
 
 
   const fileInputRef = useRef(null);
@@ -492,6 +588,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setSelectedCallPickupGroups([]);
     setSelectedLocation("");
     setSelectedDepartment("");
+    setActiveProfile("available");
+    setUserProfiles(normalizeUserProfiles(null));
+    setSelectedProfileTab("available");
   };
 
   const openAddModal = () => {
@@ -555,6 +654,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     setSelectedLocation(u.location_id || "");
     setSelectedDepartment(u.department_id || "");
+
+    const resolvedActiveProf = u.active_profile || "available";
+    setActiveProfile(resolvedActiveProf);
+    setSelectedProfileTab(resolvedActiveProf);
+    setUserProfiles(normalizeUserProfiles(u.profiles));
 
     setShowModal(true);
   };
@@ -649,7 +753,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       two_factor_enabled: twoFactorEnabled,
       two_factor_method: twoFactorMethod,
       location_id: selectedLocation || null,
-      department_id: selectedDepartment || null
+      department_id: selectedDepartment || null,
+      active_profile: activeProfile || "available",
+      profiles: userProfiles
     };
 
     setSubmitting(true);
@@ -1005,10 +1111,24 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                     </div>
                   )}
                   {visibleColumns.username && (
-                    <div className="min-w-0" style={{ flex: '2 2 0%' }}>
+                    <div className="min-w-0 flex flex-col gap-1" style={{ flex: '2 2 0%' }}>
                       <h4 className="font-bold text-xs text-slate-800 dark:text-white truncate" title={u.full_name}>
                         {u.full_name}
                       </h4>
+                      {(() => {
+                        const pId = u.active_profile || "available";
+                        const pMeta =
+                          pId === "away" ? { label: "Dışarıda", cls: "bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/50", dot: "bg-amber-500" } :
+                          pId === "meeting" ? { label: "Toplantı", cls: "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800/50", dot: "bg-rose-500" } :
+                          pId === "other" ? { label: "Diğer", cls: "bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800/50", dot: "bg-indigo-500" } :
+                          { label: "Müsait", cls: "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800/50", dot: "bg-emerald-500" };
+                        return (
+                          <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-bold border w-fit ${pMeta.cls}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${pMeta.dot}`}></span>
+                            <span>{pMeta.label}</span>
+                          </span>
+                        );
+                      })()}
                     </div>
                   )}
                   
@@ -1167,6 +1287,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         >
                             <KeyRound size={16} />
                             Giriş ve SIP
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("profiles")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'profiles' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <User size={16} />
+                            Profiller
                         </button>
                         <button
                             type="button"
@@ -1345,6 +1473,284 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 </div>
                             </div>
                         )}
+
+                        {/* TAB: PROFİLLER (Müsait, Dışarıda, Toplantı, Diğer) */}
+                        {activeTab === "profiles" && (() => {
+                            const currentProf = userProfiles.find(p => p.id === selectedProfileTab) || userProfiles[0] || DEFAULT_USER_PROFILES[0];
+                            const updateCurrentProfile = (patch) => {
+                                setUserProfiles(prev => prev.map(p => p.id === currentProf.id ? { ...p, ...patch } : p));
+                            };
+                            const toggleProfileDevice = (devId) => {
+                                const curDevs = Array.isArray(currentProf.devices) ? currentProf.devices : [];
+                                const nextDevs = curDevs.includes(devId)
+                                    ? curDevs.filter(d => d !== devId)
+                                    : [...curDevs, devId];
+                                updateCurrentProfile({ devices: nextDevs });
+                            };
+
+                            return (
+                                <div className="space-y-5 animate-in fade-in duration-300">
+                                    {/* Top Header & Active Profile Selector */}
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
+                                        <div>
+                                            <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                Kullanıcı Çağrı Profilleri
+                                            </h4>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                Her profil için çalacak cihazları, çalma süresini ve zaman aşımı sonrası aksiyonu önceden kaydedin.
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <span className="text-[10px] font-bold text-slate-400 uppercase">Aktif Profil:</span>
+                                            <select
+                                                value={activeProfile}
+                                                onChange={(e) => {
+                                                    setActiveProfile(e.target.value);
+                                                    setSelectedProfileTab(e.target.value);
+                                                }}
+                                                className={`text-xs font-extrabold px-3 py-1.5 rounded-xl border ${border} ${lightBg} ${text} focus:outline-none`}
+                                            >
+                                                {userProfiles.map(p => (
+                                                    <option key={p.id} value={p.id}>{p.name}</option>
+                                                ))}
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    {/* 4 Profile Sub-Tabs */}
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                                        {userProfiles.map((prof) => {
+                                            const isSelected = selectedProfileTab === prof.id;
+                                            const isCurrentlyActive = activeProfile === prof.id;
+                                            const dotColor =
+                                                prof.id === "available" ? "bg-emerald-500" :
+                                                prof.id === "away" ? "bg-amber-500" :
+                                                prof.id === "meeting" ? "bg-rose-500" : "bg-indigo-500";
+                                            return (
+                                                <div
+                                                    key={prof.id}
+                                                    onClick={() => setSelectedProfileTab(prof.id)}
+                                                    className={`cursor-pointer p-3 rounded-2xl border-2 transition-all flex flex-col justify-between gap-2 ${
+                                                        isSelected
+                                                            ? `${border} ${lightBg} shadow-sm`
+                                                            : "border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-700"
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between gap-1">
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <span className={`w-2.5 h-2.5 rounded-full shrink-0 ${dotColor}`}></span>
+                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white truncate">{prof.name}</span>
+                                                        </div>
+                                                        {isCurrentlyActive && (
+                                                            <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-emerald-500 text-white shrink-0">
+                                                                AKTİF
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center justify-between text-[10px] text-slate-500 dark:text-slate-400">
+                                                        <span>{(prof.devices || []).length} Cihaz</span>
+                                                        <span>{prof.timeout || 30} sn</span>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Selected Profile Configuration Card */}
+                                    <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/40 space-y-5">
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-200/60 dark:border-slate-800">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                                    {currentProf.name} Profili Ayarları
+                                                </span>
+                                                {activeProfile === currentProf.id ? (
+                                                    <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50">
+                                                        Şu Anda Kullanımda
+                                                    </span>
+                                                ) : (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setActiveProfile(currentProf.id)}
+                                                        className={`px-2.5 py-1 rounded-lg text-[10px] font-bold ${bg} ${hover} text-white transition-all shadow-sm`}
+                                                    >
+                                                        Bu Profili Aktif Yap
+                                                    </button>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateCurrentProfile({ devices: ["desk_phone", "mobile_app", "web_phone", "pc_app"] })}
+                                                    className="text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:underline"
+                                                >
+                                                    Tüm Cihazları Seç
+                                                </button>
+                                                <span className="text-slate-300 dark:text-slate-700">|</span>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => updateCurrentProfile({ devices: [] })}
+                                                    className="text-[10px] font-bold text-slate-500 hover:underline"
+                                                >
+                                                    Tümünü Kaldır
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* 1. Ring Devices Selection */}
+                                        <div>
+                                            <label className="block text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider mb-2.5">
+                                                1. Bu Profilde Çalacak Cihazlar (Device Seçimi)
+                                            </label>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                                {RING_DEVICES_METADATA.map((dev) => {
+                                                    const checked = Array.isArray(currentProf.devices) && currentProf.devices.includes(dev.id);
+                                                    return (
+                                                        <label
+                                                            key={dev.id}
+                                                            onClick={() => toggleProfileDevice(dev.id)}
+                                                            className={`cursor-pointer p-3 rounded-xl border transition-all flex items-center justify-between gap-3 select-none ${
+                                                                checked
+                                                                    ? `bg-white dark:bg-slate-900 ${border} shadow-sm`
+                                                                    : "bg-white/50 dark:bg-slate-950/40 border-slate-200/70 dark:border-slate-800/70 opacity-75 hover:opacity-100"
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center gap-3 min-w-0">
+                                                                <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${checked ? `${lightBg} ${text}` : "bg-slate-100 dark:bg-slate-800 text-slate-400"}`}>
+                                                                    {dev.id === "mobile_app" ? <Smartphone size={16} /> : dev.id === "desk_phone" ? <Phone size={16} /> : <Monitor size={16} />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <div className="text-xs font-bold text-slate-800 dark:text-white truncate">{dev.label}</div>
+                                                                    <div className="text-[10px] text-slate-400 truncate">{dev.desc}</div>
+                                                                </div>
+                                                            </div>
+                                                            <div className={`w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-all ${checked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700"}`}>
+                                                                {checked && <Check size={13} />}
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
+                                            {(!currentProf.devices || currentProf.devices.length === 0) && (
+                                                <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold mt-2">
+                                                    Hiçbir cihaz seçilmediğinde telefon çalmaz ve gelen çağrı doğrudan aşağıdaki zaman aşımı sonrası işleme yönlendirilir.
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        {/* 2. Timeout & Post-Timeout Action */}
+                                        <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 pt-2 border-t border-slate-200/60 dark:border-slate-800">
+                                            <div className="sm:col-span-4">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                                    2. Çalma Süresi / Zaman Aşımı (sn)
+                                                </label>
+                                                <div className="flex items-center gap-2">
+                                                    <input
+                                                        type="number"
+                                                        min="5"
+                                                        max="120"
+                                                        value={currentProf.timeout ?? 30}
+                                                        onChange={(e) => updateCurrentProfile({ timeout: Math.max(5, parseInt(e.target.value) || 30) })}
+                                                        className="w-24 text-xs font-bold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    />
+                                                    <div className="flex items-center gap-1">
+                                                        {[15, 25, 30, 45].map(sec => (
+                                                            <button
+                                                                key={sec}
+                                                                type="button"
+                                                                onClick={() => updateCurrentProfile({ timeout: sec })}
+                                                                className={`px-2 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                                                                    Number(currentProf.timeout) === sec
+                                                                        ? `${bg} text-white border-transparent`
+                                                                        : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                                                                }`}
+                                                            >
+                                                                {sec}s
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <div className="sm:col-span-4">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                                    3. Zaman Aşımı Sonrası İşlem
+                                                </label>
+                                                <select
+                                                    value={currentProf.timeout_action || "none"}
+                                                    onChange={(e) => updateCurrentProfile({ timeout_action: e.target.value, timeout_target: "" })}
+                                                    className="w-full text-xs font-semibold px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                >
+                                                    <option value="none">Çağrıyı Sonlandır (İşlem Yapma)</option>
+                                                    <option value="voicemail">Sesli Mesaja (Voicemail) Aktar</option>
+                                                    <option value="internal">Başka Bir Dahiliye Yönlendir</option>
+                                                    <option value="external">Cep Telefonuna / Dış Numaraya Yönlendir</option>
+                                                    <option value="queue">Çağrı Kuyruğuna Aktar</option>
+                                                    <option value="ai_agent">Yapay Zeka Temsilcisine Aktar</option>
+                                                </select>
+                                            </div>
+
+                                            <div className="sm:col-span-4">
+                                                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                                    Hedef Seçimi / Numara
+                                                </label>
+                                                {currentProf.timeout_action === "internal" ? (
+                                                    <select
+                                                        value={currentProf.timeout_target || ""}
+                                                        onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
+                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    >
+                                                        <option value="">Dahili Seçiniz...</option>
+                                                        {users.filter(u => String(u.extension) !== String(extension)).map(u => (
+                                                            <option key={u.id || u.extension} value={u.extension}>
+                                                                {u.full_name} ({u.extension})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : currentProf.timeout_action === "external" ? (
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Örn: 05321234567"
+                                                        value={currentProf.timeout_target || ""}
+                                                        onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
+                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    />
+                                                ) : currentProf.timeout_action === "queue" ? (
+                                                    <select
+                                                        value={currentProf.timeout_target || ""}
+                                                        onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
+                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    >
+                                                        <option value="">Kuyruk Seçiniz...</option>
+                                                        {queuesList.map(q => (
+                                                            <option key={q.id || q.extension} value={q.extension || q.name}>
+                                                                {q.name} ({q.extension})
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : currentProf.timeout_action === "ai_agent" ? (
+                                                    <select
+                                                        value={currentProf.timeout_target || ""}
+                                                        onChange={(e) => updateCurrentProfile({ timeout_target: e.target.value })}
+                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                                    >
+                                                        <option value="">AI Temsilci Seçiniz...</option>
+                                                        {aiAgentsList.map(ag => (
+                                                            <option key={ag.id || ag.extension} value={ag.extension || ag.id}>
+                                                                {ag.name} {ag.extension ? `(${ag.extension})` : ""}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    <div className="px-3 py-2 rounded-xl border border-slate-200/60 dark:border-slate-800/60 bg-slate-100/60 dark:bg-slate-900/50 text-[11px] text-slate-400">
+                                                        {currentProf.timeout_action === "voicemail" ? "Sesli mesaj kutusuna aktarılır" : "Ek hedef gerekmiyor"}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
 
                         {/* TAB 2: YÖNLENDİRME VE VOICEMAIL */}
                         {activeTab === "forwarding" && (
