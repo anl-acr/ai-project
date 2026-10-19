@@ -988,40 +988,32 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     {
       id: "general_prompt",
       label: "Kimlik & Sistem Talimatı",
-      icon: Bot,
-      badge: null
+      icon: Bot
     },
     {
       id: "voice_tts",
       label: "Ses Motoru (STT & TTS)",
-      icon: Volume2,
-      badge: ttsProvider.toUpperCase()
+      icon: Volume2
     },
     {
       id: "ambient_test",
       label: "Arka Plan Sesi & Test Stüdyosu",
-      icon: Headphones,
-      badge: bgNoiseEnabled ? "AÇIK" : "KAPALI",
-      badgeActive: bgNoiseEnabled
+      icon: Headphones
     },
     {
       id: "barge_in_vad",
       label: "Söz Kesme & Dinleme (VAD)",
-      icon: Mic,
-      badge: bargeInEnabled ? "AÇIK" : "KAPALI",
-      badgeActive: bargeInEnabled
+      icon: Mic
     },
     {
       id: "llm_brain",
       label: "Zeka Motoru (LLM) & RAG",
-      icon: Cpu,
-      badge: llmProvider.toUpperCase()
+      icon: Cpu
     },
     {
       id: "behavior_guardrails",
       label: "Konuşma Doğallığı & Güvenlik",
-      icon: Shield,
-      badge: null
+      icon: Shield
     }
   ];
 
@@ -1113,7 +1105,7 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       {/* Main Container with Left Sidebar Tabs & Right Content Area (Identical to UserSettings.js) */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden flex flex-col md:flex-row min-h-[580px]">
         {/* Left Sidebar Navigation */}
-        <div className="w-full md:w-64 bg-slate-50/50 dark:bg-slate-950/30 border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 flex flex-col justify-between">
+        <div className="w-full md:w-64 bg-slate-50/50 dark:bg-slate-950/30 border-b md:border-b-0 md:border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0">
           <div className="space-y-1.5">
             <div className="px-3 py-2 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
               Temsilci Yapılandırması
@@ -1128,57 +1120,17 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
                   type="button"
                   onClick={() => setEditTab(tab.id)}
                   className={
-                    "w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left " +
+                    "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left " +
                     (isActive
                       ? "bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700"
                       : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")
                   }
                 >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <IconComp size={15} className="shrink-0" />
-                    <span className="truncate">{tab.label}</span>
-                  </div>
-                  {tab.badge && (
-                    <span
-                      className={
-                        "px-1.5 py-0.5 rounded text-[9px] font-extrabold shrink-0 " +
-                        (tab.badgeActive === true
-                          ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/50"
-                          : tab.badgeActive === false
-                          ? "bg-slate-100 dark:bg-slate-800 text-slate-400"
-                          : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400")
-                      }
-                    >
-                      {tab.badge}
-                    </span>
-                  )}
+                  <IconComp size={15} className="shrink-0" />
+                  <span>{tab.label}</span>
                 </button>
               );
             })}
-          </div>
-
-          {/* Quick Summary Card at Bottom of Sidebar */}
-          <div className="mt-6 p-3.5 rounded-xl bg-slate-100/70 dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-800 space-y-2 text-[11px]">
-            <div className="font-extrabold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-              <Activity size={13} className={text} />
-              <span>Aktif Profil Özeti</span>
-            </div>
-            <div className="flex justify-between text-slate-500 dark:text-slate-400">
-              <span>Ortam Gürültüsü:</span>
-              <span className="font-bold text-slate-700 dark:text-slate-200">
-                {bgNoiseEnabled ? AMBIENT_NOISE_OPTIONS.find((o) => o.id === bgNoiseType)?.title.split(" ")[0] : "Kapalı"}
-              </span>
-            </div>
-            <div className="flex justify-between text-slate-500 dark:text-slate-400">
-              <span>Söz Kesme (Barge-In):</span>
-              <span className="font-bold text-slate-700 dark:text-slate-200">
-                {bargeInEnabled ? `Açık (${bargeInThresholdAmp})` : "Kapalı"}
-              </span>
-            </div>
-            <div className="flex justify-between text-slate-500 dark:text-slate-400">
-              <span>Dinleme Eşiği (VAD):</span>
-              <span className="font-bold text-slate-700 dark:text-slate-200">{vadSilenceTimeoutMs} ms</span>
-            </div>
           </div>
         </div>
 
