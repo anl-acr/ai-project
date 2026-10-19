@@ -138,25 +138,33 @@ export default function RestorePointsPanel({ backendHost = "localhost:8000" }) {
     fetchRestorePoints();
   }, []);
 
-  const handleCreatePoint = async (e) => {
-    e.preventDefault();
-    if (!newTitle.trim()) {
-      showToast("error", "Lütfen geri yükleme noktası için bir başlık giriniz.");
-      return;
-    }
+  const handleCreatePoint = async (e, quickPresetTitle = null) => {
+    if (e && e.preventDefault) e.preventDefault();
+    const nowStr = new Date().toLocaleString("tr-TR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    });
+    const finalTitle = (quickPresetTitle || newTitle || "").trim() || `Manuel Geri Yükleme Noktası (${nowStr})`;
+    const finalDesc = quickPresetTitle
+      ? "Tek tıkla manuel olarak oluşturulan sistem ayarları geri yükleme noktası."
+      : newDescription.trim();
+
     setCreatingPoint(true);
     try {
       const res = await fetch(`/api/settings/restore-points`, {
         method: "POST",
         headers: getHeaders(),
         body: JSON.stringify({
-          title: newTitle.trim(),
-          description: newDescription.trim()
+          title: finalTitle,
+          description: finalDesc
         })
       });
       const data = await res.json();
       if (res.ok && data.status === "success") {
-        showToast("success", data.message || "Geri yükleme noktası oluşturuldu.");
+        showToast("success", data.message || "Manuel geri yükleme noktası başarıyla oluşturuldu.");
         setShowCreateModal(false);
         setNewTitle("");
         setNewDescription("");
@@ -404,6 +412,106 @@ export default function RestorePointsPanel({ backendHost = "localhost:8000" }) {
           <button onClick={() => setFeedback(null)} className="opacity-70 hover:opacity-100">
             <X size={14} />
           </button>
+        </div>
+      )}
+
+      {/* Manual Restore Point Creation Card (Inline & 1-Click) */}
+      {canWrite && (
+        <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className={`p-2 rounded-xl ${lightBg} ${lightText}`}>
+                <RotateCcw size={18} />
+              </div>
+              <div>
+                <h4 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Manuel Geri Yükleme Noktası Oluştur
+                </h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  AI Temsilci, Çağrı Akışı veya Santral ayarlarında değişiklik yapmadan önce mevcut durumu manuel olarak kaydedin.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              disabled={creatingPoint}
+              onClick={() =>
+                handleCreatePoint(
+                  null,
+                  `Hızlı Manuel Kayıt (${new Date().toLocaleString("tr-TR", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit"
+                  })})`
+                )
+              }
+              className="px-4 py-2 rounded-xl text-xs font-bold border border-emerald-200 dark:border-emerald-800/60 bg-emerald-50/80 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all flex items-center gap-2 shrink-0 self-start sm:self-center"
+            >
+              <Sparkles size={14} />
+              <span>{creatingPoint ? "Oluşturuluyor..." : "Tek Tıkla Anlık Kayıt Al"}</span>
+            </button>
+          </div>
+
+          <form onSubmit={(e) => handleCreatePoint(e, null)} className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+              <div className="md:col-span-5">
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Geri Yükleme Noktası Başlığı
+                </label>
+                <input
+                  type="text"
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  placeholder="Örn: Satış AI Temsilcisi Güncellemesi Öncesi"
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none"
+                />
+              </div>
+
+              <div className="md:col-span-5">
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Açıklama / Not (İsteğe Bağlı)
+                </label>
+                <input
+                  type="text"
+                  value={newDescription}
+                  onChange={(e) => setNewDescription(e.target.value)}
+                  placeholder="Yapacağınız işlem hakkında kısa bilgi..."
+                  className="w-full px-3.5 py-2.5 text-xs rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 text-slate-900 dark:text-white focus:outline-none"
+                />
+              </div>
+
+              <div className="md:col-span-2 flex items-end">
+                <button
+                  type="submit"
+                  disabled={creatingPoint}
+                  className={`w-full py-2.5 px-4 rounded-xl text-xs font-bold text-white shadow-sm transition-all flex items-center justify-center gap-1.5 ${bg} ${hover}`}
+                >
+                  <Plus size={15} />
+                  <span>{creatingPoint ? "Kaydediliyor..." : "Manuel Oluştur"}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Title Presets */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-1">
+              <span className="text-[11px] font-semibold text-slate-400 dark:text-slate-500 mr-1">
+                Hazır Başlıklar:
+              </span>
+              {QUICK_TITLE_PRESETS.map((preset) => (
+                <button
+                  key={preset}
+                  type="button"
+                  onClick={() => setNewTitle(preset)}
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                >
+                  + {preset}
+                </button>
+              ))}
+            </div>
+          </form>
         </div>
       )}
 
