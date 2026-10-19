@@ -51,7 +51,8 @@ import {
   Crown,
   ToggleRight,
   ToggleLeft,
-  Terminal
+  Terminal,
+  Upload
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
@@ -2407,29 +2408,113 @@ export default function Home() {
               <div className="space-y-4">
                 
                 {/* Avatar Selection */}
-                <div className={`space-y-2 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
-                  <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Profil Avatarı Seçin</label>
-                  <div className="grid grid-cols-6 gap-2">
+                <div className={`space-y-3 ${activeModalTab === "profile" ? "block" : "hidden"}`}>
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={agentAvatar}
+                        alt="Seçili Avatar"
+                        className="w-12 h-12 rounded-full object-cover border-2 border-white dark:border-slate-800 shadow-sm bg-white dark:bg-slate-900 shrink-0"
+                      />
+                      <div>
+                        <span className="text-[10px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider block">
+                          Profil Avatarı Seçin veya Yükleyin
+                        </span>
+                        <span className="text-[9px] text-slate-400 dark:text-slate-500">
+                          24 hazır avatardan seçin veya kendi görselinizi yükleyin
+                        </span>
+                      </div>
+                    </div>
+
+                    <label className={`cursor-pointer px-3 py-2 rounded-xl text-[10px] font-extrabold text-white uppercase tracking-wider shadow-sm transition-all flex items-center gap-1.5 shrink-0 ${bg} ${hover}`}>
+                      <Upload size={13} />
+                      <span>Avatar Yükle</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          if (file.size > 5 * 1024 * 1024) {
+                            showNotification("Avatar dosyası en fazla 5 MB olabilir.", "error", "Dosya Boyutu");
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = (ev) => {
+                            const dataUrl = ev.target?.result;
+                            if (typeof dataUrl === "string") {
+                              if (file.type === "image/svg+xml" || file.type === "image/gif") {
+                                setAgentAvatar(dataUrl);
+                              } else {
+                                const img = new Image();
+                                img.onload = () => {
+                                  const canvas = document.createElement("canvas");
+                                  const maxDim = 256;
+                                  let w = img.width;
+                                  let h = img.height;
+                                  if (w > h) {
+                                    if (w > maxDim) { h = Math.round((h * maxDim) / w); w = maxDim; }
+                                  } else {
+                                    if (h > maxDim) { w = Math.round((w * maxDim) / h); h = maxDim; }
+                                  }
+                                  canvas.width = w;
+                                  canvas.height = h;
+                                  const ctx = canvas.getContext("2d");
+                                  ctx.drawImage(img, 0, 0, w, h);
+                                  setAgentAvatar(canvas.toDataURL("image/webp", 0.9));
+                                };
+                                img.src = dataUrl;
+                              }
+                            }
+                          };
+                          reader.readAsDataURL(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  <div className="grid grid-cols-6 gap-2 max-h-44 overflow-y-auto p-1">
                     {[
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Aneka",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Can",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Sara",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Adrian",
                       "https://api.dicebear.com/7.x/avataaars/svg?seed=Jack",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Milo",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Sophie",
-                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Toby"
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Elif",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Zeynep",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Murat",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Selin",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Burak",
+                      "https://api.dicebear.com/7.x/avataaars/svg?seed=Deniz",
+                      "https://api.dicebear.com/7.x/adventurer/svg?seed=Emre",
+                      "https://api.dicebear.com/7.x/adventurer/svg?seed=Ayse",
+                      "https://api.dicebear.com/7.x/adventurer/svg?seed=Kaan",
+                      "https://api.dicebear.com/7.x/adventurer/svg?seed=Defne",
+                      "https://api.dicebear.com/7.x/lorelei/svg?seed=Merve",
+                      "https://api.dicebear.com/7.x/lorelei/svg?seed=Kerem",
+                      "https://api.dicebear.com/7.x/micah/svg?seed=Cem",
+                      "https://api.dicebear.com/7.x/micah/svg?seed=Ece",
+                      "https://api.dicebear.com/7.x/notionists/svg?seed=Bora",
+                      "https://api.dicebear.com/7.x/notionists/svg?seed=Pelin",
+                      "https://api.dicebear.com/7.x/bottts/svg?seed=AgentAlpha",
+                      "https://api.dicebear.com/7.x/bottts/svg?seed=AgentNova"
                     ].map((av, idx) => {
                       const isSelected = av === agentAvatar;
                       return (
                         <button
                           key={idx}
+                          type="button"
                           onClick={() => setAgentAvatar(av)}
-                          className={`p-0.5 rounded-xl border-2 transition-all hover:scale-105 focus:outline-none ${
+                          className={`p-0.5 rounded-xl border-2 transition-all hover:scale-105 focus:outline-none bg-slate-50 dark:bg-slate-950 ${
                             isSelected 
                               ? "border-violet-500 bg-violet-50 dark:bg-violet-950/20" 
                               : "border-transparent hover:border-slate-200 dark:hover:border-slate-800"
                           }`}
                         >
-                          <img src={av} alt="Avatar option" className="w-full h-full rounded-lg" />
+                          <img src={av} alt="Avatar option" className="w-full h-full rounded-lg object-contain aspect-square" />
                         </button>
                       );
                     })}

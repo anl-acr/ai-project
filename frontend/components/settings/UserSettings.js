@@ -16,12 +16,33 @@ const DEFAULT_TENANT_LIST = [
 ];
 
 const PRESET_AVATARS = [
+  // Klasik & Kurumsal Temsilciler (Avataaars)
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Anil",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Can",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Sara",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Adrian",
   "https://api.dicebear.com/7.x/avataaars/svg?seed=Jack",
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix"
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=Felix",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=Elif",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=Zeynep",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=Murat",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=Selin",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=Burak",
+  "https://api.dicebear.com/7.x/avataaars/svg?seed=Deniz",
+  // Modern İllüstrasyon (Adventurer & Lorelei)
+  "https://api.dicebear.com/7.x/adventurer/svg?seed=Emre",
+  "https://api.dicebear.com/7.x/adventurer/svg?seed=Ayse",
+  "https://api.dicebear.com/7.x/adventurer/svg?seed=Kaan",
+  "https://api.dicebear.com/7.x/adventurer/svg?seed=Defne",
+  "https://api.dicebear.com/7.x/lorelei/svg?seed=Merve",
+  "https://api.dicebear.com/7.x/lorelei/svg?seed=Kerem",
+  // Minimalist & Notion Tarzı / Robotik
+  "https://api.dicebear.com/7.x/micah/svg?seed=Cem",
+  "https://api.dicebear.com/7.x/micah/svg?seed=Ece",
+  "https://api.dicebear.com/7.x/notionists/svg?seed=Bora",
+  "https://api.dicebear.com/7.x/notionists/svg?seed=Pelin",
+  "https://api.dicebear.com/7.x/bottts/svg?seed=AgentAlpha",
+  "https://api.dicebear.com/7.x/bottts/svg?seed=AgentNova"
 ];
 
 const ANNOUNCEMENTS = [
@@ -1437,28 +1458,99 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
                         {/* TAB 4: AVATAR */}
                         {activeTab === "avatar" && (
-                            <div className="space-y-4 animate-in fade-in duration-300">
-                                <label className="block text-sm font-bold text-slate-800 dark:text-white mb-4">Profil Avatarı Seçin</label>
-                                <div className="grid grid-cols-3 sm:grid-cols-6 gap-4">
-                                    {PRESET_AVATARS.map((av) => (
-                                        <button
-                                            key={av}
-                                            type="button"
-                                            onClick={() => setAvatar(av)}
-                                            className={`aspect-square rounded-2xl border-2 transition-all p-2 bg-slate-50 dark:bg-slate-950 ${
-                                            avatar === av
-                                                ? (border + " shadow-md scale-105")
-                                                : "border-transparent hover:border-slate-200 dark:hover:border-slate-800"
-                                            }`}
-                                        >
-                                            <img src={av} alt="Avatar" className="w-full h-full object-contain" />
-                                        </button>
-                                    ))}
+                            <div className="space-y-5 animate-in fade-in duration-300">
+                                {/* Custom Upload & Current Preview Card */}
+                                <div className="p-5 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-5">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-20 h-20 rounded-full border-4 border-white dark:border-slate-800 shadow-lg bg-white dark:bg-slate-950 overflow-hidden shrink-0">
+                                            <img src={avatar} alt="Seçili Avatar" className="w-full h-full object-cover" />
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
+                                                Aktif Profil Görseli
+                                            </span>
+                                            <h5 className="text-sm font-bold text-slate-800 dark:text-white mt-0.5">
+                                                Kendi Avatarınızı Yükleyin veya Hazır Seçin
+                                            </h5>
+                                            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                                Bilgisayarınızdan PNG, JPG, WEBP, GIF veya SVG formatında görsel yükleyebilirsiniz.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="flex flex-col sm:items-end gap-2 shrink-0 w-full sm:w-auto">
+                                        <label className={`cursor-pointer px-4 py-2.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all flex items-center justify-center gap-2 ${bg} ${hover}`}>
+                                            <Upload size={15} />
+                                            <span>Bilgisayardan Avatar Yükle</span>
+                                            <input
+                                                type="file"
+                                                accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml"
+                                                className="hidden"
+                                                onChange={(e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (!file) return;
+                                                    if (file.size > 5 * 1024 * 1024) {
+                                                        setError("Avatar dosyası en fazla 5 MB olabilir.");
+                                                        return;
+                                                    }
+                                                    const reader = new FileReader();
+                                                    reader.onload = (ev) => {
+                                                        const dataUrl = ev.target?.result;
+                                                        if (typeof dataUrl === "string") {
+                                                            if (file.type === "image/svg+xml" || file.type === "image/gif") {
+                                                                setAvatar(dataUrl);
+                                                            } else {
+                                                                const img = new Image();
+                                                                img.onload = () => {
+                                                                    const canvas = document.createElement("canvas");
+                                                                    const maxDim = 256;
+                                                                    let w = img.width;
+                                                                    let h = img.height;
+                                                                    if (w > h) {
+                                                                        if (w > maxDim) { h = Math.round((h * maxDim) / w); w = maxDim; }
+                                                                    } else {
+                                                                        if (h > maxDim) { w = Math.round((w * maxDim) / h); h = maxDim; }
+                                                                    }
+                                                                    canvas.width = w;
+                                                                    canvas.height = h;
+                                                                    const ctx = canvas.getContext("2d");
+                                                                    ctx.drawImage(img, 0, 0, w, h);
+                                                                    setAvatar(canvas.toDataURL("image/webp", 0.9));
+                                                                };
+                                                                img.src = dataUrl;
+                                                            }
+                                                        }
+                                                    };
+                                                    reader.readAsDataURL(file);
+                                                    e.target.value = "";
+                                                }}
+                                            />
+                                        </label>
+                                    </div>
                                 </div>
-                                <div className="mt-8 flex flex-col items-center justify-center p-6 bg-slate-50 dark:bg-slate-900/50 rounded-2xl border border-slate-100 dark:border-slate-800">
-                                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Seçili Görünüm</span>
-                                    <div className="w-24 h-24 rounded-full border-4 border-white dark:border-slate-800 shadow-lg bg-slate-100 dark:bg-slate-950 overflow-hidden">
-                                        <img src={avatar} alt="Seçili Avatar" className="w-full h-full object-cover" />
+
+                                {/* Preset Avatars Grid */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+                                            Hazır Avatar Koleksiyonu ({PRESET_AVATARS.length} Seçenek)
+                                        </label>
+                                    </div>
+                                    <div className="grid grid-cols-4 sm:grid-cols-6 gap-3 max-h-[320px] overflow-y-auto p-1">
+                                        {PRESET_AVATARS.map((av) => (
+                                            <button
+                                                key={av}
+                                                type="button"
+                                                onClick={() => setAvatar(av)}
+                                                className={`aspect-square rounded-2xl border-2 transition-all p-2 bg-slate-50 dark:bg-slate-950 ${
+                                                avatar === av
+                                                    ? (border + " shadow-md scale-105")
+                                                    : "border-transparent hover:border-slate-200 dark:hover:border-slate-800"
+                                                }`}
+                                            >
+                                                <img src={av} alt="Avatar" className="w-full h-full object-contain" />
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             </div>

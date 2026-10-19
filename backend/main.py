@@ -10718,7 +10718,38 @@ async def on_startup_restore_points_worker():
         print(f"[RestorePoints Startup Error]: {e}")
 
 
+# ==============================================================================
+# USER CUSTOM AVATAR UPLOAD ENDPOINT
+# ==============================================================================
+os.makedirs("uploads/avatars", exist_ok=True)
+
+@app.post("/api/settings/users/upload-avatar")
+@app.post("/settings/users/upload-avatar")
+async def upload_user_avatar_endpoint(file: UploadFile = File(...), user_info: dict = Depends(get_user_info)):
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="Lütfen geçerli bir görsel dosyası seçiniz.")
+    ext = os.path.splitext(file.filename)[1].lower()
+    if ext not in [".png", ".jpg", ".jpeg", ".webp", ".gif", ".svg"]:
+        raise HTTPException(status_code=400, detail="Sadece PNG, JPG, WEBP, GIF veya SVG formatında görseller yüklenebilir.")
+    contents = await file.read()
+    if len(contents) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Avatar dosya boyutu en fazla 5 MB olabilir.")
+
+    safe_name = f"avatar_{int(datetime.datetime.utcnow().timestamp())}_{uuid.uuid4().hex[:8]}{ext}"
+    save_path = os.path.join("uploads", "avatars", safe_name)
+    with open(save_path, "wb") as f:
+        f.write(contents)
+
+    avatar_url = f"/api/uploads/avatars/{safe_name}"
+    return {
+        "status": "success",
+        "avatar_url": avatar_url,
+        "message": "Özel avatar görseli başarıyla yüklendi."
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)
+
 
