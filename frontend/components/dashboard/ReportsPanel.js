@@ -339,6 +339,43 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [savedRows, setSavedRows] = useState({});
   const [roiHumanCost, setRoiHumanCost] = useState(30000);
   const [roiHumanCount, setRoiHumanCount] = useState(5);
+  const [timelineReport, setTimelineReport] = useState(null);
+  const [timelineDate, setTimelineDate] = useState(getTodayDateString());
+  const [selectedTimelineAgent, setSelectedTimelineAgent] = useState("All");
+  const [showSimulatedTimeline, setShowSimulatedTimeline] = useState(true);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+
+  const fetchAgentTimeline = async (targetDate = timelineDate, showSpin = false) => {
+    if (showSpin) setTimelineLoading(true);
+    try {
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+      const params = new URLSearchParams();
+      params.append("tenant_id", activeTenantId);
+      if (targetDate) params.append("date", targetDate);
+      const res = await fetch(`${protocol}//${backendHost}/api/reports/agent-timeline?${params.toString()}`, {
+        headers: { "X-Tenant-ID": activeTenantId }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTimelineReport(data);
+      }
+    } catch (err) {
+      console.error("[Timeline] Veriler yüklenemedi:", err);
+    } finally {
+      if (showSpin) setTimelineLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (viewMode === "timeline") {
+      fetchAgentTimeline(timelineDate, true);
+      const tlInterval = setInterval(() => {
+        fetchAgentTimeline(timelineDate, false);
+      }, 5000);
+      return () => clearInterval(tlInterval);
+    }
+  }, [viewMode, timelineDate, backendHost]);
 
   const columnLabels = {
     startTime: "Tarih / Saat",
@@ -400,9 +437,49 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const handleExportExcel = () => {
-    // Generate CSV content with UTF-8 BOM
     let csvContent = "\uFEFF";
-    
+
+    if (viewMode === "timeline" && timelineReport?.agents) {
+      const headers = [
+        "Tarih",
+        "Saat",
+        "Temsilci",
+        "Dahili",
+        "Kronolojik Hareket",
+        "Detay / Numara / Mola",
+        "Süre",
+        "Toplam Verimlilik (%)"
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      timelineReport.agents.forEach((ag) => {
+        (ag.events || []).forEach((ev) => {
+          const row = [
+            timelineDate,
+            ev.time,
+            ag.agent_name,
+            ag.extension,
+            ev.description || ev.title,
+            ev.detail || "",
+            ev.duration_label || "-",
+            `%${ag.efficiency_pct}`
+          ];
+          const escapedRow = row.map(val => `"${String(val || "").replace(/"/g, '""')}"`);
+          csvContent += escapedRow.join(";") + "\n";
+        });
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `temsilci_kronolojisi_${timelineDate}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -455,7 +532,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     link.click();
     document.body.removeChild(link);
   };
-
 
 
   // Fetch calls on mount and poll in the background silently every 3 seconds to get automatic call updates
@@ -2328,7 +2404,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
               </div>
-            ) : (filteredCalls.length === 0 && !isPanoMode) ? (
+            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
                 Kayıt bulunamadı.
               </div>
@@ -3628,143 +3704,640 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 })()}
               </div>
             ) : isTimelineMode ? (
-              /* Agent Timeline Mode */
-              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+              /* Agent Status Timeline (Temsilci Kronolojisi) Mode */
+              <div className="p-5 flex flex-col gap-6 h-full overflow-y-auto scrollbar-thin">
                 {(() => {
-                  const uniqueAgents = Array.from(new Set(filteredCalls.map(c => c.conversant).filter(Boolean)));
-                  if (uniqueAgents.length === 0) uniqueAgents.push("Yapay Zeka (AI)", "Canlı Destek 1");
-                  
-                  const agentTimelineData = uniqueAgents.map((agent, idx) => {
-                    const seed = agent.charCodeAt(0) + idx;
-                    const loginHour = 7 + (seed % 3); // Login between 07:00 - 09:00
-                    const logoutHour = 16 + (seed % 4); // Logout between 16:00 - 19:00
-                    const break1StartHour = loginHour + 2 + (seed % 2); // First break
-                    const break2StartHour = break1StartHour + 3 + (seed % 2); // Second break
-                    
+                  const buildFallbackEventsForAgent = (agName, agExt, idx) => {
+                    const seed = (agName || "A").charCodeAt(0) + idx;
+                    const phone1 = `0532 ${410 + (seed % 80)} ${10 + (seed % 80)} ${20 + (seed % 70)}`;
+                    const phone2 = `0544 ${320 + (seed % 60)} ${30 + (seed % 60)} ${15 + (seed % 75)}`;
+                    const phone3 = `0533 ${610 + (seed % 70)} ${22 + (seed % 65)} ${11 + (seed % 80)}`;
+                    const phone4 = `0505 ${215 + (seed % 75)} ${44 + (seed % 50)} ${33 + (seed % 60)}`;
+                    const break1Name = seed % 2 === 0 ? "İhtiyaç Molası" : "Çay / Kahve Molası";
+
+                    const demoEvents = [
+                      {
+                        time: "09:00",
+                        type: "login",
+                        title: "Login oldu",
+                        description: "09:00 Login oldu.",
+                        detail: `Dahili ${agExt || "100" + idx} sisteme giriş yaptı`,
+                        duration_label: "-"
+                      },
+                      {
+                        time: "09:15",
+                        type: "call_inbound",
+                        phone: phone1,
+                        title: `${phone1} numarasından çağrı aldı`,
+                        description: `09:15 ${phone1} numarasından çağrı aldı.`,
+                        detail: `Gelen Çağrı: ${phone1}`,
+                        duration_label: "4 dk 20 sn"
+                      },
+                      {
+                        time: "10:15",
+                        type: "break_start",
+                        break_name: break1Name,
+                        title: `Molaya çıktı (${break1Name})`,
+                        description: `10:15 Molaya çıktı (${break1Name})`,
+                        detail: break1Name,
+                        duration_label: "15 dk"
+                      },
+                      {
+                        time: "10:30",
+                        type: "break_end",
+                        break_name: break1Name,
+                        title: `Moladan döndü (${break1Name})`,
+                        description: `10:30 moladan döndü (${break1Name})`,
+                        detail: `${break1Name} tamamlandı`,
+                        duration_label: "15 dk"
+                      },
+                      {
+                        time: "10:40",
+                        type: "call_outbound",
+                        phone: phone2,
+                        title: `Çağrıda (${phone2})`,
+                        description: `10:40 Çağrıda (${phone2})`,
+                        detail: `Aktif Görüşme: ${phone2}`,
+                        duration_label: "6 dk 15 sn"
+                      },
+                      {
+                        time: "12:00",
+                        type: "break_start",
+                        break_name: "Yemek Molası",
+                        title: "Yemek (Yemek Molası)",
+                        description: "12:00 Yemek (Yemek Molası)",
+                        detail: "Yemek Molası başlangıcı",
+                        duration_label: "45 dk"
+                      },
+                      {
+                        time: "12:45",
+                        type: "break_end",
+                        break_name: "Yemek Molası",
+                        title: "Moladan döndü (Yemek Molası)",
+                        description: "12:45 moladan döndü (Yemek Molası)",
+                        detail: "Yemek Molası tamamlandı",
+                        duration_label: "45 dk"
+                      },
+                      {
+                        time: "13:15",
+                        type: "call_missed",
+                        phone: phone3,
+                        title: `${phone3} numarasından çağrı geldi ama açmadı`,
+                        description: `13:15'de ${phone3} numarasından çağrı geldi ama açmadı.`,
+                        detail: `Cevapsız Çağrı: ${phone3}`,
+                        duration_label: "Açılmadı"
+                      },
+                      {
+                        time: "14:20",
+                        type: "call_inbound",
+                        phone: phone4,
+                        title: `${phone4} numarasından çağrı aldı`,
+                        description: `14:20 ${phone4} numarasından çağrı aldı.`,
+                        detail: `Gelen Çağrı: ${phone4}`,
+                        duration_label: "5 dk 10 sn"
+                      },
+                      {
+                        time: "18:00",
+                        type: "logout",
+                        title: "Logout oldu",
+                        description: "18:00 Çıkış yaptı (Logout).",
+                        detail: `Dahili ${agExt || "100" + idx} oturumu kapattı`,
+                        duration_label: "-"
+                      }
+                    ];
+
+                    const effScore = Math.min(96, Math.max(78, 86.5 + ((idx * 3.2) % 8) - 2));
+                    return {
+                      events: demoEvents,
+                      efficiency_pct: Number(effScore.toFixed(1)),
+                      availability_pct: 88.9,
+                      answer_rate_pct: 75.0,
+                      total_online_label: "9 sa 0 dk",
+                      total_talk_label: "15 dk 45 sn",
+                      total_break_label: "1 sa 0 dk",
+                      answered_count: 3,
+                      outbound_count: 1,
+                      missed_count: 1,
+                      is_simulated: true
+                    };
+                  };
+
+                  // Combine backend agents list or fallback to users state
+                  const rawAgents = (timelineReport?.agents && timelineReport.agents.length > 0)
+                    ? timelineReport.agents
+                    : (users && users.length > 0
+                        ? users.map(u => ({
+                            agent_id: String(u.id),
+                            agent_name: u.full_name || u.name || `Dahili ${u.extension}`,
+                            extension: String(u.extension || ""),
+                            avatar: u.avatar || "",
+                            is_online: false,
+                            has_real_activity: false,
+                            events: []
+                          }))
+                        : [
+                            { agent_id: "1000", agent_name: "Ahmet Yılmaz", extension: "1000", avatar: "", is_online: true, has_real_activity: false, events: [] },
+                            { agent_id: "1001", agent_name: "Merve Kaya", extension: "1001", avatar: "", is_online: true, has_real_activity: false, events: [] }
+                          ]);
+
+                  const preparedAgents = rawAgents
+                    .map((ag, idx) => {
+                      if (ag.events && ag.events.length > 0) {
+                        return { ...ag, is_simulated: false };
+                      }
+                      if (showSimulatedTimeline) {
+                        const sim = buildFallbackEventsForAgent(ag.agent_name, ag.extension, idx);
+                        return {
+                          ...ag,
+                          ...sim
+                        };
+                      }
+                      return {
+                        ...ag,
+                        events: [],
+                        efficiency_pct: 0,
+                        availability_pct: 0,
+                        answer_rate_pct: 0,
+                        total_online_label: "0 dk",
+                        total_talk_label: "0 dk",
+                        total_break_label: "0 dk",
+                        answered_count: 0,
+                        outbound_count: 0,
+                        missed_count: 0,
+                        is_simulated: false
+                      };
+                    })
+                    .filter((ag) => {
+                      if (selectedTimelineAgent !== "All" && ag.agent_name !== selectedTimelineAgent && ag.extension !== selectedTimelineAgent && ag.agent_id !== selectedTimelineAgent) {
+                        return false;
+                      }
+                      if (filterAgentsSelected.length > 0 && !filterAgentsSelected.includes(ag.agent_name)) {
+                        return false;
+                      }
+                      return true;
+                    });
+
+                  const activeAgentsForAvg = preparedAgents.filter(a => (a.events || []).length > 0);
+                  const avgEfficiency = activeAgentsForAvg.length > 0
+                    ? (activeAgentsForAvg.reduce((acc, cur) => acc + (Number(cur.efficiency_pct) || 0), 0) / activeAgentsForAvg.length).toFixed(1)
+                    : "0.0";
+                  const totalAnsweredAll = preparedAgents.reduce((acc, cur) => acc + (Number(cur.answered_count) || 0), 0);
+                  const totalMissedAll = preparedAgents.reduce((acc, cur) => acc + (Number(cur.missed_count) || 0), 0);
+                  const totalBreakEventsAll = preparedAgents.reduce(
+                    (acc, cur) => acc + (cur.events || []).filter(e => e.type === "break_start").length,
+                    0
+                  );
+
+                  const getEventStyle = (type) => {
+                    switch (type) {
+                      case "login":
+                        return {
+                          badge: "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60",
+                          dot: "bg-emerald-500",
+                          tag: "LOGIN"
+                        };
+                      case "call_inbound":
+                        return {
+                          badge: "bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60",
+                          dot: "bg-blue-500",
+                          tag: "GELEN ÇAĞRI"
+                        };
+                      case "call_outbound":
+                        return {
+                          badge: "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60",
+                          dot: "bg-indigo-500",
+                          tag: "ÇAĞRIDA"
+                        };
+                      case "break_start":
+                        return {
+                          badge: "bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60",
+                          dot: "bg-amber-500",
+                          tag: "MOLAYA ÇIKTI"
+                        };
+                      case "break_end":
+                        return {
+                          badge: "bg-teal-50 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 border-teal-200 dark:border-teal-800/60",
+                          dot: "bg-teal-500",
+                          tag: "MOLADAN DÖNDÜ"
+                        };
+                      case "call_missed":
+                      case "call_missed_outbound":
+                        return {
+                          badge: "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60",
+                          dot: "bg-rose-500",
+                          tag: "AÇILMADI / CEVAPSIZ"
+                        };
+                      case "logout":
+                        return {
+                          badge: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700",
+                          dot: "bg-slate-500",
+                          tag: "LOGOUT"
+                        };
+                      default:
+                        return {
+                          badge: "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
+                          dot: "bg-slate-400",
+                          tag: "HAREKET"
+                        };
+                    }
+                  };
+
+                  const build24hBlocks = (events) => {
+                    if (!events || events.length === 0) {
+                      return [{ type: "offline", width: "100%", label: "Çevrimdışı" }];
+                    }
+                    const parseHour = (tStr) => {
+                      if (!tStr || !tStr.includes(":")) return 9;
+                      const [hh, mm] = tStr.split(":").map(Number);
+                      return (hh || 0) + (mm || 0) / 60;
+                    };
                     const blocks = [];
-                    const logs = [];
-                    
-                    // 00:00 to Login (Offline)
-                    blocks.push({ type: "offline", width: `${(loginHour/24)*100}%` });
-                    
-                    // Login
-                    logs.push({ time: `${String(loginHour).padStart(2, '0')}:00`, agent, status: "Giriş Yaptı (Login)", duration: "-", color: "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100" });
-                    
-                    // Login to Break 1
-                    const ready1Duration = break1StartHour - loginHour;
-                    blocks.push({ type: seed % 2 === 0 ? "call" : "ready", width: `${(ready1Duration/24)*100}%` });
-                    
-                    // Break 1
-                    logs.push({ time: `${String(break1StartHour).padStart(2, '0')}:00 - ${String(break1StartHour).padStart(2, '0')}:15`, agent, status: "Molaya Çıktı", duration: "15 dk", color: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100" });
-                    blocks.push({ type: "break", width: `${(0.25/24)*100}%` }); // 15 mins
-                    
-                    // Break 1 to Break 2
-                    const ready2Duration = break2StartHour - (break1StartHour + 0.25);
-                    blocks.push({ type: "call", width: `${(ready2Duration/24)*100}%` });
-                    
-                    // Break 2
-                    logs.push({ time: `${String(break2StartHour).padStart(2, '0')}:00 - ${String(break2StartHour).padStart(2, '0')}:30`, agent, status: "Molaya Çıktı (Yemek)", duration: "30 dk", color: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100" });
-                    blocks.push({ type: "break", width: `${(0.5/24)*100}%` }); // 30 mins
-                    
-                    // Break 2 to Logout
-                    const ready3Duration = logoutHour - (break2StartHour + 0.5);
-                    blocks.push({ type: "ready", width: `${(ready3Duration/24)*100}%` });
-                    
-                    // Logout
-                    logs.push({ time: `${String(logoutHour).padStart(2, '0')}:00`, agent, status: "Çıkış Yaptı (Logout)", duration: "-", color: "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700" });
-                    
-                    // Logout to 24:00 (Offline)
-                    blocks.push({ type: "offline", width: `${((24 - logoutHour)/24)*100}%` });
-                    
-                    return { agent, blocks, logs };
-                  });
-                  
-                  const allLogs = agentTimelineData.flatMap(data => data.logs);
-                  
+                    let cursor = 0;
+                    const firstEvHr = Math.max(0, Math.min(23, parseHour(events[0]?.time || "09:00")));
+                    if (firstEvHr > 0) {
+                      blocks.push({ type: "offline", width: `${(firstEvHr / 24) * 100}%`, label: `00:00 - ${events[0]?.time} Çevrimdışı` });
+                      cursor = firstEvHr;
+                    }
+                    events.forEach((ev, i) => {
+                      const evHr = Math.max(cursor, Math.min(23.8, parseHour(ev.time)));
+                      if (evHr > cursor) {
+                        blocks.push({
+                          type: "ready",
+                          width: `${((evHr - cursor) / 24) * 100}%`,
+                          label: "Hazır / Müsait"
+                        });
+                        cursor = evHr;
+                      }
+                      let segDurHours = 0.18;
+                      if (ev.type === "break_start") segDurHours = ev.break_name?.toLowerCase().includes("yemek") ? 0.75 : 0.25;
+                      else if (ev.type === "call_inbound" || ev.type === "call_outbound") segDurHours = 0.2;
+                      else if (ev.type === "call_missed") segDurHours = 0.08;
+                      else if (ev.type === "login" || ev.type === "logout" || ev.type === "break_end") segDurHours = 0.05;
+
+                      const nextEvHr = events[i + 1] ? parseHour(events[i + 1].time) : 24;
+                      const actualSeg = Math.max(0.05, Math.min(segDurHours, Math.max(0.05, nextEvHr - cursor)));
+                      if (cursor + actualSeg <= 24) {
+                        blocks.push({
+                          type: ev.type,
+                          width: `${(actualSeg / 24) * 100}%`,
+                          label: `${ev.time} - ${ev.description || ev.title}`
+                        });
+                        cursor += actualSeg;
+                      }
+                    });
+                    if (cursor < 24) {
+                      const hasLogout = events.some(e => e.type === "logout");
+                      blocks.push({
+                        type: hasLogout ? "offline" : "ready",
+                        width: `${((24 - cursor) / 24) * 100}%`,
+                        label: hasLogout ? "Çevrimdışı" : "Hazır / Müsait"
+                      });
+                    }
+                    return blocks;
+                  };
+
                   return (
                     <>
-                      <div className={"w-full rounded-2xl p-6 border " + borderLight + " " + lightBg}>
-                        <div className="flex flex-col md:flex-row md:items-center justify-between mb-6 gap-4">
-                          <div>
-                            <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Temsilci Günlük Kronolojisi</h4>
-                            <p className="text-xs text-slate-500 mt-1">Temsilcilerin Mola, Hazır, Çağrıda ve Çevrimdışı durum değişimleri (24 Saat)</p>
+                      {/* Filter & Action Toolbar */}
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                        <div className="flex flex-wrap items-center gap-3">
+                          <div className="flex items-center gap-2">
+                            <CalendarIcon size={15} className={text} />
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Tarih:</span>
+                            <input
+                              type="date"
+                              value={timelineDate}
+                              onChange={(e) => setTimelineDate(e.target.value)}
+                              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none"
+                            />
+                            <button
+                              onClick={() => setTimelineDate(getTodayDateString())}
+                              className={"px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer " + lightBg + " " + text + " " + borderLight}
+                            >
+                              Bugün
+                            </button>
                           </div>
-                          <div className="flex items-center flex-wrap gap-4 text-xs font-semibold text-slate-500">
-                            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-slate-200 dark:bg-slate-700"></div> Çevrimdışı</div>
-                            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-amber-500"></div> Mola</div>
-                            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-emerald-500"></div> Hazır (Boşta)</div>
-                            <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-blue-500"></div> Çağrıda</div>
+
+                          <div className="h-5 w-[1px] bg-slate-200 dark:bg-slate-800 hidden sm:block" />
+
+                          <div className="flex items-center gap-2">
+                            <Users size={15} className={text} />
+                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Temsilci:</span>
+                            <select
+                              value={selectedTimelineAgent}
+                              onChange={(e) => setSelectedTimelineAgent(e.target.value)}
+                              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none"
+                            >
+                              <option value="All">Tüm Temsilciler ({rawAgents.length})</option>
+                              {rawAgents.map((ag) => (
+                                <option key={ag.agent_id || ag.extension} value={ag.agent_name}>
+                                  {ag.agent_name} (Dahili: {ag.extension})
+                                </option>
+                              ))}
+                            </select>
                           </div>
                         </div>
-                        
-                        <div className="flex flex-col gap-6">
-                          {/* Timeline Grid Header (24 Hours) */}
-                          <div className="flex items-center w-full">
-                            <div className="w-48 shrink-0"></div>
-                            <div className="flex-1 flex justify-between text-[10px] font-bold text-slate-400 px-2 relative">
-                              {Array.from({length: 13}).map((_, i) => (
-                                <span key={i}>{String(i*2).padStart(2, '0')}:00</span>
-                              ))}
-                            </div>
-                          </div>
-                          
-                          {/* Timeline Rows */}
-                          {agentTimelineData.map((data, idx) => (
-                            <div key={idx} className="flex items-center w-full gap-4 group">
-                              <div className="w-44 shrink-0 truncate text-sm font-semibold text-slate-700 dark:text-slate-300 group-hover:text-primary transition-colors cursor-pointer" title={data.agent}>
-                                {data.agent}
-                              </div>
-                              <div className="flex-1 h-8 bg-slate-100 dark:bg-slate-800/50 rounded-lg overflow-hidden flex shadow-inner border border-slate-200/50 dark:border-slate-700/50">
-                                {data.blocks.map((b, bIdx) => {
-                                  let bgColor = "bg-slate-200 dark:bg-slate-700";
-                                  if (b.type === "break") bgColor = "bg-amber-500 hover:bg-amber-400";
-                                  if (b.type === "ready") bgColor = "bg-emerald-500 hover:bg-emerald-400";
-                                  if (b.type === "call") bgColor = "bg-blue-500 hover:bg-blue-400";
-                                  
-                                  const titleStr = b.type === "break" ? "Mola" : b.type === "ready" ? "Hazır (Boşta)" : b.type === "call" ? "Çağrıda" : "Çevrimdışı";
-                                  
-                                  return (
-                                    <div 
-                                      key={bIdx} 
-                                      style={{ width: b.width }} 
-                                      className={`${bgColor} h-full transition-colors border-r border-white/20 dark:border-slate-900/20 last:border-r-0 cursor-pointer`}
-                                      title={`${titleStr} (${b.width})`}
-                                    />
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          ))}
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setShowSimulatedTimeline(!showSimulatedTimeline)}
+                            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                              showSimulatedTimeline
+                                ? `${lightBg} ${text} ${borderLight}`
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                            }`}
+                            title="Aktivitesi olmayan temsilciler için örnek gün içi akışı göster/gizle"
+                          >
+                            {showSimulatedTimeline ? "Örnek Akış: Açık" : "Sadece Canlı Kayıtlar"}
+                          </button>
+                          <button
+                            onClick={() => fetchAgentTimeline(timelineDate, true)}
+                            className={"flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white shadow-sm transition cursor-pointer " + bg + " " + hover}
+                          >
+                            <RefreshCw size={12} className={timelineLoading ? "animate-spin" : ""} />
+                            <span>Yenile</span>
+                          </button>
                         </div>
                       </div>
-                      
-                      {/* Timeline Events Log */}
-                      <h4 className="text-sm font-bold uppercase tracking-wider mt-2 text-slate-700 dark:text-slate-300">Özet Durum Logları</h4>
-                      <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 max-h-[400px]">
-                        <table className="w-full text-left border-collapse">
-                          <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 z-10 shadow-sm">
-                            <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Saat Aralığı</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Durum / İşlem</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Süre</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {allLogs.map((log, idx) => (
-                              <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                <td className="p-4 font-semibold text-slate-600 dark:text-slate-400">{log.time}</td>
-                                <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{log.agent}</td>
-                                <td className="p-4 text-center">
-                                  <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${log.color}`}>
-                                    {log.status}
+
+                      {/* Top KPI Summary Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className={"rounded-2xl p-5 border flex flex-col justify-between gap-2 " + borderLight + " " + lightBg}>
+                          <div className="flex items-center justify-between">
+                            <span className={"text-[11px] font-extrabold uppercase tracking-wider " + text}>Toplam Verimlilik Yüzdesi</span>
+                            <TrendingUp size={18} className="text-emerald-500" />
+                          </div>
+                          <div className="flex items-baseline gap-2">
+                            <h4 className="text-3xl font-black text-emerald-600 dark:text-emerald-400">%{avgEfficiency}</h4>
+                            <span className="text-[11px] font-bold text-slate-500">Ortalama Skor</span>
+                          </div>
+                          <div className="w-full h-2 bg-slate-200/70 dark:bg-slate-800 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-emerald-500 rounded-full transition-all duration-500"
+                              style={{ width: `${Math.min(100, Math.max(0, Number(avgEfficiency)))}%` }}
+                            />
+                          </div>
+                          <p className="text-[10px] font-semibold text-slate-500">Aktif mesai süresi, mola disiplini ve çağrı karşılama oranı</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-2 shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Cevaplanan / Aktif Çağrı</span>
+                            <Phone size={18} className="text-blue-500" />
+                          </div>
+                          <div className="flex items-baseline gap-2">
+                            <h4 className="text-3xl font-black text-blue-600 dark:text-blue-400">{totalAnsweredAll}</h4>
+                            <span className="text-xs font-bold text-slate-400">Görüşme</span>
+                          </div>
+                          <p className="text-[10px] font-semibold text-slate-500">Gün içinde temsilcilerin yanıtladığı ve yaptığı aramalar</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-2 shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Mola Hareketleri</span>
+                            <PauseCircle size={18} className="text-amber-500" />
+                          </div>
+                          <div className="flex items-baseline gap-2">
+                            <h4 className="text-3xl font-black text-amber-500">{totalBreakEventsAll}</h4>
+                            <span className="text-xs font-bold text-slate-400">Mola Çıkışı</span>
+                          </div>
+                          <p className="text-[10px] font-semibold text-slate-500">Yemek, ihtiyaç ve kısa mola başlangıç/dönüş kayıtları</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-2 shadow-sm">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Açılmayan (Cevapsız) Çağrı</span>
+                            <PhoneMissed size={18} className="text-rose-500" />
+                          </div>
+                          <div className="flex items-baseline gap-2">
+                            <h4 className="text-3xl font-black text-rose-500">{totalMissedAll}</h4>
+                            <span className="text-xs font-bold text-slate-400">Cevapsız</span>
+                          </div>
+                          <p className="text-[10px] font-semibold text-slate-500">Temsilciye gelip açılmayan / yanıtsız kalan aramalar</p>
+                        </div>
+                      </div>
+
+                      {/* Per-Agent Chronological Timeline Cards */}
+                      <div className="flex flex-col gap-6">
+                        {preparedAgents.map((ag, agIdx) => {
+                          const events = ag.events || [];
+                          const eff = Number(ag.efficiency_pct || 0);
+                          const effColor = eff >= 80
+                            ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60"
+                            : eff >= 60
+                            ? "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60"
+                            : "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/60";
+                          const barBlocks = build24hBlocks(events);
+
+                          const inlineSummaryChain = events
+                            .map((ev) => ev.description || `${ev.time} ${ev.title}`)
+                            .join(" → ");
+
+                          return (
+                            <div
+                              key={ag.agent_id || agIdx}
+                              className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col gap-5"
+                            >
+                              {/* Agent Top Row */}
+                              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+                                <div className="flex items-center gap-3.5">
+                                  <div className={"h-12 w-12 rounded-2xl flex items-center justify-center font-black text-base text-white shadow-sm shrink-0 " + bg}>
+                                    {(ag.agent_name || "T").slice(0, 2).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <h4 className="text-base font-black text-slate-900 dark:text-white">{ag.agent_name}</h4>
+                                      <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                        Dahili: {ag.extension}
+                                      </span>
+                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                        ag.is_online
+                                          ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50"
+                                          : "bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700"
+                                      }`}>
+                                        <span className={`w-1.5 h-1.5 rounded-full ${ag.is_online ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
+                                        {ag.is_online ? "Çevrimiçi" : "Çevrimdışı"}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                      <span>Mesai/Online: <strong className="text-slate-800 dark:text-slate-200">{ag.total_online_label}</strong></span>
+                                      <span>•</span>
+                                      <span>Çağrıda: <strong className="text-blue-600 dark:text-blue-400">{ag.total_talk_label}</strong></span>
+                                      <span>•</span>
+                                      <span>Mola: <strong className="text-amber-600 dark:text-amber-400">{ag.total_break_label}</strong></span>
+                                      <span>•</span>
+                                      <span>Cevaplanan: <strong className="text-emerald-600 dark:text-emerald-400">{ag.answered_count}</strong></span>
+                                      <span>•</span>
+                                      <span>Açılmayan: <strong className="text-rose-600 dark:text-rose-400">{ag.missed_count}</strong></span>
+                                    </div>
+                                  </div>
+                                </div>
+
+                                {/* Productivity Score Box */}
+                                <div className={`px-4 py-3 rounded-2xl border flex items-center gap-4 shrink-0 ${effColor}`}>
+                                  <div>
+                                    <span className="text-[10px] font-extrabold uppercase tracking-wider block opacity-80">
+                                      Toplam Verimlilik Yüzdesi
+                                    </span>
+                                    <div className="flex items-baseline gap-2 mt-0.5">
+                                      <span className="text-2xl font-black">%{eff}</span>
+                                      <span className="text-[10px] font-bold opacity-75">
+                                        (Aktiflik: %{ag.availability_pct || 0} | Karşılama: %{ag.answer_rate_pct || 0})
+                                      </span>
+                                    </div>
+                                  </div>
+                                  <Award size={26} className="shrink-0 opacity-80" />
+                                </div>
+                              </div>
+
+                              {/* Single-Line Chronological Summary Sentence (Örn: 09:00 Login oldu -> 09:15 ...) */}
+                              {events.length > 0 && (
+                                <div className={"p-3.5 rounded-2xl border text-xs leading-relaxed font-semibold " + borderLight + " " + lightBg}>
+                                  <span className={"text-[10px] font-extrabold uppercase tracking-wider block mb-1 " + text}>
+                                    Gün İçi Kronolojik Hareket Özeti:
                                   </span>
-                                </td>
-                                <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{log.duration}</td>
+                                  <p className="text-slate-700 dark:text-slate-200 break-words">
+                                    {inlineSummaryChain}
+                                  </p>
+                                </div>
+                              )}
+
+                              {/* Step-by-Step Visual Chronological Flow Cards */}
+                              <div>
+                                <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
+                                  Adım Adım Temsilci Zaman Çizelgesi ({events.length} Hareket)
+                                </h5>
+                                {events.length === 0 ? (
+                                  <div className="text-xs font-semibold text-slate-400 py-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
+                                    Seçilen tarihte bu temsilci için kaydedilmiş hareket bulunmuyor.
+                                  </div>
+                                ) : (
+                                  <div className="flex items-stretch flex-wrap gap-2.5">
+                                    {events.map((ev, evIdx) => {
+                                      const st = getEventStyle(ev.type);
+                                      return (
+                                        <React.Fragment key={evIdx}>
+                                          <div className={`px-3.5 py-2.5 rounded-2xl border flex flex-col justify-between min-w-[195px] max-w-[260px] shadow-xs transition hover:scale-[1.01] ${st.badge}`}>
+                                            <div className="flex items-center justify-between gap-2 mb-1">
+                                              <span className="inline-flex items-center gap-1.5 text-xs font-black">
+                                                <span className={`w-2 h-2 rounded-full ${st.dot}`} />
+                                                {ev.time}
+                                              </span>
+                                              <span className="text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60">
+                                                {st.tag}
+                                              </span>
+                                            </div>
+                                            <p className="text-xs font-bold leading-snug">
+                                              {ev.description || ev.title}
+                                            </p>
+                                            <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-current/10 text-[10px] font-semibold opacity-80">
+                                              <span className="truncate">{ev.detail}</span>
+                                              {ev.duration_label && ev.duration_label !== "-" && (
+                                                <span className="shrink-0 font-bold">{ev.duration_label}</span>
+                                              )}
+                                            </div>
+                                          </div>
+                                          {evIdx < events.length - 1 && (
+                                            <div className="flex items-center justify-center text-slate-300 dark:text-slate-600 px-0.5">
+                                              <ArrowRight size={16} />
+                                            </div>
+                                          )}
+                                        </React.Fragment>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* 24-Hour Visual Bar */}
+                              <div className="pt-2">
+                                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1.5 px-1">
+                                  <span>00:00</span>
+                                  <span>06:00</span>
+                                  <span>09:00</span>
+                                  <span>12:00</span>
+                                  <span>15:00</span>
+                                  <span>18:00</span>
+                                  <span>24:00</span>
+                                </div>
+                                <div className="w-full h-5 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex border border-slate-200/60 dark:border-slate-700/60">
+                                  {barBlocks.map((b, bIdx) => {
+                                    let bgCls = "bg-slate-200 dark:bg-slate-800";
+                                    if (b.type === "ready" || b.type === "login" || b.type === "break_end") bgCls = "bg-emerald-500";
+                                    else if (b.type === "call_inbound" || b.type === "call_outbound") bgCls = "bg-blue-500";
+                                    else if (b.type === "break_start") bgCls = "bg-amber-500";
+                                    else if (b.type === "call_missed" || b.type === "call_missed_outbound") bgCls = "bg-rose-500";
+                                    return (
+                                      <div
+                                        key={bIdx}
+                                        style={{ width: b.width }}
+                                        title={b.label}
+                                        className={`${bgCls} h-full border-r border-white/20 last:border-r-0 transition-opacity hover:opacity-85 cursor-pointer`}
+                                      />
+                                    );
+                                  })}
+                                </div>
+                                <div className="flex items-center flex-wrap gap-4 mt-2 text-[10px] font-bold text-slate-500">
+                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-emerald-500 inline-block" /> Login / Hazır</span>
+                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-blue-500 inline-block" /> Çağrıda (Gelen/Giden)</span>
+                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block" /> Molada (Yemek / İhtiyaç)</span>
+                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-rose-500 inline-block" /> Çağrı Geldi Ama Açmadı</span>
+                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-slate-300 dark:bg-slate-700 inline-block" /> Çevrimdışı</span>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Detailed Chronological Table */}
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
+                        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                          <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                            Detaylı Kronolojik Hareket Dökümü Tablosu
+                          </h4>
+                          <span className="text-[11px] font-bold text-slate-400">
+                            Toplam {preparedAgents.reduce((acc, a) => acc + (a.events || []).length, 0)} Kayıt
+                          </span>
+                        </div>
+                        <div className="overflow-x-auto max-h-[420px]">
+                          <table className="w-full text-left border-collapse">
+                            <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 z-10">
+                              <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider " + text}>Saat</th>
+                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
+                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider " + text}>Kronolojik Hareket Açıklaması</th>
+                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider " + text}>Detay (Numara / Mola Adı)</th>
+                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider text-center " + text}>Süre</th>
+                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider text-center " + text}>Verimlilik (%)</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                              {preparedAgents.flatMap((ag) =>
+                                (ag.events || []).map((ev, idx) => {
+                                  const st = getEventStyle(ev.type);
+                                  return (
+                                    <tr key={`${ag.agent_id}-${idx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
+                                      <td className="p-3.5 font-black text-slate-800 dark:text-slate-200 whitespace-nowrap">{ev.time}</td>
+                                      <td className="p-3.5 font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                        {ag.agent_name} <span className="text-[10px] text-slate-400 font-normal">({ag.extension})</span>
+                                      </td>
+                                      <td className="p-3.5">
+                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold border ${st.badge}`}>
+                                          <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                                          {ev.description || ev.title}
+                                        </span>
+                                      </td>
+                                      <td className="p-3.5 font-semibold text-slate-600 dark:text-slate-400">{ev.detail}</td>
+                                      <td className="p-3.5 text-center font-bold text-slate-700 dark:text-slate-300">{ev.duration_label || "-"}</td>
+                                      <td className="p-3.5 text-center font-black text-emerald-600 dark:text-emerald-400">%{ag.efficiency_pct}</td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
                       </div>
                     </>
                   );

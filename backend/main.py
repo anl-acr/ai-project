@@ -2896,9 +2896,11 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
 
 
 @app.post("/api/webrtc/register_notify")
-async def webrtc_register_notify(request: Request, payload: dict):
+async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints
     from backend.services.agent_presence import update_agent_state
+    from backend.database.models import AgentBreakLog
+    from sqlalchemy import select, or_
 
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
@@ -2932,13 +2934,37 @@ async def webrtc_register_notify(request: Request, payload: dict):
             current_break=None,
             user_id=ext
         )
+
+        try:
+            now_utc = datetime.datetime.utcnow()
+            recent_cutoff = now_utc - datetime.timedelta(minutes=10)
+            stmt_recent = select(AgentBreakLog).where(
+                AgentBreakLog.break_name == "__LOGIN__",
+                AgentBreakLog.start_time >= recent_cutoff,
+                or_(AgentBreakLog.extension == ext, AgentBreakLog.user_id == str(matched_user_id))
+            )
+            res_recent = await db.execute(stmt_recent)
+            if not res_recent.scalars().first():
+                db.add(AgentBreakLog(
+                    user_id=str(matched_user_id),
+                    extension=ext,
+                    break_name="__LOGIN__",
+                    start_time=now_utc,
+                    end_time=now_utc,
+                    duration_seconds=0
+                ))
+                await db.commit()
+        except Exception as e_log:
+            print(f"[WebRTC Register Notify] Timeline login log error: {e_log}")
+
         print(f"[WebRTC Register Notify] Extension {ext} (User ID: {matched_user_id}) registered & online from IP {client_ip}.")
     return {"status": "success", "ip": client_ip}
 
 @app.post("/api/webrtc/unregister_notify")
-async def webrtc_unregister_notify(payload: dict):
+async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints
     from backend.services.agent_presence import update_agent_state
+    from backend.database.models import AgentBreakLog
 
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
@@ -2959,6 +2985,20 @@ async def webrtc_unregister_notify(payload: dict):
         update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=ext)
         if matched_user_id:
             update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=matched_user_id)
+
+        try:
+            now_utc = datetime.datetime.utcnow()
+            db.add(AgentBreakLog(
+                user_id=str(matched_user_id),
+                extension=ext,
+                break_name="__LOGOUT__",
+                start_time=now_utc,
+                end_time=now_utc,
+                duration_seconds=0
+            ))
+            await db.commit()
+        except Exception as e_log:
+            print(f"[WebRTC Unregister Notify] Timeline logout log error: {e_log}")
 
         print(f"[WebRTC Unregister Notify] Extension {ext} (User ID: {matched_user_id}) unregistered & offline.")
     return {"status": "success"}
@@ -3002,6 +3042,7 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
         if ext_str:
             conditions.append(AgentBreakLog.extension == ext_str)
 
+        ended_any_break = False
         if conditions:
             stmt_active = select(AgentBreakLog).where(
                 AgentBreakLog.end_time.is_(None),
@@ -3012,6 +3053,7 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
             for active_log in active_logs:
                 active_log.end_time = now_utc
                 active_log.duration_seconds = max(0, int((now_utc - active_log.start_time).total_seconds()))
+                ended_any_break = True
 
         if payload.status == "break" and payload.current_break:
             break_name = payload.current_break.get("name", "Mola")
@@ -3024,6 +3066,32 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
                 duration_seconds=0
             )
             db.add(new_log)
+        elif payload.status == "offline" and not payload.is_logged_in and (user_id_str or ext_str):
+            db.add(AgentBreakLog(
+                user_id=user_id_str,
+                extension=ext_str,
+                break_name="__LOGOUT__",
+                start_time=now_utc,
+                end_time=now_utc,
+                duration_seconds=0
+            ))
+        elif payload.status == "online" and payload.is_logged_in and not ended_any_break and conditions:
+            recent_cutoff = now_utc - datetime.timedelta(minutes=30)
+            stmt_recent = select(AgentBreakLog).where(
+                AgentBreakLog.break_name == "__LOGIN__",
+                AgentBreakLog.start_time >= recent_cutoff,
+                or_(*conditions)
+            )
+            res_recent = await db.execute(stmt_recent)
+            if not res_recent.scalars().first():
+                db.add(AgentBreakLog(
+                    user_id=user_id_str,
+                    extension=ext_str,
+                    break_name="__LOGIN__",
+                    start_time=now_utc,
+                    end_time=now_utc,
+                    duration_seconds=0
+                ))
 
         await db.commit()
     except Exception as e_brk:
@@ -8131,6 +8199,8 @@ async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_
     break_dict = {}
 
     for b_log in today_breaks:
+        if b_log.break_name in ("__LOGIN__", "__LOGOUT__"):
+            continue
         if target_user_ids or target_exts:
             b_uid = str(b_log.user_id or "")
             b_ext = str(b_log.extension or "")
@@ -8159,6 +8229,413 @@ async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_
         "missed": missed_count,
         "break_minutes": total_break_minutes,
         "break_details": break_details
+    }
+
+
+@app.get("/api/reports/agent-timeline")
+async def get_agent_timeline_report(
+    request: Request,
+    date: str = None,
+    start_date: str = None,
+    end_date: str = None,
+    agent: str = None,
+    db: AsyncSession = Depends(get_db)
+):
+    from backend.database.models import Call, AgentBreakLog, SystemUser
+    from backend.services.ami_manager import registered_endpoints
+    from sqlalchemy import select, or_
+
+    user_info = get_user_info(request)
+    tenant_id = user_info.get("tenant_id", "tenant-default")
+
+    now_utc = datetime.datetime.utcnow()
+    now_tr = now_utc + datetime.timedelta(hours=3)
+
+    # Determine date window in TR local time (UTC+3)
+    target_start_str = date or end_date or start_date
+    try:
+        if start_date and end_date and start_date != end_date:
+            s_dt_tr = datetime.datetime.strptime(start_date[:10], "%Y-%m-%d").replace(hour=0, minute=0, second=0)
+            e_dt_tr = datetime.datetime.strptime(end_date[:10], "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+        elif target_start_str:
+            s_dt_tr = datetime.datetime.strptime(target_start_str[:10], "%Y-%m-%d").replace(hour=0, minute=0, second=0)
+            e_dt_tr = s_dt_tr.replace(hour=23, minute=59, second=59)
+        else:
+            s_dt_tr = now_tr.replace(hour=0, minute=0, second=0, microsecond=0)
+            e_dt_tr = now_tr.replace(hour=23, minute=59, second=59, microsecond=999999)
+    except Exception:
+        s_dt_tr = now_tr.replace(hour=0, minute=0, second=0, microsecond=0)
+        e_dt_tr = now_tr.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    window_start_utc = s_dt_tr - datetime.timedelta(hours=3)
+    window_end_utc = e_dt_tr - datetime.timedelta(hours=3)
+
+    # Load users for this tenant
+    stmt_users = select(SystemUser)
+    if not is_default_tenant(tenant_id):
+        stmt_users = stmt_users.where(SystemUser.tenant_id == tenant_id)
+    else:
+        stmt_users = stmt_users.where(or_(SystemUser.tenant_id == tenant_id, SystemUser.tenant_id == "default", SystemUser.tenant_id.is_(None)))
+    res_users = await db.execute(stmt_users)
+    db_users = res_users.scalars().all()
+
+    agents_list = []
+    seen_exts = set()
+    for u in db_users:
+        ext_val = str(u.extension or "").strip()
+        seen_exts.add(ext_val)
+        agents_list.append({
+            "id": str(u.id),
+            "name": u.full_name or f"Dahili {ext_val}",
+            "extension": ext_val,
+            "role": u.role or "agent",
+            "avatar": u.avatar or "",
+            "is_online": ext_val in registered_endpoints or str(u.id) in registered_endpoints
+        })
+
+    settings = load_settings()
+    for u in settings.get("users", []):
+        if not is_default_tenant(tenant_id) and u.get("tenant_id") not in (tenant_id,):
+            continue
+        ext_val = str(u.get("extension") or "").strip()
+        if ext_val and ext_val not in seen_exts:
+            seen_exts.add(ext_val)
+            agents_list.append({
+                "id": str(u.get("id")),
+                "name": u.get("full_name") or u.get("name") or f"Dahili {ext_val}",
+                "extension": ext_val,
+                "role": u.get("role") or "agent",
+                "avatar": u.get("avatar") or "",
+                "is_online": ext_val in registered_endpoints or str(u.get("id")) in registered_endpoints
+            })
+
+    # Fetch calls in window
+    stmt_calls = select(Call).where(
+        Call.start_time >= window_start_utc,
+        Call.start_time <= window_end_utc
+    )
+    if not is_default_tenant(tenant_id):
+        stmt_calls = stmt_calls.where(Call.tenant_id == tenant_id)
+    stmt_calls = stmt_calls.order_by(Call.start_time.asc())
+    res_calls = await db.execute(stmt_calls)
+    window_calls = res_calls.scalars().all()
+
+    # Fetch break & login/logout logs in window
+    stmt_breaks = select(AgentBreakLog).where(
+        or_(
+            AgentBreakLog.start_time >= window_start_utc,
+            AgentBreakLog.end_time >= window_start_utc,
+            AgentBreakLog.end_time.is_(None)
+        ),
+        AgentBreakLog.start_time <= window_end_utc
+    ).order_by(AgentBreakLog.start_time.asc())
+    res_breaks = await db.execute(stmt_breaks)
+    window_breaks = res_breaks.scalars().all()
+
+    def fmt_tr_time(dt_utc):
+        if not dt_utc:
+            return ""
+        dt_tr = dt_utc + datetime.timedelta(hours=3)
+        return dt_tr.strftime("%H:%M")
+
+    def fmt_tr_datetime(dt_utc):
+        if not dt_utc:
+            return ""
+        dt_tr = dt_utc + datetime.timedelta(hours=3)
+        return dt_tr.strftime("%d.%m.%Y %H:%M:%S")
+
+    def fmt_dur(secs):
+        secs = max(0, int(secs or 0))
+        if secs < 60:
+            return f"{secs} sn"
+        m = secs // 60
+        s = secs % 60
+        if m < 60:
+            return f"{m} dk {s} sn" if s > 0 else f"{m} dk"
+        h = m // 60
+        rem_m = m % 60
+        return f"{h} sa {rem_m} dk"
+
+    agent_reports = []
+
+    for ag in agents_list:
+        ag_id = str(ag["id"])
+        ag_ext = str(ag["extension"])
+        ag_name = ag["name"]
+
+        if agent and agent not in ("All", "all", "") and agent not in (ag_id, ag_ext, ag_name):
+            continue
+
+        raw_events = []
+        talk_seconds_total = 0
+        break_seconds_total = 0
+        answered_count = 0
+        outbound_count = 0
+        missed_count = 0
+        first_login_utc = None
+        last_logout_utc = None
+
+        # 1. Process breaks & login/logout logs for this agent
+        for b_log in window_breaks:
+            b_uid = str(b_log.user_id or "").strip()
+            b_ext = str(b_log.extension or "").strip()
+            if b_uid not in (ag_id, ag_ext) and b_ext not in (ag_id, ag_ext):
+                continue
+
+            b_name = b_log.break_name or "Mola"
+            if b_name == "__LOGIN__":
+                if first_login_utc is None or b_log.start_time < first_login_utc:
+                    first_login_utc = b_log.start_time
+                raw_events.append({
+                    "timestamp_utc": b_log.start_time,
+                    "time": fmt_tr_time(b_log.start_time),
+                    "full_time": fmt_tr_datetime(b_log.start_time),
+                    "type": "login",
+                    "title": "Login oldu",
+                    "description": f"{ fmt_tr_time(b_log.start_time) } Login oldu.",
+                    "detail": f"Dahili {ag_ext} sisteme giriş yaptı",
+                    "duration_seconds": 0,
+                    "duration_label": "-"
+                })
+            elif b_name == "__LOGOUT__":
+                if last_logout_utc is None or b_log.start_time > last_logout_utc:
+                    last_logout_utc = b_log.start_time
+                raw_events.append({
+                    "timestamp_utc": b_log.start_time,
+                    "time": fmt_tr_time(b_log.start_time),
+                    "full_time": fmt_tr_datetime(b_log.start_time),
+                    "type": "logout",
+                    "title": "Logout oldu",
+                    "description": f"{ fmt_tr_time(b_log.start_time) } Çıkış yaptı (Logout).",
+                    "detail": f"Dahili {ag_ext} oturumu kapattı",
+                    "duration_seconds": 0,
+                    "duration_label": "-"
+                })
+            else:
+                eff_start = max(b_log.start_time, window_start_utc)
+                eff_end = b_log.end_time if b_log.end_time else min(now_utc, window_end_utc)
+                dur_sec = max(0, int((eff_end - eff_start).total_seconds()))
+                break_seconds_total += dur_sec
+
+                is_meal = "yemek" in b_name.lower()
+                raw_events.append({
+                    "timestamp_utc": b_log.start_time,
+                    "time": fmt_tr_time(b_log.start_time),
+                    "full_time": fmt_tr_datetime(b_log.start_time),
+                    "type": "break_start",
+                    "break_name": b_name,
+                    "title": f"Molaya çıktı ({b_name})" if not is_meal else f"Yemek Molası ({b_name})",
+                    "description": f"{ fmt_tr_time(b_log.start_time) } Molaya çıktı ({b_name})",
+                    "detail": b_name,
+                    "duration_seconds": dur_sec,
+                    "duration_label": fmt_dur(dur_sec) if b_log.end_time else "Devam Ediyor"
+                })
+
+                if b_log.end_time and b_log.end_time <= window_end_utc:
+                    raw_events.append({
+                        "timestamp_utc": b_log.end_time,
+                        "time": fmt_tr_time(b_log.end_time),
+                        "full_time": fmt_tr_datetime(b_log.end_time),
+                        "type": "break_end",
+                        "break_name": b_name,
+                        "title": f"Moladan döndü ({b_name})",
+                        "description": f"{ fmt_tr_time(b_log.end_time) } moladan döndü ({b_name})",
+                        "detail": f"{b_name} tamamlandı ({fmt_dur(dur_sec)})",
+                        "duration_seconds": dur_sec,
+                        "duration_label": fmt_dur(dur_sec)
+                    })
+
+        # 2. Process calls for this agent
+        for call in window_calls:
+            caller = str(call.caller_number or "").strip()
+            callee = str(call.callee_number or "").strip()
+            st = str(call.status or "").lower()
+
+            is_caller = (caller == ag_ext or caller == ag_id or (len(ag_ext) >= 3 and caller.endswith(ag_ext)))
+            is_callee = (callee == ag_ext or callee == ag_id or (len(ag_ext) >= 3 and callee.endswith(ag_ext)))
+
+            # Also check if call was transferred to human and this is the primary human agent
+            if not is_caller and not is_callee:
+                if st == "transferred" and len(agents_list) == 1:
+                    is_callee = True
+                else:
+                    continue
+
+            c_start = call.start_time
+            c_end = call.end_time or c_start
+            c_dur = max(0, int((c_end - c_start).total_seconds()))
+
+            # Check if call was answered or missed
+            is_failed = st in ("missed", "no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "abandoned", "blocked")
+            if not is_failed and c_dur <= 5 and not call.recording_path and st in ("completed", "in_progress"):
+                is_failed = True
+
+            if is_caller:
+                target_num = callee
+                if not is_failed:
+                    outbound_count += 1
+                    answered_count += 1
+                    talk_seconds_total += c_dur
+                    raw_events.append({
+                        "timestamp_utc": c_start,
+                        "time": fmt_tr_time(c_start),
+                        "full_time": fmt_tr_datetime(c_start),
+                        "type": "call_outbound",
+                        "phone": target_num,
+                        "call_id": call.id,
+                        "title": f"Çağrıda ({target_num})",
+                        "description": f"{ fmt_tr_time(c_start) } Çağrıda ({target_num} numaralı dış arama)",
+                        "detail": f"Giden Arama: {target_num}",
+                        "duration_seconds": c_dur,
+                        "duration_label": fmt_dur(c_dur)
+                    })
+                else:
+                    missed_count += 1
+                    raw_events.append({
+                        "timestamp_utc": c_start,
+                        "time": fmt_tr_time(c_start),
+                        "full_time": fmt_tr_datetime(c_start),
+                        "type": "call_missed_outbound",
+                        "phone": target_num,
+                        "call_id": call.id,
+                        "title": f"Dış Arama Yanıtsız ({target_num})",
+                        "description": f"{ fmt_tr_time(c_start) } {target_num} numarası arandı ancak yanıt alınamadı",
+                        "detail": f"Cevapsız Dış Arama: {target_num}",
+                        "duration_seconds": c_dur,
+                        "duration_label": fmt_dur(c_dur)
+                    })
+            else:
+                customer_num = caller
+                if not is_failed:
+                    answered_count += 1
+                    talk_seconds_total += c_dur
+                    raw_events.append({
+                        "timestamp_utc": c_start,
+                        "time": fmt_tr_time(c_start),
+                        "full_time": fmt_tr_datetime(c_start),
+                        "type": "call_inbound",
+                        "phone": customer_num,
+                        "call_id": call.id,
+                        "title": f"{customer_num} numarasından çağrı aldı",
+                        "description": f"{ fmt_tr_time(c_start) } {customer_num} numarasından çağrı aldı.",
+                        "detail": f"Gelen Çağrı: {customer_num} ({fmt_dur(c_dur)})",
+                        "duration_seconds": c_dur,
+                        "duration_label": fmt_dur(c_dur)
+                    })
+                else:
+                    missed_count += 1
+                    raw_events.append({
+                        "timestamp_utc": c_start,
+                        "time": fmt_tr_time(c_start),
+                        "full_time": fmt_tr_datetime(c_start),
+                        "type": "call_missed",
+                        "phone": customer_num,
+                        "call_id": call.id,
+                        "title": f"{customer_num} numarasından çağrı geldi ama açmadı",
+                        "description": f"{ fmt_tr_time(c_start) }'de {customer_num} numarasından çağrı geldi ama açmadı.",
+                        "detail": f"Kaçan / Açılmayan Çağrı: {customer_num}",
+                        "duration_seconds": c_dur,
+                        "duration_label": "Açılmadı"
+                    })
+
+        # Sort events chronologically
+        raw_events.sort(key=lambda x: x["timestamp_utc"])
+
+        # If agent has events or is online today, ensure a Login event exists at the beginning
+        if raw_events and not any(e["type"] == "login" for e in raw_events):
+            earliest_utc = raw_events[0]["timestamp_utc"]
+            # Default to 09:00 TR time if earliest event is after 09:00, otherwise 5 mins before earliest event
+            nine_am_tr = (earliest_utc + datetime.timedelta(hours=3)).replace(hour=9, minute=0, second=0, microsecond=0)
+            nine_am_utc = nine_am_tr - datetime.timedelta(hours=3)
+            inferred_login_utc = nine_am_utc if earliest_utc >= nine_am_utc else (earliest_utc - datetime.timedelta(minutes=5))
+            first_login_utc = inferred_login_utc
+            raw_events.insert(0, {
+                "timestamp_utc": inferred_login_utc,
+                "time": fmt_tr_time(inferred_login_utc),
+                "full_time": fmt_tr_datetime(inferred_login_utc),
+                "type": "login",
+                "title": "Login oldu",
+                "description": f"{ fmt_tr_time(inferred_login_utc) } Login oldu.",
+                "detail": f"Dahili {ag_ext} mesai başlangıcı",
+                "duration_seconds": 0,
+                "duration_label": "-"
+            })
+        elif not raw_events and ag["is_online"]:
+            nine_am_utc = s_dt_tr.replace(hour=9, minute=0, second=0) - datetime.timedelta(hours=3)
+            login_utc = nine_am_utc if now_utc >= nine_am_utc else now_utc
+            first_login_utc = login_utc
+            raw_events.append({
+                "timestamp_utc": login_utc,
+                "time": fmt_tr_time(login_utc),
+                "full_time": fmt_tr_datetime(login_utc),
+                "type": "login",
+                "title": "Login oldu",
+                "description": f"{ fmt_tr_time(login_utc) } Login oldu.",
+                "detail": f"Dahili {ag_ext} aktif oturum",
+                "duration_seconds": 0,
+                "duration_label": "-"
+            })
+
+        # Compute shift duration and productivity percentage
+        if first_login_utc:
+            shift_end_utc = last_logout_utc or (now_utc if (window_start_utc <= now_utc <= window_end_utc) else (raw_events[-1]["timestamp_utc"] + datetime.timedelta(minutes=30)))
+            if shift_end_utc < first_login_utc:
+                shift_end_utc = first_login_utc + datetime.timedelta(hours=1)
+            total_online_seconds = max(60, int((shift_end_utc - first_login_utc).total_seconds()))
+        else:
+            total_online_seconds = 0
+
+        # Calculate Productivity Percentage (Toplam Verimlilik Yüzdesi)
+        # Productivity combines active non-break work availability and call answer discipline
+        if total_online_seconds > 0:
+            active_work_seconds = max(0, total_online_seconds - break_seconds_total)
+            availability_ratio = (active_work_seconds / total_online_seconds) * 100.0
+            total_offered_calls = answered_count + missed_count
+            if total_offered_calls > 0:
+                answer_ratio = (answered_count / total_offered_calls) * 100.0
+                efficiency_pct = round((availability_ratio * 0.65) + (answer_ratio * 0.35), 1)
+            else:
+                answer_ratio = 100.0
+                efficiency_pct = round(availability_ratio, 1)
+            efficiency_pct = max(0.0, min(100.0, efficiency_pct))
+        else:
+            active_work_seconds = 0
+            availability_ratio = 0.0
+            answer_ratio = 0.0
+            efficiency_pct = 0.0
+
+        # Remove internal timestamp_utc before JSON serialization
+        clean_events = []
+        for ev in raw_events:
+            ev_copy = {k: v for k, v in ev.items() if k != "timestamp_utc"}
+            clean_events.append(ev_copy)
+
+        agent_reports.append({
+            "agent_id": ag_id,
+            "agent_name": ag_name,
+            "extension": ag_ext,
+            "avatar": ag["avatar"],
+            "is_online": ag["is_online"],
+            "has_real_activity": len(clean_events) > 0,
+            "efficiency_pct": efficiency_pct,
+            "availability_pct": round(availability_ratio, 1),
+            "answer_rate_pct": round(answer_ratio, 1),
+            "total_online_seconds": total_online_seconds,
+            "total_online_label": fmt_dur(total_online_seconds),
+            "total_talk_seconds": talk_seconds_total,
+            "total_talk_label": fmt_dur(talk_seconds_total),
+            "total_break_seconds": break_seconds_total,
+            "total_break_label": fmt_dur(break_seconds_total),
+            "answered_count": answered_count,
+            "outbound_count": outbound_count,
+            "missed_count": missed_count,
+            "events": clean_events
+        })
+
+    return {
+        "status": "success",
+        "date": s_dt_tr.strftime("%Y-%m-%d"),
+        "agents": agent_reports
     }
 
 
