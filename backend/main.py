@@ -259,9 +259,28 @@ DEFAULT_USER_PROFILES = [
     }
 ]
 
+import string
+import secrets
+
+def generate_sip_username(length=8):
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        uname = ''.join(secrets.choice(alphabet) for _ in range(length))
+        if (any(c.islower() for c in uname) and
+            any(c.isupper() for c in uname) and
+            any(c.isdigit() for c in uname)):
+            return uname
+
 def ensure_user_profiles(u: dict) -> dict:
     if not isinstance(u, dict):
         return u
+    if not u.get("sip_username"):
+        u["sip_username"] = generate_sip_username(8)
+    try:
+        max_act = int(u.get("max_activations") or 1)
+        u["max_activations"] = max(1, min(5, max_act))
+    except Exception:
+        u["max_activations"] = 1
     if not u.get("active_profile"):
         u["active_profile"] = "available"
     raw_profiles = u.get("profiles")
@@ -306,7 +325,9 @@ class UserSchema(BaseModel):
     mobile_transfer_enabled: Optional[bool] = False
     theme_color: Optional[str] = "rose"
     password: Optional[str] = None
+    sip_username: Optional[str] = None
     sip_password: Optional[str] = None
+    max_activations: Optional[int] = 1
     outbound_caller_id: Optional[str] = None
     forwarding_always: Optional[dict] = None
     forwarding_busy: Optional[dict] = None
@@ -326,9 +347,6 @@ class UserSchema(BaseModel):
     two_factor_method: str = "app"
     two_factor_secret: Optional[str] = None
 
-
-import string
-import secrets
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
     while True:
@@ -1626,11 +1644,16 @@ match={host}
         is_act = u.get("is_active") if "is_active" in u else True
         if not is_act:
             continue
-        ext = u.get("extension")
+        ext = str(u.get("extension") or "").strip()
         if not ext or ext == "1000":
             continue
         pwd = u.get("sip_password") or u.get("password") or "1234"
         name = u.get("full_name") or u.get("username") or ext
+        sip_user = str(u.get("sip_username") or "").strip()
+        try:
+            max_act = max(1, min(5, int(u.get("max_activations") or 5)))
+        except Exception:
+            max_act = 5
         
         conf_content += f"\n; --- USER: {name} ({ext}) ---\n"
         conf_content += f"""[{ext}]
@@ -1662,8 +1685,29 @@ password={pwd}
 
 [{ext}]
 type=aor
-max_contacts=5
+max_contacts={max_act}
 remove_existing=yes
+"""
+        if sip_user and sip_user != ext:
+            conf_content += f"""
+[{sip_user}]
+type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+auth={sip_user}-auth
+aors={ext}
+callerid={name} <{ext}>
+
+[{sip_user}-auth]
+type=auth
+auth_type=userpass
+username={sip_user}
+password={pwd}
 """
 
     config_dir = ASTERISK_CONFIG_DIR
@@ -8453,6 +8497,8 @@ async def startup_event():
                 try:
                     await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';"))
                     await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';"))
+                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;"))
+                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;"))
                 except Exception:
                     pass
         await asyncio.wait_for(init_db(), timeout=4.0)

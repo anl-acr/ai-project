@@ -231,6 +231,11 @@ remove_existing=yes
                 continue
             pwd = u.get("sip_password") or u.get("password") or "1234"
             name = u.get("full_name") or u.get("username") or ext
+            sip_user = str(u.get("sip_username") or "").strip()
+            try:
+                max_act = max(1, min(5, int(u.get("max_activations") or 5)))
+            except Exception:
+                max_act = 5
 
             pjsip_custom_content += f"\n; --- USER: {name} ({ext}) ---\n"
             pjsip_custom_content += f"""[{ext}]
@@ -262,8 +267,29 @@ password={pwd}
 
 [{ext}]
 type=aor
-max_contacts=5
+max_contacts={max_act}
 remove_existing=yes
+"""
+            if sip_user and sip_user != ext:
+                pjsip_custom_content += f"""
+[{sip_user}]
+type=endpoint
+context=webrtc_agents
+disallow=all
+allow=ulaw,alaw,g722,g729
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+auth={sip_user}-auth
+aors={ext}
+callerid={name} <{ext}>
+
+[{sip_user}-auth]
+type=auth
+auth_type=userpass
+username={sip_user}
+password={pwd}
 """
 
         # Write directly to /etc/asterisk/pjsip_custom.conf

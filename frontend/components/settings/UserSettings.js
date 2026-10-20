@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2 } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -220,7 +220,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [password, setPassword] = useState("");
 
   // SIP Fields
+  const [sipUsername, setSipUsername] = useState("");
   const [sipPassword, setSipPassword] = useState("");
+  const [showSipPassword, setShowSipPassword] = useState(false);
+  const [maxActivations, setMaxActivations] = useState(1);
   const [outboundCallerId, setOutboundCallerId] = useState("");
 
   // Forwarding Fields
@@ -547,6 +550,34 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
   };
 
+  const generateSipUsernameStr = () => {
+    const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const lower = "abcdefghijklmnopqrstuvwxyz";
+    const nums = "0123456789";
+    const all = upper + lower + nums;
+    const arr = [
+      upper.charAt(Math.floor(Math.random() * upper.length)),
+      lower.charAt(Math.floor(Math.random() * lower.length)),
+      nums.charAt(Math.floor(Math.random() * nums.length))
+    ];
+    for (let i = 3; i < 8; i++) {
+      arr.push(all.charAt(Math.floor(Math.random() * all.length)));
+    }
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr.join("");
+  };
+
+  const generateSipUsername = () => {
+    setSipUsername(generateSipUsernameStr());
+  };
+
+  const copySipUsername = () => {
+    navigator.clipboard.writeText(sipUsername);
+  };
+
   const generateSipPassword = () => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$*()";
     let pwd = "";
@@ -571,7 +602,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setRole(systemRoles.length > 0 ? systemRoles[0].role_code : "agent");
     setIsActive(true);
     setPassword("");
+    setSipUsername("");
     setSipPassword("");
+    setShowSipPassword(false);
+    setMaxActivations(1);
     setOutboundCallerId("");
 
     setFwdAlwaysActive(false); setFwdAlwaysType("internal"); setFwdAlwaysTarget("");
@@ -595,6 +629,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const openAddModal = () => {
     resetForm();
+    generateSipUsername();
     generateSipPassword();
     setShowModal(true);
   };
@@ -627,8 +662,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setIsActive(checkIsUserActive(u));
     setPassword(u.password || "");
     
+    setSipUsername(u.sip_username || generateSipUsernameStr());
     setSipPassword(u.sip_password || "");
     if(!u.sip_password) generateSipPassword();
+    setShowSipPassword(false);
+    setMaxActivations(u.max_activations ? Math.max(1, Math.min(5, Number(u.max_activations))) : 1);
     
     setOutboundCallerId(u.outbound_caller_id || "");
 
@@ -745,7 +783,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       is_active: isActive,
       tenant_id: userTenantId,
       password,
+      sip_username: sipUsername.trim() || generateSipUsernameStr(),
       sip_password: sipPassword,
+      max_activations: Number(maxActivations) || 1,
       outbound_caller_id: outboundCallerId.trim(),
       forwarding_always: fwdAlwaysTarget ? { active: fwdAlwaysActive, type: fwdAlwaysType, target: fwdAlwaysTarget } : null,
       forwarding_busy: fwdBusyTarget ? { active: fwdBusyActive, type: fwdBusyType, target: fwdBusyTarget } : null,
@@ -1472,7 +1512,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         SIP Ayarları
                                     </h4>
                                     <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                                        Kullanıcının dahili numarası, dış arama kimliği ve SIP kayıt şifresi ayarları.
+                                        Kullanıcının dahili numarası, telefon aktivasyon kullanıcı adı, SIP kayıt şifresi ve maksimum aktivasyon sayısı ayarları.
                                     </p>
                                 </div>
 
@@ -1489,12 +1529,53 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     </div>
 
                                     <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Kullanıcı Adı (SIP Aktivasyon)</label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                placeholder="Örn: Ab8kP2x9"
+                                                value={sipUsername}
+                                                onChange={(e) => setSipUsername(e.target.value)}
+                                                className="flex-1 text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none font-mono"
+                                            />
+                                            <button type="button" onClick={copySipUsername} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Kullanıcı Adını Kopyala"><Copy size={16}/></button>
+                                            <button type="button" onClick={generateSipUsername} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Yeni Kullanıcı Adı Üret"><RefreshCw size={16}/></button>
+                                        </div>
+                                    </div>
+
+                                    <div>
                                         <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">SIP Register Şifresi</label>
                                         <div className="flex gap-2">
-                                            <input type="text" readOnly value={sipPassword} className="flex-1 text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none font-mono" />
+                                            <input
+                                                type={showSipPassword ? "text" : "password"}
+                                                readOnly
+                                                value={sipPassword}
+                                                className="flex-1 text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none font-mono tracking-wider"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowSipPassword(!showSipPassword)}
+                                                className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                                                title={showSipPassword ? "Şifreyi Gizle" : "Şifreyi Göster"}
+                                            >
+                                                {showSipPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                                            </button>
                                             <button type="button" onClick={copySipPassword} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Şifreyi Kopyala"><Copy size={16}/></button>
                                             <button type="button" onClick={generateSipPassword} className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors" title="Yeni Şifre Üret"><RefreshCw size={16}/></button>
                                         </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Maksimum Aktivasyon Sayısı</label>
+                                        <select
+                                            value={maxActivations}
+                                            onChange={(e) => setMaxActivations(Number(e.target.value))}
+                                            className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                        >
+                                            {[1, 2, 3, 4, 5].map((cnt) => (
+                                                <option key={cnt} value={cnt}>{cnt}</option>
+                                            ))}
+                                        </select>
                                     </div>
                                 </div>
                             </div>
