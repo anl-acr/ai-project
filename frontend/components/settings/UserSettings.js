@@ -208,7 +208,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   // Modal / Popup States
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
-  const [activeTab, setActiveTab] = useState("login_sip");
+  const [activeTab, setActiveTab] = useState("general");
 
   // Basic Form Fields
   const [fullName, setFullName] = useState("");
@@ -562,7 +562,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
   const resetForm = () => {
     setEditingUser(null);
-    setActiveTab("login_sip");
+    setActiveTab("general");
     setUserTenantId(typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default");
     setFullName("");
     setEmail("");
@@ -716,8 +716,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const handleFormSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    if (!fullName.trim() || !email.trim() || !extension.trim()) {
-      setError("Lütfen Ad Soyad, E-posta ve Dahili Numara alanlarını doldurunuz.");
+    if (!fullName.trim() || !email.trim()) {
+      setActiveTab("general");
+      setError("Lütfen Genel sekmesindeki Ad Soyad ve E-posta alanlarını doldurunuz.");
+      return;
+    }
+    if (!extension.trim()) {
+      setActiveTab("sip");
+      setError("Lütfen SIP sekmesindeki Dahili Numarası (Extension) alanını doldurunuz.");
       return;
     }
 
@@ -1282,18 +1288,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                     <nav className="space-y-1">
                         <button
                             type="button"
-                            onClick={() => setActiveTab("login_sip")}
-                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'login_sip' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                            onClick={() => setActiveTab("general")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'general' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                        >
+                            <User size={16} />
+                            Genel
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab("sip")}
+                            className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'sip' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                         >
                             <KeyRound size={16} />
-                            Giriş ve SIP
+                            SIP
                         </button>
                         <button
                             type="button"
                             onClick={() => setActiveTab("profiles")}
                             className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'profiles' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                         >
-                            <User size={16} />
+                            <Users size={16} />
                             Profiller
                         </button>
                         <button
@@ -1345,8 +1359,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                           </div>
                         )}
                         
-                        {/* TAB 1: GİRİŞ VE SIP */}
-                        {activeTab === "login_sip" && (
+                        {/* TAB 1: GENEL */}
+                        {activeTab === "general" && (
                             <div className="space-y-5 animate-in fade-in duration-300">
                                 <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/60">
                                     <div>
@@ -1365,11 +1379,11 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">İsim Soyisim</label>
-                                        <input type="text" required placeholder="Örn: Ahmet Yılmaz" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                        <input type="text" placeholder="Örn: Ahmet Yılmaz" value={fullName} onChange={(e) => setFullName(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">E-posta Adresi</label>
-                                        <input type="email" required placeholder="ahmet@company.com" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                        <input type="email" placeholder="ahmet@company.com" value={email} onChange={(e) => setEmail(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
                                     </div>
                                 </div>
 
@@ -1447,14 +1461,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         </select>
                                     </div>
                                 </div>
+                            </div>
+                        )}
 
-                                <div className={`p-4 rounded-xl border ${borderLight} ${lightBg} space-y-4 mt-2`}>
-                                    <h4 className={`text-xs font-bold ${text} border-b ${borderLight} pb-2`}>SIP AYARLARI</h4>
-                                    
-                                    <div className="grid grid-cols-2 gap-4">
+                        {/* TAB 2: SIP */}
+                        {activeTab === "sip" && (
+                            <div className="space-y-5 animate-in fade-in duration-300">
+                                <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                                    <h4 className="text-sm font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                        SIP Ayarları
+                                    </h4>
+                                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                                        Kullanıcının dahili numarası, dış arama kimliği ve SIP kayıt şifresi ayarları.
+                                    </p>
+                                </div>
+
+                                <div className={`p-5 rounded-2xl border ${borderLight} ${lightBg} space-y-5`}>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Dahili Numarası (Extension)</label>
-                                            <input type="text" required placeholder="Örn: 202" value={extension} onChange={(e) => setExtension(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                            <input type="text" placeholder="Örn: 202" value={extension} onChange={(e) => setExtension(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Dış Aramada Görünecek Numara</label>
