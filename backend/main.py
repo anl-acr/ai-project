@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 import shutil
 import socket
-from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request
+from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Body
 from fastapi.responses import FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
