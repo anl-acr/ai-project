@@ -147,11 +147,33 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     return `${m}:${s}`;
   };
 
+  const recordWebphoneTimelineEvent = (actionType, detail) => {
+    try {
+      const protocol = window.location.protocol;
+      const ext = webrtcConfig?.agentExtension || currentUser?.extension || "1000";
+      const uid = currentUser?.id || ext;
+      fetch(`${protocol}//${backendHost}/api/agent/timeline-event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: uid,
+          extension: ext,
+          action_type: actionType,
+          detail: detail || ""
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  };
+
   const handleDial = (num) => setDialNumber(prev => prev + num);
   
   const handleCall = async (targetNum = dialNumber) => {
     if (!targetNum || !userAgentRef.current || !webrtcConfig) return;
     setCallStatus("Calling");
+    if (String(targetNum).startsWith("*8") || String(targetNum).startsWith("**")) {
+      const pickupLbl = String(targetNum).startsWith("*8") ? "Grup Çağrı Toplama (*8)" : `Hedefli Çağrı Toplama (${targetNum})`;
+      recordWebphoneTimelineEvent("call_pickup", pickupLbl);
+    }
 
     const hostOnly = webrtcConfig.asteriskWssUrl.split('/')[2].split(':')[0];
     const targetURI = SIP.UserAgent.makeURI(`sip:${targetNum}@${hostOnly}`);
@@ -222,6 +244,9 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
           sender.track.enabled = isMuted;
         }
       });
+      if (!isMuted) {
+        recordWebphoneTimelineEvent("call_mute", dialNumber ? `${dialNumber} görüşmesinde mikrofon kapatıldı` : "Görüşmede mikrofon kapatıldı");
+      }
       setIsMuted(!isMuted);
     }
   };
@@ -235,6 +260,11 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
           sender.track.enabled = isOnHold;
         }
       });
+      if (!isOnHold) {
+        recordWebphoneTimelineEvent("call_hold", dialNumber ? `${dialNumber} beklemeye alındı` : "Görüşme beklemeye alındı");
+      } else {
+        recordWebphoneTimelineEvent("call_unhold", dialNumber ? `${dialNumber} beklemeden alındı` : "Beklemeden geri dönüldü");
+      }
       setIsOnHold(!isOnHold);
     }
   };

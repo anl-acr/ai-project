@@ -342,7 +342,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [timelineReport, setTimelineReport] = useState(null);
   const [timelineDate, setTimelineDate] = useState(getTodayDateString());
   const [selectedTimelineAgent, setSelectedTimelineAgent] = useState("All");
-  const [showSimulatedTimeline, setShowSimulatedTimeline] = useState(true);
+  const [selectedTimelineAgentModal, setSelectedTimelineAgentModal] = useState(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
 
   const fetchAgentTimeline = async (targetDate = timelineDate, showSpin = false) => {
@@ -3704,125 +3704,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 })()}
               </div>
             ) : isTimelineMode ? (
-              /* Agent Status Timeline (Temsilci Kronolojisi) Mode */
-              <div className="p-5 flex flex-col gap-6 h-full overflow-y-auto scrollbar-thin">
+              /* Agent Status Timeline (Temsilci Kronolojisi) Mode - Single Row Table + Magnifier Detail Modal */
+              <div className="p-5 flex flex-col gap-5 h-full overflow-y-auto scrollbar-thin">
                 {(() => {
-                  const buildFallbackEventsForAgent = (agName, agExt, idx) => {
-                    const seed = (agName || "A").charCodeAt(0) + idx;
-                    const phone1 = `0532 ${410 + (seed % 80)} ${10 + (seed % 80)} ${20 + (seed % 70)}`;
-                    const phone2 = `0544 ${320 + (seed % 60)} ${30 + (seed % 60)} ${15 + (seed % 75)}`;
-                    const phone3 = `0533 ${610 + (seed % 70)} ${22 + (seed % 65)} ${11 + (seed % 80)}`;
-                    const phone4 = `0505 ${215 + (seed % 75)} ${44 + (seed % 50)} ${33 + (seed % 60)}`;
-                    const break1Name = seed % 2 === 0 ? "İhtiyaç Molası" : "Çay / Kahve Molası";
-
-                    const demoEvents = [
-                      {
-                        time: "09:00",
-                        type: "login",
-                        title: "Login oldu",
-                        description: "09:00 Login oldu.",
-                        detail: `Dahili ${agExt || "100" + idx} sisteme giriş yaptı`,
-                        duration_label: "-"
-                      },
-                      {
-                        time: "09:15",
-                        type: "call_inbound",
-                        phone: phone1,
-                        title: `${phone1} numarasından çağrı aldı`,
-                        description: `09:15 ${phone1} numarasından çağrı aldı.`,
-                        detail: `Gelen Çağrı: ${phone1}`,
-                        duration_label: "4 dk 20 sn"
-                      },
-                      {
-                        time: "10:15",
-                        type: "break_start",
-                        break_name: break1Name,
-                        title: `Molaya çıktı (${break1Name})`,
-                        description: `10:15 Molaya çıktı (${break1Name})`,
-                        detail: break1Name,
-                        duration_label: "15 dk"
-                      },
-                      {
-                        time: "10:30",
-                        type: "break_end",
-                        break_name: break1Name,
-                        title: `Moladan döndü (${break1Name})`,
-                        description: `10:30 moladan döndü (${break1Name})`,
-                        detail: `${break1Name} tamamlandı`,
-                        duration_label: "15 dk"
-                      },
-                      {
-                        time: "10:40",
-                        type: "call_outbound",
-                        phone: phone2,
-                        title: `Çağrıda (${phone2})`,
-                        description: `10:40 Çağrıda (${phone2})`,
-                        detail: `Aktif Görüşme: ${phone2}`,
-                        duration_label: "6 dk 15 sn"
-                      },
-                      {
-                        time: "12:00",
-                        type: "break_start",
-                        break_name: "Yemek Molası",
-                        title: "Yemek (Yemek Molası)",
-                        description: "12:00 Yemek (Yemek Molası)",
-                        detail: "Yemek Molası başlangıcı",
-                        duration_label: "45 dk"
-                      },
-                      {
-                        time: "12:45",
-                        type: "break_end",
-                        break_name: "Yemek Molası",
-                        title: "Moladan döndü (Yemek Molası)",
-                        description: "12:45 moladan döndü (Yemek Molası)",
-                        detail: "Yemek Molası tamamlandı",
-                        duration_label: "45 dk"
-                      },
-                      {
-                        time: "13:15",
-                        type: "call_missed",
-                        phone: phone3,
-                        title: `${phone3} numarasından çağrı geldi ama açmadı`,
-                        description: `13:15'de ${phone3} numarasından çağrı geldi ama açmadı.`,
-                        detail: `Cevapsız Çağrı: ${phone3}`,
-                        duration_label: "Açılmadı"
-                      },
-                      {
-                        time: "14:20",
-                        type: "call_inbound",
-                        phone: phone4,
-                        title: `${phone4} numarasından çağrı aldı`,
-                        description: `14:20 ${phone4} numarasından çağrı aldı.`,
-                        detail: `Gelen Çağrı: ${phone4}`,
-                        duration_label: "5 dk 10 sn"
-                      },
-                      {
-                        time: "18:00",
-                        type: "logout",
-                        title: "Logout oldu",
-                        description: "18:00 Çıkış yaptı (Logout).",
-                        detail: `Dahili ${agExt || "100" + idx} oturumu kapattı`,
-                        duration_label: "-"
-                      }
-                    ];
-
-                    const effScore = Math.min(96, Math.max(78, 86.5 + ((idx * 3.2) % 8) - 2));
-                    return {
-                      events: demoEvents,
-                      efficiency_pct: Number(effScore.toFixed(1)),
-                      availability_pct: 88.9,
-                      answer_rate_pct: 75.0,
-                      total_online_label: "9 sa 0 dk",
-                      total_talk_label: "15 dk 45 sn",
-                      total_break_label: "1 sa 0 dk",
-                      answered_count: 3,
-                      outbound_count: 1,
-                      missed_count: 1,
-                      is_simulated: true
-                    };
-                  };
-
-                  // Combine backend agents list or fallback to users state
                   const rawAgents = (timelineReport?.agents && timelineReport.agents.length > 0)
                     ? timelineReport.agents
                     : (users && users.length > 0
@@ -3833,40 +3717,44 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             avatar: u.avatar || "",
                             is_online: false,
                             has_real_activity: false,
+                            shift_start_time: "-",
+                            shift_end_time: "-",
+                            total_online_label: "-",
+                            total_talk_label: "0 dk",
+                            total_break_label: "0 dk",
+                            inbound_total_count: 0,
+                            inbound_answered_count: 0,
+                            answered_count: 0,
+                            outbound_count: 0,
+                            missed_count: 0,
+                            transfer_count: 0,
+                            pickup_count: 0,
+                            action_count: 0,
+                            efficiency_pct: 0,
+                            availability_pct: 0,
+                            answer_rate_pct: 0,
                             events: []
                           }))
-                        : [
-                            { agent_id: "1000", agent_name: "Ahmet Yılmaz", extension: "1000", avatar: "", is_online: true, has_real_activity: false, events: [] },
-                            { agent_id: "1001", agent_name: "Merve Kaya", extension: "1001", avatar: "", is_online: true, has_real_activity: false, events: [] }
-                          ]);
+                        : []);
 
                   const preparedAgents = rawAgents
-                    .map((ag, idx) => {
-                      if (ag.events && ag.events.length > 0) {
-                        return { ...ag, is_simulated: false };
-                      }
-                      if (showSimulatedTimeline) {
-                        const sim = buildFallbackEventsForAgent(ag.agent_name, ag.extension, idx);
-                        return {
-                          ...ag,
-                          ...sim
-                        };
-                      }
-                      return {
-                        ...ag,
-                        events: [],
-                        efficiency_pct: 0,
-                        availability_pct: 0,
-                        answer_rate_pct: 0,
-                        total_online_label: "0 dk",
-                        total_talk_label: "0 dk",
-                        total_break_label: "0 dk",
-                        answered_count: 0,
-                        outbound_count: 0,
-                        missed_count: 0,
-                        is_simulated: false
-                      };
-                    })
+                    .map((ag) => ({
+                      ...ag,
+                      shift_start_time: ag.shift_start_time || ((ag.events && ag.events.length > 0) ? ag.events[0].time : (ag.is_online ? "Aktif" : "-")),
+                      total_online_label: ag.total_online_label || "-",
+                      total_talk_label: ag.total_talk_label || "0 dk",
+                      total_break_label: ag.total_break_label || "0 dk",
+                      inbound_total_count: ag.inbound_total_count ?? ((Number(ag.answered_count || 0) - Number(ag.outbound_count || 0)) + Number(ag.missed_count || 0)),
+                      inbound_answered_count: ag.inbound_answered_count ?? Math.max(0, Number(ag.answered_count || 0) - Number(ag.outbound_count || 0)),
+                      answered_count: Number(ag.answered_count || 0),
+                      outbound_count: Number(ag.outbound_count || 0),
+                      missed_count: Number(ag.missed_count || 0),
+                      transfer_count: Number(ag.transfer_count || 0),
+                      pickup_count: Number(ag.pickup_count || 0),
+                      action_count: Number(ag.action_count || 0),
+                      efficiency_pct: Number(ag.efficiency_pct || 0),
+                      events: ag.events || []
+                    }))
                     .filter((ag) => {
                       if (selectedTimelineAgent !== "All" && ag.agent_name !== selectedTimelineAgent && ag.extension !== selectedTimelineAgent && ag.agent_id !== selectedTimelineAgent) {
                         return false;
@@ -3877,16 +3765,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       return true;
                     });
 
-                  const activeAgentsForAvg = preparedAgents.filter(a => (a.events || []).length > 0);
+                  const activeAgentsForAvg = preparedAgents.filter(a => (a.events || []).length > 0 || a.total_online_seconds > 0);
                   const avgEfficiency = activeAgentsForAvg.length > 0
                     ? (activeAgentsForAvg.reduce((acc, cur) => acc + (Number(cur.efficiency_pct) || 0), 0) / activeAgentsForAvg.length).toFixed(1)
                     : "0.0";
+                  const totalInboundAll = preparedAgents.reduce((acc, cur) => acc + (Number(cur.inbound_total_count) || 0), 0);
                   const totalAnsweredAll = preparedAgents.reduce((acc, cur) => acc + (Number(cur.answered_count) || 0), 0);
+                  const totalOutboundAll = preparedAgents.reduce((acc, cur) => acc + (Number(cur.outbound_count) || 0), 0);
                   const totalMissedAll = preparedAgents.reduce((acc, cur) => acc + (Number(cur.missed_count) || 0), 0);
-                  const totalBreakEventsAll = preparedAgents.reduce(
-                    (acc, cur) => acc + (cur.events || []).filter(e => e.type === "break_start").length,
-                    0
-                  );
 
                   const getEventStyle = (type) => {
                     switch (type) {
@@ -3906,7 +3792,46 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         return {
                           badge: "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60",
                           dot: "bg-indigo-500",
-                          tag: "ÇAĞRIDA"
+                          tag: "GİDEN ARAMA"
+                        };
+                      case "call_internal":
+                        return {
+                          badge: "bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300 border-cyan-200 dark:border-cyan-800/60",
+                          dot: "bg-cyan-500",
+                          tag: "DAHİLİ GÖRÜŞME"
+                        };
+                      case "call_transfer":
+                      case "call_blind_transfer":
+                      case "call_attended_transfer":
+                        return {
+                          badge: "bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60",
+                          dot: "bg-purple-500",
+                          tag: "ÇAĞRI TRANSFERİ"
+                        };
+                      case "call_pickup":
+                        return {
+                          badge: "bg-violet-50 dark:bg-violet-950/40 text-violet-700 dark:text-violet-300 border-violet-200 dark:border-violet-800/60",
+                          dot: "bg-violet-500",
+                          tag: "ÇAĞRI TOPLAMA"
+                        };
+                      case "call_hold":
+                      case "call_unhold":
+                        return {
+                          badge: "bg-orange-50 dark:bg-orange-950/40 text-orange-700 dark:text-orange-300 border-orange-200 dark:border-orange-800/60",
+                          dot: "bg-orange-500",
+                          tag: type === "call_hold" ? "BEKLETME (HOLD)" : "BEKLEMEDEN DÖNDÜ"
+                        };
+                      case "call_conference":
+                        return {
+                          badge: "bg-fuchsia-50 dark:bg-fuchsia-950/40 text-fuchsia-700 dark:text-fuchsia-300 border-fuchsia-200 dark:border-fuchsia-800/60",
+                          dot: "bg-fuchsia-500",
+                          tag: "KONFERANS"
+                        };
+                      case "call_forwarded":
+                        return {
+                          badge: "bg-sky-50 dark:bg-sky-950/40 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800/60",
+                          dot: "bg-sky-500",
+                          tag: "YÖNLENDİRME"
                         };
                       case "break_start":
                         return {
@@ -3922,10 +3847,23 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         };
                       case "call_missed":
                       case "call_missed_outbound":
+                      case "call_rejected":
                         return {
                           badge: "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60",
                           dot: "bg-rose-500",
-                          tag: "AÇILMADI / CEVAPSIZ"
+                          tag: type === "call_rejected" ? "REDDEDİLDİ" : "AÇILMADI / CEVAPSIZ"
+                        };
+                      case "profile_change":
+                        return {
+                          badge: "bg-lime-50 dark:bg-lime-950/40 text-lime-700 dark:text-lime-300 border-lime-200 dark:border-lime-800/60",
+                          dot: "bg-lime-500",
+                          tag: "PROFİL DEĞİŞİMİ"
+                        };
+                      case "call_note":
+                        return {
+                          badge: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700",
+                          dot: "bg-slate-500",
+                          tag: "ÇAĞRI NOTU"
                         };
                       case "logout":
                         return {
@@ -3937,14 +3875,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         return {
                           badge: "bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700",
                           dot: "bg-slate-400",
-                          tag: "HAREKET"
+                          tag: "AKSİYON"
                         };
                     }
                   };
 
                   const build24hBlocks = (events) => {
                     if (!events || events.length === 0) {
-                      return [{ type: "offline", width: "100%", label: "Çevrimdışı" }];
+                      return [{ type: "offline", width: "100%", label: "Kayıtlı Hareket Yok" }];
                     }
                     const parseHour = (tStr) => {
                       if (!tStr || !tStr.includes(":")) return 9;
@@ -3964,15 +3902,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         blocks.push({
                           type: "ready",
                           width: `${((evHr - cursor) / 24) * 100}%`,
-                          label: "Hazır / Müsait"
+                          label: "Müsait / Mesaide"
                         });
                         cursor = evHr;
                       }
-                      let segDurHours = 0.18;
+                      let segDurHours = 0.15;
                       if (ev.type === "break_start") segDurHours = ev.break_name?.toLowerCase().includes("yemek") ? 0.75 : 0.25;
-                      else if (ev.type === "call_inbound" || ev.type === "call_outbound") segDurHours = 0.2;
-                      else if (ev.type === "call_missed") segDurHours = 0.08;
-                      else if (ev.type === "login" || ev.type === "logout" || ev.type === "break_end") segDurHours = 0.05;
+                      else if (ev.type?.startsWith("call_")) segDurHours = 0.18;
+                      else if (ev.type === "login" || ev.type === "logout" || ev.type === "break_end") segDurHours = 0.06;
 
                       const nextEvHr = events[i + 1] ? parseHour(events[i + 1].time) : 24;
                       const actualSeg = Math.max(0.05, Math.min(segDurHours, Math.max(0.05, nextEvHr - cursor)));
@@ -3990,11 +3927,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       blocks.push({
                         type: hasLogout ? "offline" : "ready",
                         width: `${((24 - cursor) / 24) * 100}%`,
-                        label: hasLogout ? "Çevrimdışı" : "Hazır / Müsait"
+                        label: hasLogout ? "Çevrimdışı" : "Mesaide / Hazır"
                       });
                     }
                     return blocks;
                   };
+
+                  // Resolve active modal agent with fresh live data from preparedAgents
+                  const modalAgent = selectedTimelineAgentModal
+                    ? (preparedAgents.find(a => a.agent_id === selectedTimelineAgentModal.agent_id || a.extension === selectedTimelineAgentModal.extension) || selectedTimelineAgentModal)
+                    : null;
 
                   return (
                     <>
@@ -4039,17 +3981,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <button
-                            onClick={() => setShowSimulatedTimeline(!showSimulatedTimeline)}
-                            className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
-                              showSimulatedTimeline
-                                ? `${lightBg} ${text} ${borderLight}`
-                                : "bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700"
-                            }`}
-                            title="Aktivitesi olmayan temsilciler için örnek gün içi akışı göster/gizle"
-                          >
-                            {showSimulatedTimeline ? "Örnek Akış: Açık" : "Sadece Canlı Kayıtlar"}
-                          </button>
+                          <span className="text-[11px] font-semibold text-slate-400 hidden md:inline">
+                            Canlı sistem hareketleri otomatik kaydedilir
+                          </span>
                           <button
                             onClick={() => fetchAgentTimeline(timelineDate, true)}
                             className={"flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white shadow-sm transition cursor-pointer " + bg + " " + hover}
@@ -4060,166 +3994,304 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         </div>
                       </div>
 
-                      {/* Top KPI Summary Cards */}
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div className={"rounded-2xl p-5 border flex flex-col justify-between gap-2 " + borderLight + " " + lightBg}>
-                          <div className="flex items-center justify-between">
-                            <span className={"text-[11px] font-extrabold uppercase tracking-wider " + text}>Toplam Verimlilik Yüzdesi</span>
-                            <TrendingUp size={18} className="text-emerald-500" />
-                          </div>
+                      {/* Compact KPI Summary Strip */}
+                      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div className={"rounded-2xl p-4 border flex flex-col justify-between gap-1 " + borderLight + " " + lightBg}>
+                          <span className={"text-[10px] font-extrabold uppercase tracking-wider " + text}>Ortalama Verimlilik</span>
                           <div className="flex items-baseline gap-2">
-                            <h4 className="text-3xl font-black text-emerald-600 dark:text-emerald-400">%{avgEfficiency}</h4>
-                            <span className="text-[11px] font-bold text-slate-500">Ortalama Skor</span>
+                            <h4 className="text-2xl font-black text-emerald-600 dark:text-emerald-400">%{avgEfficiency}</h4>
+                            <span className="text-[10px] font-bold text-slate-400">Aktif Temsilciler</span>
                           </div>
-                          <div className="w-full h-2 bg-slate-200/70 dark:bg-slate-800 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-emerald-500 rounded-full transition-all duration-500"
-                              style={{ width: `${Math.min(100, Math.max(0, Number(avgEfficiency)))}%` }}
-                            />
-                          </div>
-                          <p className="text-[10px] font-semibold text-slate-500">Aktif mesai süresi, mola disiplini ve çağrı karşılama oranı</p>
                         </div>
 
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-2 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Cevaplanan / Aktif Çağrı</span>
-                            <Phone size={18} className="text-blue-500" />
-                          </div>
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-1 shadow-xs">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Gelen Çağrı</span>
                           <div className="flex items-baseline gap-2">
-                            <h4 className="text-3xl font-black text-blue-600 dark:text-blue-400">{totalAnsweredAll}</h4>
-                            <span className="text-xs font-bold text-slate-400">Görüşme</span>
+                            <h4 className="text-2xl font-black text-blue-600 dark:text-blue-400">{totalInboundAll}</h4>
+                            <span className="text-[10px] font-bold text-slate-400">Toplam Gelen</span>
                           </div>
-                          <p className="text-[10px] font-semibold text-slate-500">Gün içinde temsilcilerin yanıtladığı ve yaptığı aramalar</p>
                         </div>
 
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-2 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Mola Hareketleri</span>
-                            <PauseCircle size={18} className="text-amber-500" />
-                          </div>
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-1 shadow-xs">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Cevaplanan Çağrı</span>
                           <div className="flex items-baseline gap-2">
-                            <h4 className="text-3xl font-black text-amber-500">{totalBreakEventsAll}</h4>
-                            <span className="text-xs font-bold text-slate-400">Mola Çıkışı</span>
+                            <h4 className="text-2xl font-black text-emerald-600 dark:text-emerald-400">{totalAnsweredAll}</h4>
+                            <span className="text-[10px] font-bold text-slate-400">Başarılı Görüşme</span>
                           </div>
-                          <p className="text-[10px] font-semibold text-slate-500">Yemek, ihtiyaç ve kısa mola başlangıç/dönüş kayıtları</p>
                         </div>
 
-                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-2 shadow-sm">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500">Açılmayan (Cevapsız) Çağrı</span>
-                            <PhoneMissed size={18} className="text-rose-500" />
-                          </div>
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-1 shadow-xs">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Giden Çağrı</span>
                           <div className="flex items-baseline gap-2">
-                            <h4 className="text-3xl font-black text-rose-500">{totalMissedAll}</h4>
-                            <span className="text-xs font-bold text-slate-400">Cevapsız</span>
+                            <h4 className="text-2xl font-black text-indigo-600 dark:text-indigo-400">{totalOutboundAll}</h4>
+                            <span className="text-[10px] font-bold text-slate-400">Dış / Dahili Arama</span>
                           </div>
-                          <p className="text-[10px] font-semibold text-slate-500">Temsilciye gelip açılmayan / yanıtsız kalan aramalar</p>
+                        </div>
+
+                        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200/80 dark:border-slate-800 flex flex-col justify-between gap-1 shadow-xs col-span-2 lg:col-span-1">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Cevapsız Çağrı</span>
+                          <div className="flex items-baseline gap-2">
+                            <h4 className="text-2xl font-black text-rose-500">{totalMissedAll}</h4>
+                            <span className="text-[10px] font-bold text-slate-400">Açılmayan / Kaçan</span>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Per-Agent Chronological Timeline Cards */}
-                      <div className="flex flex-col gap-6">
-                        {preparedAgents.map((ag, agIdx) => {
-                          const events = ag.events || [];
-                          const eff = Number(ag.efficiency_pct || 0);
-                          const effColor = eff >= 80
-                            ? "text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800/60"
-                            : eff >= 60
-                            ? "text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800/60"
-                            : "text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800/60";
-                          const barBlocks = build24hBlocks(events);
+                      {/* Main Single-Row Per Agent Summary Table (Just like other reports) */}
+                      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm">
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse min-w-[980px]">
+                            <thead>
+                              <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mesai Başlama</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mesaide Geçen Süre</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Gelen Çağrı</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplanan</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Giden Çağrı</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevapsız</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer / Toplama</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mola Süresi</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Verimlilik</th>
+                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Timeline</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                              {preparedAgents.length === 0 ? (
+                                <tr>
+                                  <td colSpan="11" className="p-8 text-center text-slate-400 font-semibold">
+                                    Kayıtlı temsilci bulunamadı.
+                                  </td>
+                                </tr>
+                              ) : (
+                                preparedAgents.map((ag, idx) => {
+                                  const eff = Number(ag.efficiency_pct || 0);
+                                  const effBadge = eff >= 80
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-400 dark:border-emerald-800/60"
+                                    : eff >= 50
+                                    ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-400 dark:border-amber-800/60"
+                                    : "bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700";
 
-                          const inlineSummaryChain = events
-                            .map((ev) => ev.description || `${ev.time} ${ev.title}`)
-                            .join(" → ");
+                                  return (
+                                    <tr
+                                      key={ag.agent_id || idx}
+                                      className={"transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}
+                                    >
+                                      {/* Temsilci */}
+                                      <td className="p-4">
+                                        <div className="flex items-center gap-3">
+                                          <div className={"w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs text-white shrink-0 " + bg}>
+                                            {(ag.agent_name || "T").substring(0, 2).toUpperCase()}
+                                          </div>
+                                          <div>
+                                            <div className="flex items-center gap-2">
+                                              <span className="font-bold text-slate-800 dark:text-slate-100 text-xs">
+                                                {ag.agent_name}
+                                              </span>
+                                              <span
+                                                className={`w-2 h-2 rounded-full ${ag.is_online ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}
+                                                title={ag.is_online ? "Çevrimiçi" : "Çevrimdışı"}
+                                              />
+                                            </div>
+                                            <span className="text-[10px] font-semibold text-slate-400">
+                                              Dahili: {ag.extension} {(ag.events || []).length > 0 ? `• ${(ag.events || []).length} hareket` : ""}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </td>
 
-                          return (
-                            <div
-                              key={ag.agent_id || agIdx}
-                              className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-sm flex flex-col gap-5"
-                            >
-                              {/* Agent Top Row */}
-                              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
-                                <div className="flex items-center gap-3.5">
-                                  <div className={"h-12 w-12 rounded-2xl flex items-center justify-center font-black text-base text-white shadow-sm shrink-0 " + bg}>
-                                    {(ag.agent_name || "T").slice(0, 2).toUpperCase()}
-                                  </div>
-                                  <div>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <h4 className="text-base font-black text-slate-900 dark:text-white">{ag.agent_name}</h4>
-                                      <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                        Dahili: {ag.extension}
-                                      </span>
-                                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                        ag.is_online
-                                          ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50"
-                                          : "bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700"
-                                      }`}>
-                                        <span className={`w-1.5 h-1.5 rounded-full ${ag.is_online ? "bg-emerald-500 animate-pulse" : "bg-slate-400"}`} />
-                                        {ag.is_online ? "Çevrimiçi" : "Çevrimdışı"}
-                                      </span>
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
-                                      <span>Mesai/Online: <strong className="text-slate-800 dark:text-slate-200">{ag.total_online_label}</strong></span>
-                                      <span>•</span>
-                                      <span>Çağrıda: <strong className="text-blue-600 dark:text-blue-400">{ag.total_talk_label}</strong></span>
-                                      <span>•</span>
-                                      <span>Mola: <strong className="text-amber-600 dark:text-amber-400">{ag.total_break_label}</strong></span>
-                                      <span>•</span>
-                                      <span>Cevaplanan: <strong className="text-emerald-600 dark:text-emerald-400">{ag.answered_count}</strong></span>
-                                      <span>•</span>
-                                      <span>Açılmayan: <strong className="text-rose-600 dark:text-rose-400">{ag.missed_count}</strong></span>
-                                    </div>
-                                  </div>
+                                      {/* Mesai Başlama Saati */}
+                                      <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300 font-mono">
+                                        {ag.shift_start_time || "-"}
+                                      </td>
+
+                                      {/* Mesaide Geçirdiği Süre */}
+                                      <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">
+                                        {ag.total_online_label || "-"}
+                                      </td>
+
+                                      {/* Gelen Çağrı */}
+                                      <td className="p-4 text-center">
+                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-100 dark:border-blue-900/40">
+                                          {ag.inbound_total_count}
+                                        </span>
+                                      </td>
+
+                                      {/* Cevaplanan Çağrı */}
+                                      <td className="p-4 text-center">
+                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40">
+                                          {ag.answered_count}
+                                        </span>
+                                      </td>
+
+                                      {/* Giden Çağrı */}
+                                      <td className="p-4 text-center">
+                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40">
+                                          {ag.outbound_count}
+                                        </span>
+                                      </td>
+
+                                      {/* Cevapsız Çağrı */}
+                                      <td className="p-4 text-center">
+                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-100 dark:border-rose-900/40">
+                                          {ag.missed_count}
+                                        </span>
+                                      </td>
+
+                                      {/* Transfer / Toplama / Aksiyon */}
+                                      <td className="p-4 text-center">
+                                        <span className="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-lg font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-100 dark:border-purple-900/40" title={`Transfer: ${ag.transfer_count || 0}, Çağrı Toplama: ${ag.pickup_count || 0}, Toplam Ek Aksiyon: ${ag.action_count || 0}`}>
+                                          {ag.action_count || 0}
+                                        </span>
+                                      </td>
+
+                                      {/* Mola Süresi */}
+                                      <td className="p-4 text-center font-semibold text-amber-600 dark:text-amber-400">
+                                        {ag.total_break_label || "0 dk"}
+                                      </td>
+
+                                      {/* Toplam Verimlilik */}
+                                      <td className="p-4 text-center">
+                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-black border ${effBadge}`}>
+                                          %{eff}
+                                        </span>
+                                      </td>
+
+                                      {/* Sağda Büyüteç Butonu (Timeline Detay Popup Aç) */}
+                                      <td className="p-4 text-center">
+                                        <button
+                                          onClick={() => setSelectedTimelineAgentModal(ag)}
+                                          className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-primary border border-slate-200 dark:border-slate-700 rounded-xl transition cursor-pointer hover:scale-105 active:scale-95 duration-150 inline-flex items-center justify-center shadow-xs"
+                                          title={`${ag.agent_name} Gün İçi Kronolojik Hareket Dökümünü (Timeline) Görüntüle`}
+                                        >
+                                          <Search size={14} />
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })
+                              )}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* Agent Timeline Detail Popup Modal (Opened via Magnifier Button) */}
+                      {modalAgent && (
+                        <div
+                          className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+                          onClick={() => setSelectedTimelineAgentModal(null)}
+                        >
+                          <div
+                            className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col gap-5 animate-in zoom-in-95 duration-200"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            {/* Modal Header */}
+                            <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+                              <div className="flex items-center gap-3.5">
+                                <div className={"h-12 w-12 rounded-2xl flex items-center justify-center font-black text-base text-white shadow-sm shrink-0 " + bg}>
+                                  {(modalAgent.agent_name || "T").slice(0, 2).toUpperCase()}
                                 </div>
-
-                                {/* Productivity Score Box */}
-                                <div className={`px-4 py-3 rounded-2xl border flex items-center gap-4 shrink-0 ${effColor}`}>
-                                  <div>
-                                    <span className="text-[10px] font-extrabold uppercase tracking-wider block opacity-80">
-                                      Toplam Verimlilik Yüzdesi
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <h3 className="text-base font-black text-slate-900 dark:text-white">
+                                      {modalAgent.agent_name} — Temsilci Kronolojisi (Timeline)
+                                    </h3>
+                                    <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                      Dahili: {modalAgent.extension}
                                     </span>
-                                    <div className="flex items-baseline gap-2 mt-0.5">
-                                      <span className="text-2xl font-black">%{eff}</span>
-                                      <span className="text-[10px] font-bold opacity-75">
-                                        (Aktiflik: %{ag.availability_pct || 0} | Karşılama: %{ag.answer_rate_pct || 0})
-                                      </span>
-                                    </div>
+                                    <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                      Tarih: {timelineDate}
+                                    </span>
                                   </div>
-                                  <Award size={26} className="shrink-0 opacity-80" />
+                                  <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                    <span>Mesai Başlama: <strong className="text-slate-800 dark:text-slate-200">{modalAgent.shift_start_time}</strong></span>
+                                    <span>•</span>
+                                    <span>Mesaide Geçen Süre: <strong className="text-slate-800 dark:text-slate-200">{modalAgent.total_online_label}</strong></span>
+                                    <span>•</span>
+                                    <span>Görüşme Süresi: <strong className="text-blue-600 dark:text-blue-400">{modalAgent.total_talk_label}</strong></span>
+                                    <span>•</span>
+                                    <span>Mola Süresi: <strong className="text-amber-600 dark:text-amber-400">{modalAgent.total_break_label}</strong></span>
+                                    <span>•</span>
+                                    <span>Verimlilik: <strong className="text-emerald-600 dark:text-emerald-400">%{modalAgent.efficiency_pct}</strong></span>
+                                  </div>
                                 </div>
                               </div>
 
-                              {/* Single-Line Chronological Summary Sentence (Örn: 09:00 Login oldu -> 09:15 ...) */}
-                              {events.length > 0 && (
+                              <button
+                                onClick={() => setSelectedTimelineAgentModal(null)}
+                                className="p-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition cursor-pointer"
+                                title="Kapat"
+                              >
+                                <X size={16} />
+                              </button>
+                            </div>
+
+                            {/* Modal Summary Metrics Row */}
+                            <div className="grid grid-cols-2 sm:grid-cols-6 gap-2.5">
+                              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 text-center">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase block">Gelen Çağrı</span>
+                                <span className="text-lg font-black text-blue-600 dark:text-blue-400">{modalAgent.inbound_total_count}</span>
+                              </div>
+                              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 text-center">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase block">Cevaplanan</span>
+                                <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">{modalAgent.answered_count}</span>
+                              </div>
+                              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 text-center">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase block">Giden Çağrı</span>
+                                <span className="text-lg font-black text-indigo-600 dark:text-indigo-400">{modalAgent.outbound_count}</span>
+                              </div>
+                              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 text-center">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase block">Cevapsız</span>
+                                <span className="text-lg font-black text-rose-500">{modalAgent.missed_count}</span>
+                              </div>
+                              <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-800 text-center">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase block">Transfer / Toplama</span>
+                                <span className="text-lg font-black text-purple-600 dark:text-purple-400">{modalAgent.action_count || 0}</span>
+                              </div>
+                              <div className="p-3 rounded-2xl bg-emerald-50/70 dark:bg-emerald-950/30 border border-emerald-200/70 dark:border-emerald-800/50 text-center">
+                                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase block">Verimlilik</span>
+                                <span className="text-lg font-black text-emerald-600 dark:text-emerald-400">%{modalAgent.efficiency_pct}</span>
+                              </div>
+                            </div>
+
+                            {(modalAgent.events || []).length === 0 ? (
+                              <div className="py-12 px-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center gap-2">
+                                <Clock size={32} className="text-slate-300 dark:text-slate-600" />
+                                <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
+                                  Seçilen tarihte ({timelineDate}) bu kullanıcı için henüz kaydedilmiş bir sistem hareketi bulunmuyor.
+                                </p>
+                                <p className="text-xs text-slate-400 max-w-lg">
+                                  Kullanıcı sisteme giriş yaptığında, çağrı aldığında/yaptığında, çağrı transfer ettiğinde, çağrı topladığında (*8), beklemeye aldığında, profil veya mola değiştirdiğinde tüm hareketleri gerçek zamanlı olarak burada listelenir.
+                                </p>
+                              </div>
+                            ) : (
+                              <>
+                                {/* Single-Line Chronological Chain Summary */}
                                 <div className={"p-3.5 rounded-2xl border text-xs leading-relaxed font-semibold " + borderLight + " " + lightBg}>
                                   <span className={"text-[10px] font-extrabold uppercase tracking-wider block mb-1 " + text}>
                                     Gün İçi Kronolojik Hareket Özeti:
                                   </span>
                                   <p className="text-slate-700 dark:text-slate-200 break-words">
-                                    {inlineSummaryChain}
+                                    {(modalAgent.events || [])
+                                      .map((ev) => ev.description || `${ev.time} ${ev.title}`)
+                                      .join(" → ")}
                                   </p>
                                 </div>
-                              )}
 
-                              {/* Step-by-Step Visual Chronological Flow Cards */}
-                              <div>
-                                <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
-                                  Adım Adım Temsilci Zaman Çizelgesi ({events.length} Hareket)
-                                </h5>
-                                {events.length === 0 ? (
-                                  <div className="text-xs font-semibold text-slate-400 py-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl">
-                                    Seçilen tarihte bu temsilci için kaydedilmiş hareket bulunmuyor.
-                                  </div>
-                                ) : (
+                                {/* Step-by-Step Visual Flow Cards */}
+                                <div>
+                                  <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
+                                    Adım Adım Hareket Akışı ({(modalAgent.events || []).length} Kayıt)
+                                  </h5>
                                   <div className="flex items-stretch flex-wrap gap-2.5">
-                                    {events.map((ev, evIdx) => {
+                                    {(modalAgent.events || []).map((ev, evIdx) => {
                                       const st = getEventStyle(ev.type);
                                       return (
                                         <React.Fragment key={evIdx}>
-                                          <div className={`px-3.5 py-2.5 rounded-2xl border flex flex-col justify-between min-w-[195px] max-w-[260px] shadow-xs transition hover:scale-[1.01] ${st.badge}`}>
+                                          <div className={`px-3.5 py-2.5 rounded-2xl border flex flex-col justify-between min-w-[190px] max-w-[260px] shadow-xs ${st.badge}`}>
                                             <div className="flex items-center justify-between gap-2 mb-1">
-                                              <span className="inline-flex items-center gap-1.5 text-xs font-black">
+                                              <span className="inline-flex items-center gap-1.5 text-xs font-black font-mono">
                                                 <span className={`w-2 h-2 rounded-full ${st.dot}`} />
                                                 {ev.time}
                                               </span>
@@ -4230,14 +4302,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                             <p className="text-xs font-bold leading-snug">
                                               {ev.description || ev.title}
                                             </p>
-                                            <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-current/10 text-[10px] font-semibold opacity-80">
-                                              <span className="truncate">{ev.detail}</span>
+                                            <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-current/10 text-[10px] font-semibold opacity-85">
+                                              <span className="truncate" title={ev.detail}>{ev.detail}</span>
                                               {ev.duration_label && ev.duration_label !== "-" && (
                                                 <span className="shrink-0 font-bold">{ev.duration_label}</span>
                                               )}
                                             </div>
                                           </div>
-                                          {evIdx < events.length - 1 && (
+                                          {evIdx < (modalAgent.events || []).length - 1 && (
                                             <div className="flex items-center justify-center text-slate-300 dark:text-slate-600 px-0.5">
                                               <ArrowRight size={16} />
                                             </div>
@@ -4246,99 +4318,86 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                       );
                                     })}
                                   </div>
-                                )}
-                              </div>
+                                </div>
 
-                              {/* 24-Hour Visual Bar */}
-                              <div className="pt-2">
-                                <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1.5 px-1">
-                                  <span>00:00</span>
-                                  <span>06:00</span>
-                                  <span>09:00</span>
-                                  <span>12:00</span>
-                                  <span>15:00</span>
-                                  <span>18:00</span>
-                                  <span>24:00</span>
+                                {/* 24-Hour Status Bar */}
+                                <div className="pt-1">
+                                  <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1.5 px-1">
+                                    <span>00:00</span>
+                                    <span>06:00</span>
+                                    <span>09:00</span>
+                                    <span>12:00</span>
+                                    <span>15:00</span>
+                                    <span>18:00</span>
+                                    <span>24:00</span>
+                                  </div>
+                                  <div className="w-full h-4 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex border border-slate-200/60 dark:border-slate-700/60">
+                                    {build24hBlocks(modalAgent.events || []).map((b, bIdx) => {
+                                      let bgCls = "bg-slate-200 dark:bg-slate-800";
+                                      if (b.type === "ready" || b.type === "login" || b.type === "break_end") bgCls = "bg-emerald-500";
+                                      else if (b.type === "call_inbound" || b.type === "call_outbound" || b.type === "call_internal") bgCls = "bg-blue-500";
+                                      else if (b.type?.includes("transfer") || b.type === "call_pickup" || b.type === "call_forwarded" || b.type === "call_conference") bgCls = "bg-purple-500";
+                                      else if (b.type === "break_start" || b.type === "call_hold") bgCls = "bg-amber-500";
+                                      else if (b.type === "call_missed" || b.type === "call_missed_outbound" || b.type === "call_rejected") bgCls = "bg-rose-500";
+                                      return (
+                                        <div
+                                          key={bIdx}
+                                          style={{ width: b.width }}
+                                          title={b.label}
+                                          className={`${bgCls} h-full border-r border-white/20 last:border-r-0 transition-opacity hover:opacity-85`}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                  <div className="flex items-center flex-wrap gap-4 mt-2 text-[10px] font-bold text-slate-500">
+                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-emerald-500 inline-block" /> Login / Mesaide</span>
+                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-blue-500 inline-block" /> Çağrıda (Gelen/Giden/Dahili)</span>
+                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-purple-500 inline-block" /> Transfer / Çağrı Toplama / Yönlendirme</span>
+                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block" /> Mola / Bekletme (Hold)</span>
+                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-rose-500 inline-block" /> Cevapsız / Reddedilen</span>
+                                  </div>
                                 </div>
-                                <div className="w-full h-5 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex border border-slate-200/60 dark:border-slate-700/60">
-                                  {barBlocks.map((b, bIdx) => {
-                                    let bgCls = "bg-slate-200 dark:bg-slate-800";
-                                    if (b.type === "ready" || b.type === "login" || b.type === "break_end") bgCls = "bg-emerald-500";
-                                    else if (b.type === "call_inbound" || b.type === "call_outbound") bgCls = "bg-blue-500";
-                                    else if (b.type === "break_start") bgCls = "bg-amber-500";
-                                    else if (b.type === "call_missed" || b.type === "call_missed_outbound") bgCls = "bg-rose-500";
-                                    return (
-                                      <div
-                                        key={bIdx}
-                                        style={{ width: b.width }}
-                                        title={b.label}
-                                        className={`${bgCls} h-full border-r border-white/20 last:border-r-0 transition-opacity hover:opacity-85 cursor-pointer`}
-                                      />
-                                    );
-                                  })}
-                                </div>
-                                <div className="flex items-center flex-wrap gap-4 mt-2 text-[10px] font-bold text-slate-500">
-                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-emerald-500 inline-block" /> Login / Hazır</span>
-                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-blue-500 inline-block" /> Çağrıda (Gelen/Giden)</span>
-                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block" /> Molada (Yemek / İhtiyaç)</span>
-                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-rose-500 inline-block" /> Çağrı Geldi Ama Açmadı</span>
-                                  <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-slate-300 dark:bg-slate-700 inline-block" /> Çevrimdışı</span>
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
 
-                      {/* Detailed Chronological Table */}
-                      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl overflow-hidden shadow-sm">
-                        <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
-                          <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                            Detaylı Kronolojik Hareket Dökümü Tablosu
-                          </h4>
-                          <span className="text-[11px] font-bold text-slate-400">
-                            Toplam {preparedAgents.reduce((acc, a) => acc + (a.events || []).length, 0)} Kayıt
-                          </span>
+                                {/* Detailed Chronological Event List Table */}
+                                <div className="border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden">
+                                  <div className="max-h-[300px] overflow-y-auto">
+                                    <table className="w-full text-left border-collapse text-xs">
+                                      <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                                        <tr className="border-b border-slate-200 dark:border-slate-700">
+                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Saat</th>
+                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500">İşlem Tipi</th>
+                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Hareket Açıklaması</th>
+                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Detay / Numara / Hedef</th>
+                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500 text-center">Süre</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                        {(modalAgent.events || []).map((ev, i) => {
+                                          const st = getEventStyle(ev.type);
+                                          return (
+                                            <tr key={i} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                                              <td className="p-3 font-black font-mono text-slate-800 dark:text-slate-200 whitespace-nowrap">{ev.time}</td>
+                                              <td className="p-3 whitespace-nowrap">
+                                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${st.badge}`}>
+                                                  <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                                                  {st.tag}
+                                                </span>
+                                              </td>
+                                              <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{ev.description || ev.title}</td>
+                                              <td className="p-3 font-semibold text-slate-600 dark:text-slate-400">{ev.detail}</td>
+                                              <td className="p-3 text-center font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">{ev.duration_label || "-"}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
                         </div>
-                        <div className="overflow-x-auto max-h-[420px]">
-                          <table className="w-full text-left border-collapse">
-                            <thead className="sticky top-0 bg-slate-50 dark:bg-slate-900 z-10">
-                              <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider " + text}>Saat</th>
-                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
-                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider " + text}>Kronolojik Hareket Açıklaması</th>
-                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider " + text}>Detay (Numara / Mola Adı)</th>
-                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider text-center " + text}>Süre</th>
-                                <th className={"p-3.5 text-xs font-bold uppercase tracking-wider text-center " + text}>Verimlilik (%)</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                              {preparedAgents.flatMap((ag) =>
-                                (ag.events || []).map((ev, idx) => {
-                                  const st = getEventStyle(ev.type);
-                                  return (
-                                    <tr key={`${ag.agent_id}-${idx}`} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition">
-                                      <td className="p-3.5 font-black text-slate-800 dark:text-slate-200 whitespace-nowrap">{ev.time}</td>
-                                      <td className="p-3.5 font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">
-                                        {ag.agent_name} <span className="text-[10px] text-slate-400 font-normal">({ag.extension})</span>
-                                      </td>
-                                      <td className="p-3.5">
-                                        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-bold border ${st.badge}`}>
-                                          <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
-                                          {ev.description || ev.title}
-                                        </span>
-                                      </td>
-                                      <td className="p-3.5 font-semibold text-slate-600 dark:text-slate-400">{ev.detail}</td>
-                                      <td className="p-3.5 text-center font-bold text-slate-700 dark:text-slate-300">{ev.duration_label || "-"}</td>
-                                      <td className="p-3.5 text-center font-black text-emerald-600 dark:text-emerald-400">%{ag.efficiency_pct}</td>
-                                    </tr>
-                                  );
-                                })
-                              )}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
+                      )}
                     </>
                   );
                 })()}

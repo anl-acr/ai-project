@@ -440,9 +440,28 @@ export default function CallChatWidget({
     }
   };
 
+  const recordTimelineEvent = (actionType, detail) => {
+    try {
+      const ext = agentExtension || currentUserRef.current?.extension || "1000";
+      const uid = currentUserRef.current?.id || ext;
+      fetch(`${API_BASE}/api/agent/timeline-event`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: uid,
+          extension: ext,
+          action_type: actionType,
+          detail: detail || ""
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  };
+
   const hangupCall = () => {
     if (!session) return;
+    const remoteNum = session?.remoteIdentity?.uri?.user || "Bilinmeyen";
     if (callStatus === "Ringing") {
+      recordTimelineEvent("call_rejected", `${remoteNum} gelen çağrısı meşgule/redde atıldı`);
       session.reject();
     } else {
       session.bye();
@@ -457,20 +476,24 @@ export default function CallChatWidget({
     const handleSoftphoneAction = (e) => {
       const { type, target, mode, active } = e.detail;
       console.log(`[Softphone] Arayüz aksiyonu alındı:`, type, target, mode, active);
+      const remoteNum = session?.remoteIdentity?.uri?.user || "";
       
       if (type === "hangup") {
         hangupCall();
       } else if (type === "hold") {
         if (!session) return;
         if (active) {
+          recordTimelineEvent("call_hold", remoteNum ? `${remoteNum} beklemeye alındı` : "Görüşme beklemeye alındı");
           session.hold().catch(err => console.error("[WebRTC] Bekletme hatası:", err));
         } else {
+          recordTimelineEvent("call_unhold", remoteNum ? `${remoteNum} beklemeden alındı` : "Beklemeden geri dönüldü");
           session.unhold().catch(err => console.error("[WebRTC] Beklemeden çıkarma hatası:", err));
         }
       } else if (type === "transfer") {
         if (!session) return;
         if (mode === "blind") {
           try {
+            recordTimelineEvent("call_blind_transfer", `${remoteNum || "Çağrı"} -> Hedef ${target}`);
             const domain = asteriskWssUrl.split('/')[2].split(':')[0];
             const targetURI = SIP.UserAgent.makeURI(`sip:${target}@${domain}`);
             session.refer(targetURI);
@@ -480,14 +503,14 @@ export default function CallChatWidget({
           }
         } else {
           // Attended transfer simulation
+          recordTimelineEvent("call_attended_transfer", `${remoteNum || "Çağrı"} -> Hedef ${target} (Ön Görüşmeli)`);
           session.hold().then(() => {
             console.log(`[WebRTC] Görüşerek transfer başlatıldı. Orijinal çağrı bekletmede. Yeni çağrı yapılıyor: ${target}`);
-            // In attended transfer, the agent places the client on hold first
           }).catch(err => console.error("[WebRTC] Bekletme hatası:", err));
         }
       } else if (type === "conference") {
+        recordTimelineEvent("call_conference", `${target} konferansa eklendi`);
         console.log(`[WebRTC] Konferans odasına ${target} ekleniyor...`);
-        // Conference trigger log/dispatch
       }
     };
 

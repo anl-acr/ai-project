@@ -3500,6 +3500,25 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
                 elif isinstance(profiles_data, list) and len(profiles_data) > 0:
                     db_u.profiles = profiles_data
                 session.commit()
+
+            prof_labels = {
+                "available": "Müsait",
+                "away": "Dışarıda",
+                "meeting": "Toplantı",
+                "other": "Diğer"
+            }
+            prof_tr = prof_labels.get(active_profile, active_profile)
+            resolved_uid = str(user.get("id")) if user and user.get("id") else str(user_id)
+            resolved_ext = str(user.get("extension")) if user and user.get("extension") else (str(db_u.extension) if db_u else str(user_id))
+            session.add(AgentBreakLog(
+                user_id=resolved_uid,
+                extension=resolved_ext,
+                break_name=f"__ACTION__:profile_change:{prof_tr}",
+                start_time=datetime.datetime.utcnow(),
+                end_time=datetime.datetime.utcnow(),
+                duration_seconds=0
+            ))
+            session.commit()
     except Exception as e_sw:
         print(f"[Switch Active Profile DB Sync Warning]: {e_sw}")
 
@@ -4148,15 +4167,33 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
                 prof_target = raw_prof_target or "VOICEMAIL"
 
         # Rule 1: HER ZAMAN (forwarding_always) - Always forwarded unconditionally
+        def log_fwd_action(reason_text: str, target_val: str):
+            try:
+                from backend.database.config import SyncSessionLocal
+                with SyncSessionLocal() as s_fwd:
+                    s_fwd.add(AgentBreakLog(
+                        user_id=str(user_dict.get("id") or ext_str),
+                        extension=ext_str,
+                        break_name=f"__ACTION__:call_forwarded:{reason_text} -> {target_val}",
+                        start_time=datetime.datetime.utcnow(),
+                        end_time=datetime.datetime.utcnow(),
+                        duration_seconds=0
+                    ))
+                    s_fwd.commit()
+            except Exception as e_lf:
+                print(f"[Forwarding Timeline Log Warning]: {e_lf}")
+
         f_always = extract_target(user_dict.get("forwarding_always"))
         if f_always:
             print(f"[Forwarding Resolver] Extension {ext_str} -> 1. HER ZAMAN (Always Forward) to: {f_always}")
+            log_fwd_action("Her Zaman Yönlendirme", f_always)
             return Response(content=f"ALLOW:{f_always}:{no_ans_timeout}", media_type="text/plain")
 
         # Rule 1.5: ACTIVE PROFILE WITH 0 RING DEVICES SELECTED (e.g. Toplantı profile)
         if dialstatus == "BEFORE_DIAL" and len(prof_devices) == 0:
             imm_target = prof_target if prof_target else "HANGUP"
             print(f"[Forwarding Resolver] Extension {ext_str} -> Profile '{active_prof_id}' has 0 ring devices. Immediate action: {prof_action} -> {imm_target}")
+            log_fwd_action(f"Profil ({active_prof_id}) Yönlendirmesi", imm_target)
             return Response(content=f"ALLOW:{imm_target}:{no_ans_timeout}", media_type="text/plain")
 
         # Extract remaining targets & mobile transfer settings
@@ -4169,39 +4206,49 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         if dialstatus in ["BUSY", "CHANUNAVAIL", "CONGESTION"]:
             if f_busy:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 2. MEŞGUL DURUMDA Forward to: {f_busy}")
+                log_fwd_action("Meşgul Durumda Yönlendirme", f_busy)
                 return Response(content=f"ALLOW:{f_busy}:{no_ans_timeout}", media_type="text/plain")
             if prof_target:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout/Fallback Action ({prof_action}) to: {prof_target}")
+                log_fwd_action(f"Meşgul / Profil ({active_prof_id}) Yönlendirmesi", prof_target)
                 return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
             if mobile_enabled and gsm_num:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Mobile Transfer GSM: {gsm_num}")
+                log_fwd_action("Meşgul / Mobil GSM Aktarımı", gsm_num)
                 return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
 
         # Rule 3: ZAMAN AŞIMINDA (CEVAPSIZ) (forwarding_no_answer & active_profile timeout_action) - When line rings and times out
         if dialstatus in ["NOANSWER", "CANCEL"]:
             if prof_target:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Profile '{active_prof_id}' Timeout Action ({prof_action}) to: {prof_target}")
+                log_fwd_action(f"Cevapsız Zaman Aşımı ({active_prof_id})", prof_target)
                 return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
             if f_noans:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> 3. ZAMAN AŞIMINDA (Cevapsız) Forward to: {f_noans}")
+                log_fwd_action("Cevapsız Zaman Aşımı Yönlendirmesi", f_noans)
                 return Response(content=f"ALLOW:{f_noans}:{no_ans_timeout}", media_type="text/plain")
             if mobile_enabled and gsm_num:
                 print(f"[Forwarding Resolver] Extension {ext_str} ({dialstatus}) -> Mobile Transfer GSM: {gsm_num}")
+                log_fwd_action("Cevapsız / Mobil GSM Aktarımı", gsm_num)
                 return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
 
         # Offline / Unreachable check for BEFORE_DIAL when extension is NOT SIP registered
         if dialstatus == "BEFORE_DIAL" and not is_registered:
             if prof_target:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Profile '{active_prof_id}' Fallback ({prof_action}) to: {prof_target}")
+                log_fwd_action(f"Çevrimdışı Profil ({active_prof_id}) Yönlendirmesi", prof_target)
                 return Response(content=f"ALLOW:{prof_target}:{no_ans_timeout}", media_type="text/plain")
             if f_busy:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> 2. MEŞGUL/OFFLINE Forward to: {f_busy}")
+                log_fwd_action("Çevrimdışı Yönlendirme", f_busy)
                 return Response(content=f"ALLOW:{f_busy}:{no_ans_timeout}", media_type="text/plain")
             if f_noans:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> 3. CEVAPSIZ/OFFLINE Forward to: {f_noans}")
+                log_fwd_action("Çevrimdışı (Cevapsız Kuralı) Yönlendirme", f_noans)
                 return Response(content=f"ALLOW:{f_noans}:{no_ans_timeout}", media_type="text/plain")
             if mobile_enabled and gsm_num:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Mobile Transfer GSM: {gsm_num}")
+                log_fwd_action("Çevrimdışı Mobil GSM Aktarımı", gsm_num)
                 return Response(content=f"ALLOW:{gsm_num}:{no_ans_timeout}", media_type="text/plain")
 
         # Return default timeout for Dial execution
@@ -6124,6 +6171,17 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 await session.commit()
 
             print(f"[Asterisk Dialplan] Call registered successfully: {call_id} (Caller: {caller}, DID: {did}, Tenant: {call_tenant})")
+            if did and (str(did).startswith("*8") or str(did).startswith("**")):
+                pickup_target = "Grup Çağrı Toplama (*8)" if str(did).startswith("*8") else f"Hedefli Çağrı Toplama ({did})"
+                session.add(AgentBreakLog(
+                    user_id=str(caller or ""),
+                    extension=str(caller or ""),
+                    break_name=f"__ACTION__:call_pickup:{pickup_target}",
+                    start_time=datetime.datetime.utcnow(),
+                    end_time=datetime.datetime.utcnow(),
+                    duration_seconds=0
+                ))
+                await session.commit()
     except Exception as e:
         print(f"[Register Call Endpoint Error]: {e}")
     return {"status": "success"}
@@ -6403,6 +6461,19 @@ async def spy_active_call(call_id: str, agent_ext: str = "200"):
     success = await spy_on_call(call_id, agent_ext)
     if not success:
         raise HTTPException(status_code=500, detail="Asterisk AMI originate failed or channel not active.")
+    try:
+        async with AsyncSessionLocal() as session:
+            session.add(AgentBreakLog(
+                user_id=str(agent_ext),
+                extension=str(agent_ext),
+                break_name=f"__ACTION__:call_spy:Canlı Dinleme ({call_id[:8]})",
+                start_time=datetime.datetime.utcnow(),
+                end_time=datetime.datetime.utcnow(),
+                duration_seconds=0
+            ))
+            await session.commit()
+    except Exception:
+        pass
     return {"status": "success", "message": f"Originated ChanSpy on agent extension {agent_ext}"}
 
 class WhisperPayload(BaseModel):
@@ -6435,11 +6506,31 @@ async def whisper_to_call(call_id: str, payload: WhisperPayload):
         raise HTTPException(status_code=500, detail=f"Fısıldama iletilirken hata oluştu: {e}")
 
 @app.post("/api/calls/{call_id}/transfer")
-async def transfer_call_endpoint(call_id: str, extension: str = "transfer_to_human"):
+async def transfer_call_endpoint(call_id: str, extension: str = "transfer_to_human", request: Request = None):
     from backend.services.ami_manager import redirect_call_to_human
     success = await redirect_call_to_human(call_id, extension=extension)
     if not success:
         raise HTTPException(status_code=500, detail="Asterisk AMI redirect failed.")
+    try:
+        from backend.services.agent_presence import get_agent_state
+        st = get_agent_state()
+        ag_ext = str(st.get("extension") or extension or "1000")
+        ag_uid = str(st.get("user_id") or ag_ext)
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, call_id)
+            caller_info = db_call.caller_number if db_call else call_id[:8]
+            target_label = "Canlı Temsilci" if extension == "transfer_to_human" else f"Hedef {extension}"
+            session.add(AgentBreakLog(
+                user_id=ag_uid,
+                extension=ag_ext,
+                break_name=f"__ACTION__:call_transfer:{caller_info} -> {target_label}",
+                start_time=datetime.datetime.utcnow(),
+                end_time=datetime.datetime.utcnow(),
+                duration_seconds=0
+            ))
+            await session.commit()
+    except Exception as e_tr:
+        print(f"[Transfer Action Log Error]: {e_tr}")
     return {"status": "success", "message": f"Redirected call {call_id} to human representative."}
 
 class CallNotesSchema(BaseModel):
@@ -6456,6 +6547,22 @@ async def save_call_notes(call_id: str, payload: CallNotesSchema, db: AsyncSessi
         
     call.agent_topic = payload.topic
     call.agent_notes = payload.notes
+    try:
+        from backend.services.agent_presence import get_agent_state
+        st = get_agent_state()
+        ag_ext = str(st.get("extension") or call.callee_number or call.caller_number or "1000")
+        ag_uid = str(st.get("user_id") or ag_ext)
+        topic_str = (payload.topic or "Genel Not").strip()
+        db.add(AgentBreakLog(
+            user_id=ag_uid,
+            extension=ag_ext,
+            break_name=f"__ACTION__:call_note:{topic_str} ({call.caller_number or ''})",
+            start_time=datetime.datetime.utcnow(),
+            end_time=datetime.datetime.utcnow(),
+            duration_seconds=0
+        ))
+    except Exception:
+        pass
     await db.commit()
     return {"status": "success", "message": "Call notes saved"}
 
@@ -8199,7 +8306,7 @@ async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_
     break_dict = {}
 
     for b_log in today_breaks:
-        if b_log.break_name in ("__LOGIN__", "__LOGOUT__"):
+        if str(b_log.break_name or "").startswith("__"):
             continue
         if target_user_ids or target_exts:
             b_uid = str(b_log.user_id or "")
@@ -8230,6 +8337,38 @@ async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_
         "break_minutes": total_break_minutes,
         "break_details": break_details
     }
+
+
+@app.post("/api/agent/timeline-event")
+async def record_agent_timeline_event(
+    request: Request,
+    payload: dict = Body(...),
+    db: AsyncSession = Depends(get_db)
+):
+    from backend.database.models import AgentBreakLog
+    from backend.services.agent_presence import get_agent_state
+
+    action_type = str(payload.get("action_type") or payload.get("type") or "custom").strip()
+    detail = str(payload.get("detail") or payload.get("target") or "").strip()
+    duration_sec = int(payload.get("duration_seconds") or 0)
+
+    state = get_agent_state()
+    user_id = str(payload.get("user_id") or state.get("user_id") or "").strip()
+    extension = str(payload.get("extension") or state.get("extension") or user_id or "1000").strip()
+    if not user_id:
+        user_id = extension
+
+    now_utc = datetime.datetime.utcnow()
+    db.add(AgentBreakLog(
+        user_id=user_id,
+        extension=extension,
+        break_name=f"__ACTION__:{action_type}:{detail}",
+        start_time=now_utc,
+        end_time=now_utc,
+        duration_seconds=duration_sec
+    ))
+    await db.commit()
+    return {"status": "success"}
 
 
 @app.get("/api/reports/agent-timeline")
@@ -8320,7 +8459,7 @@ async def get_agent_timeline_report(
     res_calls = await db.execute(stmt_calls)
     window_calls = res_calls.scalars().all()
 
-    # Fetch break & login/logout logs in window
+    # Fetch break, login/logout & action logs in window
     stmt_breaks = select(AgentBreakLog).where(
         or_(
             AgentBreakLog.start_time >= window_start_utc,
@@ -8346,6 +8485,8 @@ async def get_agent_timeline_report(
 
     def fmt_dur(secs):
         secs = max(0, int(secs or 0))
+        if secs == 0:
+            return "0 dk"
         if secs < 60:
             return f"{secs} sn"
         m = secs // 60
@@ -8355,6 +8496,23 @@ async def get_agent_timeline_report(
         h = m // 60
         rem_m = m % 60
         return f"{h} sa {rem_m} dk"
+
+    ACTION_META_MAP = {
+        "call_transfer": ("Çağrı Transferi", "Çağrı başka bir dahiliye/temsilciye aktarıldı"),
+        "call_blind_transfer": ("Kör Transfer (Blind)", "Çağrı doğrudan hedef dahiliye aktarıldı"),
+        "call_attended_transfer": ("Kontrollü Transfer (Attended)", "Ön görüşmeli çağrı aktarımı yapıldı"),
+        "call_pickup": ("Çağrı Toplama (Call Pickup)", "Çalan başka bir dahili/grup çağrısı toplandı"),
+        "call_hold": ("Çağrı Beklemeye Alındı", "Görüşme beklemeye (Hold) alındı"),
+        "call_unhold": ("Beklemeden Geri Dönüldü", "Beklemedeki çağrıya geri dönüldü"),
+        "call_conference": ("3'lü Konferans Başlatıldı", "Görüşmeye yeni katılımcı eklendi"),
+        "call_forwarded": ("Çağrı Yönlendirildi", "Çağrı yönlendirme kuralı ile aktarıldı"),
+        "call_rejected": ("Gelen Çağrı Reddedildi", "Temsilci çalan çağrıyı meşgule/redde attı"),
+        "call_mute": ("Mikrofon Sessize Alındı", "Görüşme sırasında mikrofon kapatıldı"),
+        "call_note": ("Çağrı Notu Eklendi", "Görüşmeye ait konu/not kaydedildi"),
+        "call_spy": ("Canlı Çağrı Dinleme (Spy)", "Yönetici/Supervisor canlı dinleme başlattı"),
+        "call_whisper": ("Fısıldama (Whisper)", "Temsilciye canlı fısıldama mesajı iletildi"),
+        "profile_change": ("Çalışma Profili Değiştirildi", "Aktif cihaz ve yönlendirme profili güncellendi"),
+    }
 
     agent_reports = []
 
@@ -8369,20 +8527,25 @@ async def get_agent_timeline_report(
         raw_events = []
         talk_seconds_total = 0
         break_seconds_total = 0
+        inbound_total_count = 0
+        inbound_answered_count = 0
         answered_count = 0
         outbound_count = 0
         missed_count = 0
+        transfer_count = 0
+        pickup_count = 0
+        action_count = 0
         first_login_utc = None
         last_logout_utc = None
 
-        # 1. Process breaks & login/logout logs for this agent
+        # 1. Process breaks, login/logout & special PBX action logs for this agent
         for b_log in window_breaks:
             b_uid = str(b_log.user_id or "").strip()
             b_ext = str(b_log.extension or "").strip()
             if b_uid not in (ag_id, ag_ext) and b_ext not in (ag_id, ag_ext):
                 continue
 
-            b_name = b_log.break_name or "Mola"
+            b_name = str(b_log.break_name or "Mola")
             if b_name == "__LOGIN__":
                 if first_login_utc is None or b_log.start_time < first_login_utc:
                     first_login_utc = b_log.start_time
@@ -8392,7 +8555,7 @@ async def get_agent_timeline_report(
                     "full_time": fmt_tr_datetime(b_log.start_time),
                     "type": "login",
                     "title": "Login oldu",
-                    "description": f"{ fmt_tr_time(b_log.start_time) } Login oldu.",
+                    "description": f"{fmt_tr_time(b_log.start_time)} Login oldu.",
                     "detail": f"Dahili {ag_ext} sisteme giriş yaptı",
                     "duration_seconds": 0,
                     "duration_label": "-"
@@ -8406,10 +8569,33 @@ async def get_agent_timeline_report(
                     "full_time": fmt_tr_datetime(b_log.start_time),
                     "type": "logout",
                     "title": "Logout oldu",
-                    "description": f"{ fmt_tr_time(b_log.start_time) } Çıkış yaptı (Logout).",
+                    "description": f"{fmt_tr_time(b_log.start_time)} Çıkış yaptı (Logout).",
                     "detail": f"Dahili {ag_ext} oturumu kapattı",
                     "duration_seconds": 0,
                     "duration_label": "-"
+                })
+            elif b_name.startswith("__ACTION__:"):
+                parts = b_name.split(":", 2)
+                act_key = parts[1] if len(parts) > 1 else "custom"
+                act_detail = parts[2] if len(parts) > 2 else ""
+                base_title, default_desc = ACTION_META_MAP.get(act_key, ("Çağrı Aksiyonu", " Çağrı işlemi gerçekleştirildi"))
+                action_count += 1
+                if "transfer" in act_key:
+                    transfer_count += 1
+                elif "pickup" in act_key:
+                    pickup_count += 1
+
+                title_with_detail = f"{base_title} ({act_detail})" if act_detail else base_title
+                raw_events.append({
+                    "timestamp_utc": b_log.start_time,
+                    "time": fmt_tr_time(b_log.start_time),
+                    "full_time": fmt_tr_datetime(b_log.start_time),
+                    "type": act_key,
+                    "title": title_with_detail,
+                    "description": f"{fmt_tr_time(b_log.start_time)} {title_with_detail}",
+                    "detail": act_detail or default_desc,
+                    "duration_seconds": int(b_log.duration_seconds or 0),
+                    "duration_label": fmt_dur(b_log.duration_seconds) if (b_log.duration_seconds and b_log.duration_seconds > 0) else "Anlık İşlem"
                 })
             else:
                 eff_start = max(b_log.start_time, window_start_utc)
@@ -8425,7 +8611,7 @@ async def get_agent_timeline_report(
                     "type": "break_start",
                     "break_name": b_name,
                     "title": f"Molaya çıktı ({b_name})" if not is_meal else f"Yemek Molası ({b_name})",
-                    "description": f"{ fmt_tr_time(b_log.start_time) } Molaya çıktı ({b_name})",
+                    "description": f"{fmt_tr_time(b_log.start_time)} Molaya çıktı ({b_name})",
                     "detail": b_name,
                     "duration_seconds": dur_sec,
                     "duration_label": fmt_dur(dur_sec) if b_log.end_time else "Devam Ediyor"
@@ -8439,7 +8625,7 @@ async def get_agent_timeline_report(
                         "type": "break_end",
                         "break_name": b_name,
                         "title": f"Moladan döndü ({b_name})",
-                        "description": f"{ fmt_tr_time(b_log.end_time) } moladan döndü ({b_name})",
+                        "description": f"{fmt_tr_time(b_log.end_time)} moladan döndü ({b_name})",
                         "detail": f"{b_name} tamamlandı ({fmt_dur(dur_sec)})",
                         "duration_seconds": dur_sec,
                         "duration_label": fmt_dur(dur_sec)
@@ -8454,7 +8640,6 @@ async def get_agent_timeline_report(
             is_caller = (caller == ag_ext or caller == ag_id or (len(ag_ext) >= 3 and caller.endswith(ag_ext)))
             is_callee = (callee == ag_ext or callee == ag_id or (len(ag_ext) >= 3 and callee.endswith(ag_ext)))
 
-            # Also check if call was transferred to human and this is the primary human agent
             if not is_caller and not is_callee:
                 if st == "transferred" and len(agents_list) == 1:
                     is_callee = True
@@ -8465,10 +8650,35 @@ async def get_agent_timeline_report(
             c_end = call.end_time or c_start
             c_dur = max(0, int((c_end - c_start).total_seconds()))
 
+            # Detect Call Pickup dial codes (*8 or **ext)
+            if is_caller and (callee.startswith("*8") or callee.startswith("**")):
+                pickup_count += 1
+                action_count += 1
+                talk_seconds_total += c_dur
+                answered_count += 1
+                pickup_lbl = "Grup Çağrı Toplama (*8)" if callee.startswith("*8") else f"Hedefli Çağrı Toplama ({callee})"
+                raw_events.append({
+                    "timestamp_utc": c_start,
+                    "time": fmt_tr_time(c_start),
+                    "full_time": fmt_tr_datetime(c_start),
+                    "type": "call_pickup",
+                    "phone": callee,
+                    "call_id": call.id,
+                    "title": f"Çağrı Toplama ({callee})",
+                    "description": f"{fmt_tr_time(c_start)} {pickup_lbl} ile çalan çağrıyı topladı",
+                    "detail": pickup_lbl,
+                    "duration_seconds": c_dur,
+                    "duration_label": fmt_dur(c_dur) if c_dur > 0 else "Toplandı"
+                })
+                continue
+
             # Check if call was answered or missed
             is_failed = st in ("missed", "no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "abandoned", "blocked")
             if not is_failed and c_dur <= 5 and not call.recording_path and st in ("completed", "in_progress"):
                 is_failed = True
+
+            # Check if internal extension-to-extension call (both 3-4 digits)
+            is_internal_ext_call = (caller.isdigit() and 3 <= len(caller) <= 4 and callee.isdigit() and 3 <= len(callee) <= 4)
 
             if is_caller:
                 target_num = callee
@@ -8476,16 +8686,18 @@ async def get_agent_timeline_report(
                     outbound_count += 1
                     answered_count += 1
                     talk_seconds_total += c_dur
+                    ev_type = "call_internal" if is_internal_ext_call else "call_outbound"
+                    ev_title = f"Dahili Görüşme (Dahili {target_num} arandı)" if is_internal_ext_call else f"Çağrıda ({target_num} arandı)"
                     raw_events.append({
                         "timestamp_utc": c_start,
                         "time": fmt_tr_time(c_start),
                         "full_time": fmt_tr_datetime(c_start),
-                        "type": "call_outbound",
+                        "type": ev_type,
                         "phone": target_num,
                         "call_id": call.id,
-                        "title": f"Çağrıda ({target_num})",
-                        "description": f"{ fmt_tr_time(c_start) } Çağrıda ({target_num} numaralı dış arama)",
-                        "detail": f"Giden Arama: {target_num}",
+                        "title": ev_title,
+                        "description": f"{fmt_tr_time(c_start)} {ev_title}",
+                        "detail": f"{'Dahili Arama' if is_internal_ext_call else 'Giden Arama'}: {target_num} ({fmt_dur(c_dur)})",
                         "duration_seconds": c_dur,
                         "duration_label": fmt_dur(c_dur)
                     })
@@ -8498,27 +8710,38 @@ async def get_agent_timeline_report(
                         "type": "call_missed_outbound",
                         "phone": target_num,
                         "call_id": call.id,
-                        "title": f"Dış Arama Yanıtsız ({target_num})",
-                        "description": f"{ fmt_tr_time(c_start) } {target_num} numarası arandı ancak yanıt alınamadı",
-                        "detail": f"Cevapsız Dış Arama: {target_num}",
+                        "title": f"Giden Arama Yanıtsız ({target_num})",
+                        "description": f"{fmt_tr_time(c_start)} {target_num} numarası arandı ancak yanıt alınamadı",
+                        "detail": f"Cevapsız Giden Arama: {target_num}",
                         "duration_seconds": c_dur,
-                        "duration_label": fmt_dur(c_dur)
+                        "duration_label": "Yanıtsız"
                     })
             else:
                 customer_num = caller
+                inbound_total_count += 1
                 if not is_failed:
+                    inbound_answered_count += 1
                     answered_count += 1
                     talk_seconds_total += c_dur
+                    if st == "transferred":
+                        transfer_count += 1
+                        action_count += 1
+                    ev_type = "call_internal" if is_internal_ext_call else ("call_transfer" if st == "transferred" else "call_inbound")
+                    ev_title = (
+                        f"Dahili {customer_num} numarasından çağrı aldı"
+                        if is_internal_ext_call
+                        else (f"{customer_num} (Transfer edilen çağrı alındı)" if st == "transferred" else f"{customer_num} numarasından çağrı aldı")
+                    )
                     raw_events.append({
                         "timestamp_utc": c_start,
                         "time": fmt_tr_time(c_start),
                         "full_time": fmt_tr_datetime(c_start),
-                        "type": "call_inbound",
+                        "type": ev_type,
                         "phone": customer_num,
                         "call_id": call.id,
-                        "title": f"{customer_num} numarasından çağrı aldı",
-                        "description": f"{ fmt_tr_time(c_start) } {customer_num} numarasından çağrı aldı.",
-                        "detail": f"Gelen Çağrı: {customer_num} ({fmt_dur(c_dur)})",
+                        "title": ev_title,
+                        "description": f"{fmt_tr_time(c_start)} {ev_title}.",
+                        "detail": f"Gelen Çağrı: {customer_num} ({fmt_dur(c_dur)})" + (f" • Konu: {call.agent_topic}" if call.agent_topic else ""),
                         "duration_seconds": c_dur,
                         "duration_label": fmt_dur(c_dur)
                     })
@@ -8532,8 +8755,8 @@ async def get_agent_timeline_report(
                         "phone": customer_num,
                         "call_id": call.id,
                         "title": f"{customer_num} numarasından çağrı geldi ama açmadı",
-                        "description": f"{ fmt_tr_time(c_start) }'de {customer_num} numarasından çağrı geldi ama açmadı.",
-                        "detail": f"Kaçan / Açılmayan Çağrı: {customer_num}",
+                        "description": f"{fmt_tr_time(c_start)}'de {customer_num} numarasından çağrı geldi ama açmadı.",
+                        "detail": f"Cevapsız Gelen Çağrı: {customer_num} (Durum: {st})",
                         "duration_seconds": c_dur,
                         "duration_label": "Açılmadı"
                     })
@@ -8541,55 +8764,29 @@ async def get_agent_timeline_report(
         # Sort events chronologically
         raw_events.sort(key=lambda x: x["timestamp_utc"])
 
-        # If agent has events or is online today, ensure a Login event exists at the beginning
-        if raw_events and not any(e["type"] == "login" for e in raw_events):
-            earliest_utc = raw_events[0]["timestamp_utc"]
-            # Default to 09:00 TR time if earliest event is after 09:00, otherwise 5 mins before earliest event
-            nine_am_tr = (earliest_utc + datetime.timedelta(hours=3)).replace(hour=9, minute=0, second=0, microsecond=0)
-            nine_am_utc = nine_am_tr - datetime.timedelta(hours=3)
-            inferred_login_utc = nine_am_utc if earliest_utc >= nine_am_utc else (earliest_utc - datetime.timedelta(minutes=5))
-            first_login_utc = inferred_login_utc
-            raw_events.insert(0, {
-                "timestamp_utc": inferred_login_utc,
-                "time": fmt_tr_time(inferred_login_utc),
-                "full_time": fmt_tr_datetime(inferred_login_utc),
-                "type": "login",
-                "title": "Login oldu",
-                "description": f"{ fmt_tr_time(inferred_login_utc) } Login oldu.",
-                "detail": f"Dahili {ag_ext} mesai başlangıcı",
-                "duration_seconds": 0,
-                "duration_label": "-"
-            })
-        elif not raw_events and ag["is_online"]:
-            nine_am_utc = s_dt_tr.replace(hour=9, minute=0, second=0) - datetime.timedelta(hours=3)
-            login_utc = nine_am_utc if now_utc >= nine_am_utc else now_utc
-            first_login_utc = login_utc
-            raw_events.append({
-                "timestamp_utc": login_utc,
-                "time": fmt_tr_time(login_utc),
-                "full_time": fmt_tr_datetime(login_utc),
-                "type": "login",
-                "title": "Login oldu",
-                "description": f"{ fmt_tr_time(login_utc) } Login oldu.",
-                "detail": f"Dahili {ag_ext} aktif oturum",
-                "duration_seconds": 0,
-                "duration_label": "-"
-            })
+        # If agent has actual activity events today without an explicit __LOGIN__ row, set shift start to their first actual action
+        if raw_events and first_login_utc is None:
+            first_login_utc = raw_events[0]["timestamp_utc"]
 
-        # Compute shift duration and productivity percentage
+        shift_start_time = fmt_tr_time(first_login_utc) if first_login_utc else ("Aktif" if ag["is_online"] else "-")
+        shift_end_time = fmt_tr_time(last_logout_utc) if last_logout_utc else ("Aktif" if (first_login_utc or ag["is_online"]) else "-")
+
+        # Compute shift duration and productivity percentage strictly from real activity
         if first_login_utc:
-            shift_end_utc = last_logout_utc or (now_utc if (window_start_utc <= now_utc <= window_end_utc) else (raw_events[-1]["timestamp_utc"] + datetime.timedelta(minutes=30)))
-            if shift_end_utc < first_login_utc:
-                shift_end_utc = first_login_utc + datetime.timedelta(hours=1)
-            total_online_seconds = max(60, int((shift_end_utc - first_login_utc).total_seconds()))
+            if last_logout_utc and last_logout_utc >= first_login_utc:
+                shift_end_utc = last_logout_utc
+            elif window_start_utc <= now_utc <= window_end_utc:
+                shift_end_utc = now_utc
+            else:
+                shift_end_utc = raw_events[-1]["timestamp_utc"]
+            total_online_seconds = max(0, int((shift_end_utc - first_login_utc).total_seconds()))
         else:
             total_online_seconds = 0
 
-        # Calculate Productivity Percentage (Toplam Verimlilik Yüzdesi)
-        # Productivity combines active non-break work availability and call answer discipline
-        if total_online_seconds > 0:
-            active_work_seconds = max(0, total_online_seconds - break_seconds_total)
-            availability_ratio = (active_work_seconds / total_online_seconds) * 100.0
+        if total_online_seconds > 0 or len(raw_events) > 0:
+            eff_base_sec = max(total_online_seconds, talk_seconds_total + break_seconds_total, 60)
+            active_work_seconds = max(0, eff_base_sec - break_seconds_total)
+            availability_ratio = (active_work_seconds / eff_base_sec) * 100.0
             total_offered_calls = answered_count + missed_count
             if total_offered_calls > 0:
                 answer_ratio = (answered_count / total_offered_calls) * 100.0
@@ -8617,18 +8814,25 @@ async def get_agent_timeline_report(
             "avatar": ag["avatar"],
             "is_online": ag["is_online"],
             "has_real_activity": len(clean_events) > 0,
+            "shift_start_time": shift_start_time,
+            "shift_end_time": shift_end_time,
             "efficiency_pct": efficiency_pct,
             "availability_pct": round(availability_ratio, 1),
             "answer_rate_pct": round(answer_ratio, 1),
             "total_online_seconds": total_online_seconds,
-            "total_online_label": fmt_dur(total_online_seconds),
+            "total_online_label": fmt_dur(total_online_seconds) if total_online_seconds > 0 else "-",
             "total_talk_seconds": talk_seconds_total,
             "total_talk_label": fmt_dur(talk_seconds_total),
             "total_break_seconds": break_seconds_total,
             "total_break_label": fmt_dur(break_seconds_total),
+            "inbound_total_count": inbound_total_count,
+            "inbound_answered_count": inbound_answered_count,
             "answered_count": answered_count,
             "outbound_count": outbound_count,
             "missed_count": missed_count,
+            "transfer_count": transfer_count,
+            "pickup_count": pickup_count,
+            "action_count": action_count,
             "events": clean_events
         })
 
