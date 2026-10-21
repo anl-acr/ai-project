@@ -142,6 +142,20 @@ stunaddr=stun.l.google.com:19302
         if isinstance(local_nets, str):
             local_nets = [net.strip() for net in local_nets.split(",") if net.strip()]
 
+        import hashlib
+        def resolve_secure_sip_password(ext_val, raw_pwd=""):
+            ext_c = str(ext_val or "1000").strip()
+            pwd_c = str(raw_pwd or "").strip()
+            weak_s = {"", "1234", "12345", "123456", "12345678", "0000", "1111", "admin", "password", ext_c}
+            if pwd_c in weak_s or len(pwd_c) < 8:
+                dg = hashlib.sha256(f"AIDA_PBX_SIP_V2_SECRET_{ext_c}_8842".encode("utf-8")).hexdigest()[:12]
+                return f"Aida#{dg}"
+            return pwd_c
+
+        user_1000 = next((u for u in users_list if str(u.get("extension") or "").strip() == "1000"), None)
+        pwd_1000 = resolve_secure_sip_password("1000", (user_1000.get("sip_password") if user_1000 else ""))
+        name_1000 = (user_1000.get("full_name") or user_1000.get("username") or "Temsilci 1000") if user_1000 else "Temsilci 1000"
+
         nat_lines = ""
         if extern_ip:
             nat_lines += f"external_media_address={extern_ip}\nexternal_signaling_address={extern_ip}\n"
@@ -209,13 +223,13 @@ ice_support=yes
 media_use_received_transport=yes
 auth=1000-auth
 aors=1000
-callerid=Temsilci 1000 <1000>
+callerid={name_1000} <1000>
 
 [1000-auth]
 type=auth
 auth_type=userpass
 username=1000
-password=1234
+password={pwd_1000}
 
 [1000]
 type=aor
@@ -229,7 +243,7 @@ remove_existing=yes
             ext = str(u.get("extension", "")).strip()
             if not ext or ext == "1000":
                 continue
-            pwd = u.get("sip_password") or u.get("password") or "1234"
+            pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
             name = u.get("full_name") or u.get("username") or ext
             sip_user = str(u.get("sip_username") or "").strip()
             try:
@@ -375,7 +389,12 @@ exten => h,1,NoOp(Cagri sonlandi: ${EXTEN})
 same => n,Hangup()
 
 [webrtc_agents]
-exten => _0.,1,NoOp(Dis arama baslatiliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
+exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
+same => n,Set(OUT_ACL=${CURL(http://127.0.0.1:8000/api/acl/check_outbound_call?caller=${CALLERID(num)}&callee=${EXTEN}&channel=${URIENCODE(${CHANNEL(name)})}&via=${URIENCODE(${PJSIP_HEADER(read,Via)})})})
+same => n,GotoIf($["${OUT_ACL}" = "ALLOW"]?allow_out:deny_out)
+same => n(deny_out),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${CALLERID(num)}, Aranan=${EXTEN}, Sebep=${OUT_ACL})
+same => n,Hangup(21)
+same => n(allow_out),NoOp(Dis arama onaylandi: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
 same => n,Set(CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
@@ -387,7 +406,9 @@ same => n,Dial(PJSIP/Operator_Trunk/sip:${DIAL_NUM}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
 exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${CALL_UUID}, Status: ${DIALSTATUS}, Cause: ${HANGUPCAUSE})
+same => n,GotoIf($["${CALL_UUID}" = ""]?done_h)
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE})})
+same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer) aramaları için (1000, 1001, 200 vb.)
 exten => _[1-9]X.,1,NoOp(ACL kontrol ediliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})

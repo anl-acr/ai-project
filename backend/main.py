@@ -1486,6 +1486,66 @@ def run_dialplan_reload():
     except Exception as e:
         print(f"[Asterisk Config] Failed to reload dialplan in Asterisk: {e}")
 
+def resolve_secure_sip_password(ext: str, raw_pwd: str = "") -> str:
+    """
+    Hiçbir dahili için '1234' gibi tahmin edilebilir zayıf SIP şifrelerine izin vermez.
+    Eğer şifre boş veya zayıf ise dahiliye özel deterministik kriptografik 17 karakterli güçlü şifre üretir.
+    """
+    import hashlib
+    ext_clean = str(ext or "1000").strip()
+    pwd_clean = str(raw_pwd or "").strip()
+    weak_set = {"", "1234", "12345", "123456", "12345678", "0000", "1111", "admin", "password", ext_clean}
+    if pwd_clean in weak_set or len(pwd_clean) < 8:
+        digest = hashlib.sha256(f"AIDA_PBX_SIP_V2_SECRET_{ext_clean}_8842".encode("utf-8")).hexdigest()[:12]
+        return f"Aida#{digest}"
+    return pwd_clean
+
+
+def is_suspicious_or_fraud_outbound_number(callee: str, allow_international: bool = False) -> tuple:
+    """
+    SIP tarayıcı botların (Toll-Fraud / Prefix Scanner) denediği sahte/yurt dışı/özel ücretli
+    numara kalıplarını (örn: 0971018..., 0981018..., 09931018..., 12+ haneli tek sıfırlı numaralar)
+    tespit eder. (is_blocked: bool, reason: str) döner.
+    """
+    import re
+    num = str(callee or "").strip()
+    if not num:
+        return True, "EMPTY_NUMBER"
+
+    # Yalnızca rakam ve başta + işaretine izin ver
+    if not re.match(r"^\+?\d+$", num):
+        return True, "INVALID_CHARS"
+
+    # Bilinen SIP Toll-Fraud / Premium / Carrier Scanner önekleri (097..., 098..., 099..., 0900..., 0898...)
+    if re.match(r"^0(9[6789]|900|898)", num):
+        return True, f"FRAUD_SCANNER_PREFIX ({num[:4]})"
+
+    # Uluslararası aramalar (00... veya +... ancak +90 hariç)
+    if num.startswith("00") or (num.startswith("+") and not num.startswith("+90")):
+        if not allow_international:
+            return True, "INTERNATIONAL_DISABLED"
+        if len(num) > 17 or len(num) < 9:
+            return True, "INVALID_INTERNATIONAL_LENGTH"
+        return False, "OK"
+
+    # Türkiye içi 0 ile başlayan numaralar:
+    # Geçerli ulusal numaralar (05xx, 02xx, 03xx, 04xx, 0850, 0800) tam 11 hanedir (örn: 05071796372).
+    if num.startswith("0") and not num.startswith("00"):
+        if len(num) != 11:
+            return True, f"INVALID_TR_NATIONAL_LENGTH ({len(num)} digits)"
+        if not re.match(r"^0([2345]\d{9}|850\d{7}|800\d{7})$", num):
+            return True, "INVALID_TR_AREA_CODE"
+        return False, "OK"
+
+    # 90 ile başlayan 12 haneli Türkiye numaraları
+    if num.startswith("90") and len(num) >= 12:
+        if len(num) != 12 or not re.match(r"^90([2345]\d{9}|850\d{7}|800\d{7})$", num):
+            return True, "INVALID_90_FORMAT"
+        return False, "OK"
+
+    return False, "OK"
+
+
 def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = None):
     # Fetch Users and Trunks from Database (with fallback to settings_db)
     users_list = []
@@ -1525,6 +1585,11 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
             net_clean = str(net).strip()
             if net_clean:
                 nat_lines += f"local_net={net_clean}\n"
+
+    # Resolve secure password for default 1000 endpoint
+    user_1000 = next((u for u in users_list if str(u.get("extension") or "").strip() == "1000"), None)
+    pwd_1000 = resolve_secure_sip_password("1000", (user_1000.get("sip_password") if user_1000 else ""))
+    name_1000 = (user_1000.get("full_name") or user_1000.get("username") or "Temsilci 1000") if user_1000 else "Temsilci 1000"
 
     conf_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE TRANSPORT AYARLARI
@@ -1585,13 +1650,13 @@ ice_support=yes
 media_use_received_transport=yes
 auth=1000-auth
 aors=1000
-callerid=Temsilci 1000 <1000>
+callerid={name_1000} <1000>
 
 [1000-auth]
 type=auth
 auth_type=userpass
 username=1000
-password=1234
+password={pwd_1000}
 
 [1000]
 type=aor
@@ -1672,7 +1737,7 @@ match={host}
         ext = str(u.get("extension") or "").strip()
         if not ext or ext == "1000":
             continue
-        pwd = u.get("sip_password") or u.get("password") or "1234"
+        pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         name = u.get("full_name") or u.get("username") or ext
         sip_user = str(u.get("sip_username") or "").strip()
         try:
@@ -1995,8 +2060,13 @@ same => n,Hangup()
 [webrtc_agents]
 ; WebRTC istemcileri (temsilciler) bu context üzerinden görüşme yapar
 
-; Dış hat aramaları için (0 ile başlayan numaralar)
-exten => _0.,1,NoOp(Dis arama baslatiliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
+exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
+same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out:deny_out)
+same => n(deny_out),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, Sebep=${{OUT_ACL}})
+same => n,Hangup(21)
+same => n(allow_out),NoOp(Dis arama onaylandi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
@@ -2008,7 +2078,9 @@ same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
 exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, Cause: ${{HANGUPCAUSE}})
+same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_h)
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}})}})
+same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer) aramaları için (1000, 1001, 200 vb.)
 exten => _[1-9]X.,1,NoOp(ACL kontrol ediliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
@@ -4098,6 +4170,54 @@ async def check_subscriber_call(caller: str, callee: str):
             
     return Response(content="DENY", media_type="text/plain")
 
+
+@app.get("/api/acl/check_outbound_call")
+async def check_outbound_call(caller: str = "", callee: str = "", channel: str = "", via: str = ""):
+    from fastapi import Response
+    caller_str = str(caller or "").strip()
+    callee_str = str(callee or "").strip()
+    via_upper = str(via or "").upper()
+
+    # 1. Kullanıcının abone grubu uluslararası (international) arama yetkisini kontrol et
+    allow_international = False
+    groups = settings_db.get("subscriber_groups", [])
+    for g in groups:
+        exts = [str(x).strip() for x in (g.get("extensions") or g.get("members") or [])]
+        if caller_str in exts:
+            perms = g.get("permissions")
+            if isinstance(perms, dict) and perms.get("international") is True:
+                allow_international = True
+            elif isinstance(perms, list) and "international" in perms:
+                allow_international = True
+
+    # 2. Numara formatı ve Toll-Fraud / Scanner önek kontrolü (097..., 098..., 099..., 12+ haneli 0'lı numaralar)
+    is_blocked, reason = is_suspicious_or_fraud_outbound_number(callee_str, allow_international=allow_international)
+    if is_blocked:
+        print(f"[SIP Security Shield] Dış arama engellendi! Arayan={caller_str}, Aranan={callee_str}, Sebep={reason}, Via={via}")
+        try:
+            add_system_log("SECURITY", "WARNING", f"Sızma / Yetkisiz Dış Arama Engellendi: Dahili {caller_str} -> {callee_str} ({reason})")
+        except Exception:
+            pass
+        return Response(content=f"DENY:{reason}", media_type="text/plain")
+
+    # 3. WebRTC dahilisi üzerinden UDP/TCP 5060 portu ile sızma kontrolü
+    if ("SIP/2.0/UDP" in via_upper or "SIP/2.0/TCP" in via_upper) and "WS" not in via_upper:
+        all_users = settings_db.get("users", [])
+        u_match = next((u for u in all_users if str(u.get("extension") or "").strip() == caller_str), None)
+        has_ip_phone = bool(u_match and str(u_match.get("sip_username") or "").strip())
+        if not has_ip_phone:
+            ap_list = settings_db.get("autoprovision", [])
+            has_ip_phone = any(str(d.get("extension") or "").strip() == caller_str for d in ap_list)
+        if not has_ip_phone:
+            print(f"[SIP Security Shield] WebRTC dahilisi ({caller_str}) için UDP/TCP 5060 üzerinden sahte INVITE engellendi! Aranan={callee_str}")
+            try:
+                add_system_log("SECURITY", "WARNING", f"Port 5060 UDP/TCP Sızma Girişimi Engellendi: Dahili {caller_str} -> {callee_str}")
+            except Exception:
+                pass
+            return Response(content="DENY:UDP_NOT_ALLOWED_FOR_WEBRTC", media_type="text/plain")
+
+    return Response(content="ALLOW", media_type="text/plain")
+
 @app.get("/api/subscriber/resolve_forwarding")
 async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFORE_DIAL", step: int = 1, db: AsyncSession = Depends(get_db)):
     """
@@ -6136,6 +6256,17 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
             from backend.services.ami_manager import call_id_to_asterisk_id
             call_id_to_asterisk_id[call_id] = asterisk_id
             print(f"[AMI] Mapped Call UUID {call_id} -> Asterisk Uniqueid {asterisk_id}")
+
+        # Toll-Fraud / SIP Scanner Koruması: Sahte dış arama denemelerini (097..., 098..., 099... vb.) veritabanına yazmadan anında sonlandır
+        did_str_check = str(did or "").strip()
+        if did_str_check.startswith("0"):
+            is_fraud, fraud_reason = is_suspicious_or_fraud_outbound_number(did_str_check, allow_international=False)
+            if is_fraud and ("FRAUD_SCANNER" in fraud_reason or "INVALID_TR_NATIONAL_LENGTH" in fraud_reason or "INVALID_TR_AREA_CODE" in fraud_reason):
+                import asyncio
+                from backend.services.ami_manager import hangup_call
+                print(f"[SIP Security Shield] Blocked scanner call in /api/calls/register: {caller} -> {did_str_check} ({fraud_reason})")
+                asyncio.create_task(hangup_call(call_id))
+                return {"status": "blocked", "message": f"Blocked fraudulent dial: {fraud_reason}"}
 
         async with AsyncSessionLocal() as session:
             call_tenant = "tenant-default"
@@ -9283,14 +9414,33 @@ async def startup_event():
     except Exception as e:
         print(f"[Database Init] Error creating tables/columns: {e}")
 
-    # 2. Auto-seed tables if empty & cleanup stale calls
+    # 2. Auto-seed tables if empty & cleanup stale / fraudulent scanner calls
     async def seed_db_tables():
         async with AsyncSessionLocal() as session:
             stmt = update(Call).where(Call.status == "in_progress").values(status="no_answer", end_time=datetime.datetime.utcnow())
             await session.execute(stmt)
-            await session.commit()
 
-            pass
+            # Sızma / SIP Scanner sahte çağrı kayıtlarını (097..., 098..., 099..., 0900...) CDR tablosundan otomatik temizle
+            try:
+                from sqlalchemy import delete as sa_delete
+                del_fraud_stmt = sa_delete(Call).where(
+                    or_(
+                        Call.callee_number.like("097%"),
+                        Call.callee_number.like("098%"),
+                        Call.callee_number.like("099%"),
+                        Call.callee_number.like("0900%"),
+                        Call.caller_number.like("097%"),
+                        Call.caller_number.like("098%"),
+                        Call.caller_number.like("099%")
+                    )
+                )
+                res_del = await session.execute(del_fraud_stmt)
+                if getattr(res_del, "rowcount", 0):
+                    print(f"[SIP Security Shield] {res_del.rowcount} adet sahte SIP scanner CDR kaydı veritabanından temizlendi.")
+            except Exception as e_clean_fraud:
+                print(f"[SIP Security Shield Cleanup Warning]: {e_clean_fraud}")
+
+            await session.commit()
 
             # Load settings.json as fallback source if exists
             file_settings = {}
@@ -10876,11 +11026,9 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             except Exception:
                 pass
                 
-        agent_ext = current_user.get("extension", "1000") if current_user else "1000"
-        if agent_ext == "1000":
-            sip_password = "1234"
-        else:
-            sip_password = current_user.get("sip_password") or current_user.get("password") or "1234" if current_user else "1234"
+        agent_ext = str(current_user.get("extension", "1000") if current_user else "1000").strip()
+        raw_sip_pwd = (current_user.get("sip_password") if current_user else "") or ""
+        sip_password = resolve_secure_sip_password(agent_ext, raw_sip_pwd)
         
         # Dynamically compute WebSocket URL and resolved viaHost IPv4
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
@@ -10915,7 +11063,7 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         return {
             "asteriskWssUrl": wss_url,
             "agentExtension": "1000",
-            "password": "1234",
+            "password": resolve_secure_sip_password("1000", ""),
             "viaHost": "78.189.210.15"
         }
 
