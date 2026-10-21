@@ -252,6 +252,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [twoFactorMethod, setTwoFactorMethod] = useState("app");
 
+  // Follow Me (Beni Takip Et) Fields
+  const [followMeEnabled, setFollowMeEnabled] = useState(false);
+  const [followMeTimeout, setFollowMeTimeout] = useState(15);
+  const [followMeFirstTarget, setFollowMeFirstTarget] = useState("mobile_app");
+  const [followMeSecondTarget, setFollowMeSecondTarget] = useState("mobile_number");
+  const [followMeMobileNumber, setFollowMeMobileNumber] = useState("");
+
   // Profiles Fields (Müsait, Dışarıda, Toplantı, Diğer)
   const [activeProfile, setActiveProfile] = useState("available");
   const [userProfiles, setUserProfiles] = useState(() => normalizeUserProfiles(null));
@@ -618,6 +625,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setRecordingActive(false); setTransport("UDP");
     setTwoFactorEnabled(false); setTwoFactorMethod("app");
 
+    setFollowMeEnabled(false);
+    setFollowMeTimeout(15);
+    setFollowMeFirstTarget("mobile_app");
+    setFollowMeSecondTarget("mobile_number");
+    setFollowMeMobileNumber("");
+
     setSelectedOutboundRules([]);
     setSelectedCallPickupGroups([]);
     setSelectedLocation("");
@@ -683,6 +696,24 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setTransport(u.transport || "UDP");
     setTwoFactorEnabled(u.two_factor_enabled || false);
     setTwoFactorMethod(u.two_factor_method || "app");
+
+    let fmObj = u.follow_me;
+    if (typeof fmObj === "string") {
+      try { fmObj = JSON.parse(fmObj); } catch (e) { fmObj = null; }
+    }
+    if (fmObj && typeof fmObj === "object") {
+      setFollowMeEnabled(Boolean(fmObj.enabled));
+      setFollowMeTimeout(fmObj.timeout ? Math.max(5, Math.min(120, Number(fmObj.timeout))) : 15);
+      setFollowMeFirstTarget(fmObj.first_target || "mobile_app");
+      setFollowMeSecondTarget(fmObj.second_target || "mobile_number");
+      setFollowMeMobileNumber(fmObj.mobile_number || u.gsm_number || "");
+    } else {
+      setFollowMeEnabled(false);
+      setFollowMeTimeout(15);
+      setFollowMeFirstTarget("mobile_app");
+      setFollowMeSecondTarget("mobile_number");
+      setFollowMeMobileNumber(u.gsm_number || "");
+    }
 
     const activeOutbound = outboundRules.filter(r => r.allowed_users && r.allowed_users.includes(u.id)).map(r => r.id);
     setSelectedOutboundRules(activeOutbound);
@@ -774,6 +805,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       return;
     }
 
+    const cleanFmMobile = (followMeMobileNumber || "").trim();
+
     const userData = {
       full_name: fullName.trim(),
       email: email.trim(),
@@ -787,6 +820,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       sip_password: sipPassword,
       max_activations: Number(maxActivations) || 1,
       outbound_caller_id: outboundCallerId.trim(),
+      gsm_number: cleanFmMobile || (editingUser?.gsm_number || null),
       forwarding_always: fwdAlwaysTarget ? { active: fwdAlwaysActive, type: fwdAlwaysType, target: fwdAlwaysTarget } : null,
       forwarding_busy: fwdBusyTarget ? { active: fwdBusyActive, type: fwdBusyType, target: fwdBusyTarget } : null,
       forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null,
@@ -798,6 +832,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       transport,
       two_factor_enabled: twoFactorEnabled,
       two_factor_method: twoFactorMethod,
+      follow_me: {
+        enabled: Boolean(followMeEnabled),
+        timeout: Math.max(5, Math.min(120, Number(followMeTimeout) || 15)),
+        first_target: followMeFirstTarget || "mobile_app",
+        second_target: followMeSecondTarget || "none",
+        mobile_number: cleanFmMobile
+      },
       location_id: selectedLocation || null,
       department_id: selectedDepartment || null,
       active_profile: activeProfile || "available",
@@ -1908,6 +1949,143 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     <button type="button" onClick={() => setRecordingActive(!recordingActive)} className="text-slate-400 hover:text-slate-700 transition-colors">
                                         {recordingActive ? <ToggleRight size={30} className={`${text}`} /> : <ToggleLeft size={30} />}
                                     </button>
+                                </div>
+
+                                {/* BENİ TAKİP ET (FOLLOW ME) */}
+                                <div className={`p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border transition-all ${followMeEnabled ? border : "border-slate-100 dark:border-slate-800"}`}>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-start gap-3">
+                                            <div className={`p-2 rounded-lg shrink-0 mt-0.5 ${followMeEnabled ? (lightBg + " " + text) : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Smartphone size={18} />
+                                            </div>
+                                            <div>
+                                                <h5 className="text-sm font-bold text-slate-800 dark:text-white">Beni Takip Et</h5>
+                                                <p className="text-[10px] text-slate-500 mt-0.5 leading-relaxed">
+                                                    Masa telefonu tek başına çalıyor ve yanıt verilmiyorsa, belirlenen saniye sonunda çağrıyı sırasıyla mobil uygulamaya veya mobil telefon numarasına yönlendirir.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFollowMeEnabled(!followMeEnabled)}
+                                            className="text-slate-400 hover:text-slate-700 transition-colors shrink-0 ml-3"
+                                        >
+                                            {followMeEnabled ? <ToggleRight size={30} className={`${text}`} /> : <ToggleLeft size={30} />}
+                                        </button>
+                                    </div>
+
+                                    {followMeEnabled && (
+                                        <div className="mt-4 pt-4 border-t border-slate-200/70 dark:border-slate-800 space-y-4 animate-in fade-in duration-200">
+                                            {/* Saniye Seçme Alanı */}
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-800 dark:text-white mb-1.5">
+                                                    Çalma / Bekleme Süresi (Saniye)
+                                                </label>
+                                                <p className="text-[10px] text-slate-500 mb-2">
+                                                    Masa telefonu kaç saniye çaldıktan sonra çağrı diğer hedeflere aktarılsın?
+                                                </p>
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <div className="relative w-28">
+                                                        <input
+                                                            type="number"
+                                                            min={5}
+                                                            max={120}
+                                                            value={followMeTimeout}
+                                                            onChange={(e) => setFollowMeTimeout(Math.max(1, Math.min(120, Number(e.target.value) || 15)))}
+                                                            className={`w-full text-xs font-bold px-3 py-2 pr-8 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                                                        />
+                                                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">
+                                                            sn
+                                                        </span>
+                                                    </div>
+                                                    {[10, 15, 20, 30].map((sec) => (
+                                                        <button
+                                                            key={sec}
+                                                            type="button"
+                                                            onClick={() => setFollowMeTimeout(sec)}
+                                                            className={`px-3 py-2 rounded-lg text-xs font-bold border transition-all ${
+                                                                Number(followMeTimeout) === sec
+                                                                    ? (lightBg + " " + border + " " + text)
+                                                                    : "bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900"
+                                                            }`}
+                                                        >
+                                                            {sec} sn
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* 1. ve 2. Gideceği Yer Seçimi */}
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-800 dark:text-white mb-1.5">
+                                                        1. Gideceği Yer (İlk Hedef)
+                                                    </label>
+                                                    <select
+                                                        value={followMeFirstTarget}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            setFollowMeFirstTarget(val);
+                                                            if (val === "mobile_app" && followMeSecondTarget === "mobile_app") {
+                                                                setFollowMeSecondTarget("mobile_number");
+                                                            } else if (val === "mobile_number" && followMeSecondTarget === "mobile_number") {
+                                                                setFollowMeSecondTarget("mobile_app");
+                                                            }
+                                                        }}
+                                                        className={`w-full text-xs font-semibold px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                                                    >
+                                                        <option value="mobile_app">Mobil Uygulama</option>
+                                                        <option value="mobile_number">Mobil Telefon Numarası</option>
+                                                    </select>
+                                                </div>
+
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-800 dark:text-white mb-1.5">
+                                                        2. Gideceği Yer (İkinci Hedef)
+                                                    </label>
+                                                    <select
+                                                        value={followMeSecondTarget}
+                                                        onChange={(e) => setFollowMeSecondTarget(e.target.value)}
+                                                        className={`w-full text-xs font-semibold px-3 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                                                    >
+                                                        <option value="mobile_number">Mobil Telefon Numarası</option>
+                                                        <option value="mobile_app">Mobil Uygulama</option>
+                                                        <option value="none">Yok (Sadece 1. Hedefe Gitsin)</option>
+                                                    </select>
+                                                </div>
+                                            </div>
+
+                                            {/* Mobil Telefon Numarası Alanı */}
+                                            {(followMeFirstTarget === "mobile_number" || followMeSecondTarget === "mobile_number") && (
+                                                <div>
+                                                    <label className="block text-xs font-bold text-slate-800 dark:text-white mb-1.5">
+                                                        Mobil Telefon Numarası (GSM)
+                                                    </label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="Örn: 0532 123 45 67"
+                                                        value={followMeMobileNumber}
+                                                        onChange={(e) => setFollowMeMobileNumber(e.target.value)}
+                                                        className={`w-full text-xs font-semibold px-3.5 py-2.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                                                    />
+                                                    <p className="text-[10px] text-slate-400 mt-1">
+                                                        Mobil Telefon Numarası seçildiğinde çağrının yönlendirileceği cep telefonu numarası.
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {/* Akış Özeti */}
+                                            <div className={`p-3 rounded-xl border ${lightBg} ${borderLight} flex items-center gap-2 text-[11px] font-bold ${text}`}>
+                                                <Forward size={14} className="shrink-0" />
+                                                <span>
+                                                    Akış: Masa Telefonu ({followMeTimeout} sn) ➔ 1. {followMeFirstTarget === "mobile_app" ? "Mobil Uygulama" : `Mobil Telefon (${followMeMobileNumber || "Numara Girilmedi"})`}
+                                                    {followMeSecondTarget !== "none" && (
+                                                        <> ({followMeTimeout} sn) ➔ 2. {followMeSecondTarget === "mobile_app" ? "Mobil Uygulama" : `Mobil Telefon (${followMeMobileNumber || "Numara Girilmedi"})`}</>
+                                                    )}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
 
                                 <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">

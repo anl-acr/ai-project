@@ -311,6 +311,29 @@ def ensure_user_profiles(u: dict) -> dict:
             else:
                 merged.append(copy.deepcopy(def_p))
         u["profiles"] = merged
+
+    raw_fm = u.get("follow_me")
+    if isinstance(raw_fm, str):
+        try:
+            import json
+            raw_fm = json.loads(raw_fm)
+        except Exception:
+            raw_fm = None
+    if not isinstance(raw_fm, dict):
+        raw_fm = {}
+    try:
+        fm_timeout = max(5, min(120, int(raw_fm.get("timeout") or 15)))
+    except Exception:
+        fm_timeout = 15
+    u["follow_me"] = {
+        "enabled": bool(raw_fm.get("enabled", False)),
+        "timeout": fm_timeout,
+        "first_target": str(raw_fm.get("first_target") or "mobile_app"),
+        "second_target": str(raw_fm.get("second_target") or "mobile_number"),
+        "mobile_number": str(raw_fm.get("mobile_number") or u.get("gsm_number") or "").strip()
+    }
+    if u["follow_me"]["mobile_number"] and not u.get("gsm_number"):
+        u["gsm_number"] = u["follow_me"]["mobile_number"]
     return u
 
 class UserSchema(BaseModel):
@@ -343,6 +366,7 @@ class UserSchema(BaseModel):
     department_id: Optional[str] = None
     active_profile: Optional[str] = "available"
     profiles: Optional[List[dict]] = None
+    follow_me: Optional[dict] = None
     two_factor_enabled: Optional[bool] = False
     two_factor_method: str = "app"
     two_factor_secret: Optional[str] = None
@@ -2008,14 +2032,18 @@ same => n,Dial(PJSIP/${{EXTEN}},${{DIAL_TIMEOUT}},tT)
 same => n,NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
 
-; 3. Sonrası Yönlendirme ve Profil Zaman Aşımı Kontrolü (Meşgul / Cevapsız / Ulaşılamıyor Yönlendirmesi)
-same => n,Set(FWD_POST=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=${{DIALSTATUS}})}})
+; 3. Sonrası Yönlendirme / Beni Takip Et (1. Adım) ve Profil Zaman Aşımı Kontrolü
+same => n,Set(ORIG_EXTEN=${{EXTEN}})
+same => n,Set(FWD_STEP=1)
+same => n,Set(FWD_POST=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{ORIG_EXTEN}}&dialstatus=${{DIALSTATUS}}&step=1)}})
 same => n,Set(FWD_STATUS=${{CUT(FWD_POST,:,1)}})
 same => n,Set(FWD_TARGET=${{CUT(FWD_POST,:,2)}})
+same => n,Set(FWD_TIMEOUT=${{CUT(FWD_POST,:,3)}})
+same => n,Set(STEP_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEOUT}}"=""]?25:${{FWD_TIMEOUT}})}})
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
-; 4. Yönlendirme Uygulama Bağlamı
-same => n(forward_call),NoOp(Yonlendirme Aktif! Hedef: ${{FWD_TARGET}})
+; 4. Yönlendirme ve Beni Takip Et Uygulama Bağlamı
+same => n(forward_call),NoOp(Yonlendirme Aktif [Adim=${{FWD_STEP}}]! Hedef: ${{FWD_TARGET}} Timeout: ${{STEP_TIMEOUT}}s)
 same => n,GotoIf($["${{FWD_TARGET}}"="HANGUP" | "${{FWD_TARGET}}"="NONE"]?end_call)
 same => n,GotoIf($["${{FWD_TARGET}}"="VOICEMAIL"]?voicemail_fwd)
 same => n,Set(CALLERID(num)=908503607390)
@@ -2028,13 +2056,23 @@ same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Aktarimi: ${{EXTEN}})
 same => n,Playback(vm-intro)
 same => n,Hangup()
 
-same => n(dial_internal_fwd),NoOp(Ic Dahili Yonlendirme: PJSIP/${{FWD_TARGET}})
-same => n,Dial(PJSIP/${{FWD_TARGET}},30,tT)
-same => n,Hangup()
+same => n(dial_internal_fwd),NoOp(Ic Dahili / Mobil Uygulama Yonlendirme: PJSIP/${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
+same => n,Dial(PJSIP/${{FWD_TARGET}},${{STEP_TIMEOUT}},tT)
+same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
 
-same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Yonlendirme: PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060)
-same => n,Dial(PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060,60,r)
-same => n,Hangup()
+same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060 Timeout=${{STEP_TIMEOUT}}s)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060,${{STEP_TIMEOUT}},r)
+same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
+
+; 5. Beni Takip Et (2. Adım) Kontrolü
+same => n(check_step2),GotoIf($["${{FWD_STEP}}"="1"]?resolve_step2:end_call)
+same => n(resolve_step2),Set(FWD_STEP=2)
+same => n,Set(FWD_POST2=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{ORIG_EXTEN}}&dialstatus=${{DIALSTATUS}}&step=2)}})
+same => n,Set(FWD_STATUS=${{CUT(FWD_POST2,:,1)}})
+same => n,Set(FWD_TARGET=${{CUT(FWD_POST2,:,2)}})
+same => n,Set(FWD_TIMEOUT=${{CUT(FWD_POST2,:,3)}})
+same => n,Set(STEP_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEOUT}}"=""]?30:${{FWD_TIMEOUT}})}})
+same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${{DIALSTATUS}})
 same => n,Hangup()
@@ -4052,12 +4090,13 @@ async def check_subscriber_call(caller: str, callee: str):
     return Response(content="DENY", media_type="text/plain")
 
 @app.get("/api/subscriber/resolve_forwarding")
-async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFORE_DIAL", db: AsyncSession = Depends(get_db)):
+async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFORE_DIAL", step: int = 1, db: AsyncSession = Depends(get_db)):
     """
-    Evaluates the 3 forwarding types for an extension:
+    Evaluates the forwarding types and Follow Me (Beni Takip Et) rules for an extension:
     1. HER ZAMAN (forwarding_always)
-    2. MEŞGUL DURUMDA (forwarding_busy)
-    3. ZAMAN AŞIMINDA / CEVAPSIZ (forwarding_no_answer)
+    2. BENİ TAKİP ET (follow_me: 1. Hedef & 2. Hedef - Mobil Uygulama / Mobil Telefon Numarası)
+    3. MEŞGUL DURUMDA (forwarding_busy)
+    4. ZAMAN AŞIMINDA / CEVAPSIZ (forwarding_no_answer)
     Returns 'ALLOW:target_number:timeout' if forwarding should occur, or 'DENY:NONE:30' if no forwarding.
     """
     try:
@@ -4076,7 +4115,7 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         all_users = settings_db.get("users", [])
         for u in all_users:
             if str(u.get("extension")) == ext_str or str(u.get("id")) == ext_str or u.get("email") == ext_str:
-                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active", "active_profile", "profiles"]:
+                for k in ["forwarding_always", "forwarding_busy", "forwarding_no_answer", "gsm_number", "mobile_number", "mobile_transfer_enabled", "voicemail_active", "active_profile", "profiles", "follow_me"]:
                     val = u.get(k)
                     if val is not None and val != "" and val != {}:
                         user_dict[k] = val
@@ -4125,11 +4164,22 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
                 
             return None
 
+        # Extract Follow Me (Beni Takip Et) configuration
+        fm_cfg = user_dict.get("follow_me") if isinstance(user_dict.get("follow_me"), dict) else {}
+        fm_enabled = bool(fm_cfg.get("enabled", False))
+        try:
+            fm_timeout = max(5, min(120, int(fm_cfg.get("timeout") or 15)))
+        except Exception:
+            fm_timeout = 15
+        fm_first = str(fm_cfg.get("first_target") or "mobile_app").strip()
+        fm_second = str(fm_cfg.get("second_target") or "none").strip()
+        fm_mobile = str(fm_cfg.get("mobile_number") or user_dict.get("gsm_number") or user_dict.get("mobile_number") or "").strip()
+
         # Extract active profile configuration
         active_prof_id = str(user_dict.get("active_profile") or "available").strip()
         active_prof = next((p for p in user_dict.get("profiles", []) if str(p.get("id")) == active_prof_id), None)
 
-        # Extract timeout for no_answer (default 30 seconds, overridden by active profile timeout)
+        # Extract timeout for no_answer (default 30 seconds, overridden by active profile or follow_me timeout)
         no_ans_obj = user_dict.get("forwarding_no_answer")
         no_ans_timeout = 30
         if isinstance(no_ans_obj, str) and no_ans_obj.strip().startswith("{"):
@@ -4166,6 +4216,10 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             elif prof_action == "voicemail":
                 prof_target = raw_prof_target or "VOICEMAIL"
 
+        # If Follow Me (Beni Takip Et) is enabled, use Follow Me timeout for initial desk phone ring
+        if fm_enabled:
+            no_ans_timeout = fm_timeout
+
         # Rule 1: HER ZAMAN (forwarding_always) - Always forwarded unconditionally
         def log_fwd_action(reason_text: str, target_val: str):
             try:
@@ -4184,7 +4238,7 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
                 print(f"[Forwarding Timeline Log Warning]: {e_lf}")
 
         f_always = extract_target(user_dict.get("forwarding_always"))
-        if f_always:
+        if f_always and dialstatus == "BEFORE_DIAL":
             print(f"[Forwarding Resolver] Extension {ext_str} -> 1. HER ZAMAN (Always Forward) to: {f_always}")
             log_fwd_action("Her Zaman Yönlendirme", f_always)
             return Response(content=f"ALLOW:{f_always}:{no_ans_timeout}", media_type="text/plain")
@@ -4196,11 +4250,30 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             log_fwd_action(f"Profil ({active_prof_id}) Yönlendirmesi", imm_target)
             return Response(content=f"ALLOW:{imm_target}:{no_ans_timeout}", media_type="text/plain")
 
+        # Rule 1.8: BENİ TAKİP ET (Follow Me) - Step 1 & Step 2 when desk phone rings and is not answered
+        if fm_enabled and dialstatus in ["NOANSWER", "CANCEL", "BUSY", "CHANUNAVAIL", "CONGESTION"]:
+            chosen_target_type = fm_first if int(step) == 1 else fm_second
+            step_label = "1. Hedef" if int(step) == 1 else "2. Hedef"
+            if chosen_target_type == "mobile_app":
+                print(f"[Follow Me Resolver] Extension {ext_str} ({dialstatus}) -> Beni Takip Et ({step_label}: Mobil Uygulama) Timeout={fm_timeout}s")
+                log_fwd_action(f"Beni Takip Et ({step_label} - Mobil Uygulama)", f"Mobil Uygulama ({ext_str})")
+                return Response(content=f"ALLOW:{ext_str}:{fm_timeout}", media_type="text/plain")
+            elif chosen_target_type == "mobile_number" and fm_mobile:
+                print(f"[Follow Me Resolver] Extension {ext_str} ({dialstatus}) -> Beni Takip Et ({step_label}: Mobil Telefon {fm_mobile}) Timeout={fm_timeout}s")
+                log_fwd_action(f"Beni Takip Et ({step_label} - Mobil Telefon)", fm_mobile)
+                return Response(content=f"ALLOW:{fm_mobile}:{fm_timeout}", media_type="text/plain")
+            elif int(step) == 2 and chosen_target_type in ["none", "", "null"]:
+                return Response(content=f"DENY:NONE:{fm_timeout}", media_type="text/plain")
+
+        # If step == 2 and Follow Me is not active, do not repeat step 1 forwarding rules
+        if int(step) >= 2:
+            return Response(content=f"DENY:NONE:{no_ans_timeout}", media_type="text/plain")
+
         # Extract remaining targets & mobile transfer settings
         f_busy = extract_target(user_dict.get("forwarding_busy"))
         f_noans = extract_target(user_dict.get("forwarding_no_answer"))
         mobile_enabled = bool(user_dict.get("mobile_transfer_enabled", False))
-        gsm_num = str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or "").strip()
+        gsm_num = str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or fm_mobile or "").strip()
 
         # Rule 2: MEŞGUL DURUMDA (forwarding_busy) - When line is busy or channel unavailable
         if dialstatus in ["BUSY", "CHANUNAVAIL", "CONGESTION"]:
@@ -4234,6 +4307,15 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
 
         # Offline / Unreachable check for BEFORE_DIAL when extension is NOT SIP registered
         if dialstatus == "BEFORE_DIAL" and not is_registered:
+            if fm_enabled:
+                if fm_first == "mobile_number" and fm_mobile:
+                    print(f"[Follow Me Resolver] Extension {ext_str} (OFFLINE) -> Beni Takip Et (Mobil Telefon: {fm_mobile})")
+                    log_fwd_action("Beni Takip Et (Çevrimdışı -> Mobil Telefon)", fm_mobile)
+                    return Response(content=f"ALLOW:{fm_mobile}:{fm_timeout}", media_type="text/plain")
+                elif fm_second == "mobile_number" and fm_mobile:
+                    print(f"[Follow Me Resolver] Extension {ext_str} (OFFLINE) -> Beni Takip Et (2. Hedef Mobil Telefon: {fm_mobile})")
+                    log_fwd_action("Beni Takip Et (Çevrimdışı -> Mobil Telefon)", fm_mobile)
+                    return Response(content=f"ALLOW:{fm_mobile}:{fm_timeout}", media_type="text/plain")
             if prof_target:
                 print(f"[Forwarding Resolver] Extension {ext_str} (OFFLINE) -> Profile '{active_prof_id}' Fallback ({prof_action}) to: {prof_target}")
                 log_fwd_action(f"Çevrimdışı Profil ({active_prof_id}) Yönlendirmesi", prof_target)
@@ -9180,6 +9262,7 @@ async def startup_event():
                     await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';"))
                     await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;"))
                     await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;"))
+                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;"))
                 except Exception:
                     pass
         await asyncio.wait_for(init_db(), timeout=4.0)

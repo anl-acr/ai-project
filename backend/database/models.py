@@ -249,6 +249,7 @@ class SystemUser(Base):
     department_id = Column(String, nullable=True)
     active_profile = Column(String, default="available")
     profiles = Column(JSON, default=list)
+    follow_me = Column(JSON, nullable=True)
 
 class SystemRole(Base):
     __tablename__ = "system_roles"
