@@ -203,6 +203,10 @@ media_use_received_transport=yes
 outbound_auth=908503607390-auth
 aors=908503607390-aor
 
+"""
+        has_1000_in_users = any(str(u.get("extension") or "").strip() == "1000" and (u.get("is_active", True) is not False) for u in users_list)
+        if not has_1000_in_users:
+            pjsip_custom_content += f"""
 ; --- DEFAULT WEBRTC AGENT: 1000 ---
 [1000]
 type=endpoint
@@ -236,13 +240,15 @@ type=aor
 max_contacts=5
 remove_existing=yes
 """
+        seen_exts = set()
         for u in users_list:
             is_act = u.get("is_active") if "is_active" in u else True
             if not is_act:
                 continue
             ext = str(u.get("extension", "")).strip()
-            if not ext or ext == "1000":
+            if not ext or ext in seen_exts:
                 continue
+            seen_exts.add(ext)
             pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
             name = u.get("full_name") or u.get("username") or ext
             sip_user = str(u.get("sip_username") or "").strip()

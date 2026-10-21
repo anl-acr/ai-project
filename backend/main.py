@@ -1586,10 +1586,18 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
             if net_clean:
                 nat_lines += f"local_net={net_clean}\n"
 
-    # Resolve secure password for default 1000 endpoint
-    user_1000 = next((u for u in users_list if str(u.get("extension") or "").strip() == "1000"), None)
-    pwd_1000 = resolve_secure_sip_password("1000", (user_1000.get("sip_password") if user_1000 else ""))
-    name_1000 = (user_1000.get("full_name") or user_1000.get("username") or "Temsilci 1000") if user_1000 else "Temsilci 1000"
+    # Merge sip_password and sip_username from settings_db["users"] if present
+    disk_users_map = {str(du.get("extension") or "").strip(): du for du in settings_db.get("users", []) if du.get("extension")}
+    for u in users_list:
+        ext_k = str(u.get("extension") or "").strip()
+        du = disk_users_map.get(ext_k)
+        if du:
+            if (not u.get("sip_password") or u.get("sip_password") == "1234") and du.get("sip_password"):
+                u["sip_password"] = du.get("sip_password")
+            if not u.get("sip_username") and du.get("sip_username"):
+                u["sip_username"] = du.get("sip_username")
+
+    has_1000_in_users = any(str(u.get("extension") or "").strip() == "1000" and (u.get("is_active", True) is not False) for u in users_list)
 
     conf_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE TRANSPORT AYARLARI
@@ -1629,7 +1637,10 @@ rewrite_contact=no
 media_use_received_transport=yes
 outbound_auth=908503607390-auth
 aors=908503607390-aor
-
+"""
+    if not has_1000_in_users:
+        pwd_1000 = resolve_secure_sip_password("1000", "")
+        conf_content += f"""
 ; --- DEFAULT WEBRTC AGENT: 1000 ---
 [1000]
 type=endpoint
@@ -1650,7 +1661,7 @@ ice_support=yes
 media_use_received_transport=yes
 auth=1000-auth
 aors=1000
-callerid={name_1000} <1000>
+callerid=Temsilci 1000 <1000>
 
 [1000-auth]
 type=auth
@@ -1663,6 +1674,7 @@ type=aor
 max_contacts=5
 remove_existing=yes
 """
+
     for t in trunks_list:
         is_act = t.get("is_active") if "is_active" in t else True
         if not is_act:
@@ -1730,13 +1742,15 @@ match={host}
     conf_content += "; DINAMIK OLARAK OLUŞTURULAN KULLANICI (DAHILI) AYARLARI\n"
     conf_content += "; ==========================================\n"
 
+    seen_exts = set()
     for u in users_list:
         is_act = u.get("is_active") if "is_active" in u else True
         if not is_act:
             continue
         ext = str(u.get("extension") or "").strip()
-        if not ext or ext == "1000":
+        if not ext or ext in seen_exts:
             continue
+        seen_exts.add(ext)
         pwd = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         name = u.get("full_name") or u.get("username") or ext
         sip_user = str(u.get("sip_username") or "").strip()
@@ -9180,21 +9194,386 @@ async def get_agent_missed_queue_calls(extension: str = None):
     return []
 
 
-# ----------------- SECURITY API -----------------
-@app.get("/api/security/fail2ban")
-async def get_fail2ban_ips(user_info: dict = Depends(get_user_info)):
-    import datetime
+# ----------------- SECURITY SHIELD & FAIL2BAN / UFW ENGINE -----------------
+def _is_trusted_or_local_ip(ip_str: str) -> bool:
+    import re, socket
+    ip_clean = str(ip_str or "").strip()
+    if not ip_clean or ip_clean in {"127.0.0.1", "0.0.0.0", "::1", "localhost"}:
+        return True
+    if ip_clean.startswith("127.") or ip_clean.startswith("10.") or ip_clean.startswith("192.168.") or re.match(r"^172\.(1[6-9]|2\d|3[0-1])\.", ip_clean):
+        return True
+    # Whitelisted IPs
+    whitelist = set(settings_db.get("security_whitelisted_ips", []))
+    if ip_clean in whitelist:
+        return True
+    # NAT extern_ip
+    nat_ip = str((settings_db.get("nat") or {}).get("extern_ip") or "").strip()
+    if nat_ip and ip_clean == nat_ip:
+        return True
+    # Active WebPhone registered agent IPs
+    try:
+        from backend.services.ami_manager import registered_endpoints
+        for ext_k in list(registered_endpoints.keys()):
+            if registered_endpoints.get_ip(ext_k) == ip_clean:
+                return True
+    except Exception:
+        pass
+    # Configured SIP Trunk hosts (e.g. ikonsip.com)
+    for t in settings_db.get("trunks", []):
+        h = str(t.get("host") or "").strip()
+        if h == ip_clean:
+            return True
+    return False
+
+
+def _execute_firewall_ban(ip_str: str, jail: str = "asterisk", reason: str = "SIP Brute-Force / Yetkisiz Deneme") -> bool:
+    import subprocess, datetime, re
+    ip_clean = str(ip_str or "").strip()
+    if not re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$", ip_clean):
+        return False
+    if _is_trusted_or_local_ip(ip_clean.split("/")[0]):
+        return False
+
+    # 1. Ban via UFW (if available)
+    try:
+        subprocess.run(["ufw", "insert", "1", "deny", "from", ip_clean, "to", "any"], check=False, capture_output=True, timeout=2.0)
+    except Exception:
+        pass
+
+    # 2. Ban via fail2ban-client (if running)
+    for j_name in [jail, "asterisk", "asterisk-pjsip"]:
+        try:
+            subprocess.run(["fail2ban-client", "set", j_name, "banip", ip_clean], check=False, capture_output=True, timeout=2.0)
+        except Exception:
+            pass
+
+    # 3. Ban via iptables fallback
+    try:
+        chk = subprocess.run(["iptables", "-C", "INPUT", "-s", ip_clean, "-j", "DROP"], check=False, capture_output=True, timeout=1.5)
+        if chk.returncode != 0:
+            subprocess.run(["iptables", "-I", "INPUT", "1", "-s", ip_clean, "-j", "DROP"], check=False, capture_output=True, timeout=1.5)
+    except Exception:
+        pass
+
+    # 4. Persist in settings_db["security_blocked_ips"]
+    blocked_list = settings_db.setdefault("security_blocked_ips", [])
+    existing = next((item for item in blocked_list if item.get("ip") == ip_clean), None)
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if existing:
+        existing["jail"] = jail
+        existing["reason"] = reason or existing.get("reason", "")
+    else:
+        blocked_list.insert(0, {
+            "ip": ip_clean,
+            "jail": jail,
+            "banned_at": now_str,
+            "reason": reason
+        })
+    # Remove from whitelist if manually banned
+    if "security_whitelisted_ips" in settings_db and ip_clean in settings_db["security_whitelisted_ips"]:
+        settings_db["security_whitelisted_ips"] = [x for x in settings_db["security_whitelisted_ips"] if x != ip_clean]
+    save_settings(settings_db)
+    return True
+
+
+def _execute_firewall_unban(ip_str: str) -> bool:
+    import subprocess, re
+    ip_clean = str(ip_str or "").strip()
+    if not re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(/\d{1,2})?$", ip_clean):
+        return False
+
+    # 1. Remove from UFW
+    try:
+        subprocess.run(["ufw", "delete", "deny", "from", ip_clean, "to", "any"], check=False, capture_output=True, timeout=2.0)
+    except Exception:
+        pass
+
+    # 2. Remove from fail2ban-client across common jails
+    for j_name in ["asterisk", "asterisk-pjsip", "sshd"]:
+        try:
+            subprocess.run(["fail2ban-client", "set", j_name, "unbanip", ip_clean], check=False, capture_output=True, timeout=2.0)
+        except Exception:
+            pass
+
+    # 3. Remove from iptables
+    try:
+        subprocess.run(["iptables", "-D", "INPUT", "-s", ip_clean, "-j", "DROP"], check=False, capture_output=True, timeout=1.5)
+    except Exception:
+        pass
+
+    # 4. Remove from settings_db and add to whitelist so historical log lines don't re-ban it
+    if "security_blocked_ips" in settings_db:
+        settings_db["security_blocked_ips"] = [item for item in settings_db["security_blocked_ips"] if item.get("ip") != ip_clean]
+    wl = settings_db.setdefault("security_whitelisted_ips", [])
+    if ip_clean not in wl:
+        wl.append(ip_clean)
+    save_settings(settings_db)
+    return True
+
+
+def configure_and_sync_fail2ban(install_if_missing: bool = False) -> dict:
+    """
+    Fail2ban Asterisk PJSIP filtresini ve hapishane (jail) kurallarını gelişmiş güvenlik ayarlarına göre
+    otomatik yapılandırır ve servisi yeniden yükler.
+    """
+    import subprocess, shutil
+    adv = settings_db.get("security_advanced", {})
+    max_retry = max(1, int(adv.get("login_rate_limit") or 3))
+    ban_minutes = max(1, int(adv.get("block_duration_minutes") or 1440))
+    ban_seconds = ban_minutes * 60
+
+    if install_if_missing and not shutil.which("fail2ban-client"):
+        try:
+            subprocess.run(["apt-get", "update"], check=False, capture_output=True, timeout=30.0)
+            subprocess.run(["apt-get", "install", "-y", "fail2ban"], check=False, capture_output=True, timeout=60.0)
+        except Exception as e_inst:
+            print(f"[Fail2Ban Install Error]: {e_inst}")
+
+    if os.path.exists("/etc/fail2ban"):
+        try:
+            os.makedirs("/etc/fail2ban/filter.d", exist_ok=True)
+            os.makedirs("/etc/fail2ban/jail.d", exist_ok=True)
+            filter_content = """[Definition]
+failregex = ^.*res_pjsip/pjsip_distributor\\.c:.*log_failed_request: Request '.*' from '.*' failed for '<HOST>(:\\d+)?'.* - (No matching endpoint found|Failed to authenticate).*$
+            ^.*SecurityEvent="(FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)".*RemoteAddress="IPV[46]/(UDP|TCP|TLS|WS|WSS)/<HOST>/\\d+".*$
+            ^.*chan_sip\\.c:.*Registration from '.*' failed for '<HOST>(:\\d+)?' - .*$
+ignoreregex =
+"""
+            with open("/etc/fail2ban/filter.d/asterisk-aida.conf", "w", encoding="utf-8") as ff:
+                ff.write(filter_content)
+
+            log_path = "/var/log/asterisk/messages"
+            if not os.path.exists(log_path):
+                os.makedirs("/var/log/asterisk", exist_ok=True)
+                with open(log_path, "a", encoding="utf-8"):
+                    pass
+
+            jail_content = f"""[asterisk]
+enabled = true
+port = 5060,5061
+protocol = all
+filter = asterisk-aida
+logpath = {log_path}
+maxretry = {max_retry}
+findtime = 300
+bantime = {ban_seconds}
+ignoreip = 127.0.0.1/8 ::1
+"""
+            with open("/etc/fail2ban/jail.d/asterisk-pjsip.conf", "w", encoding="utf-8") as jf:
+                jf.write(jail_content)
+
+            subprocess.run(["systemctl", "enable", "fail2ban"], check=False, capture_output=True, timeout=3.0)
+            subprocess.run(["systemctl", "restart", "fail2ban"], check=False, capture_output=True, timeout=4.0)
+        except Exception as e_f2b:
+            print(f"[Fail2Ban Config Error]: {e_f2b}")
+
+    return {"maxretry": max_retry, "bantime_minutes": ban_minutes}
+
+
+def scan_asterisk_failed_sip_attempts(auto_ban: bool = True) -> list:
+    """
+    /var/log/asterisk/messages dosyasındaki PJSIP 'No matching endpoint found' ve 'Failed to authenticate'
+    saldırı kayıtlarını tarar; limit aşan saldırgan IP'leri otomatik olarak güvenlik duvarında engeller.
+    """
+    import re, datetime
+    adv = settings_db.get("security_advanced", {})
+    max_retry = max(1, int(adv.get("login_rate_limit") or 3))
+
+    log_files = ["/var/log/asterisk/messages", "/var/log/asterisk/full"]
+    ip_stats = {}
+
+    pattern = re.compile(
+        r"\[([^\]]+)\].*log_failed_request:\s*Request\s*'([^']+)'\s*from\s*'([^']+)'\s*failed for\s*'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d+)?'.*-\s*(.+)$"
+    )
+
+    for lf in log_files:
+        if not os.path.exists(lf):
+            continue
+        try:
+            with open(lf, "r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()[-2500:]
+            for line in lines:
+                if "log_failed_request" not in line:
+                    continue
+                m = pattern.search(line.strip())
+                if m:
+                    ts_str, req_type, from_uri, ip_addr, fail_reason = m.groups()
+                    if _is_trusted_or_local_ip(ip_addr):
+                        continue
+                    entry = ip_stats.setdefault(ip_addr, {
+                        "ip": ip_addr,
+                        "attempts": 0,
+                        "last_seen": ts_str,
+                        "req_type": req_type,
+                        "from_uri": from_uri,
+                        "reason": fail_reason.strip()
+                    })
+                    entry["attempts"] += 1
+                    entry["last_seen"] = ts_str
+                    entry["reason"] = f"{fail_reason.strip()} ({req_type} {from_uri})"
+        except Exception as e_log:
+            print(f"[Asterisk Security Log Scan Error]: {e_log}")
+
+    already_banned = {item.get("ip") for item in settings_db.get("security_blocked_ips", [])}
+    detected_list = []
+
+    for ip_addr, info in ip_stats.items():
+        if auto_ban and info["attempts"] >= max_retry and ip_addr not in already_banned:
+            _execute_firewall_ban(
+                ip_addr,
+                jail="asterisk-pjsip",
+                reason=f"{info['reason']} ({info['attempts']} deneme)"
+            )
+            already_banned.add(ip_addr)
+        elif ip_addr not in already_banned:
+            detected_list.append(info)
+
+    detected_list.sort(key=lambda x: x["attempts"], reverse=True)
+    return detected_list
+
+
+def get_live_fail2ban_and_ufw_status() -> dict:
+    import subprocess, shutil, re, datetime
+    f2b_installed = bool(shutil.which("fail2ban-client"))
+    f2b_active = False
+    if f2b_installed:
+        try:
+            res = subprocess.run(["systemctl", "is-active", "fail2ban"], check=False, capture_output=True, text=True, timeout=1.5)
+            f2b_active = (res.stdout.strip() == "active")
+        except Exception:
+            pass
+
+    # Scan Asterisk logs and auto-ban repeat offenders
+    detected_threats = scan_asterisk_failed_sip_attempts(auto_ban=True)
+
+    blocked_map = {}
+    for item in settings_db.get("security_blocked_ips", []):
+        ip_k = item.get("ip")
+        if ip_k:
+            blocked_map[ip_k] = dict(item)
+
+    # Query fail2ban-client status asterisk
+    if f2b_installed and f2b_active:
+        for jail_name in ["asterisk", "asterisk-pjsip"]:
+            try:
+                res_j = subprocess.run(["fail2ban-client", "status", jail_name], check=False, capture_output=True, text=True, timeout=2.0)
+                if res_j.returncode == 0 and "Banned IP list:" in res_j.stdout:
+                    after = res_j.stdout.split("Banned IP list:", 1)[1].strip()
+                    ips_line = after.splitlines()[0].strip() if after else ""
+                    for bip in ips_line.split():
+                        bip_clean = bip.strip()
+                        if bip_clean and bip_clean not in blocked_map:
+                            blocked_map[bip_clean] = {
+                                "ip": bip_clean,
+                                "jail": jail_name,
+                                "banned_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "reason": "Fail2Ban Otomatik Engelleme"
+                            }
+            except Exception:
+                pass
+
+    # Query UFW status for DENY IN rules
+    ufw_active = False
+    try:
+        res_ufw = subprocess.run(["ufw", "status"], check=False, capture_output=True, text=True, timeout=2.0)
+        if res_ufw.returncode == 0:
+            ufw_active = ("Status: active" in res_ufw.stdout)
+            for line in res_ufw.stdout.splitlines():
+                if "DENY" in line:
+                    m_ip = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(?:/\d{1,2})?)", line)
+                    if m_ip:
+                        u_ip = m_ip.group(1)
+                        if u_ip not in blocked_map:
+                            blocked_map[u_ip] = {
+                                "ip": u_ip,
+                                "jail": "ufw-firewall",
+                                "banned_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                                "reason": "UFW Güvenlik Duvarı Kuralı"
+                            }
+    except Exception:
+        pass
+
     return {
         "status": "success",
-        "blocked_ips": [
-            {"ip": "192.168.1.100", "jail": "asterisk", "banned_at": (datetime.datetime.now() - datetime.timedelta(hours=2)).strftime("%Y-%m-%d %H:%M:%S")},
-            {"ip": "203.0.113.45", "jail": "asterisk", "banned_at": (datetime.datetime.now() - datetime.timedelta(minutes=45)).strftime("%Y-%m-%d %H:%M:%S")}
-        ]
+        "service_status": "active" if f2b_active else ("inactive" if f2b_installed else "not_installed"),
+        "ufw_active": ufw_active,
+        "blocked_ips": list(blocked_map.values()),
+        "detected_threats": detected_threats
     }
 
-@app.delete("/api/security/fail2ban/{ip}")
+
+@app.get("/api/security/fail2ban")
+async def get_fail2ban_ips(user_info: dict = Depends(get_user_info)):
+    return get_live_fail2ban_and_ufw_status()
+
+
+class ManualBanIpSchema(BaseModel):
+    ip: str
+    reason: Optional[str] = "Manuel Güvenlik Duvarı Engeli"
+    jail: Optional[str] = "asterisk-pjsip"
+
+
+@app.post("/api/security/fail2ban/ban")
+async def manual_ban_fail2ban_ip(payload: ManualBanIpSchema, user_info: dict = Depends(get_user_info)):
+    ip_str = (payload.ip or "").strip()
+    if not ip_str:
+        raise HTTPException(status_code=400, detail="Lütfen geçerli bir IP adresi giriniz.")
+    if _is_trusted_or_local_ip(ip_str.split("/")[0]):
+        raise HTTPException(status_code=400, detail="Yerel sunucu, operatör trunk veya aktif temsilci IP adresi engellenemez.")
+    ok = _execute_firewall_ban(ip_str, jail=payload.jail or "manual-ufw", reason=payload.reason or "Manuel Engelleme")
+    if not ok:
+        raise HTTPException(status_code=400, detail="Geçersiz IP adresi formatı (Örn: 31.70.90.134).")
+    return {
+        "status": "success",
+        "message": f"{ip_str} IP adresi güvenlik duvarında (UFW & Fail2Ban) başarıyla engellendi.",
+        **get_live_fail2ban_and_ufw_status()
+    }
+
+
+@app.delete("/api/security/fail2ban/{ip:path}")
 async def unban_fail2ban_ip(ip: str, user_info: dict = Depends(get_user_info)):
-    return {"status": "success", "message": f"{ip} adresi başarıyla engellenenler listesinden kaldırıldı."}
+    ok = _execute_firewall_unban(ip)
+    if not ok:
+        raise HTTPException(status_code=400, detail="Geçersiz IP adresi.")
+    return {
+        "status": "success",
+        "message": f"{ip} adresi engellenenler listesinden ve güvenlik duvarından kaldırıldı.",
+        **get_live_fail2ban_and_ufw_status()
+    }
+
+
+class Fail2banServiceActionSchema(BaseModel):
+    action: str  # "install_and_configure" | "restart" | "scan_and_ban"
+
+
+@app.post("/api/security/fail2ban/service")
+async def control_fail2ban_service(payload: Fail2banServiceActionSchema, user_info: dict = Depends(get_user_info)):
+    import subprocess
+    act = (payload.action or "").strip()
+    if act == "install_and_configure":
+        configure_and_sync_fail2ban(install_if_missing=True)
+        msg = "Fail2Ban servisi ve Asterisk PJSIP güvenlik kuralları başarıyla kuruldu ve aktif edildi."
+    elif act == "restart":
+        configure_and_sync_fail2ban(install_if_missing=False)
+        try:
+            subprocess.run(["systemctl", "restart", "fail2ban"], check=False, capture_output=True, timeout=4.0)
+        except Exception:
+            pass
+        msg = "Fail2Ban servisi yeniden başlatıldı ve kurallar güncellendi."
+    elif act == "scan_and_ban":
+        threats = scan_asterisk_failed_sip_attempts(auto_ban=True)
+        for t in threats:
+            _execute_firewall_ban(t["ip"], jail="asterisk-pjsip", reason=f"{t['reason']} ({t['attempts']} deneme)")
+        msg = "Asterisk loglarındaki tüm şüpheli IP adresleri tarandı ve güvenlik duvarında engellendi."
+    else:
+        raise HTTPException(status_code=400, detail="Geçersiz servis işlemi.")
+
+    return {
+        "status": "success",
+        "message": msg,
+        **get_live_fail2ban_and_ufw_status()
+    }
+
 
 @app.get("/api/security/geo")
 async def get_geo_security(user_info: dict = Depends(get_user_info)):
@@ -9203,10 +9582,10 @@ async def get_geo_security(user_info: dict = Depends(get_user_info)):
 @app.get("/api/security/advanced")
 async def get_advanced_security(user_info: dict = Depends(get_user_info)):
     return settings_db.get("security_advanced", {
-        "login_rate_limit": 5,
+        "login_rate_limit": 3,
         "api_rate_limit": 100,
         "sip_rate_limit": 50,
-        "block_duration_minutes": 15
+        "block_duration_minutes": 1440
     })
 
 class AdvancedSecuritySchema(BaseModel):
@@ -9219,14 +9598,8 @@ class AdvancedSecuritySchema(BaseModel):
 async def save_advanced_security(payload: AdvancedSecuritySchema, user_info: dict = Depends(get_user_info)):
     settings_db["security_advanced"] = payload.model_dump()
     save_settings(settings_db)
-    return {"status": "success", "message": "Gelişmiş güvenlik ayarları başarıyla kaydedildi."}
-
-class GeoSecuritySchema(BaseModel):
-    allowed_countries: List[str]
-
-@app.get("/api/security/geo")
-async def get_geo_security(user_info: dict = Depends(get_user_info)):
-    return settings_db.get("security_geo", DEFAULT_SETTINGS["security_geo"])
+    configure_and_sync_fail2ban(install_if_missing=False)
+    return {"status": "success", "message": "Gelişmiş güvenlik ve Fail2Ban hız sınırlandırma ayarları başarıyla kaydedildi ve uygulandı."}
 
 class GeoSecuritySchema(BaseModel):
     allowed_countries: List[str]
@@ -9236,6 +9609,7 @@ async def save_geo_security(payload: GeoSecuritySchema, user_info: dict = Depend
     settings_db["security_geo"] = payload.model_dump()
     save_settings(settings_db)
     return {"status": "success", "message": "Bölgesel erişim (GeoIP) kuralları başarıyla kaydedildi."}
+
 
 try:
     import pyotp
@@ -9544,7 +9918,9 @@ async def startup_event():
                 regenerate_pjsip_custom_conf()
                 regenerate_queues_conf()
                 regenerate_extensions_custom_conf()
-                print("[Asterisk Startup Sync] PJSIP, Kuyruk ve Dialplan konfigürasyonları Asterisk için başarıyla güncellendi.")
+                configure_and_sync_fail2ban(install_if_missing=False)
+                scan_asterisk_failed_sip_attempts(auto_ban=True)
+                print("[Asterisk Startup Sync] PJSIP, Kuyruk, Dialplan ve Fail2Ban güvenlik kuralları başarıyla güncellendi.")
             except Exception as e_ast:
                 print(f"[Asterisk Startup Sync Error]: {e_ast}")
 
@@ -9849,6 +10225,11 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["profiles"] = disk_u.get("profiles")
             if disk_u.get("follow_me"):
                 u["follow_me"] = disk_u.get("follow_me")
+            if (not u.get("sip_password") or u.get("sip_password") == "1234") and disk_u.get("sip_password"):
+                u["sip_password"] = disk_u.get("sip_password")
+            if not u.get("sip_username") and disk_u.get("sip_username"):
+                u["sip_username"] = disk_u.get("sip_username")
+        u["sip_password"] = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         ensure_user_profiles(u)
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
         st_ext = get_agent_state(ext)
@@ -9909,10 +10290,9 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         for idx, item in enumerate(items_list):
             data = item.model_dump()
             ensure_user_profiles(data)
-            if not data.get("sip_password") or data.get("sip_password") == "1234":
-                data["sip_password"] = generate_strong_sip_password()
-                
             ext_str = str(data.get("extension") or "")
+            data["sip_password"] = resolve_secure_sip_password(ext_str, data.get("sip_password") or "")
+                
             if ext_str:
                 saved_payload_by_ext[ext_str] = data
             if data.get("id") is not None:
@@ -9959,9 +10339,10 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             if all_users_db:
                 new_users_out = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in all_users_db]
                 for u_dict in new_users_out:
-                    p_match = saved_payload_by_id.get(u_dict.get("id")) or saved_payload_by_ext.get(str(u_dict.get("extension") or ""))
+                    ext_u = str(u_dict.get("extension") or "")
+                    p_match = saved_payload_by_id.get(u_dict.get("id")) or saved_payload_by_ext.get(ext_u)
                     if not p_match:
-                        p_match = existing_disk_by_id.get(u_dict.get("id")) or existing_disk_by_ext.get(str(u_dict.get("extension") or ""))
+                        p_match = existing_disk_by_id.get(u_dict.get("id")) or existing_disk_by_ext.get(ext_u)
                     if p_match:
                         if p_match.get("active_profile"):
                             u_dict["active_profile"] = p_match.get("active_profile")
@@ -9969,6 +10350,11 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["profiles"] = p_match.get("profiles")
                         if p_match.get("follow_me"):
                             u_dict["follow_me"] = p_match.get("follow_me")
+                        if p_match.get("sip_password"):
+                            u_dict["sip_password"] = p_match.get("sip_password")
+                        if p_match.get("sip_username"):
+                            u_dict["sip_username"] = p_match.get("sip_username")
+                    u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
                     ensure_user_profiles(u_dict)
         except Exception as dbe:
             print(f"[Save Users DB Commit Warning]: {dbe}")
@@ -9987,8 +10373,8 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             for item in items_list:
                 data = item.model_dump()
                 ensure_user_profiles(data)
-                if not data.get("sip_password") or data.get("sip_password") == "1234":
-                    data["sip_password"] = generate_strong_sip_password()
+                ext_s = str(data.get("extension") or "")
+                data["sip_password"] = resolve_secure_sip_password(ext_s, data.get("sip_password") or "")
                 
                 item_id = data.get("id")
                 if not item_id:
@@ -10009,6 +10395,11 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         settings_db["needs_apply"] = True
         settings_db["users"] = new_users_out
         save_settings(settings_db)
+
+        try:
+            regenerate_pjsip_custom_conf()
+        except Exception as e_pjsip:
+            print(f"[Save Users PJSIP Reload Warning]: {e_pjsip}")
         
         return {"status": "success", "users": new_users_out}
     except HTTPException:
