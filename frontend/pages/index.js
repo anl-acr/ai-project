@@ -2587,7 +2587,10 @@ export default function Home() {
                           return (
                             <div
                               key={prof.id}
-                              onClick={() => setSelectedAgentProfileTab(prof.id)}
+                              onClick={() => {
+                                setSelectedAgentProfileTab(prof.id);
+                                setAgentActiveProfile(prof.id);
+                              }}
                               className={`cursor-pointer px-4 py-3 rounded-2xl border-2 transition-all flex items-center justify-between gap-2 ${
                                 isSel
                                   ? `${border} ${lightBg} shadow-sm`

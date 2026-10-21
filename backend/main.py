@@ -338,6 +338,7 @@ def ensure_user_profiles(u: dict) -> dict:
 
 class UserSchema(BaseModel):
     id: Optional[int] = None
+    tenant_id: Optional[str] = "tenant-default"
     full_name: str
     email: str
     extension: str
@@ -3465,6 +3466,7 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     try:
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemUser
+        from sqlalchemy.orm.attributes import flag_modified
         with SyncSessionLocal() as session:
             db_u = session.query(SystemUser).filter(
                 (SystemUser.id == user.get("id")) | (SystemUser.extension == user.get("extension"))
@@ -3482,14 +3484,18 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                     db_u.mobile_transfer_enabled = payload.mobile_transfer_enabled
                 if payload.forwarding_always is not None:
                     db_u.forwarding_always = payload.forwarding_always
+                    flag_modified(db_u, "forwarding_always")
                 if payload.forwarding_busy is not None:
                     db_u.forwarding_busy = payload.forwarding_busy
+                    flag_modified(db_u, "forwarding_busy")
                 if payload.forwarding_no_answer is not None:
                     db_u.forwarding_no_answer = payload.forwarding_no_answer
+                    flag_modified(db_u, "forwarding_no_answer")
                 if payload.active_profile is not None:
                     db_u.active_profile = user["active_profile"]
                 if payload.profiles is not None:
                     db_u.profiles = user["profiles"]
+                    flag_modified(db_u, "profiles")
                 session.commit()
     except Exception as e_db_sync:
         print(f"[Profile Update] DB sync notice: {e_db_sync}")
@@ -3522,6 +3528,7 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
     try:
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemUser
+        from sqlalchemy.orm.attributes import flag_modified
         with SyncSessionLocal() as session:
             q_filters = [SystemUser.extension == str(user_id), SystemUser.email == str(user_id)]
             if str(user_id).isdigit():
@@ -3535,8 +3542,10 @@ async def switch_user_active_profile_endpoint(user_id: Union[int, str], payload:
                 db_u.active_profile = active_profile
                 if user and user.get("profiles"):
                     db_u.profiles = user["profiles"]
+                    flag_modified(db_u, "profiles")
                 elif isinstance(profiles_data, list) and len(profiles_data) > 0:
                     db_u.profiles = profiles_data
+                    flag_modified(db_u, "profiles")
                 session.commit()
 
             prof_labels = {
@@ -9237,35 +9246,30 @@ async def startup_event():
         async def init_db():
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
-                cols_to_add = [
-                    "all_busy_routing_enabled BOOLEAN DEFAULT FALSE",
-                    "all_busy_destination_type VARCHAR DEFAULT ''",
-                    "all_busy_destination_target VARCHAR DEFAULT ''",
-                    "max_wait_time_enabled BOOLEAN DEFAULT FALSE",
-                    "max_wait_time INTEGER DEFAULT 120",
-                    "max_wait_destination_type VARCHAR DEFAULT ''",
-                    "max_wait_destination_target VARCHAR DEFAULT ''",
-                    "notify_missed_calls BOOLEAN DEFAULT FALSE"
-                ]
-                for col_def in cols_to_add:
-                    try:
-                        await conn.execute(text(f"ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS {col_def};"))
-                    except Exception:
-                        pass
+            ddl_statements = [
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS all_busy_routing_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS all_busy_destination_type VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS all_busy_destination_target VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_wait_time_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_wait_time INTEGER DEFAULT 120;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_wait_destination_type VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_wait_destination_target VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS notify_missed_calls BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;",
+                "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;"
+            ]
+            for stmt_sql in ddl_statements:
                 try:
-                    await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;"))
-                    await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;"))
+                    async with engine.begin() as conn_ddl:
+                        await conn_ddl.execute(text(stmt_sql))
                 except Exception:
                     pass
-                try:
-                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';"))
-                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';"))
-                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;"))
-                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;"))
-                    await conn.execute(text("ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;"))
-                except Exception:
-                    pass
-        await asyncio.wait_for(init_db(), timeout=4.0)
+        await asyncio.wait_for(init_db(), timeout=6.0)
         print("[Database Init] Veritabanı tabloları ve pbx_queues sütunları kontrol edildi / oluşturuldu.")
         try:
             await log_event(
@@ -9682,10 +9686,20 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
 
     # Attach live SIP WebRTC registration status and IP address to each user object
     from backend.services.agent_presence import get_agent_state
+    disk_users_by_id = {str(du.get("id")): du for du in settings_db.get("users", []) if du.get("id") is not None}
+    disk_users_by_ext = {str(du.get("extension")): du for du in settings_db.get("users", []) if du.get("extension")}
     for u in raw_users:
-        ensure_user_profiles(u)
         ext = str(u.get("extension") or "")
         uid = str(u.get("id") or "")
+        disk_u = disk_users_by_id.get(uid) or disk_users_by_ext.get(ext)
+        if disk_u:
+            if disk_u.get("active_profile"):
+                u["active_profile"] = disk_u.get("active_profile")
+            if disk_u.get("profiles"):
+                u["profiles"] = disk_u.get("profiles")
+            if disk_u.get("follow_me"):
+                u["follow_me"] = disk_u.get("follow_me")
+        ensure_user_profiles(u)
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
         st_ext = get_agent_state(ext)
         st_uid = get_agent_state(uid)
@@ -9702,6 +9716,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
 @app.post("/settings/users")
 async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        from sqlalchemy.orm.attributes import flag_modified
         is_single = not isinstance(payload, list)
         items_list = [payload] if is_single else payload
 
@@ -9737,6 +9752,9 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         new_users_out = []
         changes = []
         valid_keys = {c.name for c in SystemUser.__table__.columns}
+        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions"}
+        saved_payload_by_ext = {}
+        saved_payload_by_id = {}
 
         for idx, item in enumerate(items_list):
             data = item.model_dump()
@@ -9745,6 +9763,11 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 data["sip_password"] = generate_strong_sip_password()
                 
             ext_str = str(data.get("extension") or "")
+            if ext_str:
+                saved_payload_by_ext[ext_str] = data
+            if data.get("id") is not None:
+                saved_payload_by_id[data.get("id")] = data
+
             target_user = None
             if data.get("id") and data.get("id") in existing_by_id:
                 target_user = existing_by_id[data.get("id")]
@@ -9756,6 +9779,11 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             if target_user:
                 for k, v in filtered_data.items():
                     setattr(target_user, k, v)
+                    if k in json_cols:
+                        try:
+                            flag_modified(target_user, k)
+                        except Exception:
+                            pass
                 payload_user_ids.add(target_user.id)
                 changes.append({"action": "UPDATED", "name": data.get("full_name"), "extension": data.get("extension")})
             else:
@@ -9780,6 +9808,18 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             all_users_db = res_updated.scalars().all()
             if all_users_db:
                 new_users_out = [{c.name: getattr(u, c.name) for c in u.__table__.columns} for u in all_users_db]
+                for u_dict in new_users_out:
+                    p_match = saved_payload_by_id.get(u_dict.get("id")) or saved_payload_by_ext.get(str(u_dict.get("extension") or ""))
+                    if not p_match:
+                        p_match = existing_disk_by_id.get(u_dict.get("id")) or existing_disk_by_ext.get(str(u_dict.get("extension") or ""))
+                    if p_match:
+                        if p_match.get("active_profile"):
+                            u_dict["active_profile"] = p_match.get("active_profile")
+                        if p_match.get("profiles"):
+                            u_dict["profiles"] = p_match.get("profiles")
+                        if p_match.get("follow_me"):
+                            u_dict["follow_me"] = p_match.get("follow_me")
+                    ensure_user_profiles(u_dict)
         except Exception as dbe:
             print(f"[Save Users DB Commit Warning]: {dbe}")
             try:
@@ -9796,6 +9836,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
 
             for item in items_list:
                 data = item.model_dump()
+                ensure_user_profiles(data)
                 if not data.get("sip_password") or data.get("sip_password") == "1234":
                     data["sip_password"] = generate_strong_sip_password()
                 

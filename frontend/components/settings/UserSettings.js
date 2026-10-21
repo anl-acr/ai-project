@@ -1677,7 +1677,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             return (
                                                 <div
                                                     key={prof.id}
-                                                    onClick={() => setSelectedProfileTab(prof.id)}
+                                                    onClick={() => {
+                                                        setSelectedProfileTab(prof.id);
+                                                        setActiveProfile(prof.id);
+                                                    }}
                                                     className={`cursor-pointer px-4 py-3.5 rounded-2xl border-2 transition-all flex items-center justify-between gap-2 ${
                                                         isSelected
                                                             ? `${border} ${lightBg} shadow-sm`
