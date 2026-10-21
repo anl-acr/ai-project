@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Plus, Search, Trash2, Edit2, X, Users, Check, AlertCircle, Mic, AlertTriangle } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Plus, Search, Trash2, Edit2, X, Users, Check, AlertCircle, Mic, AlertTriangle, Download, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import TransferList from "../ui/TransferList";
@@ -13,6 +14,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const fileInputRef = useRef(null);
 
   // Modals
   const [showModal, setShowModal] = useState(false);
@@ -214,6 +216,91 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
     setExternalNumbers(prev => prev.filter(n => n !== num));
   };
 
+  const handleExportExcel = () => {
+    const data = conferences.map(item => {
+      const internalNames = (item.internals || []).map(uid => {
+        const u = users.find(x => x.id === uid || x.extension === uid);
+        return u ? `${u.full_name} (${u.extension})` : uid;
+      }).join(", ");
+      return {
+        "Oda No": item.room_number || "",
+        "Oda Adı": item.room_name || "",
+        "Dahili Katılımcılar": internalNames,
+        "Harici Numaralar": (item.externals || []).join(", "),
+        "Ses Kaydı": item.recording_enabled ? "Evet" : "Hayır"
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "KonferansOdalari");
+    XLSX.writeFile(workbook, "Konferans_Odalari.xlsx");
+  };
+
+  const handleImportExcel = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(true);
+      setError("");
+      setSuccess("");
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        for (const row of data) {
+          const room_number = String(row["Oda No"] || row["Oda Numarası"] || "").trim();
+          const room_name = String(row["Oda Adı"] || "").trim();
+          if (!room_number || !room_name) continue;
+
+          const internalsRaw = String(row["Dahili Katılımcılar"] || "").split(",").map(s => s.trim()).filter(Boolean);
+          const internals = internalsRaw.map(mName => {
+            const u = users.find(x =>
+              (x.full_name && x.full_name.toLowerCase() === mName.toLowerCase()) ||
+              (`${x.full_name} (${x.extension})`).toLowerCase() === mName.toLowerCase() ||
+              String(x.extension) === mName ||
+              String(x.id) === mName
+            );
+            return u ? u.id : null;
+          }).filter(Boolean);
+
+          const externals = String(row["Harici Numaralar"] || "").split(",").map(s => s.trim()).filter(Boolean);
+          const recording_enabled = String(row["Ses Kaydı"] || "").trim().toLowerCase() === "evet";
+
+          const existing = conferences.find(c => String(c.room_number || "") === room_number);
+
+          await fetch(`${API_BASE}/api/settings/conferences`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: existing ? existing.id : null,
+              room_number,
+              room_name,
+              internals,
+              externals,
+              recording_enabled
+            })
+          });
+        }
+
+        setSuccess("Konferans odaları başarıyla içe aktarıldı.");
+        await fetchData();
+      } catch (err) {
+        console.error("Excel import error:", err);
+        setError("Excel dosyası okunurken bir hata oluştu.");
+      } finally {
+        setLoading(false);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsBinaryString(file);
+  };
+
   // Filter items
   const filteredList = conferences.filter(item =>
     (item.room_number && item.room_number.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -248,6 +335,32 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
             />
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
           </div>
+
+          <input 
+            type="file" 
+            accept=".xlsx, .xls" 
+            ref={fileInputRef}
+            className="hidden" 
+            onChange={handleImportExcel}
+          />
+
+          {permissions.write && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-emerald-200 dark:hover:border-emerald-800/50"
+              title="Excel'den İçe Aktar (Import)"
+            >
+              <Upload size={16} />
+            </button>
+          )}
+
+          <button
+            onClick={handleExportExcel}
+            className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/50"
+            title="Excel'e Dışa Aktar (Export)"
+          >
+            <Download size={16} />
+          </button>
 
           {permissions.write && (
             <button

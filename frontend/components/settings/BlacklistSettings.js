@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Shield, Plus, Trash2, Search, X, Check, AlertCircle, AlertTriangle, FileText, Type } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Shield, Plus, Trash2, Search, X, Check, AlertCircle, AlertTriangle, FileText, Type, Download, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
@@ -13,6 +14,7 @@ export default function BlacklistSettings({ backendHost }) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const fileInputRef = useRef(null);
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -215,6 +217,92 @@ export default function BlacklistSettings({ backendHost }) {
     }
   };
 
+  const handleExportExcel = () => {
+    if (activeTab === "list") {
+      const data = blacklist.map(item => ({
+        "Tür": item.type === "email" ? "E-posta" : "Telefon",
+        "Engellenen Değer": item.value || "",
+        "Engelleme Nedeni": item.reason || "",
+        "Tarih": item.timestamp ? new Date(item.timestamp).toLocaleString() : ""
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "KaraListe");
+      XLSX.writeFile(workbook, "Kara_Liste.xlsx");
+    } else {
+      const data = blockWords.map(item => ({
+        "Yasaklı Kelime / Cümle": item.word || "",
+        "Eklenme Tarihi": item.timestamp ? new Date(item.timestamp).toLocaleString() : ""
+      }));
+      const worksheet = XLSX.utils.json_to_sheet(data);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "YasakliKelimeler");
+      XLSX.writeFile(workbook, "Yasakli_Kelimeler.xlsx");
+    }
+  };
+
+  const handleImportExcel = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(true);
+      setError("");
+      setSuccess("");
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        if (activeTab === "list") {
+          for (const row of data) {
+            const val = String(row["Engellenen Değer"] || row["Numara"] || row["Değer"] || "").trim();
+            if (!val) continue;
+            const typeRaw = String(row["Tür"] || "").trim().toLowerCase();
+            const type = (typeRaw.includes("posta") || typeRaw.includes("mail") || val.includes("@")) ? "email" : "phone";
+            const reason = String(row["Engelleme Nedeni"] || row["Neden"] || "Excel İçe Aktarım").trim();
+
+            const dup = (blacklist || []).find(b => String(b.value || "").trim().toLowerCase() === val.toLowerCase());
+            if (!dup) {
+              await fetch(`${API_BASE}/api/blacklist`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ type, value: val, reason })
+              });
+            }
+          }
+          setSuccess("Kara liste kayıtları başarıyla içe aktarıldı.");
+        } else {
+          for (const row of data) {
+            const word = String(row["Yasaklı Kelime / Cümle"] || row["Kelime"] || "").trim();
+            if (!word) continue;
+            const dup = (blockWords || []).find(bw => String(bw.word || "").trim().toLowerCase() === word.toLowerCase());
+            if (!dup) {
+              await fetch(`${API_BASE}/api/block-words`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ word })
+              });
+            }
+          }
+          setSuccess("Yasaklı kelimeler başarıyla içe aktarıldı.");
+        }
+
+        await fetchData();
+      } catch (err) {
+        console.error("Excel import error:", err);
+        setError("Excel dosyası okunurken bir hata oluştu.");
+      } finally {
+        setLoading(false);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsBinaryString(file);
+  };
+
   // Filter items
   const filteredList = blacklist.filter(item =>
     item.value.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -279,6 +367,32 @@ export default function BlacklistSettings({ backendHost }) {
               />
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
             </div>
+
+            <input 
+              type="file" 
+              accept=".xlsx, .xls" 
+              ref={fileInputRef}
+              className="hidden" 
+              onChange={handleImportExcel}
+            />
+
+            {permissions.write && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-emerald-200 dark:hover:border-emerald-800/50"
+                title="Excel'den İçe Aktar (Import)"
+              >
+                <Upload size={16} />
+              </button>
+            )}
+
+            <button
+              onClick={handleExportExcel}
+              className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/50"
+              title="Excel'e Dışa Aktar (Export)"
+            >
+              <Download size={16} />
+            </button>
 
             {permissions.write && (
               <button

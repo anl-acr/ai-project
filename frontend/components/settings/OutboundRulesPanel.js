@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Plus, Search, Edit2, Trash2, X, PhoneForwarded, Users, CheckCircle, ChevronRight, ChevronLeft, ArrowUp, ArrowDown } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Plus, Search, Edit2, Trash2, X, PhoneForwarded, Users, CheckCircle, ChevronRight, ChevronLeft, ArrowUp, ArrowDown, Download, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { getBackendHost } from "../../utils/apiHost";
@@ -231,6 +232,7 @@ export default function OutboundRulesPanel({ backendHost }) {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [success, setSuccess] = useState(false);
+  const fileInputRef = useRef(null);
 
   const [showModal, setShowModal] = useState(false);
   const [selectedRule, setSelectedRule] = useState(null);
@@ -358,6 +360,107 @@ export default function OutboundRulesPanel({ backendHost }) {
     }
   };
 
+  const handleExportExcel = () => {
+    const data = rules.map(rule => {
+      const patterns = rule.patterns && rule.patterns.length > 0 ? rule.patterns : [{ pattern: rule.pattern || "", strip: "", prepend: "" }];
+      const trunkIds = rule.trunk_ids || (rule.trunk_id ? [rule.trunk_id] : []);
+      const trunkNames = trunkIds.map(id => {
+        const t = trunks.find(x => x.id === id);
+        return t ? (t.trunk_name || t.host) : id;
+      }).join(", ");
+      const userNames = (rule.allowed_users || []).map(uid => {
+        const u = users.find(x => x.id === uid);
+        return u ? u.full_name : uid;
+      }).join(", ");
+
+      return {
+        "Kural Adı": rule.name || "",
+        "Arayan Numara (Caller ID)": rule.caller_id || "",
+        "Desenler": patterns.map(p => p.pattern || "").filter(Boolean).join(", "),
+        "Dış Hatlar": trunkNames,
+        "İzin Verilen Aboneler": userNames
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "GidenAramaKurallari");
+    XLSX.writeFile(workbook, "Giden_Arama_Kurallari.xlsx");
+  };
+
+  const handleImportExcel = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(true);
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+
+        for (const row of data) {
+          const name = String(row["Kural Adı"] || "").trim();
+          if (!name) continue;
+          const caller_id = String(row["Arayan Numara (Caller ID)"] || row["Caller ID"] || "").trim();
+          const patternsRaw = String(row["Desenler"] || "").split(",").map(s => s.trim()).filter(Boolean);
+          const patterns = patternsRaw.length > 0
+            ? patternsRaw.map(p => ({ pattern: p, strip: "", prepend: "" }))
+            : [{ pattern: "X.", strip: "", prepend: "" }];
+
+          const trunksRaw = String(row["Dış Hatlar"] || "").split(",").map(s => s.trim()).filter(Boolean);
+          const trunk_ids = trunksRaw.map(tName => {
+            const found = trunks.find(t =>
+              (t.trunk_name && t.trunk_name.toLowerCase() === tName.toLowerCase()) ||
+              (t.host && t.host.toLowerCase() === tName.toLowerCase()) ||
+              String(t.id) === tName
+            );
+            return found ? found.id : null;
+          }).filter(Boolean);
+
+          const usersRaw = String(row["İzin Verilen Aboneler"] || "").split(",").map(s => s.trim()).filter(Boolean);
+          const allowed_users = usersRaw.map(uName => {
+            const found = users.find(u =>
+              (u.full_name && u.full_name.toLowerCase() === uName.toLowerCase()) ||
+              String(u.extension) === uName ||
+              String(u.id) === uName
+            );
+            return found ? found.id : null;
+          }).filter(Boolean);
+
+          const existing = rules.find(r => r.name && r.name.toLowerCase() === name.toLowerCase());
+
+          await fetch(`${protocol}//${apiHost}/api/settings/outbound_rules`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: existing ? existing.id : null,
+              name,
+              caller_id,
+              patterns,
+              trunk_ids,
+              allowed_users
+            })
+          });
+        }
+
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 3000);
+        await fetchData();
+      } catch (err) {
+        console.error("Excel import error:", err);
+      } finally {
+        setLoading(false);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const filteredRules = rules.filter(r => 
     (r.name && r.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
     (r.patterns && r.patterns.some(p => p.pattern.includes(searchQuery))) ||
@@ -376,7 +479,7 @@ export default function OutboundRulesPanel({ backendHost }) {
           <p className="text-xs text-slate-500 mt-1">Dış aramalarda numara eşleşmelerine göre kullanılacak hatları yapılandırın.</p>
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
           <div className="relative flex-1 sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
@@ -387,6 +490,31 @@ export default function OutboundRulesPanel({ backendHost }) {
               className={`w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
             />
           </div>
+
+          <input 
+            type="file" 
+            accept=".xlsx, .xls" 
+            ref={fileInputRef}
+            className="hidden" 
+            onChange={handleImportExcel}
+          />
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-emerald-200 dark:hover:border-emerald-800/50"
+            title="Excel'den İçe Aktar (Import)"
+          >
+            <Upload size={16} />
+          </button>
+
+          <button
+            onClick={handleExportExcel}
+            className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/50"
+            title="Excel'e Dışa Aktar (Export)"
+          >
+            <Download size={16} />
+          </button>
+
           <button
             onClick={() => handleOpenModal()}
             className={`rounded-xl h-8 w-8 flex items-center justify-center shrink-0 ${bg} ${hover} text-white transition-all shadow-sm`}

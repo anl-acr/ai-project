@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, ChevronRight, ChevronLeft, AlertTriangle } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Plus, Search, Edit2, Trash2, X, Users, CheckCircle, ChevronRight, ChevronLeft, AlertTriangle, Download, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
@@ -198,6 +199,7 @@ export default function SubscriberGroupsPanel({ backendHost }) {
   const [searchQuery, setSearchQuery] = useState("");
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
 
   const [showModal, setShowModal] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState(null);
@@ -322,8 +324,7 @@ export default function SubscriberGroupsPanel({ backendHost }) {
 
   const handleDelete = async () => {
     try {
-      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-      const res = await fetch(`${protocol}//${apiHost}/api/settings/subscriber_groups/${deleteConfirm.id}`, {
+      const res = await fetch(`${API_BASE}/api/settings/subscriber_groups/${deleteConfirm.id}`, {
         method: "DELETE"
       });
       if (res.ok) {
@@ -334,6 +335,81 @@ export default function SubscriberGroupsPanel({ backendHost }) {
     } catch (err) {
       console.error("Grup silinemedi:", err);
     }
+  };
+
+  const handleExportExcel = () => {
+    const data = groups.map(group => {
+      const memberNames = (group.extensions || []).map(uid => {
+        const u = users.find(x => x.id === uid || x.extension === uid);
+        return u ? `${u.full_name} (${u.extension})` : uid;
+      }).join(", ");
+      return {
+        "Grup Adı": group.name || "",
+        "Aboneler": memberNames
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "AboneGruplari");
+    XLSX.writeFile(workbook, "Abone_Gruplari.xlsx");
+  };
+
+  const handleImportExcel = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(true);
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        for (const row of data) {
+          const name = String(row["Grup Adı"] || "").trim();
+          if (!name) continue;
+          const membersRaw = String(row["Aboneler"] || "").split(",").map(s => s.trim()).filter(Boolean);
+          const extensions = membersRaw.map(mName => {
+            const u = users.find(x =>
+              (x.full_name && x.full_name.toLowerCase() === mName.toLowerCase()) ||
+              (`${x.full_name} (${x.extension})`).toLowerCase() === mName.toLowerCase() ||
+              String(x.extension) === mName ||
+              String(x.id) === mName
+            );
+            return u ? u.id : null;
+          }).filter(Boolean);
+
+          const existing = groups.find(g => g.name && g.name.toLowerCase() === name.toLowerCase());
+
+          await fetch(`${API_BASE}/api/settings/subscriber_groups`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: existing ? existing.id : null,
+              name,
+              extensions,
+              allowed_outbound_groups: existing ? (existing.allowed_outbound_groups || []) : [],
+              allowed_inbound_groups: existing ? (existing.allowed_inbound_groups || []) : []
+            })
+          });
+        }
+
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 3000);
+        await fetchData();
+      } catch (err) {
+        console.error("Excel import error:", err);
+        setError("Excel dosyası okunurken bir hata oluştu.");
+      } finally {
+        setLoading(false);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsBinaryString(file);
   };
 
   const filteredGroups = groups.filter(g => 
@@ -352,7 +428,7 @@ export default function SubscriberGroupsPanel({ backendHost }) {
           <p className="text-xs text-slate-500 mt-1">Aynı gruptaki abonelerin birbirlerinin çalan çağrılarını çekebilmesi için gruplar oluşturun.</p>
         </div>
 
-        <div className="flex items-center gap-3 w-full sm:w-auto">
+        <div className="flex items-center gap-2.5 w-full sm:w-auto">
           <div className="relative flex-1 sm:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
@@ -363,6 +439,31 @@ export default function SubscriberGroupsPanel({ backendHost }) {
               className={`w-full pl-9 pr-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
             />
           </div>
+
+          <input 
+            type="file" 
+            accept=".xlsx, .xls" 
+            ref={fileInputRef}
+            className="hidden" 
+            onChange={handleImportExcel}
+          />
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-emerald-200 dark:hover:border-emerald-800/50"
+            title="Excel'den İçe Aktar (Import)"
+          >
+            <Upload size={16} />
+          </button>
+
+          <button
+            onClick={handleExportExcel}
+            className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/50"
+            title="Excel'e Dışa Aktar (Export)"
+          >
+            <Download size={16} />
+          </button>
+
           <button
             onClick={() => handleOpenModal()}
             className={`rounded-xl h-8 w-8 flex items-center justify-center shrink-0 ${bg} ${hover} text-white transition-all shadow-sm`}

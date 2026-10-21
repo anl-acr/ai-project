@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Search, Plus, Edit2, Trash2, BookOpen, Save, X, Phone, Mail, CheckCircle, AlertTriangle } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Search, Plus, Edit2, Trash2, BookOpen, Save, X, Phone, Mail, CheckCircle, AlertTriangle, Download, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "./ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
@@ -11,6 +12,7 @@ export default function ContactsPanel({ backendHost }) {
   const [loading, setLoading] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (errorMsg) {
@@ -219,6 +221,81 @@ export default function ContactsPanel({ backendHost }) {
     }
   };
 
+  const handleExportExcel = () => {
+    const data = contacts.map(c => ({
+      "Ad": c.first_name || "",
+      "Soyad": c.last_name || "",
+      "Telefon Numarası": c.phone_number || "",
+      "E-posta": c.email || ""
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Rehber");
+    XLSX.writeFile(workbook, "Rehber.xlsx");
+  };
+
+  const handleImportExcel = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(true);
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        for (const row of data) {
+          let first_name = String(row["Ad"] || row["İsim"] || "").trim();
+          let last_name = String(row["Soyad"] || row["Soyisim"] || "").trim();
+          const fullName = String(row["Ad Soyad"] || row["İsim Soyisim"] || "").trim();
+          if (!first_name && fullName) {
+            const parts = fullName.split(" ");
+            first_name = parts[0] || "";
+            last_name = parts.slice(1).join(" ") || "-";
+          }
+          if (first_name && !last_name) last_name = "-";
+          const phone_number = String(row["Telefon Numarası"] || row["Telefon"] || "").trim();
+          const email = String(row["E-posta"] || row["Email"] || "").trim() || null;
+
+          if (!first_name || !phone_number) continue;
+
+          const existing = contacts.find(c => String(c.phone_number || "").trim() === phone_number);
+          const payload = { first_name, last_name, phone_number, email };
+
+          if (existing) {
+            await fetch(`${API_BASE}/api/contacts/${existing.id}`, {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+          } else {
+            await fetch(`${API_BASE}/api/contacts`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload)
+            });
+          }
+        }
+
+        setSuccessMsg("Rehber kayıtları başarıyla içe aktarıldı.");
+        setTimeout(() => setSuccessMsg(""), 3000);
+        await fetchContacts(searchQuery);
+      } catch (err) {
+        console.error("[Contacts] Excel import error:", err);
+        setErrorMsg("Excel dosyası okunurken bir hata oluştu.");
+      } finally {
+        setLoading(false);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsBinaryString(file);
+  };
+
   return (
     <div className="w-full space-y-6 animate-in fade-in duration-200">
       {/* Standalone Header Card */}
@@ -247,6 +324,32 @@ export default function ContactsPanel({ backendHost }) {
             />
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-555" />
           </div>
+
+          <input 
+            type="file" 
+            accept=".xlsx, .xls" 
+            ref={fileInputRef}
+            className="hidden" 
+            onChange={handleImportExcel}
+          />
+
+          {hasWritePermission && (
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-emerald-200 dark:hover:border-emerald-800/50"
+              title="Excel'den İçe Aktar (Import)"
+            >
+              <Upload size={16} />
+            </button>
+          )}
+
+          <button
+            onClick={handleExportExcel}
+            className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/50"
+            title="Excel'e Dışa Aktar (Export)"
+          >
+            <Download size={16} />
+          </button>
 
           {hasWritePermission && (
             <button

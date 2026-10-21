@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { 
   PhoneCall, 
   Save, 
@@ -16,8 +16,11 @@ import {
   Fingerprint,
   Search,
   Shield,
-  AlertTriangle
+  AlertTriangle,
+  Download,
+  Upload
 } from "lucide-react";
+import * as XLSX from "xlsx";
 
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -295,6 +298,92 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     }
   };
 
+  const fileInputRef = useRef(null);
+
+  const handleExportExcel = () => {
+    const data = trunks.map(t => ({
+      "Hat Adı": t.trunk_name || "",
+      "Tür": t.trunk_type || "register",
+      "Protokol": t.protocol || "udp",
+      "Sunucu (Host)": t.host || "",
+      "Port": t.port || 5060,
+      "Kullanıcı Adı": t.username || "",
+      "Şifre": t.password || "",
+      "Caller ID (DID)": t.did_number || "",
+      "Codec": t.codec || "G711",
+      "Aktif": t.is_active !== false ? "Evet" : "Hayır"
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "DisHatlar");
+    XLSX.writeFile(workbook, "Dis_Hatlar.xlsx");
+  };
+
+  const handleImportExcel = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(prev => ({ ...prev, trunks: true }));
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        for (const row of data) {
+          const trunk_name = String(row["Hat Adı"] || row["Trunk Adı"] || "").trim();
+          if (!trunk_name) continue;
+          const trunk_type = String(row["Tür"] || "register").trim().toLowerCase() === "peer" ? "peer" : "register";
+          const protocol = String(row["Protokol"] || "udp").trim().toLowerCase() === "tcp" ? "tcp" : "udp";
+          const host = String(row["Sunucu (Host)"] || row["Host"] || "").trim();
+          const port = parseInt(row["Port"], 10) || 5060;
+          const username = String(row["Kullanıcı Adı"] || "").trim();
+          const password = String(row["Şifre"] || "").trim();
+          const did_number = String(row["Caller ID (DID)"] || row["DID"] || "").trim();
+          const codec = String(row["Codec"] || "G711").trim();
+          const is_active = String(row["Aktif"] || "Evet").trim().toLowerCase() !== "hayır";
+
+          const existing = trunks.find(t => t.trunk_name && t.trunk_name.toLowerCase() === trunk_name.toLowerCase());
+
+          await fetch(`${API_BASE}/api/settings/trunks`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+            },
+            body: JSON.stringify({
+              id: existing ? existing.id : undefined,
+              trunk_name,
+              trunk_type,
+              protocol,
+              host,
+              port,
+              username,
+              password,
+              did_number,
+              codec,
+              is_active,
+              transfer_target_type: existing ? (existing.transfer_target_type || "extension") : "extension",
+              transfer_target: existing ? (existing.transfer_target || "200") : "200"
+            })
+          });
+        }
+
+        fetchTrunks();
+      } catch (err) {
+        console.error("[Trunks] Excel import error:", err);
+      } finally {
+        setLoading(prev => ({ ...prev, trunks: false }));
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsBinaryString(file);
+  };
+
   const filteredTrunks = trunks.filter((t) => {
     const query = searchQuery.toLowerCase();
     return (
@@ -333,6 +422,30 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
               />
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-550" />
             </div>
+
+            <input 
+              type="file" 
+              accept=".xlsx, .xls" 
+              ref={fileInputRef}
+              className="hidden" 
+              onChange={handleImportExcel}
+            />
+
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-emerald-200 dark:hover:border-emerald-800/50"
+              title="Excel'den İçe Aktar (Import)"
+            >
+              <Upload size={16} />
+            </button>
+
+            <button
+              onClick={handleExportExcel}
+              className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/50"
+              title="Excel'e Dışa Aktar (Export)"
+            >
+              <Download size={16} />
+            </button>
 
             <button
               onClick={() => {

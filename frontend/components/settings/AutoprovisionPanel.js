@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
-import { Smartphone, Search, Plus, Trash2, Edit2, X, RefreshCw, CheckCircle, AlertTriangle, Monitor, Tag, User, FileText } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { Smartphone, Search, Plus, Trash2, Edit2, X, RefreshCw, CheckCircle, AlertTriangle, Monitor, Tag, User, FileText, Download, Upload } from "lucide-react";
+import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -12,6 +13,9 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState(null);
+  const fileInputRef = useRef(null);
   
   // Modal states
   const [showModal, setShowModal] = useState(false);
@@ -103,7 +107,6 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
           setDevices(data.devices);
         }
         setShowModal(false);
-        setShowScanModal(false);
       }
     } catch (err) {
       console.error("Cihaz kaydedilemedi:", err);
@@ -127,6 +130,100 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
     } finally {
       setDeleteTargetMac(null);
     }
+  };
+
+  const handleExportExcel = () => {
+    const data = devices.map(dev => {
+      const assignedUser = users.find(u => u.id === dev.assigned_user || u.extension === dev.assigned_user);
+      const tmpl = templates.find(t => String(t.id) === String(dev.template_id));
+      return {
+        "MAC Adresi": dev.mac || "",
+        "IP Adresi": dev.ip || "",
+        "Marka": dev.brand || "",
+        "Model": dev.model || "",
+        "Atanan Kullanıcı": assignedUser ? `${assignedUser.full_name} (${assignedUser.extension})` : (dev.assigned_user || ""),
+        "Şablon": tmpl ? tmpl.name : (dev.template_id || "")
+      };
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "OtoProvizyon");
+    XLSX.writeFile(workbook, "OtoProvizyon.xlsx");
+  };
+
+  const handleImportExcel = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      setLoading(true);
+      try {
+        const bstr = evt.target.result;
+        const workbook = XLSX.read(bstr, { type: "binary" });
+        const wsname = workbook.SheetNames[0];
+        const ws = workbook.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        for (const row of data) {
+          const macVal = String(row["MAC Adresi"] || row["MAC"] || "").trim().toLowerCase();
+          if (!macVal) continue;
+          const ipVal = String(row["IP Adresi"] || row["IP"] || "").trim();
+          const brandVal = String(row["Marka"] || "").trim();
+          const modelVal = String(row["Model"] || "").trim();
+          const userRaw = String(row["Atanan Kullanıcı"] || "").trim();
+          const tmplRaw = String(row["Şablon"] || "").trim();
+
+          let resolvedUserId = userRaw;
+          if (userRaw) {
+            const foundUser = users.find(u =>
+              String(u.id) === userRaw ||
+              String(u.extension) === userRaw ||
+              (u.full_name && u.full_name.toLowerCase() === userRaw.toLowerCase()) ||
+              (`${u.full_name} (${u.extension})`).toLowerCase() === userRaw.toLowerCase()
+            );
+            if (foundUser) resolvedUserId = foundUser.id;
+          }
+
+          let resolvedTmplId = tmplRaw;
+          if (tmplRaw) {
+            const foundTmpl = templates.find(t =>
+              String(t.id) === tmplRaw ||
+              (t.name && t.name.toLowerCase() === tmplRaw.toLowerCase())
+            );
+            if (foundTmpl) resolvedTmplId = foundTmpl.id;
+          }
+
+          await fetch(`${API_BASE}/api/settings/autoprovision`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              mac: macVal,
+              ip: ipVal,
+              brand: brandVal,
+              model: modelVal,
+              assigned_user: resolvedUserId,
+              template_id: resolvedTmplId,
+              provision_date: new Date().toISOString()
+            })
+          });
+        }
+
+        setError(null);
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 4000);
+        await fetchData();
+      } catch (err) {
+        console.error("Excel import error:", err);
+        setError("Excel dosyası okunurken bir hata oluştu.");
+        setTimeout(() => setError(null), 4000);
+      } finally {
+        setLoading(false);
+      }
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    };
+    reader.readAsBinaryString(file);
   };
 
   const openAddModal = () => {
@@ -191,6 +288,31 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
             />
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-550" />
           </div>
+
+          <input 
+            type="file" 
+            accept=".xlsx, .xls" 
+            ref={fileInputRef}
+            className="hidden" 
+            onChange={handleImportExcel}
+          />
+
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="p-2 text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-emerald-200 dark:hover:border-emerald-800/50"
+            title="Excel'den İçe Aktar (Import)"
+          >
+            <Upload size={16} />
+          </button>
+
+          <button
+            onClick={handleExportExcel}
+            className="p-2 text-slate-500 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-xl transition-all h-8 w-8 flex items-center justify-center shrink-0 border border-transparent hover:border-blue-200 dark:hover:border-blue-800/50"
+            title="Excel'e Dışa Aktar (Export)"
+          >
+            <Download size={16} />
+          </button>
+
           <button
             onClick={openAddModal}
             title="Yeni Cihaz Ekle"
@@ -200,6 +322,19 @@ export default function AutoprovisionPanel({ backendHost = "localhost:8000" }) {
           </button>
         </div>
       </div>
+
+      {success && (
+        <div className="p-3 bg-emerald-50 dark:bg-emerald-950/15 border border-emerald-200/50 dark:border-emerald-900/30 rounded-xl text-emerald-600 dark:text-emerald-400 text-xs font-bold flex items-center gap-2">
+          <CheckCircle size={15} />
+          <span>Cihazlar başarıyla içe aktarıldı ve kaydedildi.</span>
+        </div>
+      )}
+      {error && (
+        <div className="p-3 bg-rose-50 dark:bg-rose-950/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-bold flex items-center gap-2">
+          <AlertTriangle size={15} />
+          <span>{error}</span>
+        </div>
+      )}
 
       {/* Main Content Grid */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
