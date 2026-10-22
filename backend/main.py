@@ -6581,6 +6581,7 @@ async def list_calls(
     end_date: str = None,
     caller_number: str = None,
     call_id: str = None,
+    extension: str = None,
     user_info: dict = Depends(get_user_info),
     db: AsyncSession = Depends(get_db)
 ):
@@ -6612,6 +6613,9 @@ async def list_calls(
             
     if caller_number:
         stmt = stmt.where(Call.caller_number.ilike(f"%{caller_number}%"))
+
+    if extension:
+        stmt = stmt.where(or_(Call.caller_number == extension, Call.callee_number == extension))
         
     if call_id:
         stmt = stmt.where(Call.id.ilike(f"%{call_id}%"))
