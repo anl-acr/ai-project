@@ -52,7 +52,9 @@ import {
   ToggleRight,
   ToggleLeft,
   Terminal,
-  Upload
+  Upload,
+  PanelLeftClose,
+  PanelLeftOpen
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
@@ -223,11 +225,25 @@ export default function Home() {
     reportsGroup: true,
     system: true
   });
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  const toggleSidebarCollapse = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      if (typeof window !== "undefined") {
+        localStorage.setItem("sidebar_collapsed", next ? "true" : "false");
+      }
+      return next;
+    });
+  };
 
   useEffect(() => {
     const saved = localStorage.getItem('hasPendingChanges');
     if (saved === 'true') {
       setHasPendingChanges(true);
+    }
+    if (localStorage.getItem("sidebar_collapsed") === "true") {
+      setIsSidebarCollapsed(true);
     }
 
     const originalFetch = window.fetch;
@@ -1194,86 +1210,132 @@ export default function Home() {
 
       {/* Sidebar Navigation */}
       {!isEditingCallFlow && (
-        <aside className="w-64 h-screen bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col p-4 shrink-0 overflow-y-auto transition-colors duration-300">
-        <div className="flex items-center gap-2.5 px-2 py-4 mb-6 border-b border-slate-100 dark:border-slate-800/60">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-            <Bot size={20} className="animate-pulse" />
+        <aside
+          className={`${
+            isSidebarCollapsed ? "w-20 px-2.5" : "w-64 px-4"
+          } py-4 h-screen bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col shrink-0 overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out`}
+        >
+        <div
+          className={`flex ${
+            isSidebarCollapsed ? "flex-col items-center gap-2.5 px-0" : "items-center justify-between px-2"
+          } py-3 mb-5 border-b border-slate-100 dark:border-slate-800/60 transition-all duration-300`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div
+              onClick={() => isSidebarCollapsed && toggleSidebarCollapse()}
+              title={isSidebarCollapsed ? "Menüyü Genişlet" : "AIDA Çok Kanallı Santral"}
+              className={`h-9 w-9 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20 ${
+                isSidebarCollapsed ? "cursor-pointer hover:scale-105 transition-transform" : ""
+              }`}
+            >
+              <Bot size={20} className="animate-pulse shrink-0" />
+            </div>
+            <div
+              className={`overflow-hidden transition-all duration-300 whitespace-nowrap ${
+                isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[140px] opacity-100"
+              }`}
+            >
+              <h1 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white leading-tight">
+                <span className="text-rose-600 dark:text-rose-500">AI</span>DA
+              </h1>
+              <p className="text-[9px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-wider">ÇOK KANALLI SANTRAL</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-extrabold text-base tracking-tight text-slate-900 dark:text-white">
-              <span className="text-rose-600 dark:text-rose-500">AI</span>DA
-            </h1>
-            <p className="text-[9px] text-slate-400 dark:text-slate-400 font-bold uppercase tracking-wider">ÇOK KANALLI SANTRAL</p>
-          </div>
+
+          <button
+            type="button"
+            onClick={toggleSidebarCollapse}
+            title={isSidebarCollapsed ? "Menüyü Aç" : "Menüyü Gizle (Sadece İkonlar)"}
+            className="p-2 rounded-xl text-slate-400 hover:text-primary dark:text-slate-500 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800/70 border border-transparent hover:border-slate-200/80 dark:hover:border-slate-700/80 transition-all duration-200 shrink-0 cursor-pointer"
+          >
+            {isSidebarCollapsed ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+          </button>
         </div>
-        <nav className="flex-1 space-y-4 select-none">
+
+        <nav className={`flex-1 ${isSidebarCollapsed ? "space-y-2" : "space-y-4"} select-none transition-all duration-300`}>
           {/* Group 1: Operasyon & İzleme */}
           <div className="flex flex-col gap-1">
-            <button
-              onClick={() => toggleCategory("operations")}
-              className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
-            >
-              <span>Operasyon & İzleme</span>
-              <ChevronDown
-                size={12}
-                className={`transform transition-transform duration-200 ${
-                  openCategories.operations ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
-                }`}
-              />
-            </button>
+            {!isSidebarCollapsed ? (
+              <button
+                onClick={() => toggleCategory("operations")}
+                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+              >
+                <span>Operasyon & İzleme</span>
+                <ChevronDown
+                  size={12}
+                  className={`transform transition-transform duration-200 shrink-0 ${
+                    openCategories.operations ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
+                  }`}
+                />
+              </button>
+            ) : (
+              <div className="w-8 mx-auto border-t border-slate-100 dark:border-slate-800/80 my-1" />
+            )}
             
             <div
               className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                openCategories.operations ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                isSidebarCollapsed || openCategories.operations ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
               <button
                 onClick={() => setActiveTab("dashboard")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Gerçek Zamanlı AI Pano"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "dashboard"
                     ? "bg-violet-50 dark:bg-violet-950/20 text-violet-600 dark:text-violet-400 border-violet-100/80 dark:border-violet-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Activity size={16} className={activeTab === "dashboard" ? "text-violet-500" : ""} />
-                <span>Gerçek Zamanlı AI Pano</span>
+                <Activity size={16} className={`shrink-0 ${activeTab === "dashboard" ? "text-violet-500" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Gerçek Zamanlı AI Pano</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("wallboard")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Canlı İzleme Paneli"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "wallboard"
                     ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Monitor size={16} className={activeTab === "wallboard" ? "text-primary" : ""} />
-                <span>Canlı İzleme Paneli</span>
+                <Monitor size={16} className={`shrink-0 ${activeTab === "wallboard" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Canlı İzleme Paneli</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("call-center")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Temsilci Çağrı Paneli"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "call-center"
                     ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Phone size={16} className={activeTab === "call-center" ? "text-primary" : ""} />
-                <span>Temsilci Çağrı Paneli</span>
+                <Phone size={16} className={`shrink-0 ${activeTab === "call-center" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Temsilci Çağrı Paneli</span>
               </button>
 
               {hasOmnichannelPermission && (
                 <button
                   onClick={() => setActiveTab("omnichannel")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Ortak Gelen Kutusu"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "omnichannel"
                       ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <MessageSquare size={16} className={activeTab === "omnichannel" ? "text-primary" : ""} />
-                  <span>Ortak Gelen Kutusu</span>
+                  <MessageSquare size={16} className={`shrink-0 ${activeTab === "omnichannel" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Ortak Gelen Kutusu</span>
                 </button>
               )}
             </div>
@@ -1281,261 +1343,317 @@ export default function Home() {
 
           {/* Group 2: Yapay Zeka & Bilgi */}
           <div className="flex flex-col gap-1">
-            <button
-              onClick={() => toggleCategory("ai")}
-              className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
-            >
-              <span>Yapay Zeka & Bilgi</span>
-              <ChevronDown
-                size={12}
-                className={`transform transition-transform duration-200 ${
-                  openCategories.ai ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
-                }`}
-              />
-            </button>
+            {!isSidebarCollapsed ? (
+              <button
+                onClick={() => toggleCategory("ai")}
+                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+              >
+                <span>Yapay Zeka & Bilgi</span>
+                <ChevronDown
+                  size={12}
+                  className={`transform transition-transform duration-200 shrink-0 ${
+                    openCategories.ai ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
+                  }`}
+                />
+              </button>
+            ) : (
+              <div className="w-8 mx-auto border-t border-slate-100 dark:border-slate-800/80 my-1" />
+            )}
             
             <div
               className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                openCategories.ai ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                isSidebarCollapsed || openCategories.ai ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
               <button
                 onClick={() => setActiveTab("ai-agents")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="AI Temsilcileri"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "ai-agents"
                     ? "bg-purple-50 dark:bg-purple-950/20 text-purple-655 dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Bot size={16} className={activeTab === "ai-agents" ? "text-primary" : ""} />
-                <span>AI Temsilcileri</span>
+                <Bot size={16} className={`shrink-0 ${activeTab === "ai-agents" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>AI Temsilcileri</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("rag-kb")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Bilgi Bankası (RAG)"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "rag-kb"
                     ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-100/80 dark:border-blue-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Database size={16} className={activeTab === "rag-kb" ? "text-primary" : ""} />
-                <span>Bilgi Bankası (RAG)</span>
+                <Database size={16} className={`shrink-0 ${activeTab === "rag-kb" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Bilgi Bankası (RAG)</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("rule-editor")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Kural & Senaryo Editörü"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "rule-editor"
                     ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Sliders size={16} className={activeTab === "rule-editor" ? "text-primary" : ""} />
-                <span>Kural & Senaryo Editörü</span>
+                <Sliders size={16} className={`shrink-0 ${activeTab === "rule-editor" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kural & Senaryo Editörü</span>
               </button>
             </div>
           </div>
 
           {/* Group 2.5: Santral */}
           <div className="flex flex-col gap-1">
-            <button
-              onClick={() => toggleCategory("pbxGroup")}
-              className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
-            >
-              <span>Santral</span>
-              <ChevronDown
-                size={12}
-                className={`transform transition-transform duration-200 ${
-                  openCategories.pbxGroup ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
-                }`}
-              />
-            </button>
+            {!isSidebarCollapsed ? (
+              <button
+                onClick={() => toggleCategory("pbxGroup")}
+                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+              >
+                <span>Santral</span>
+                <ChevronDown
+                  size={12}
+                  className={`transform transition-transform duration-200 shrink-0 ${
+                    openCategories.pbxGroup ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
+                  }`}
+                />
+              </button>
+            ) : (
+              <div className="w-8 mx-auto border-t border-slate-100 dark:border-slate-800/80 my-1" />
+            )}
             
             <div
               className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                openCategories.pbxGroup ? "max-h-[700px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                isSidebarCollapsed || openCategories.pbxGroup ? "max-h-[700px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
               {hasUsersPermission && (
                 <button
                   onClick={() => setActiveTab("users")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Kullanıcılar"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "users"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <User size={16} className={activeTab === "users" ? "text-primary" : ""} />
-                  <span>Kullanıcılar</span>
+                  <User size={16} className={`shrink-0 ${activeTab === "users" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kullanıcılar</span>
                 </button>
               )}
 
               {hasAnnouncementsPermission && (
                 <button
                   onClick={() => setActiveTab("announcements")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Anons Yönetimi"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "announcements"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <Volume2 size={16} className={activeTab === "announcements" ? "text-primary" : ""} />
-                  <span>Anons Yönetimi</span>
+                  <Volume2 size={16} className={`shrink-0 ${activeTab === "announcements" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Anons Yönetimi</span>
                 </button>
               )}
 
               {hasQueuesPermission && (
                 <button
                   onClick={() => setActiveTab("acd-queues")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="ACD Kuyruk"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "acd-queues"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <Users size={16} className={activeTab === "acd-queues" ? "text-primary" : ""} />
-                  <span>ACD Kuyruk</span>
+                  <Users size={16} className={`shrink-0 ${activeTab === "acd-queues" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>ACD Kuyruk</span>
                 </button>
               )}
 
               {hasAutoprovisionPermission && (
                 <button
                   onClick={() => setActiveTab("auto-provision")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Oto Provizyon"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "auto-provision"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <Cpu size={16} className={activeTab === "auto-provision" ? "text-primary" : ""} />
-                  <span>Oto Provizyon</span>
+                  <Cpu size={16} className={`shrink-0 ${activeTab === "auto-provision" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Oto Provizyon</span>
                 </button>
               )}
 
               {hasOutboundRulesPermission && (
                 <button
                   onClick={() => setActiveTab("outbound-rules")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Giden Arama Kuralı"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "outbound-rules"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <PhoneCall size={16} className={activeTab === "outbound-rules" ? "text-primary" : ""} />
-                  <span>Giden Arama Kuralı</span>
+                  <PhoneCall size={16} className={`shrink-0 ${activeTab === "outbound-rules" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Giden Arama Kuralı</span>
                 </button>
               )}
 
               {hasInboundRulesPermission && (
                 <button
                   onClick={() => setActiveTab("inbound-rules")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Gelen Arama Kuralı"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "inbound-rules"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <Phone size={16} className={activeTab === "inbound-rules" ? "text-primary" : ""} />
-                  <span>Gelen Arama Kuralı</span>
+                  <Phone size={16} className={`shrink-0 ${activeTab === "inbound-rules" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Gelen Arama Kuralı</span>
                 </button>
               )}
 
               {hasCallPickupPermission && (
                 <button
                   onClick={() => setActiveTab("call-pickup-groups")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Çağrı Toplama Grubu"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "call-pickup-groups"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <Users size={16} className={activeTab === "call-pickup-groups" ? "text-primary" : ""} />
-                  <span>Çağrı Toplama Grubu</span>
+                  <Users size={16} className={`shrink-0 ${activeTab === "call-pickup-groups" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Çağrı Toplama Grubu</span>
                 </button>
               )}
 
               {hasSubscriberGroupsPermission && (
                 <button
                   onClick={() => setActiveTab("subscriber-groups")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Abone Grubu"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "subscriber-groups"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <Users size={16} className={activeTab === "subscriber-groups" ? "text-primary" : ""} />
-                  <span>Abone Grubu</span>
+                  <Users size={16} className={`shrink-0 ${activeTab === "subscriber-groups" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Abone Grubu</span>
                 </button>
               )}
 
               {hasContactsPermission && (
                 <button
                   onClick={() => setActiveTab("contacts")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Rehber"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "contacts"
                       ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <BookOpen size={16} className={activeTab === "contacts" ? "text-primary" : ""} />
-                  <span>Rehber</span>
+                  <BookOpen size={16} className={`shrink-0 ${activeTab === "contacts" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Rehber</span>
                 </button>
               )}
 
               {hasTrunksPermission && (
                 <button
                   onClick={() => setActiveTab("trunks")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Dış Hat Tanımı"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "trunks"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <Cable size={16} className={activeTab === "trunks" ? "text-primary" : ""} />
-                  <span>Dış Hat Tanımı</span>
+                  <Cable size={16} className={`shrink-0 ${activeTab === "trunks" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Dış Hat Tanımı</span>
                 </button>
               )}
 
               {hasConferencesPermission && (
                 <button
                   onClick={() => setActiveTab("conferences")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Konferans"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "conferences"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <Users size={16} className={activeTab === "conferences" ? "text-primary" : ""} />
-                  <span>Konferans</span>
+                  <Users size={16} className={`shrink-0 ${activeTab === "conferences" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Konferans</span>
                 </button>
               )}
 
               {hasSpeedDialPermission && (
                 <button
                   onClick={() => setActiveTab("speed-dial")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Hızlı Arama"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "speed-dial"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <PhoneCall size={16} className={activeTab === "speed-dial" ? "text-primary" : ""} />
-                  <span>Hızlı Arama</span>
+                  <PhoneCall size={16} className={`shrink-0 ${activeTab === "speed-dial" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Hızlı Arama</span>
                 </button>
               )}
 
               {hasBlacklistPermission && (
                 <button
                   onClick={() => setActiveTab("blacklist")}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  title="Numara Engelleme"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                     activeTab === "blacklist"
                       ? "bg-rose-50 dark:bg-rose-950/20 text-rose-650 dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                       : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                   }`}
                 >
-                  <ShieldAlert size={16} className={activeTab === "blacklist" ? "text-primary" : ""} />
-                  <span>Numara Engelleme</span>
+                  <ShieldAlert size={16} className={`shrink-0 ${activeTab === "blacklist" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Numara Engelleme</span>
                 </button>
               )}
             </div>
@@ -1543,58 +1661,71 @@ export default function Home() {
 
           {/* Group 3: Çağrı & Yönlendirme */}
           <div className="flex flex-col gap-1">
-            <button
-              onClick={() => toggleCategory("routing")}
-              className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
-            >
-              <span>Çağrı & Yönlendirme</span>
-              <ChevronDown
-                size={12}
-                className={`transform transition-transform duration-200 ${
-                  openCategories.routing ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
-                }`}
-              />
-            </button>
+            {!isSidebarCollapsed ? (
+              <button
+                onClick={() => toggleCategory("routing")}
+                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-550 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+              >
+                <span>Çağrı & Yönlendirme</span>
+                <ChevronDown
+                  size={12}
+                  className={`transform transition-transform duration-200 shrink-0 ${
+                    openCategories.routing ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
+                  }`}
+                />
+              </button>
+            ) : (
+              <div className="w-8 mx-auto border-t border-slate-100 dark:border-slate-800/80 my-1" />
+            )}
             
             <div
               className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                openCategories.routing ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                isSidebarCollapsed || openCategories.routing ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
               <button
                 onClick={() => setActiveTab("call-flow")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Arama Akış Yönetimi"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "call-flow"
                     ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <GitBranch size={16} className={activeTab === "call-flow" ? "text-primary" : ""} />
-                <span>Arama Akış Yönetimi</span>
+                <GitBranch size={16} className={`shrink-0 ${activeTab === "call-flow" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Arama Akış Yönetimi</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("dialer")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Dış Arama (Dialer)"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "dialer"
                     ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-100/80 dark:border-blue-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <PhoneCall size={16} className={activeTab === "dialer" ? "text-primary" : ""} />
-                <span>Dış Arama (Dialer)</span>
+                <PhoneCall size={16} className={`shrink-0 ${activeTab === "dialer" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Dış Arama (Dialer)</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("calendar")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Randevu Takvimi"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "calendar"
                     ? "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/80 dark:border-amber-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Calendar size={16} className={activeTab === "calendar" ? "text-primary" : ""} />
-                <span>Randevu Takvimi</span>
+                <Calendar size={16} className={`shrink-0 ${activeTab === "calendar" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Randevu Takvimi</span>
               </button>
             </div>
           </div>
@@ -1602,327 +1733,403 @@ export default function Home() {
           {/* Group 4: Çağrı Raporları & Analiz */}
           {hasReportsPermission && (
             <div className="flex flex-col gap-1">
-              <button
-                onClick={() => toggleCategory("reportsGroup")}
-                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
-              >
-              <span>Çağrı Raporları & Analiz</span>
-              <ChevronDown
-                size={12}
-                className={`transform transition-transform duration-200 ${
-                  openCategories.reportsGroup ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
-                }`}
-              />
-            </button>
+              {!isSidebarCollapsed ? (
+                <button
+                  onClick={() => toggleCategory("reportsGroup")}
+                  className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+                >
+                  <span>Çağrı Raporları & Analiz</span>
+                  <ChevronDown
+                    size={12}
+                    className={`transform transition-transform duration-200 shrink-0 ${
+                      openCategories.reportsGroup ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
+                    }`}
+                  />
+                </button>
+              ) : (
+                <div className="w-8 mx-auto border-t border-slate-100 dark:border-slate-800/80 my-1" />
+              )}
             
             <div
-              className={`space-y-1 overflow-y-auto transition-all duration-300 scrollbar-thin pr-1.5 ${
-                openCategories.reportsGroup ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+              className={`space-y-1 overflow-y-auto transition-all duration-300 scrollbar-thin ${isSidebarCollapsed ? "pr-0" : "pr-1.5"} ${
+                isSidebarCollapsed || openCategories.reportsGroup ? "max-h-[300px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
               <button
                 onClick={() => setActiveTab("reports-pano")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Pano"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-pano"
                     ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Monitor size={16} className={activeTab === "reports-pano" ? "text-primary" : ""} />
-                <span>Pano</span>
+                <Monitor size={16} className={`shrink-0 ${activeTab === "reports-pano" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Pano</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("reports-cdr")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: CDR"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-cdr"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <FileText size={16} className={activeTab === "reports-cdr" ? "text-primary" : ""} />
-                <span>CDR</span>
+                <FileText size={16} className={`shrink-0 ${activeTab === "reports-cdr" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>CDR</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("reports-audio")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Ses Kayıtları"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-audio"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Volume2 size={16} className={activeTab === "reports-audio" ? "text-primary" : ""} />
-                <span>Ses Kayıtları</span>
+                <Volume2 size={16} className={`shrink-0 ${activeTab === "reports-audio" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Ses Kayıtları</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("reports-transcripts")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Çağrı Transkripti"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-transcripts"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <MessageSquare size={16} className={activeTab === "reports-transcripts" ? "text-primary" : ""} />
-                <span>Çağrı Transkripti</span>
+                <MessageSquare size={16} className={`shrink-0 ${activeTab === "reports-transcripts" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Çağrı Transkripti</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("reports-sentiment")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Duygu Analizi"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-sentiment"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Sparkles size={16} className={activeTab === "reports-sentiment" ? "text-primary" : ""} />
-                <span>Duygu Analizi</span>
+                <Sparkles size={16} className={`shrink-0 ${activeTab === "reports-sentiment" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Duygu Analizi</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("reports-qa")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Kalite Değerlendirmeleri"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-qa"
                     ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Award size={16} className={activeTab === "reports-qa" ? "text-primary" : ""} />
-                <span>Kalite Değerlendirmeleri</span>
+                <Award size={16} className={`shrink-0 ${activeTab === "reports-qa" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kalite Değerlendirmeleri</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("reports-notes")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Temsilci Notları"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-notes"
                     ? "bg-emerald-50 dark:bg-emerald-955/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <ClipboardList size={16} className={activeTab === "reports-notes" ? "text-primary" : ""} />
-                <span>Temsilci Notları</span>
+                <ClipboardList size={16} className={`shrink-0 ${activeTab === "reports-notes" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Temsilci Notları</span>
               </button>
 
               {/* Temsilci Performans ve KPI Raporu */}
               <button
                 onClick={() => setActiveTab("reports-perf")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Temsilci Performans & KPI"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-perf"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Award size={16} className={activeTab === "reports-perf" ? "text-primary" : ""} />
-                <span>Temsilci Performans & KPI</span>
+                <Award size={16} className={`shrink-0 ${activeTab === "reports-perf" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Temsilci Performans & KPI</span>
               </button>
 
               {/* Kuyruk / Bekleme Analitiği */}
               <button
                 onClick={() => setActiveTab("reports-queue")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Kuyruk / Bekleme Analitiği"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-queue"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Users size={16} className={activeTab === "reports-queue" ? "text-primary" : ""} />
-                <span>Kuyruk / Bekleme Analitiği</span>
+                <Users size={16} className={`shrink-0 ${activeTab === "reports-queue" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kuyruk / Bekleme Analitiği</span>
               </button>
 
               {/* Duygu Durumu Isı Haritası */}
               <button
                 onClick={() => setActiveTab("reports-sentiment-heat")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Duygu Durumu Isı Haritası"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-sentiment-heat"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Activity size={16} className={activeTab === "reports-sentiment-heat" ? "text-primary" : ""} />
-                <span>Duygu Durumu Isı Haritası</span>
+                <Activity size={16} className={`shrink-0 ${activeTab === "reports-sentiment-heat" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Duygu Durumu Isı Haritası</span>
               </button>
 
               {/* Kelime Bulutu ve Konu Trendleri */}
               <button
                 onClick={() => setActiveTab("reports-wordcloud")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Kelime Bulutu & Trendler"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-wordcloud"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <MessageSquare size={16} className={activeTab === "reports-wordcloud" ? "text-primary" : ""} />
-                <span>Kelime Bulutu & Trendler</span>
+                <MessageSquare size={16} className={`shrink-0 ${activeTab === "reports-wordcloud" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kelime Bulutu & Trendler</span>
               </button>
 
               {/* FCR */}
               <button
                 onClick={() => setActiveTab("reports-fcr")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: İlk Aramada Çözüm (FCR)"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-fcr"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <CheckCircle size={16} className={activeTab === "reports-fcr" ? "text-primary" : ""} />
-                <span>İlk Aramada Çözüm (FCR)</span>
+                <CheckCircle size={16} className={`shrink-0 ${activeTab === "reports-fcr" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>İlk Aramada Çözüm (FCR)</span>
               </button>
 
               {/* AI vs. İnsan Karşılaştırmalı ROI Paneli */}
               <button
                 onClick={() => setActiveTab("reports-roi")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: AI vs. İnsan ROI Paneli"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-roi"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <TrendingUp size={16} className={activeTab === "reports-roi" ? "text-primary" : ""} />
-                <span>AI vs. İnsan ROI Paneli</span>
+                <TrendingUp size={16} className={`shrink-0 ${activeTab === "reports-roi" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>AI vs. İnsan ROI Paneli</span>
               </button>
 
               {/* Kaçan Çağrı Analizi */}
               <button
                 onClick={() => setActiveTab("reports-missed")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Kaçan Çağrı Analizi"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-missed"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <PhoneOff size={16} className={activeTab === "reports-missed" ? "text-primary" : ""} />
-                <span>Kaçan Çağrı Analizi</span>
+                <PhoneOff size={16} className={`shrink-0 ${activeTab === "reports-missed" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kaçan Çağrı Analizi</span>
               </button>
 
               {/* Agent Status Timeline */}
               <button
                 onClick={() => setActiveTab("reports-agent-status-timeline")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Temsilci Kronolojisi"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-agent-status-timeline"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Clock size={16} className={activeTab === "reports-agent-status-timeline" ? "text-primary" : ""} />
-                <span>Temsilci Kronolojisi</span>
+                <Clock size={16} className={`shrink-0 ${activeTab === "reports-agent-status-timeline" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Temsilci Kronolojisi</span>
               </button>
 
               {/* Hourly/Daily Traffic Load */}
               <button
                 onClick={() => setActiveTab("reports-traffic-load")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Yoğunluk Raporu"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-traffic-load"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Calendar size={16} className={activeTab === "reports-traffic-load" ? "text-primary" : ""} />
-                <span>Yoğunluk Raporu</span>
+                <Calendar size={16} className={`shrink-0 ${activeTab === "reports-traffic-load" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Yoğunluk Raporu</span>
               </button>
 
               {/* Trunk Utilization */}
               <button
                 onClick={() => setActiveTab("reports-trunk")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Hat Kapasite Raporu"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-trunk"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Cpu size={16} className={activeTab === "reports-trunk" ? "text-primary" : ""} />
-                <span className="truncate">Hat Kapasite Raporu</span>
+                <Cpu size={16} className={`shrink-0 ${activeTab === "reports-trunk" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 truncate ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Hat Kapasite Raporu</span>
               </button>
 
               {/* IVR Drop-Off */}
               <button
                 onClick={() => setActiveTab("reports-ivr-drop")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: IVR Terk Oranı"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-ivr-drop"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Shuffle size={16} className={activeTab === "reports-ivr-drop" ? "text-primary" : ""} />
-                <span>IVR Terk Oranı</span>
+                <Shuffle size={16} className={`shrink-0 ${activeTab === "reports-ivr-drop" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>IVR Terk Oranı</span>
               </button>
 
               {/* Transfer & Hold Analytics */}
               <button
                 onClick={() => setActiveTab("reports-transfer-hold")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Aktarma & Bekletme"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-transfer-hold"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <PhoneForwarded size={16} className={activeTab === "reports-transfer-hold" ? "text-primary" : ""} />
-                <span className="truncate">Aktarma & Bekletme</span>
+                <PhoneForwarded size={16} className={`shrink-0 ${activeTab === "reports-transfer-hold" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 truncate ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Aktarma & Bekletme</span>
               </button>
 
               {/* AI vs. Human A/B Testing */}
               <button
                 onClick={() => setActiveTab("reports-ab-testing")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Verimlilik Karşılaştırması"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-ab-testing"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Layers size={16} className={activeTab === "reports-ab-testing" ? "text-primary" : ""} />
-                <span>Verimlilik Karşılaştırması</span>
+                <Layers size={16} className={`shrink-0 ${activeTab === "reports-ab-testing" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Verimlilik Karşılaştırması</span>
               </button>
 
               {/* Customer Frustration / Friction Points */}
               <button
                 onClick={() => setActiveTab("reports-friction")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Müşteri Çile Noktaları"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-friction"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Frown size={16} className={activeTab === "reports-friction" ? "text-primary" : ""} />
-                <span>Müşteri Çile Noktaları</span>
+                <Frown size={16} className={`shrink-0 ${activeTab === "reports-friction" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Müşteri Çile Noktaları</span>
               </button>
 
               {/* Agent Compliance & Script Adherence */}
               <button
                 onClick={() => setActiveTab("reports-compliance")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Senaryo Sadakati Raporu"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-compliance"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <ShieldCheck size={16} className={activeTab === "reports-compliance" ? "text-primary" : ""} />
-                <span>Senaryo Sadakati Raporu</span>
+                <ShieldCheck size={16} className={`shrink-0 ${activeTab === "reports-compliance" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Senaryo Sadakati Raporu</span>
               </button>
 
               {/* Silence & Interruption Analytics */}
               <button
                 onClick={() => setActiveTab("reports-silence")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: Sessizlik & Söz Kesme"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-silence"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <MicOff size={16} className={activeTab === "reports-silence" ? "text-primary" : ""} />
-                <span>Sessizlik & Söz Kesme</span>
+                <MicOff size={16} className={`shrink-0 ${activeTab === "reports-silence" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Sessizlik & Söz Kesme</span>
               </button>
 
               {/* Executive Summary Generator */}
               <button
                 onClick={() => setActiveTab("reports-ceo-summary")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Raporlar: CEO Özet Raporu"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "reports-ceo-summary"
                     ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Crown size={16} className={activeTab === "reports-ceo-summary" ? "text-primary" : ""} />
-                <span>CEO Özet Raporu</span>
+                <Crown size={16} className={`shrink-0 ${activeTab === "reports-ceo-summary" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>CEO Özet Raporu</span>
               </button>
             </div>
           </div>
@@ -1931,82 +2138,101 @@ export default function Home() {
           {/* Group 5: Yönetim & Ayarlar (Sadece Superadmin / Sistem Yöneticisi) */}
           {currentUser?.role === 'admin' && (
           <div className="flex flex-col gap-1">
-            <button
-              onClick={() => toggleCategory("system")}
-              className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer"
-            >
-              <span>Yönetim & Ayarlar</span>
-              <ChevronDown
-                size={12}
-                className={`transform transition-transform duration-200 ${
-                  openCategories.system ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
-                }`}
-              />
-            </button>
+            {!isSidebarCollapsed ? (
+              <button
+                onClick={() => toggleCategory("system")}
+                className="w-full flex items-center justify-between px-2.5 py-2 text-[10px] font-bold text-slate-400 dark:text-slate-555 hover:text-slate-600 dark:hover:text-slate-300 transition tracking-wider uppercase cursor-pointer whitespace-nowrap"
+              >
+                <span>Yönetim & Ayarlar</span>
+                <ChevronDown
+                  size={12}
+                  className={`transform transition-transform duration-200 shrink-0 ${
+                    openCategories.system ? "" : "-rotate-90 text-slate-300 dark:text-slate-600"
+                  }`}
+                />
+              </button>
+            ) : (
+              <div className="w-8 mx-auto border-t border-slate-100 dark:border-slate-800/80 my-1" />
+            )}
             
             <div
               className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                openCategories.system ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                isSidebarCollapsed || openCategories.system ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
               <button
                 onClick={() => setActiveTab("settings")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Sistem Ayarları"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "settings"
                     ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Settings size={16} className={activeTab === "settings" ? "text-primary" : ""} />
-                <span>Sistem Ayarları</span>
+                <Settings size={16} className={`shrink-0 ${activeTab === "settings" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Sistem Ayarları</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("system-status")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Sistem Panosu & Sağlık"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "system-status"
                     ? "bg-cyan-50 dark:bg-cyan-950/20 text-cyan-600 dark:text-cyan-400 border-cyan-100/80 dark:border-cyan-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Server size={16} className={activeTab === "system-status" ? "text-cyan-500" : ""} />
-                <span>Sistem Panosu & Sağlık</span>
+                <Server size={16} className={`shrink-0 ${activeTab === "system-status" ? "text-cyan-500" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Sistem Panosu & Sağlık</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("event-logs")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Olay Günlükleri"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "event-logs"
                     ? "bg-rose-50 dark:bg-rose-955/20 text-primary dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <FileText size={16} className={activeTab === "event-logs" ? "text-primary" : ""} />
-                <span>Olay Günlükleri</span>
+                <FileText size={16} className={`shrink-0 ${activeTab === "event-logs" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Olay Günlükleri</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("sip-debugger")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="SIP Trafik (sngrep)"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "sip-debugger"
                     ? "bg-indigo-50 dark:bg-indigo-955/20 text-indigo-600 dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <Terminal size={16} className={activeTab === "sip-debugger" ? "text-indigo-500" : ""} />
-                <span>SIP Trafik (sngrep)</span>
+                <Terminal size={16} className={`shrink-0 ${activeTab === "sip-debugger" ? "text-indigo-500" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>SIP Trafik (sngrep)</span>
               </button>
 
               <button
                 onClick={() => setActiveTab("security")}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                title="Güvenlik Kalkanı"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
                   activeTab === "security"
                     ? "bg-rose-50 dark:bg-rose-955/20 text-primary dark:text-rose-400 border-rose-100/80 dark:border-rose-900/30 shadow-sm"
                     : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
                 }`}
               >
-                <ShieldAlert size={16} className={activeTab === "security" ? "text-primary" : ""} />
-                <span>Güvenlik Kalkanı</span>
+                <ShieldAlert size={16} className={`shrink-0 ${activeTab === "security" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Güvenlik Kalkanı</span>
               </button>
             </div>
           </div>
@@ -2014,16 +2240,24 @@ export default function Home() {
         </nav>
 
         {/* Footer info */} 
-        <div className="border-t border-slate-100 dark:border-slate-800 pt-4 text-[10px] text-slate-500 dark:text-slate-400 space-y-2 transition-colors duration-300">
-          <p className="flex items-center gap-1.5 text-primary dark:text-emerald-400 font-bold">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary dark:bg-emerald-400 animate-pulse"></span>
-            Sistem Çevrimiçi
+        <div
+          className={`border-t border-slate-100 dark:border-slate-800 pt-4 text-[10px] text-slate-500 dark:text-slate-400 space-y-2 transition-all duration-300 ${
+            isSidebarCollapsed ? "flex flex-col items-center text-center" : ""
+          }`}
+        >
+          <p
+            title="Sistem Çevrimiçi"
+            className="flex items-center gap-1.5 text-primary dark:text-emerald-400 font-bold"
+          >
+            <span className="h-2 w-2 rounded-full bg-primary dark:bg-emerald-400 animate-pulse shrink-0"></span>
+            <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[140px] opacity-100"}`}>Sistem Çevrimiçi</span>
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.5.3 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
-            <span>v2.5.3 (On-Premise)</span>
+            <span>{isSidebarCollapsed ? "v2.5.3" : "v2.5.3 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
