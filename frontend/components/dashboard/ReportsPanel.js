@@ -1419,6 +1419,66 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return String(name || "").replace(/\s*\(AI Agent\)\s*$/i, "").trim();
   };
 
+  const getAgentAvatarUrl = (agentName, ext = "", directAvatar = "", isAiHint = false) => {
+    const cleanName = normalizeAgentName(agentName);
+    const cleanLower = cleanName.toLowerCase();
+    const extStr = String(ext || "").trim();
+
+    if (Array.isArray(users) && users.length > 0) {
+      const matchedUser = users.find((u) => {
+        const uExt = String(u.extension || "").trim();
+        const uFull = normalizeAgentName(u.full_name || u.name || "");
+        const uUser = String(u.username || "").trim();
+        const uId = String(u.id || "").trim();
+        return (
+          (extStr && uExt && uExt === extStr) ||
+          (cleanLower && uFull.toLowerCase() === cleanLower) ||
+          (cleanLower && uUser.toLowerCase() === cleanLower) ||
+          (cleanLower && uId.toLowerCase() === cleanLower)
+        );
+      });
+      if (matchedUser && matchedUser.avatar && String(matchedUser.avatar).trim()) {
+        return String(matchedUser.avatar).trim();
+      }
+    }
+
+    if (directAvatar && String(directAvatar).trim()) {
+      return String(directAvatar).trim();
+    }
+
+    let matchedAi = null;
+    if (Array.isArray(aiAgents) && aiAgents.length > 0) {
+      matchedAi = aiAgents.find((a) => {
+        const aName = normalizeAgentName(a.name || "");
+        const aId = String(a.id || "").trim();
+        const aExt = String(a.extension || "").trim();
+        return (
+          (cleanLower && aName.toLowerCase() === cleanLower) ||
+          (cleanLower && aId.toLowerCase() === cleanLower) ||
+          (extStr && aExt && aExt === extStr)
+        );
+      });
+      if (matchedAi && matchedAi.avatar && String(matchedAi.avatar).trim()) {
+        return String(matchedAi.avatar).trim();
+      }
+    }
+
+    const isAi =
+      isAiHint ||
+      Boolean(matchedAi) ||
+      extStr.toUpperCase() === "AI" ||
+      /\(ai agent\)/i.test(String(agentName || "")) ||
+      cleanLower.includes("ai ") ||
+      cleanLower.includes("asistan") ||
+      cleanLower.includes("sanal");
+
+    if (isAi) {
+      return `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(cleanName || "AgentAlpha")}`;
+    }
+
+    return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanName || "Anil")}`;
+  };
+
   const getConversant = (call) => {
     if (!call) return "";
     if (call.conversant && String(call.conversant).trim()) {
@@ -3653,9 +3713,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
                             <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
                               <div className="flex items-center gap-3">
-                                <div className={"w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs " + bg + " text-white"}>
-                                  {agentData.agent.substring(0, 2).toUpperCase()}
-                                </div>
+                                <img
+                                  src={getAgentAvatarUrl(agentData.agent)}
+                                  alt={agentData.agent}
+                                  className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
+                                />
                                 {agentData.agent}
                               </div>
                             </td>
@@ -3883,7 +3945,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       return agentList.map((agent, rowIdx) => (
                         <tr key={rowIdx} className={"border-b " + borderLight}>
                           <td className={"p-3 text-xs font-bold text-slate-800 dark:text-slate-200 sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800"}>
-                            {agent}
+                            <div className="flex items-center gap-2.5 whitespace-nowrap">
+                              <img
+                                src={getAgentAvatarUrl(agent)}
+                                alt={agent}
+                                className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
+                              />
+                              <span>{agent}</span>
+                            </div>
                           </td>
                           {Array.from({length: 24}).map((_, h) => {
                             const data = heatmapData[agent][h];
@@ -4703,9 +4772,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                       {/* Temsilci */}
                                       <td className="p-4">
                                         <div className="flex items-center gap-3">
-                                          <div className={"w-8 h-8 rounded-xl flex items-center justify-center font-black text-xs text-white shrink-0 " + bg}>
-                                            {(ag.agent_name || "T").substring(0, 2).toUpperCase()}
-                                          </div>
+                                          <img
+                                            src={getAgentAvatarUrl(ag.agent_name, ag.extension, ag.avatar, ag.is_ai)}
+                                            alt={ag.agent_name}
+                                            className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
+                                          />
                                           <div>
                                             <div className="flex items-center gap-2">
                                               <span className="font-bold text-slate-800 dark:text-slate-100 text-xs">
@@ -4812,9 +4883,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             {/* Modal Header */}
                             <div className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
                               <div className="flex items-center gap-3.5">
-                                <div className={"h-12 w-12 rounded-2xl flex items-center justify-center font-black text-base text-white shadow-sm shrink-0 " + bg}>
-                                  {(modalAgent.agent_name || "T").slice(0, 2).toUpperCase()}
-                                </div>
+                                <img
+                                  src={getAgentAvatarUrl(modalAgent.agent_name, modalAgent.extension, modalAgent.avatar, modalAgent.is_ai)}
+                                  alt={modalAgent.agent_name}
+                                  className="h-12 w-12 rounded-2xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-1 object-cover shadow-sm shrink-0"
+                                />
                                 <div>
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <h3 className="text-base font-black text-slate-900 dark:text-white">
@@ -7337,10 +7410,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between pb-2 border-b border-slate-150 dark:border-slate-800">
-              <h3 className="font-extrabold text-lg text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                <span className={"w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs " + bg + " text-white"}>
-                  {selectedAgentDetails.agent.substring(0, 2).toUpperCase()}
-                </span>
+              <h3 className="font-extrabold text-lg text-slate-900 dark:text-slate-100 flex items-center gap-2.5">
+                <img
+                  src={getAgentAvatarUrl(selectedAgentDetails.agent)}
+                  alt={selectedAgentDetails.agent}
+                  className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
+                />
                 <span>{selectedAgentDetails.agent} Çağrı Detayları</span>
               </h3>
               <button 
