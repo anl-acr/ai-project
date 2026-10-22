@@ -258,14 +258,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     }
   };
 
+  const formatAnnouncementLabel = (a) => {
+    if (!a) return "";
+    const nameStr = String(a.name || "").trim();
+    const origStr = String(a.original_filename || a.filename || "").trim();
+    const typeTag = a.type === "moh" ? "🎵 Bekletme Müziği" : "🔊 Anons";
+    if (nameStr && origStr && nameStr.toLowerCase() !== origStr.toLowerCase() && `${nameStr}.wav`.toLowerCase() !== origStr.toLowerCase() && `${nameStr}.mp3`.toLowerCase() !== origStr.toLowerCase()) {
+      return `${nameStr} (${origStr}) • ${typeTag}`;
+    }
+    return `${origStr || nameStr || a.id} • ${typeTag}`;
+  };
+
   const resolveAnnouncementVal = (val) => {
     if (!val) return "";
     const valStr = String(val).trim();
     const found = (announcementsList || []).find(a => 
       String(a.id) === valStr || 
       String(a.filename) === valStr || 
-      String(a.name) === valStr || 
-      String(a.original_filename) === valStr
+      String(a.name).trim() === valStr || 
+      String(a.original_filename).trim() === valStr
     );
     return found ? String(found.id) : valStr;
   };
@@ -283,7 +294,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     } else if (type === "announcement") {
       return (announcementsList || []).map(a => ({
         id: String(a.id || a.filename || a.name),
-        label: a.name || a.original_filename || a.filename || String(a.id)
+        label: formatAnnouncementLabel(a)
       }));
     }
     return [];
@@ -404,26 +415,39 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 onChange={handleChange} 
                 className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
               >
-                <option value="">Anons Seçin...</option>
-                {formData.join_announcement && !announcementsList.some(a => String(a.id) === String(formData.join_announcement) || String(a.name) === String(formData.join_announcement) || String(a.filename) === String(formData.join_announcement)) && (
+                <option value="">Anons Yönetimi'nden Seçin...</option>
+                {formData.join_announcement && !announcementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.join_announcement))) && (
                   <option value={formData.join_announcement}>{formData.join_announcement} (Kayıtlı Anons)</option>
                 )}
                 {announcementsList.map(a => (
-                  <option key={a.id || a.filename || a.name} value={a.id}>{a.name || a.original_filename || a.filename}</option>
+                  <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>
                 ))}
               </select>
             </div>
           )}
         </div>
 
-        {/* Bekleme Müziği */}
+        {/* Bekleme Müziği (Anons Yönetimi / Medya Yönetimi Entegreli) */}
         <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60">
           <h4 className="text-xs font-bold text-slate-800 dark:text-white mb-1 flex items-center gap-1.5">
-            <Music size={14} className={text} /> Bekleme Müziği Sınıfı
+            <Music size={14} className={text} /> Bekleme Müziği / Medya Seçimi
           </h4>
-          <p className="text-[10px] text-slate-500 mb-3">Müşteri beklerken çalacak arka plan müzik sınıfı.</p>
-          <select name="hold_music_class" value={formData.hold_music_class} onChange={handleChange} className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}>
-            {holdMusicClasses.map(m => <option key={m} value={m}>{m}</option>)}
+          <p className="text-[10px] text-slate-500 mb-3">Müşteri beklerken Anons Yönetimi'ndeki ses veya bekletme müziklerinden çalacak medya.</p>
+          <select
+            name="hold_music_class"
+            value={resolveAnnouncementVal(formData.hold_music_class) || "default"}
+            onChange={handleChange}
+            className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
+          >
+            <option value="default">Varsayılan Sistem Bekleme Müziği (default)</option>
+            {formData.hold_music_class && formData.hold_music_class !== "default" && !announcementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.hold_music_class))) && (
+              <option value={formData.hold_music_class}>{formData.hold_music_class}</option>
+            )}
+            {announcementsList.map(a => (
+              <option key={a.id || a.filename || a.name} value={a.id}>
+                {formatAnnouncementLabel(a)}
+              </option>
+            ))}
           </select>
         </div>
       </div>
@@ -536,7 +560,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 </label>
                 <select
                   name="max_wait_destination_target"
-                  value={formData.max_wait_destination_target || ""}
+                  value={formData.max_wait_destination_type === "announcement" ? resolveAnnouncementVal(formData.max_wait_destination_target) : (formData.max_wait_destination_target || "")}
                   onChange={handleChange}
                   className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
                 >
@@ -577,7 +601,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
               <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <Volume2 size={15} className={text} /> Periyodik Anons Ayarları
               </h4>
-              <p className="text-[11px] text-slate-500 mt-0.5">Bekleme sırasında belirli aralıklarla çalacak anonsu açın ve ses kaydını seçin.</p>
+              <p className="text-[11px] text-slate-500 mt-0.5">Bekleme sırasında belirli aralıklarla çalacak anonsu açın ve Anons Yönetimi'nden ses kaydını seçin.</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer shrink-0">
               <input type="checkbox" name="periodic_announcement_enabled" checked={formData.periodic_announcement_enabled} onChange={handleChange} className="sr-only peer" />
@@ -594,12 +618,12 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 onChange={handleChange} 
                 className={`w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all font-medium`}
               >
-                <option value="">Anons Seçin...</option>
-                {formData.periodic_announcement && !announcementsList.some(a => String(a.id) === String(formData.periodic_announcement) || String(a.name) === String(formData.periodic_announcement) || String(a.filename) === String(formData.periodic_announcement)) && (
+                <option value="">Anons Yönetimi'nden Seçin...</option>
+                {formData.periodic_announcement && !announcementsList.some(a => String(a.id) === String(resolveAnnouncementVal(formData.periodic_announcement))) && (
                   <option value={formData.periodic_announcement}>{formData.periodic_announcement} (Kayıtlı Anons)</option>
                 )}
                 {announcementsList.map(a => (
-                  <option key={a.id || a.filename || a.name} value={a.id}>{a.name || a.original_filename || a.filename}</option>
+                  <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>
                 ))}
               </select>
             </div>
@@ -637,12 +661,18 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   <div className="space-y-2">
                     <select 
                       value={route.type} 
-                      onChange={(e) => handleIvrChange(digit, 'type', e.target.value)}
+                      onChange={(e) => {
+                        handleIvrChange(digit, 'type', e.target.value);
+                        handleIvrChange(digit, 'target', '');
+                      }}
                       className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
                     >
                       <option value="">İşlem Yok</option>
                       <option value="user">Dahiliye Aktar</option>
                       <option value="queue">Kuyruğa Aktar</option>
+                      <option value="announcement">Anons Çal</option>
+                      <option value="call_flow">Çağrı Akışına Aktar</option>
+                      <option value="ai_agent">AI Temsilciye Aktar</option>
                     </select>
 
                     {route.type === "user" && (
@@ -664,6 +694,39 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                       >
                         <option value="">Kuyruk Seçin...</option>
                         {(allQueues || []).map(q => <option key={q.id} value={q.extension}>{q.name} ({q.extension})</option>)}
+                      </select>
+                    )}
+
+                    {route.type === "announcement" && (
+                      <select 
+                        value={resolveAnnouncementVal(route.target)} 
+                        onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
+                        className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
+                      >
+                        <option value="">Anons Seçin...</option>
+                        {announcementsList.map(a => <option key={a.id || a.filename || a.name} value={a.id}>{formatAnnouncementLabel(a)}</option>)}
+                      </select>
+                    )}
+
+                    {route.type === "call_flow" && (
+                      <select 
+                        value={route.target} 
+                        onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
+                        className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
+                      >
+                        <option value="">Çağrı Akışı Seçin...</option>
+                        {(callFlowsList || []).map(cf => <option key={cf.id} value={cf.id}>{cf.name || `Akış #${cf.id}`}</option>)}
+                      </select>
+                    )}
+
+                    {route.type === "ai_agent" && (
+                      <select 
+                        value={route.target} 
+                        onChange={(e) => handleIvrChange(digit, 'target', e.target.value)}
+                        className={`w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 focus:outline-none focus:ring-1 ${ring} text-slate-800 dark:text-white transition-all`}
+                      >
+                        <option value="">AI Temsilci Seçin...</option>
+                        {(aiAgentsList || []).map(a => <option key={a.id} value={a.id}>🤖 {a.name} ({a.model || 'AI'})</option>)}
                       </select>
                     )}
                   </div>
@@ -959,7 +1022,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     } else if (type === "announcement") {
       targets = (announcementsList || []).map(a => ({
         id: String(a.id || a.filename || a.name),
-        label: a.name || a.original_filename || a.filename || String(a.id)
+        label: formatAnnouncementLabel(a)
       }));
     }
 
@@ -1053,7 +1116,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
                   <select
                     name="all_busy_destination_target"
-                    value={formData.all_busy_destination_target || ""}
+                    value={type === "announcement" ? resolveAnnouncementVal(formData.all_busy_destination_target) : (formData.all_busy_destination_target || "")}
                     onChange={handleChange}
                     size={Math.min(6, Math.max(3, filteredTargets.length + 1))}
                     className={`w-full text-xs p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all custom-scrollbar`}

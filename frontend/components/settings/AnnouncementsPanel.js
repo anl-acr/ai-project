@@ -183,10 +183,21 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
-  const filteredAnnouncements = announcements.filter(a => 
-    a.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    a.original_filename.toLowerCase().includes(searchQuery.toLowerCase())
+  const filteredAnnouncements = (announcements || []).filter(a => 
+    String(a?.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
+    String(a?.original_filename || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+    String(a?.filename || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  const formatCreatedAt = (val) => {
+    if (!val) return "";
+    const num = Number(val);
+    if (!isNaN(num) && num > 1000000000) {
+      return new Date(num > 100000000000 ? num : num * 1000).toLocaleDateString('tr-TR');
+    }
+    const d = new Date(val);
+    return !isNaN(d.getTime()) ? d.toLocaleDateString('tr-TR') : String(val);
+  };
 
   return (
     <div className="w-full space-y-6">
@@ -270,7 +281,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                       </span>
                       <span className={`text-[11px] font-bold ${text} truncate max-w-[100px]`} title={ann.name}>{ann.name}</span>
                       <span className="text-slate-300 dark:text-slate-700 shrink-0">•</span>
-                      <span className="text-[11px] text-slate-500 font-medium tracking-wide shrink-0">{new Date(ann.created_at * 1000).toLocaleDateString('tr-TR')}</span>
+                      <span className="text-[11px] text-slate-500 font-medium tracking-wide shrink-0">{formatCreatedAt(ann.created_at)}</span>
                     </div>
                   </div>
                 </div>

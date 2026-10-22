@@ -3818,34 +3818,54 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     all_announcements = settings_db.get("announcements", [])
     if is_global_tenant(target_tenant):
-        return all_announcements
-    return [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
+        filtered = all_announcements
+    else:
+        filtered = [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
+
+    normalized = []
+    for a in filtered:
+        if not isinstance(a, dict):
+            continue
+        item = dict(a)
+        if not item.get("original_filename"):
+            item["original_filename"] = item.get("filename") or item.get("name") or ""
+        if not item.get("name"):
+            item["name"] = item.get("original_filename") or item.get("filename") or "Anons"
+        if not item.get("type") or item.get("type") in ["custom", "tts"]:
+            item["type"] = "announcement"
+        normalized.append(item)
+    return normalized
 
 @app.post("/api/settings/announcements")
 async def create_announcement(
     file: UploadFile = File(None),
     name: str = Form(...),
-    announcement_type: str = Form("custom"),
+    type: Optional[str] = Form(None),
+    announcement_type: str = Form("announcement"),
     user_info: dict = Depends(get_user_info)
 ):
     import os
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     os.makedirs("uploads/announcements", exist_ok=True)
-    filename = f"{uuid.uuid4()}_{file.filename}" if file else "tts_audio.wav"
+    orig_fname = file.filename if (file and file.filename) else "tts_audio.wav"
+    ext = os.path.splitext(orig_fname)[1] or ".wav"
+    ann_id = str(uuid.uuid4())
+    filename = f"{ann_id}{ext}" if file else "tts_audio.wav"
     filepath = os.path.join("uploads/announcements", filename)
     
     if file:
         with open(filepath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
             
-    ann_id = str(uuid.uuid4())
+    resolved_type = type if type in ["announcement", "moh"] else (announcement_type if announcement_type in ["announcement", "moh"] else "announcement")
     ann = {
         "id": ann_id,
-        "name": name,
+        "name": name.strip(),
         "filename": filename,
-        "type": announcement_type,
+        "original_filename": orig_fname,
+        "type": resolved_type,
         "tenant_id": target_tenant,
-        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "created_at": datetime.datetime.now().timestamp()
     }
     
     if "announcements" not in settings_db:
@@ -3863,14 +3883,17 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
     import os
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     text = payload.get("text", "")
-    name = payload.get("name", "TTS Anons")
+    name = (payload.get("name") or "TTS Anons").strip()
+    ann_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else "announcement"
     voice = payload.get("voice", "tr-TR-AhmetNeural")
     
     if not text:
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
         
     os.makedirs("uploads/announcements", exist_ok=True)
-    filename = f"tts_{uuid.uuid4()}.mp3"
+    ann_id = str(uuid.uuid4())
+    filename = f"{ann_id}.mp3"
+    orig_fname = f"tts_{ann_id[:8]}.mp3"
     filepath = os.path.join("uploads/announcements", filename)
     
     try:
@@ -3882,15 +3905,15 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
         with open(filepath, "wb") as f:
             f.write(b"RIFF....WAVEfmt ....data....")
             
-    ann_id = str(uuid.uuid4())
     ann = {
         "id": ann_id,
         "name": name,
         "filename": filename,
-        "type": "tts",
+        "original_filename": orig_fname,
+        "type": ann_type,
         "tenant_id": target_tenant,
         "text": text,
-        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        "created_at": datetime.datetime.now().timestamp()
     }
     
     if "announcements" not in settings_db:
