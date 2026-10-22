@@ -64,13 +64,35 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
   const [loading, setLoading] = useState(true);
   const [activeAudio, setActiveAudio] = useState(null);
 
-  // Filter & Search states
+  // Filter & Search UI states
   const [dateFilter, setDateFilter] = useState("today");
   const [directionFilter, setDirectionFilter] = useState("all");
   const [searchInput, setSearchInput] = useState("");
-  const [appliedSearch, setAppliedSearch] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+
+  const searchInputRef = React.useRef(null);
+  const filterPopoverRef = React.useRef(null);
 
   const ext = currentUser?.extension || "1000";
+
+  // Close filter popover when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (filterPopoverRef.current && !filterPopoverRef.current.contains(e.target)) {
+        setIsFilterOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  // Auto-focus search input when opened
+  useEffect(() => {
+    if (isSearchOpen && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [isSearchOpen]);
 
   // Load contacts & directory once
   const fetchMetaLists = async () => {
@@ -138,16 +160,6 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
     fetchCalls(dateFilter);
   }, [backendHost, ext, dateFilter]);
 
-  const handleSearchSubmit = (e) => {
-    if (e) e.preventDefault();
-    setAppliedSearch(searchInput.trim());
-  };
-
-  const handleClearSearch = () => {
-    setSearchInput("");
-    setAppliedSearch("");
-  };
-
   // Enrich calls with contact lookup and direction
   const enrichedCalls = useMemo(() => {
     return calls.map((call) => {
@@ -163,9 +175,9 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
     });
   }, [calls, contacts, directory, ext]);
 
-  // Apply search query before direction tabs so direction badges reflect search results
+  // Apply live search query
   const searchFilteredCalls = useMemo(() => {
-    const query = (appliedSearch || searchInput).trim().toLocaleLowerCase("tr-TR");
+    const query = searchInput.trim().toLocaleLowerCase("tr-TR");
     if (!query) return enrichedCalls;
     const cleanQueryDigits = query.replace(/\D/g, "");
 
@@ -181,7 +193,7 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
       if (cleanQueryDigits && numDigits.includes(cleanQueryDigits)) return true;
       return false;
     });
-  }, [enrichedCalls, appliedSearch, searchInput]);
+  }, [enrichedCalls, searchInput]);
 
   // Direction counts
   const counts = useMemo(() => {
@@ -239,122 +251,213 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
   };
 
   const activePeriodLabel = DATE_FILTER_OPTIONS.find((o) => o.id === dateFilter)?.label || "Bugün";
+  const activeDirectionLabel = DIRECTION_FILTER_OPTIONS.find((d) => d.id === directionFilter)?.label || "Tüm Çağrılar";
+  const hasCustomFilter = dateFilter !== "today" || directionFilter !== "all";
 
   return (
     <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-6 overflow-y-auto">
       <div className="max-w-5xl mx-auto space-y-5">
-        {/* Header & Date Period Quick Filter */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+        {/* Clean Single-Row Header */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          {/* Title & Active Filter Summary Badges */}
+          <div className="flex flex-wrap items-center gap-2.5">
             <h2 className="text-xl font-bold text-slate-800 dark:text-white">Kişisel Çağrı Geçmişim</h2>
             <span className={`px-2.5 py-1 rounded-full text-xs font-bold border ${lightBg} ${text} ${borderLight}`}>
               {filteredCalls.length} Kayıt
             </span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200/80 dark:border-slate-800 shadow-sm">
+              <Calendar size={12} className={text} />
+              {activePeriodLabel}
+              {directionFilter !== "all" && (
+                <>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <span className={text}>{activeDirectionLabel}</span>
+                </>
+              )}
+            </span>
           </div>
 
-          {/* Date Range Filter Buttons: Bugün, Son 1 Hafta, Son 1 Ay, Son 1 Yıl */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200/80 dark:border-slate-800 shadow-sm">
-            <div className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold text-slate-400 dark:text-slate-500">
-              <Calendar size={14} />
-              <span className="hidden sm:inline">Dönem:</span>
+          {/* Right Action Icons: Expandable Search + Filter Popover + Refresh */}
+          <div className="flex items-center gap-2">
+            {/* Expandable Magnifying Glass Search */}
+            <div
+              className={`flex items-center bg-white dark:bg-slate-900 border ${
+                isSearchOpen || searchInput ? `${border} ring-2 ${ring}` : "border-slate-200/80 dark:border-slate-800"
+              } rounded-xl shadow-sm transition-all duration-300 ease-in-out overflow-hidden ${
+                isSearchOpen || searchInput ? "w-64 sm:w-72 px-3 py-1.5" : "w-9 h-9 justify-center"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isSearchOpen) {
+                    setIsSearchOpen(true);
+                  } else if (!searchInput) {
+                    setIsSearchOpen(false);
+                  }
+                }}
+                title="Numara veya İsim Ara"
+                className={`flex items-center justify-center shrink-0 transition-colors ${
+                  isSearchOpen || searchInput
+                    ? `${text} mr-2`
+                    : "w-full h-full text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white"
+                }`}
+              >
+                <Search size={16} />
+              </button>
+
+              {(isSearchOpen || searchInput) && (
+                <>
+                  <input
+                    ref={searchInputRef}
+                    type="text"
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Escape") {
+                        setSearchInput("");
+                        setIsSearchOpen(false);
+                      }
+                    }}
+                    placeholder="Numara veya isim yazın..."
+                    className="w-full bg-transparent text-xs font-medium text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchInput("");
+                      setIsSearchOpen(false);
+                    }}
+                    title="Aramayı Kapat"
+                    className="ml-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 shrink-0"
+                  >
+                    <X size={14} />
+                  </button>
+                </>
+              )}
             </div>
-            {DATE_FILTER_OPTIONS.map((opt) => {
-              const isSelected = dateFilter === opt.id;
-              return (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => setDateFilter(opt.id)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                    isSelected
-                      ? `${bg} text-white shadow-sm`
-                      : "text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              );
-            })}
+
+            {/* Filter Icon Button & Popover */}
+            <div ref={filterPopoverRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen((prev) => !prev)}
+                title="Filtreler"
+                className={`relative w-9 h-9 rounded-xl border flex items-center justify-center transition-all shadow-sm ${
+                  isFilterOpen || hasCustomFilter
+                    ? `${bg} text-white border-transparent`
+                    : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                <Filter size={16} />
+                {hasCustomFilter && !isFilterOpen && (
+                  <span className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border-2 border-white dark:border-slate-900" />
+                )}
+              </button>
+
+              {/* Filter Popover Card */}
+              {isFilterOpen && (
+                <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl p-4 z-50 space-y-4 animate-in fade-in zoom-in-95 duration-150">
+                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
+                    <span className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-1.5">
+                      <Filter size={13} className={text} />
+                      Çağrı Filtreleri
+                    </span>
+                    {hasCustomFilter && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDateFilter("today");
+                          setDirectionFilter("all");
+                        }}
+                        className={`text-[11px] font-bold ${text} hover:underline`}
+                      >
+                        Sıfırla
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Period Section */}
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                      Zaman Aralığı
+                    </label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {DATE_FILTER_OPTIONS.map((opt) => {
+                        const isSelected = dateFilter === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            onClick={() => setDateFilter(opt.id)}
+                            className={`px-3 py-2 rounded-xl text-xs font-bold transition-all text-left flex items-center justify-between ${
+                              isSelected
+                                ? `${bg} text-white shadow-sm`
+                                : "bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            <span>{opt.label}</span>
+                            {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Direction Section */}
+                  <div className="space-y-2">
+                    <label className="block text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                      Çağrı Yönü
+                    </label>
+                    <div className="flex flex-col gap-1.5">
+                      {DIRECTION_FILTER_OPTIONS.map((dir) => {
+                        const Icon = dir.icon;
+                        const isSelected = directionFilter === dir.id;
+                        const countVal = counts[dir.id] ?? 0;
+                        return (
+                          <button
+                            key={dir.id}
+                            type="button"
+                            onClick={() => setDirectionFilter(dir.id)}
+                            className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                              isSelected
+                                ? `${bg} text-white shadow-sm`
+                                : "bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
+                            }`}
+                          >
+                            <span className="flex items-center gap-2">
+                              <Icon size={14} />
+                              <span>{dir.label}</span>
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold ${
+                                isSelected
+                                  ? "bg-white/20 text-white"
+                                  : "bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                              }`}
+                            >
+                              {countVal}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Refresh Button */}
             <button
               type="button"
               onClick={() => fetchCalls(dateFilter)}
               disabled={loading}
               title="Listeyi Yenile"
-              className="p-1.5 rounded-xl text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              className="w-9 h-9 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 flex items-center justify-center text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-sm"
             >
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+              <RefreshCw size={15} className={loading ? "animate-spin" : ""} />
             </button>
           </div>
-        </div>
-
-        {/* Filter Bar: Direction Filter (Tüm Çağrılar / Gelen / Giden) & Search Input + Button */}
-        <div className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3.5 flex flex-col md:flex-row md:items-center justify-between gap-3`}>
-          {/* Direction Tabs */}
-          <div className="flex flex-wrap items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/60 p-1 rounded-xl">
-            {DIRECTION_FILTER_OPTIONS.map((dir) => {
-              const Icon = dir.icon;
-              const isSelected = directionFilter === dir.id;
-              const countVal = counts[dir.id] ?? 0;
-              return (
-                <button
-                  key={dir.id}
-                  type="button"
-                  onClick={() => setDirectionFilter(dir.id)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                    isSelected
-                      ? `${bg} text-white shadow-sm`
-                      : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                  }`}
-                >
-                  <Icon size={13} />
-                  <span>{dir.label}</span>
-                  <span
-                    className={`px-1.5 py-0.2 rounded-md text-[10px] font-extrabold ${
-                      isSelected
-                        ? "bg-white/20 text-white"
-                        : "bg-slate-200/80 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
-                    }`}
-                  >
-                    {countVal}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Search Form with Search Button */}
-          <form onSubmit={handleSearchSubmit} className="flex items-center gap-2 w-full md:w-auto md:min-w-[340px]">
-            <div className="relative flex-1">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              <input
-                type="text"
-                value={searchInput}
-                onChange={(e) => {
-                  setSearchInput(e.target.value);
-                  setAppliedSearch(e.target.value);
-                }}
-                placeholder="Numara veya isim yazıp arayın..."
-                className={`w-full pl-9 pr-8 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 text-xs font-medium text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 ${ring} transition-all`}
-              />
-              {searchInput && (
-                <button
-                  type="button"
-                  onClick={handleClearSearch}
-                  title="Aramayı Temizle"
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            <button
-              type="submit"
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-all shrink-0 ${bg} ${hover}`}
-            >
-              <Search size={14} />
-              <span>Ara</span>
-            </button>
-          </form>
         </div>
 
         {/* Table / Empty / Loading States */}
@@ -373,15 +476,12 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
               Dönem: <span className="font-bold">{activePeriodLabel}</span>
               {directionFilter !== "all" && (
                 <>
-                  {" • "}Yön:{" "}
-                  <span className="font-bold">
-                    {DIRECTION_FILTER_OPTIONS.find((d) => d.id === directionFilter)?.label}
-                  </span>
+                  {" • "}Yön: <span className="font-bold">{activeDirectionLabel}</span>
                 </>
               )}
-              {(appliedSearch || searchInput) && (
+              {searchInput && (
                 <>
-                  {" • "}Arama: <span className="font-bold">"{appliedSearch || searchInput}"</span>
+                  {" • "}Arama: <span className="font-bold">"{searchInput}"</span>
                 </>
               )}
             </p>
@@ -392,7 +492,8 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
                     type="button"
                     onClick={() => {
                       setDirectionFilter("all");
-                      handleClearSearch();
+                      setSearchInput("");
+                      setIsSearchOpen(false);
                     }}
                     className="px-3 py-1.5 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
