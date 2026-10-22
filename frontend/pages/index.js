@@ -226,8 +226,10 @@ export default function Home() {
     system: true
   });
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [sidebarTooltip, setSidebarTooltip] = useState(null);
 
   const toggleSidebarCollapse = () => {
+    setSidebarTooltip(null);
     setIsSidebarCollapsed((prev) => {
       const next = !prev;
       if (typeof window !== "undefined") {
@@ -1211,6 +1213,28 @@ export default function Home() {
       {/* Sidebar Navigation */}
       {!isEditingCallFlow && (
         <aside
+          onMouseOver={(e) => {
+            if (!isSidebarCollapsed) {
+              if (sidebarTooltip) setSidebarTooltip(null);
+              return;
+            }
+            const target = e.target.closest("button, [title]");
+            if (target && e.currentTarget.contains(target)) {
+              const label = target.getAttribute("title") || target.textContent?.trim();
+              if (label) {
+                const rect = target.getBoundingClientRect();
+                setSidebarTooltip({
+                  label,
+                  top: rect.top + rect.height / 2,
+                  left: rect.right + 10,
+                });
+                return;
+              }
+            }
+            setSidebarTooltip(null);
+          }}
+          onMouseLeave={() => setSidebarTooltip(null)}
+          onScroll={() => sidebarTooltip && setSidebarTooltip(null)}
           className={`${
             isSidebarCollapsed ? "w-20 px-2.5" : "w-64 px-4"
           } py-4 h-screen bg-white dark:bg-slate-900 border-r border-slate-200/80 dark:border-slate-800/80 flex flex-col shrink-0 overflow-y-auto overflow-x-hidden transition-all duration-300 ease-in-out`}
@@ -2261,6 +2285,22 @@ export default function Home() {
           </button>
         </div>
       </aside>
+      )}
+
+      {/* Collapsed Sidebar Instant Floating Tooltip */}
+      {!isEditingCallFlow && isSidebarCollapsed && sidebarTooltip && (
+        <div
+          style={{
+            top: `${sidebarTooltip.top}px`,
+            left: `${sidebarTooltip.left}px`,
+          }}
+          className="fixed z-[9999] -translate-y-1/2 pointer-events-none flex items-center animate-in fade-in zoom-in-95 duration-100"
+        >
+          <div className="w-2.5 h-2.5 rotate-45 bg-slate-900 dark:bg-slate-800 border-l border-b border-slate-700/70 -mr-1.5 z-10" />
+          <div className="px-3 py-1.5 rounded-xl bg-slate-900 dark:bg-slate-800 text-white text-xs font-bold tracking-wide whitespace-nowrap shadow-xl border border-slate-700/70">
+            {sidebarTooltip.label}
+          </div>
+        </div>
       )}
 
       {/* Main Content Area */}
