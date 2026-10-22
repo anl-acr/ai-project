@@ -78,6 +78,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     transfer_target_type: "extension", // extension, queue, custom
     transfer_target: "200",
     codec: "G711",
+    max_channels: 30,
     is_active: true
   });
 
@@ -96,7 +97,10 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
   };
 
   const fetchTrunks = () => {
-    fetch(`${API_BASE}/api/settings/trunks`)
+    const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+    fetch(`${API_BASE}/api/settings/trunks`, {
+      headers: { "X-Tenant-ID": activeTenantId }
+    })
       .then((res) => res.json())
       .then((data) => {
         setTrunks(Array.isArray(data) ? data : (data?.trunks || []));
@@ -217,13 +221,15 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
 
     try {
       const url = `${API_BASE}/api/settings/trunks`;
+      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
       const res = await fetch(url, {
         method: "POST",
         headers: { 
           "Content-Type": "application/json",
-          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin",
+          "X-Tenant-ID": activeTenantId
         },
-        body: JSON.stringify({ ...newTrunk, trunk_name: tName })
+        body: JSON.stringify({ ...newTrunk, trunk_name: tName, max_channels: Number(newTrunk.max_channels) || 30 })
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -261,13 +267,14 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
       transfer_target_type: "extension",
       transfer_target: "200",
       codec: "G711",
+      max_channels: 30,
       is_active: true
     });
   };
 
   const handleEditTrunk = (t) => {
     setTrunkError("");
-    setNewTrunk({ ...t });
+    setNewTrunk({ ...t, max_channels: t.max_channels || 30 });
     setModalStep(2); // Skip Step 1 since type is chosen
     setShowModal(true);
   };
@@ -642,6 +649,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                         <th className="py-2.5">Protokol</th>
                         <th className="py-2.5">Sunucu / Port</th>
                         <th className="py-2.5">Caller ID (DID)</th>
+                        <th className="py-2.5 text-center">Kapasite</th>
                         <th className="py-2.5">Codec</th>
                         <th className="py-2.5 text-right">İşlem</th>
                       </tr>
@@ -687,6 +695,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                             <td className="py-3 uppercase font-mono text-[10px]">{t.protocol || "udp"}</td>
                             <td className="py-3 font-mono text-[10px] text-slate-450 dark:text-slate-550">{t.host}:{t.port}</td>
                             <td className="py-3 font-mono text-slate-800 dark:text-slate-200">{t.did_number}</td>
+                            <td className="py-3 text-center font-bold text-slate-700 dark:text-slate-300">{t.max_channels || 30} Kanal</td>
                             <td className="py-3 font-bold text-slate-700 dark:text-slate-350">{t.codec || "G711"}</td>
                             <td className="py-3 text-right">
                               <div className="flex justify-end gap-1.5">
@@ -880,8 +889,8 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                   </div>
                 )}
 
-                {/* Caller ID (DID Number) & Protocol Selection */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* Caller ID (DID Number), Protocol & Channel Limit */}
+                <div className="grid grid-cols-3 gap-3">
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Caller ID / DID</label>
                     <input
@@ -905,6 +914,19 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                       <option value="udp">UDP (Önerilen)</option>
                       <option value="tcp">TCP</option>
                     </select>
+                  </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Kanal Limiti</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="1000"
+                      name="max_channels"
+                      value={newTrunk.max_channels ?? 30}
+                      onChange={handleNewTrunkChange}
+                      required
+                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
+                    />
                   </div>
                 </div>
 

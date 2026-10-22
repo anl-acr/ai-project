@@ -275,6 +275,7 @@ class Trunk(Base):
     transfer_target_type = Column(String, default="extension")
     transfer_target = Column(String, nullable=True, default="200")
     codec = Column(String, default="G711")
+    max_channels = Column(Integer, default=30)
     is_active = Column(Boolean, default=True)
 
 class PBXQueue(Base):

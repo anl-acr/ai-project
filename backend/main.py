@@ -817,6 +817,8 @@ DEFAULT_SETTINGS = {
             "greeting_prompt": "Merhaba! Ben Müşteri Hizmetleri Yapay Zeka Asistanıyım. Size nasıl yardımcı olabilirim?",
             "transfer_target_type": "extension",
             "transfer_target": "200",
+            "codec": "G711",
+            "max_channels": 30,
             "is_active": True
         }
     ],
@@ -1298,11 +1300,13 @@ def load_settings():
     if "pbx" in db and "auto_whisper_enabled" not in db["pbx"]:
         db["pbx"]["auto_whisper_enabled"] = True
 
-    # Ensure all trunks have a codec field (migration)
+    # Ensure all trunks have a codec and max_channels field (migration)
     if "trunks" in db:
         for t in db["trunks"]:
             if "codec" not in t:
                 t["codec"] = "G711"
+            if "max_channels" not in t or not t["max_channels"]:
+                t["max_channels"] = 30
 
     # Ensure smart_callback config exists (migration)
     if "smart_callback" not in db:
@@ -10059,7 +10063,8 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS profiles JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;",
-                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;"
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;",
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;"
             ]
             for stmt_sql in ddl_statements:
                 try:
@@ -11076,6 +11081,12 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
                     filtered_data["port"] = int(filtered_data["port"])
                 except (ValueError, TypeError):
                     filtered_data["port"] = 5060
+
+            if "max_channels" in filtered_data:
+                try:
+                    filtered_data["max_channels"] = max(1, int(filtered_data["max_channels"]))
+                except (ValueError, TypeError):
+                    filtered_data["max_channels"] = 30
 
             target_trunk = None
             if data.get("id") and data.get("id") in existing_by_id:

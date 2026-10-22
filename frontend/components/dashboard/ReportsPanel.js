@@ -302,6 +302,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [calls, setCalls] = useState([]);
   const [users, setUsers] = useState([]);
   const [aiAgents, setAiAgents] = useState([]);
+  const [trunks, setTrunks] = useState([]);
+  const [trunkStatuses, setTrunkStatuses] = useState({});
+  const [queues, setQueues] = useState([]);
+  const [selectedTrunkChartDate, setSelectedTrunkChartDate] = useState("ALL");
   const [selectedCall, setSelectedCall] = useState(null);
   const [transcripts, setTranscripts] = useState([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
@@ -325,12 +329,35 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterConversant, setFilterConversant] = useState("All");
   const [filterCallerNumber, setFilterCallerNumber] = useState("");
   const [filterCallId, setFilterCallId] = useState("");
-  const [filterQueuesAvailable] = useState([
-    { id: "q1", name: "Operator_Trunk", type: "Register Trunk" },
-    { id: "q2", name: "Satış Kuyruğu", type: "Dahili Kuyruk" },
-    { id: "q3", name: "Destek Kuyruğu", type: "Dahili Kuyruk" },
-    { id: "q4", name: "VIP Müşteriler", type: "Öncelikli Kuyruk" }
-  ]);
+  const filterQueuesAvailable = React.useMemo(() => {
+    const items = [];
+    (trunks || []).forEach((t) => {
+      if (t.trunk_name) {
+        items.push({
+          id: `trunk-${t.id || t.trunk_name}`,
+          name: t.trunk_name,
+          type: t.trunk_type === "peer" ? "Peer Trunk" : "Register Trunk"
+        });
+      }
+    });
+    (queues || []).forEach((q) => {
+      if (q.name) {
+        items.push({
+          id: `queue-${q.id || q.name}`,
+          name: q.name,
+          type: "Dahili Kuyruk"
+        });
+      }
+    });
+    if (items.length === 0) {
+      return [
+        { id: "q1", name: "Operator_Trunk", type: "Register Trunk" },
+        { id: "q2", name: "Satış Kuyruğu", type: "Dahili Kuyruk" },
+        { id: "q3", name: "Destek Kuyruğu", type: "Dahili Kuyruk" }
+      ];
+    }
+    return items;
+  }, [trunks, queues]);
   const [filterQueuesSelected, setFilterQueuesSelected] = useState([]);
   const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -525,6 +552,41 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "trunk") {
+      const headers = [
+        "Dış Hat (SIP Trunk)",
+        "Tür",
+        "Sunucu / Port",
+        "DID / Numara",
+        "Kapasite Limiti (Kanal)",
+        "Durum"
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      (trunks || []).forEach((t) => {
+        const row = [
+          t.trunk_name || "SIP Trunk",
+          t.trunk_type === "peer" ? "PEER" : "REGISTER",
+          t.host ? `${t.host}:${t.port || 5060}` : "-",
+          t.did_number || t.username || "-",
+          `${t.max_channels || 30} Kanal`,
+          t.is_active !== false ? "Aktif" : "Pasif"
+        ];
+        const escapedRow = row.map((val) => `"${String(val || "").replace(/"/g, '""')}"`);
+        csvContent += escapedRow.join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `hat_kapasite_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -583,9 +645,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     try {
       const protocol = window.location.protocol;
       const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
-      const [uRes, aiRes] = await Promise.all([
+      const [uRes, aiRes, tRes, tsRes, qRes] = await Promise.all([
         fetch(`${protocol}//${backendHost}/api/settings/users`, { headers: { "X-Tenant-ID": activeTenantId } }),
-        fetch(`${protocol}//${backendHost}/api/settings/ai-agents`, { headers: { "X-Tenant-ID": activeTenantId } })
+        fetch(`${protocol}//${backendHost}/api/settings/ai-agents`, { headers: { "X-Tenant-ID": activeTenantId } }),
+        fetch(`${protocol}//${backendHost}/api/settings/trunks`, { headers: { "X-Tenant-ID": activeTenantId } }),
+        fetch(`${protocol}//${backendHost}/api/settings/trunks/status`, { headers: { "X-Tenant-ID": activeTenantId } }),
+        fetch(`${protocol}//${backendHost}/api/settings/queues`, { headers: { "X-Tenant-ID": activeTenantId } })
       ]);
       if (uRes.ok) {
         const uData = await uRes.json();
@@ -594,6 +659,18 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (aiRes.ok) {
         const aiData = await aiRes.json();
         setAiAgents(Array.isArray(aiData) ? aiData : (aiData?.ai_agents || []));
+      }
+      if (tRes.ok) {
+        const tData = await tRes.json();
+        setTrunks(Array.isArray(tData) ? tData : (tData?.trunks || []));
+      }
+      if (tsRes.ok) {
+        const tsData = await tsRes.json();
+        if (tsData && typeof tsData === "object") setTrunkStatuses(tsData);
+      }
+      if (qRes.ok) {
+        const qData = await qRes.json();
+        setQueues(Array.isArray(qData) ? qData : (qData?.queues || []));
       }
     } catch (err) {}
   };
@@ -4782,33 +4859,289 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               /* Trunk Utilization Mode */
               <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
                 {(() => {
-                  const totalFiltered = filteredCalls.length;
-                  
-                  // Mock calculated metrics for trunk utilization
-                  // Peak Concurrent Calls
-                  const peakConcurrent = Math.max(1, Math.round(totalFiltered * 0.15));
-                  
-                  // Trunk capacity total (simulated e.g., 50 lines)
-                  const trunkCapacity = 50; 
-                  
+                  // Format YYYY-MM-DD to DD.MM.YYYY
+                  const fmtDateLabel = (isoDate) => {
+                    if (!isoDate) return "";
+                    const parts = String(isoDate).split("-");
+                    if (parts.length === 3) return `${parts[2]}.${parts[1]}.${parts[0]}`;
+                    return isoDate;
+                  };
+
+                  // Collect unique call dates in filteredCalls (sorted newest first)
+                  const dateCountsMap = {};
+                  filteredCalls.forEach((c) => {
+                    if (!c.start_time) return;
+                    const d = new Date(c.start_time);
+                    if (isNaN(d.getTime())) return;
+                    const yyyy = d.getFullYear();
+                    const mm = String(d.getMonth() + 1).padStart(2, "0");
+                    const dd = String(d.getDate()).padStart(2, "0");
+                    const key = `${yyyy}-${mm}-${dd}`;
+                    dateCountsMap[key] = (dateCountsMap[key] || 0) + 1;
+                  });
+                  const availableCallDates = Object.keys(dateCountsMap).sort((a, b) => b.localeCompare(a));
+
+                  // Ensure selectedTrunkChartDate is valid
+                  const effectiveChartDate =
+                    selectedTrunkChartDate !== "ALL" && availableCallDates.includes(selectedTrunkChartDate)
+                      ? selectedTrunkChartDate
+                      : "ALL";
+
+                  // Active date range label shown on the chart & report
+                  const periodDisplayLabel = (() => {
+                    if (effectiveChartDate !== "ALL") {
+                      return `${fmtDateLabel(effectiveChartDate)} (Seçili Gün)`;
+                    }
+                    if (filterStartDate && filterEndDate) {
+                      return filterStartDate === filterEndDate
+                        ? fmtDateLabel(filterStartDate)
+                        : `${fmtDateLabel(filterStartDate)} — ${fmtDateLabel(filterEndDate)}`;
+                    }
+                    if (filterStartDate) return `${fmtDateLabel(filterStartDate)} sonrası`;
+                    if (filterEndDate) return `${fmtDateLabel(filterEndDate)} öncesi`;
+                    if (availableCallDates.length > 0) {
+                      const oldest = availableCallDates[availableCallDates.length - 1];
+                      const newest = availableCallDates[0];
+                      return oldest === newest
+                        ? fmtDateLabel(newest)
+                        : `${fmtDateLabel(oldest)} — ${fmtDateLabel(newest)}`;
+                    }
+                    return fmtDateLabel(getTodayDateString());
+                  })();
+
+                  // Calls used for the 24h chart (filtered by effectiveChartDate if a single day is selected)
+                  const chartCalls =
+                    effectiveChartDate === "ALL"
+                      ? filteredCalls
+                      : filteredCalls.filter((c) => {
+                          if (!c.start_time) return false;
+                          const d = new Date(c.start_time);
+                          if (isNaN(d.getTime())) return false;
+                          const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+                          return key === effectiveChartDate;
+                        });
+
+                  // Helper: convert call to [startMs, endMs] interval
+                  const getCallInterval = (call) => {
+                    if (!call.start_time) return null;
+                    const startMs = new Date(call.start_time).getTime();
+                    if (isNaN(startMs)) return null;
+                    let durSec = Number(call.duration_total) || Number(call.duration_talk) || 0;
+                    if (!durSec && call.end_time) {
+                      const endParsed = new Date(call.end_time).getTime();
+                      if (!isNaN(endParsed) && endParsed > startMs) {
+                        durSec = Math.round((endParsed - startMs) / 1000);
+                      }
+                    }
+                    // Clamp duration between 5s (ring/setup) and 7200s (2 hours) for realistic channel occupancy
+                    durSec = Math.min(7200, Math.max(5, durSec || 15));
+                    return {
+                      startMs,
+                      endMs: startMs + durSec * 1000,
+                      call
+                    };
+                  };
+
+                  // Sweep-line algorithm to compute exact maximum simultaneous calls
+                  const computeMaxConcurrent = (intervals) => {
+                    if (!intervals || intervals.length === 0) return { max: 0, peakTimeMs: null };
+                    const events = [];
+                    intervals.forEach((iv) => {
+                      events.push({ t: iv.startMs, delta: 1 });
+                      events.push({ t: iv.endMs, delta: -1 });
+                    });
+                    events.sort((a, b) => (a.t !== b.t ? a.t - b.t : a.delta - b.delta));
+                    let current = 0;
+                    let max = 0;
+                    let peakTimeMs = null;
+                    for (const ev of events) {
+                      current += ev.delta;
+                      if (current > max) {
+                        max = current;
+                        peakTimeMs = ev.t;
+                      }
+                    }
+                    return { max, peakTimeMs };
+                  };
+
+                  // Real SIP Trunks from system settings (/api/settings/trunks)
+                  const realTrunks = Array.isArray(trunks) ? trunks : [];
+                  const activeTrunks = realTrunks.filter((t) => t.is_active !== false);
+                  const totalConfiguredCapacity =
+                    (activeTrunks.length > 0 ? activeTrunks : realTrunks).reduce(
+                      (sum, t) => sum + (Number(t.max_channels) || 30),
+                      0
+                    ) || 30;
+                  const trunkCapacity = Math.max(1, totalConfiguredCapacity);
+
+                  // Match calls to real trunks
+                  const cleanDigits = (str) => String(str || "").replace(/\D/g, "");
+                  const last10 = (str) => {
+                    const d = cleanDigits(str);
+                    return d.length >= 10 ? d.slice(-10) : d;
+                  };
+
+                  const primaryTrunkId =
+                    (activeTrunks[0] && activeTrunks[0].id) ||
+                    (realTrunks[0] && realTrunks[0].id) ||
+                    null;
+
+                  const trunkBuckets = {};
+                  realTrunks.forEach((t) => {
+                    trunkBuckets[t.id] = [];
+                  });
+
+                  const allIntervals = [];
+                  chartCalls.forEach((call) => {
+                    const iv = getCallInterval(call);
+                    if (!iv) return;
+                    allIntervals.push(iv);
+
+                    const callerL10 = last10(call.caller_number);
+                    const calleeL10 = last10(call.callee_number);
+                    const rawTrunkName = String(call.trunk || call.trunk_name || "").toLowerCase();
+
+                    let matchedTrunk = realTrunks.find((t) => {
+                      if (rawTrunkName && String(t.trunk_name || "").toLowerCase() === rawTrunkName) {
+                        return true;
+                      }
+                      const didL10 = last10(t.did_number);
+                      const userL10 = last10(t.username);
+                      if (didL10 && didL10.length >= 7 && (callerL10 === didL10 || calleeL10 === didL10)) {
+                        return true;
+                      }
+                      if (userL10 && userL10.length >= 7 && (callerL10 === userL10 || calleeL10 === userL10)) {
+                        return true;
+                      }
+                      return false;
+                    });
+
+                    // If call is an external call and didn't explicitly include the DID in caller/callee, assign to primary active trunk
+                    if (!matchedTrunk && primaryTrunkId !== null) {
+                      const dir = getCallDirection(call);
+                      if (dir !== "Dahili") {
+                        matchedTrunk = realTrunks.find((t) => t.id === primaryTrunkId);
+                      }
+                    }
+
+                    if (matchedTrunk && trunkBuckets[matchedTrunk.id]) {
+                      trunkBuckets[matchedTrunk.id].push(iv);
+                    }
+                  });
+
+                  // Compute overall peak concurrency
+                  const overallPeakObj = computeMaxConcurrent(allIntervals);
+                  const peakConcurrent = overallPeakObj.max;
+                  const peakTimestampLabel = overallPeakObj.peakTimeMs
+                    ? new Date(overallPeakObj.peakTimeMs).toLocaleString("tr-TR", {
+                        day: "2-digit",
+                        month: "2-digit",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit"
+                      })
+                    : null;
+
                   const maxSaturation = Math.round((peakConcurrent / trunkCapacity) * 100);
-                  
-                  // Rejected calls due to channel limits
-                  const rejectedCalls = Math.floor(totalFiltered * 0.02);
-                  const rejectionRate = totalFiltered > 0 ? ((rejectedCalls / totalFiltered) * 100).toFixed(1) : "0.0";
-                  
-                  // Mock providers
-                  const providers = [
-                    { name: "Ana SIP (NetGSM)", limit: 30, used: Math.min(30, peakConcurrent), status: maxSaturation > 90 ? "Kritik" : "Normal" },
-                    { name: "Yedek SIP (Turkcell)", limit: 20, used: Math.max(0, peakConcurrent - 30), status: "Normal" }
-                  ];
-                  
-                  // Concurrent calls timeline over 24h (mock simulation)
-                  const concurrentTimeline = Array(24).fill(0).map((_, i) => {
-                    let calls = 0;
-                    if (i >= 9 && i <= 17) calls = Math.floor(Math.random() * (peakConcurrent - 5) + 5);
-                    else calls = Math.floor(Math.random() * 5);
-                    return calls;
+
+                  // Compute actual rejected/failed calls due to trunk/channel congestion or capacity overflow
+                  let overflowCallsCount = 0;
+                  if (allIntervals.length > 0) {
+                    const sortedByStart = [...allIntervals].sort((a, b) => a.startMs - b.startMs);
+                    const activeEnds = [];
+                    sortedByStart.forEach((iv) => {
+                      for (let i = activeEnds.length - 1; i >= 0; i--) {
+                        if (activeEnds[i] <= iv.startMs) activeEnds.splice(i, 1);
+                      }
+                      const rawSt = String(iv.call.status || "").toUpperCase();
+                      const isCongested =
+                        rawSt === "CONGESTION" ||
+                        rawSt === "CHANUNAVAIL" ||
+                        activeEnds.length >= trunkCapacity;
+                      if (isCongested) {
+                        overflowCallsCount++;
+                      }
+                      activeEnds.push(iv.endMs);
+                    });
+                  }
+                  const rejectedCalls = overflowCallsCount;
+                  const totalFiltered = chartCalls.length;
+                  const rejectionRate =
+                    totalFiltered > 0 ? ((rejectedCalls / totalFiltered) * 100).toFixed(1) : "0.0";
+
+                  // Compute deterministic 24-hour concurrent channel timeline (hour 00..23)
+                  const hourlyBuckets = Array.from({ length: 24 }, () => []);
+                  allIntervals.forEach((iv) => {
+                    const startHr = new Date(iv.startMs).getHours();
+                    const endHr = new Date(iv.endMs).getHours();
+                    if (!isNaN(startHr) && startHr >= 0 && startHr < 24) {
+                      hourlyBuckets[startHr].push(iv);
+                      if (!isNaN(endHr) && endHr !== startHr && endHr >= 0 && endHr < 24 && iv.endMs - iv.startMs <= 3600000) {
+                        hourlyBuckets[endHr].push(iv);
+                      }
+                    }
+                  });
+
+                  const hourlyDetails = hourlyBuckets.map((bucket, hr) => {
+                    const { max, peakTimeMs } = computeMaxConcurrent(bucket);
+                    return {
+                      hour: hr,
+                      peakChannels: max,
+                      totalCalls: bucket.length,
+                      peakDateStr: peakTimeMs
+                        ? new Date(peakTimeMs).toLocaleDateString("tr-TR", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            year: "numeric"
+                          })
+                        : null
+                    };
+                  });
+                  const concurrentTimeline = hourlyDetails.map((d) => d.peakChannels);
+                  const chartMaxScale = Math.max(trunkCapacity, ...concurrentTimeline, 1);
+
+                  // Build real providers list from trunks state
+                  const providers = realTrunks.map((t) => {
+                    const limit = Number(t.max_channels) || 30;
+                    const tIntervals = trunkBuckets[t.id] || [];
+                    const { max: used } = computeMaxConcurrent(tIntervals);
+                    const totalCallsOnTrunk = tIntervals.length;
+                    const satPct = Math.round((used / Math.max(1, limit)) * 100);
+                    const isActive = t.is_active !== false;
+                    const liveReg = isActive ? trunkStatuses[t.id] || "active" : "passive";
+
+                    let statusLabel = "Normal";
+                    let statusBadgeClass =
+                      "bg-emerald-50 text-emerald-600 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/50";
+                    if (!isActive) {
+                      statusLabel = "Pasif";
+                      statusBadgeClass =
+                        "bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700";
+                    } else if (used >= limit || satPct >= 90) {
+                      statusLabel = "Kritik";
+                      statusBadgeClass =
+                        "bg-rose-50 text-rose-600 border-rose-200 dark:bg-rose-950/30 dark:text-rose-400 dark:border-rose-800/50";
+                    } else if (satPct >= 70) {
+                      statusLabel = "Yoğun";
+                      statusBadgeClass =
+                        "bg-amber-50 text-amber-600 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800/50";
+                    }
+
+                    return {
+                      id: t.id,
+                      name: t.trunk_name || "SIP Trunk",
+                      host: t.host ? `${t.host}:${t.port || 5060}` : "-",
+                      did: t.did_number || t.username || "-",
+                      trunkType: t.trunk_type === "peer" ? "PEER" : "REGISTER",
+                      liveReg,
+                      isActive,
+                      limit,
+                      used,
+                      totalCalls: totalCallsOnTrunk,
+                      satPct,
+                      status: statusLabel,
+                      statusBadgeClass
+                    };
                   });
 
                   return (
@@ -4816,55 +5149,104 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       {/* KPI Header */}
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
-                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Maksimum Eşzamanlı Çağrı</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>Maksimum Eşzamanlı Çağrı</p>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                              {totalFiltered} Toplam Çağrı
+                            </span>
+                          </div>
                           <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
                             <Server size={28} />
                             {peakConcurrent}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Aynı anda hatta olan maksimum kişi</p>
+                          <p className="text-sm font-medium text-slate-500">
+                            {peakTimestampLabel
+                              ? `Pik Zamanı: ${peakTimestampLabel}`
+                              : "Aynı anda hatta olan maksimum kişi"}
+                          </p>
                         </div>
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <p className={"text-xs font-bold uppercase tracking-wider " + text}>Maksimum Hat Doluluk Oranı</p>
-                          <h4 className={`text-4xl font-black ${maxSaturation >= 85 ? "text-rose-500" : "text-emerald-500"}`}>
+                          <h4 className={`text-4xl font-black ${maxSaturation >= 85 ? "text-rose-500" : maxSaturation >= 65 ? "text-amber-500" : "text-emerald-500"}`}>
                             %{maxSaturation}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Toplam {trunkCapacity} kapasite üzerinden</p>
+                          <p className="text-sm font-medium text-slate-500">
+                            Toplam {trunkCapacity} kanal kapasitesi üzerinden ({realTrunks.length} Dış Hat)
+                          </p>
                         </div>
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <p className={"text-xs font-bold uppercase tracking-wider " + text}>Hat Yetmezliği (Reddedilen)</p>
                           <h4 className={`text-4xl font-black ${rejectedCalls > 0 ? "text-rose-500" : "text-emerald-500"}`}>
                             {rejectedCalls} <span className="text-lg font-bold">({rejectionRate}%)</span>
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Kapasite aşıldığı için düşen çağrılar</p>
+                          <p className="text-sm font-medium text-slate-500">Kapasite aşıldığı veya meşguliyet için düşen çağrılar</p>
                         </div>
                       </div>
                       
                       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Area Chart Simulation */}
+                        {/* 24-Hour Concurrent Channel Usage Chart */}
                         <div className={"w-full rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
-                          <div className="flex items-center justify-between mb-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
                             <div>
-                              <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>24 Saatlik Eşzamanlı Kanal Kullanımı</h4>
-                              <p className="text-xs text-slate-500 mt-1">Sistemdeki SIP kanallarının saatlik kullanım tepe noktaları</p>
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>24 Saatlik Eşzamanlı Kanal Kullanımı</h4>
+                                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                  <CalendarIcon size={12} className={text} />
+                                  {periodDisplayLabel}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">
+                                Seçili periyottaki SIP kanallarının saat dilimlerine göre eşzamanlı kullanım tepe noktaları
+                              </p>
                             </div>
-                            <Cpu className="text-slate-400" />
+                            <div className="flex items-center gap-2">
+                              {availableCallDates.length > 1 && (
+                                <select
+                                  value={effectiveChartDate}
+                                  onChange={(e) => setSelectedTrunkChartDate(e.target.value)}
+                                  className="px-2.5 py-1.5 rounded-xl text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none cursor-pointer"
+                                  title="Grafikte gösterilecek günü seçin"
+                                >
+                                  <option value="ALL">Tüm Aralık (Saatlik Pik)</option>
+                                  {availableCallDates.map((dKey) => (
+                                    <option key={dKey} value={dKey}>
+                                      {fmtDateLabel(dKey)} ({dateCountsMap[dKey]} Çağrı)
+                                    </option>
+                                  ))}
+                                </select>
+                              )}
+                              <Cpu className="text-slate-400 shrink-0" />
+                            </div>
                           </div>
                           
-                          <div className="flex items-end justify-between h-48 w-full gap-1">
-                            {concurrentTimeline.map((val, idx) => {
-                              const heightPercent = Math.max(2, Math.round((val / trunkCapacity) * 100));
-                              let barColor = "bg-blue-400 dark:bg-blue-500";
-                              if (heightPercent > 80) barColor = "bg-rose-500 dark:bg-rose-500";
-                              else if (heightPercent > 50) barColor = "bg-amber-400 dark:bg-amber-500";
+                          <div className="flex items-end justify-between h-48 w-full gap-1 pt-6">
+                            {hourlyDetails.map((item, idx) => {
+                              const val = item.peakChannels;
+                              const saturationPct = Math.round((val / trunkCapacity) * 100);
+                              const barHeightPct =
+                                val === 0
+                                  ? 3
+                                  : Math.min(100, Math.max(8, Math.round((val / chartMaxScale) * 100)));
+                              let barColor = val === 0 ? "bg-slate-200 dark:bg-slate-800" : "bg-blue-500 dark:bg-blue-500";
+                              if (saturationPct >= 85) barColor = "bg-rose-500 dark:bg-rose-500";
+                              else if (saturationPct >= 50) barColor = "bg-amber-400 dark:bg-amber-500";
                               
                               return (
                                 <div key={idx} className="flex flex-col items-center flex-1 h-full justify-end group cursor-pointer relative">
-                                  <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-xs font-bold py-1 px-2 rounded whitespace-nowrap z-10 pointer-events-none">
-                                    {val} Kanal ({heightPercent}%)
+                                  <div className="absolute -top-14 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] font-bold py-1.5 px-2.5 rounded-lg whitespace-nowrap z-20 pointer-events-none shadow-lg text-center leading-tight">
+                                    <div>{String(idx).padStart(2, "0")}:00 — {val} Eşzamanlı Kanal (%{saturationPct})</div>
+                                    <div className="text-slate-300 font-normal">
+                                      Toplam: {item.totalCalls} Çağrı{item.peakDateStr && effectiveChartDate === "ALL" ? ` • Pik: ${item.peakDateStr}` : ""}
+                                    </div>
                                   </div>
+                                  {val > 0 && (
+                                    <span className="text-[9px] font-extrabold text-slate-600 dark:text-slate-300 mb-0.5">
+                                      {val}
+                                    </span>
+                                  )}
                                   <div 
                                     className={`w-full rounded-t transition-all duration-300 group-hover:opacity-80 ${barColor}`} 
-                                    style={{ height: `${heightPercent}%` }}
+                                    style={{ height: `${barHeightPct}%` }}
                                   ></div>
                                   <div className="mt-2 text-[8px] sm:text-[10px] font-bold text-slate-400">
                                     {String(idx).padStart(2, '0')}
@@ -4873,39 +5255,92 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               );
                             })}
                           </div>
-                          {/* Limit Line reference */}
-                          <div className="flex items-center gap-2 text-xs font-bold text-rose-500 mt-2">
-                            <div className="w-4 border-t-2 border-rose-500 border-dashed"></div>
-                            Kapasite Limiti ({trunkCapacity} Kanal)
+                          {/* Limit Line & Legend reference */}
+                          <div className="flex flex-wrap items-center justify-between gap-2 mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+                            <div className="flex items-center gap-2 text-xs font-bold text-rose-500">
+                              <div className="w-4 border-t-2 border-rose-500 border-dashed"></div>
+                              Kapasite Limiti ({trunkCapacity} Kanal)
+                            </div>
+                            <div className="flex items-center gap-3 text-[10px] font-bold text-slate-500">
+                              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-xs bg-blue-500 inline-block"></span> Normal (&lt;%50)</span>
+                              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-xs bg-amber-400 inline-block"></span> Yoğun (%50-%84)</span>
+                              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-xs bg-rose-500 inline-block"></span> Kritik (≥%85)</span>
+                            </div>
                           </div>
                         </div>
                         
-                        {/* Providers Table */}
+                        {/* Real SIP Trunks (Providers) Table */}
                         <div className="w-full flex flex-col gap-4">
-                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Sağlayıcı (Provider) Bazlı Dağılım</h4>
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                              Sağlayıcı (Dış Hat / SIP Trunk) Bazlı Dağılım
+                            </h4>
+                            <span className="text-xs font-bold text-slate-400">
+                              Sistemde Tanımlı {providers.length} Dış Hat
+                            </span>
+                          </div>
                           <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
                             <table className="w-full text-left border-collapse">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>SIP Sağlayıcı</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Dış Hat (SIP Trunk)</th>
                                   <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kapasite Limiti</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>
                                   <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Pik Kullanım</th>
                                   <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Durum</th>
                                 </tr>
                               </thead>
                               <tbody>
-                                {providers.map((p, idx) => (
-                                  <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{p.name}</td>
-                                    <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{p.limit} Kanal</td>
-                                    <td className="p-4 text-center font-black text-slate-800 dark:text-slate-200">{p.used}</td>
-                                    <td className="p-4 text-center">
-                                      <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${p.status === 'Normal' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-rose-50 text-rose-600 border-rose-100'}`}>
-                                        {p.status}
-                                      </span>
+                                {providers.length === 0 ? (
+                                  <tr>
+                                    <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                                      Sistemde henüz tanımlı bir dış hat (SIP Trunk) bulunmuyor. Santral Ayarları &gt; Dış Hatlar menüsünden ekleyebilirsiniz.
                                     </td>
                                   </tr>
-                                ))}
+                                ) : (
+                                  providers.map((p, idx) => (
+                                    <tr key={p.id || idx} className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}>
+                                      <td className="p-4">
+                                        <div className="flex items-center gap-2.5">
+                                          <span
+                                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                              !p.isActive
+                                                ? "bg-slate-400"
+                                                : p.liveReg === "registered" || p.liveReg === "active"
+                                                ? "bg-emerald-500"
+                                                : "bg-amber-500"
+                                            }`}
+                                            title={!p.isActive ? "Pasif" : p.liveReg === "registered" || p.liveReg === "active" ? "Kayıtlı / Aktif" : "Bağlantı Bekleniyor"}
+                                          />
+                                          <div>
+                                            <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                              <span>{p.name}</span>
+                                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                                {p.trunkType}
+                                              </span>
+                                            </div>
+                                            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                                              {p.did !== "-" ? `DID: ${p.did} • ` : ""}{p.host}
+                                            </div>
+                                          </div>
+                                        </div>
+                                      </td>
+                                      <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{p.limit} Kanal</td>
+                                      <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{p.totalCalls}</td>
+                                      <td className="p-4 text-center">
+                                        <div className="flex flex-col items-center">
+                                          <span className="font-black text-slate-800 dark:text-slate-200">{p.used} Kanal</span>
+                                          <span className="text-[10px] font-bold text-slate-400">%{p.satPct} Doluluk</span>
+                                        </div>
+                                      </td>
+                                      <td className="p-4 text-center">
+                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${p.statusBadgeClass}`}>
+                                          {p.status}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  ))
+                                )}
                               </tbody>
                             </table>
                           </div>
