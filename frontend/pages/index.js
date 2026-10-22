@@ -2023,7 +2023,7 @@ export default function Home() {
             onClick={() => setActiveTab("changelog")}
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
-            <span>v1.1.0 (On-Premise)</span>
+            <span>v2.5.3 (On-Premise)</span>
           </button>
         </div>
       </aside>
@@ -2476,7 +2476,7 @@ export default function Home() {
           )}
 
           {activeTab === "changelog" && (
-            <ChangelogPanel onBack={() => setActiveTab("dashboard")} />
+            <ChangelogPanel backendHost={backendHost} onBack={() => setActiveTab("dashboard")} />
           )}
         </div>
 

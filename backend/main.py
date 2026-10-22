@@ -11034,19 +11034,109 @@ async def get_system_version_info():
     Returns full system version history, git commit hash, release timestamps, and build status.
     Used by local and production servers to verify deployment synchronization.
     """
+    live_commit = "auto"
+    try:
+        import subprocess
+        res = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=1.5)
+        if res.returncode == 0 and res.stdout.strip():
+            live_commit = res.stdout.strip()
+    except Exception:
+        pass
+
     return {
-        "version": "v2.4.9",
-        "commit_hash": "auto",
-        "release_date": "6 Ekim 2026",
+        "version": "v2.5.3",
+        "commit_hash": live_commit,
+        "release_date": "22 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
-        "environment": "Production",
+        "environment": "Production (On-Premise)",
         "changelog": [
+            {
+                "version": "v2.5.3",
+                "commit_hash": live_commit,
+                "release_date": "22 Ekim 2026",
+                "badge": "Canlı Sürüm (Güncel)",
+                "badge_type": "current",
+                "title": "SIP Sızma (Toll-Fraud) Kalkanı, Fail2Ban Arayüz Yönetimi & Güvenli IP / Blok Beyaz Listesi",
+                "summary": "Dışarıdan gelen yetkisiz SIP INVITE sızma girişimlerine karşı çok katmanlı güvenlik kalkanı, arayüzdeki SIP şifresi ile Asterisk PJSIP tam senkronizasyonu, canlı Fail2Ban/UFW kontrolü ve Güvenli IP / CIDR Blok tanımlama altyapısı devreye alındı.",
+                "features": [
+                    {
+                        "title": "🛡️ Güvenlik Kalkanı: Canlı Fail2Ban, UFW & Güvenli IP / Blok (Whitelist) Yönetimi",
+                        "desc": "Güvenlik Kalkanı ekranından tekil IP veya CIDR alt ağ bloklarını (Örn: 88.247.10.25, 192.168.1.0/24) Güvenli Liste'ye (Fail2Ban ignoreip ve UFW ALLOW) ekleme, silme, saldırgan IP'leri anında banlama ve Asterisk PJSIP sızma denemelerini canlı izleme özelliği eklendi."
+                    },
+                    {
+                        "title": "🔐 Arayüz SIP Şifresi & Asterisk PJSIP Kriptografik Senkronizasyonu",
+                        "desc": "Kullanıcı Düzenleme > SIP sekmesindeki SIP şifresinin Asterisk pjsip_custom.conf ve WebRTC istemcisiyle birebir senkronize çalışması sağlandı; zayıf/varsayılan şifreler otomatik olarak güçlü kriptografik şifrelerle korumaya alındı."
+                    },
+                    {
+                        "title": "🚫 Giden Çağrı ACL & Uluslararası Toll-Fraud Koruması",
+                        "desc": "/api/acl/check_outbound_call doğrulaması ile PJSIP/anonymous çağrıları ve yetkisiz uluslararası (00 / +) sızma aramaları dialplan seviyesinde anında bloklandı."
+                    }
+                ],
+                "fixes": [
+                    "Dahili 1000 ve varsayılan dahililerdeki sabit SIP şifresi açığı kapatılarak arayüzdeki SIP Şifresi alanıyla tam uyumlu hale getirildi.",
+                    "Güvenlik Kalkanı ekranının statik veri yerine doğrudan canlı Fail2Ban, UFW ve Asterisk loglarıyla çalışması sağlandı."
+                ]
+            },
+            {
+                "version": "v2.5.2",
+                "commit_hash": "5eca135",
+                "release_date": "21 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
+                "title": "Tüm Santral (PBX) Modülleri İçin Excel İçe Aktar (Import) ve Dışa Aktar (Export) Desteği",
+                "summary": "Kullanıcı Listesi ve ACD Kuyruk ekranlarında bulunan Excel İçe/Dışa Aktar yapısı tüm santral yönetim ekranlarına standart olarak entegre edildi.",
+                "features": [
+                    {
+                        "title": "📥 10 Santral Modülünde Toplu Excel Import / Export",
+                        "desc": "Oto Provizyon, Giden/Gelen Arama Kuralları, Çağrı Toplama Grubu, Abone Grubu, Rehber, Dış Hat Tanımı (SIP Trunk), Konferans, Hızlı Arama ve Numara Engelleme ekranlarına örnek şablon indirme, Excel yükleme ve dışa aktarma butonları eklendi."
+                    }
+                ],
+                "fixes": [
+                    "Toplu Excel içe aktarımlarında oluşan mükerrer kayıt ve eksik kolon validasyonları iyileştirildi."
+                ]
+            },
+            {
+                "version": "v2.5.1",
+                "commit_hash": "4c65fb5",
+                "release_date": "21 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
+                "title": "Kullanıcı 'Beni Takip Et (Follow Me)' Özelliği & Çağrı Profili Kayıt Senkronizasyonu",
+                "summary": "Kullanıcıların masa telefonu yanıt vermediğinde çağrının belirlenen saniye sonunda sırasıyla Mobil Uygulama veya Mobil Telefon Numarasına yönlendirilmesini sağlayan 2 kademeli Beni Takip Et özelliği eklendi.",
+                "features": [
+                    {
+                        "title": "📲 2 Kademeli Beni Takip Et (Follow Me) Yönlendirmesi",
+                        "desc": "Kullanıcı Düzenleme > Özellikler sekmesine çalma süresi (sn), 1. Gideceği Yer ve 2. Gideceği Yer (Mobil Uygulama / Mobil Telefon Numarası) seçimi ve Asterisk dialplan entegrasyonu eklendi."
+                    }
+                ],
+                "fixes": [
+                    "Temsilci ve kullanıcı düzenleme ekranında seçilen aktif çağrı profilinin (Müsait, Dışarıda, Toplantı, Diğer) kayıt sonrası sıfırlanması sorunu giderildi."
+                ]
+            },
+            {
+                "version": "v2.5.0",
+                "commit_hash": "34c3a40",
+                "release_date": "20 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
+                "title": "Temsilci Kronolojisi (Agent Status Timeline) Raporu & Detaylı Zaman Çizelgesi",
+                "summary": "Raporlar ekranına temsilcilerin gün içindeki Çevrimiçi, Mola ve Çevrimdışı sürelerini tek satırda özetleyen ve büyüteç ikonu ile saniye bazlı durum geçişlerini gösteren Temsilci Kronolojisi sekmesi eklendi.",
+                "features": [
+                    {
+                        "title": "⏱️ Temsilci Kronolojisi & Büyüteç Detay Modalı",
+                        "desc": "Temsilci bazlı toplam durum süreleri, yüzdelik dağılım çubuğu ve detaylı durum geçiş saatlerini gösteren inceleme penceresi eklendi."
+                    }
+                ],
+                "fixes": [
+                    "Nginx 502 Bad Gateway ve port çakışması kaynaklı başlangıç hataları giderildi."
+                ]
+            },
             {
                 "version": "v2.4.9",
                 "commit_hash": "auto",
                 "release_date": "6 Ekim 2026",
-                "badge": "Canlı Sürüm (Güncel)",
-                "badge_type": "current",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "Offline Kriptografik Lisans Anahtarı Yükleme, Donanım Kilidi & Kotaların Canlı Entegrasyonu",
                 "summary": "Lisans sunucusunda üretilen HMAC-SHA256 imzalı ve Base64 kotalı lisans anahtarlarının offline ortamda uygulama sunucusuna yüklenmesi, kotaların anında güncellenmesi ve dedicated Lisans & Key Yönetimi panelinin entegrasyonu sağlandı.",
                 "features": [
