@@ -1,9 +1,107 @@
 import os
+import re
 import json
+import asyncio
 from sqlalchemy import select
 from backend.database.config import AsyncSessionLocal
 from backend.database.models import Call, Transcript, ChatSession, ChatMessage
 from backend.services.rag_service import get_genai_client
+
+
+def build_fallback_summary_from_turns(turns) -> tuple[str, str]:
+    """
+    Deterministic Turkish summary and sentiment extractor from transcript turns
+    used when Gemini API is unavailable or quota-limited.
+    """
+    if not turns:
+        return ("Herhangi bir konuşma algılanmadı.", "Nötr")
+
+    customer_texts = [
+        (t.text or "").strip()
+        for t in turns
+        if t.speaker == "customer" and (t.text or "").strip()
+    ]
+    agent_texts = [
+        (t.text or "").strip()
+        for t in turns
+        if t.speaker in ("ai", "agent", "human") and (t.text or "").strip()
+    ]
+
+    full_lower = " ".join([(t.text or "") for t in turns]).lower()
+    positive_words = ["teşekkür", "sağ olun", "harika", "memnun", "iyi günler", "süper", "tamam", "anladım"]
+    negative_words = ["şikayet", "sorun", "kötü", "iptal", "kızgın", "mağdur", "çözülmedi", "olmadı"]
+
+    pos_score = sum(1 for w in positive_words if w in full_lower)
+    neg_score = sum(1 for w in negative_words if w in full_lower)
+    if neg_score > pos_score:
+        sentiment = "Olumsuz"
+    elif pos_score > 0:
+        sentiment = "Pozitif"
+    else:
+        sentiment = "Nötr"
+
+    parts = []
+    if customer_texts:
+        first_req = customer_texts[0]
+        if len(first_req) > 140:
+            first_req = first_req[:137] + "..."
+        parts.append(f"Müşteri görüşmede \"{first_req}\" konusunda talepte bulundu.")
+        if len(customer_texts) > 1:
+            last_req = customer_texts[-1]
+            if last_req != customer_texts[0]:
+                if len(last_req) > 120:
+                    last_req = last_req[:117] + "..."
+                parts.append(f"Devamında \"{last_req}\" ifadesiyle görüşmeyi sürdürdü.")
+    else:
+        parts.append("Görüşmede müşteri tarafından sesli bir ifade kaydedilmedi.")
+
+    if agent_texts:
+        last_resp = agent_texts[-1]
+        if len(last_resp) > 150:
+            last_resp = last_resp[:147] + "..."
+        parts.append(f"Temsilci/Asistan tarafından \"{last_resp}\" şeklinde bilgilendirme yapılarak görüşme tamamlandı.")
+
+    summary = " ".join(parts).strip()
+    return (summary or "Görüşme tamamlandı.", sentiment)
+
+
+async def _generate_with_gemini_fallback(client, prompt: str) -> str:
+    models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+    last_err = None
+    for model_name in models_to_try:
+        try:
+            resp = await asyncio.to_thread(
+                client.models.generate_content,
+                model=model_name,
+                contents=prompt,
+            )
+            if resp and getattr(resp, "text", None):
+                return resp.text.strip()
+        except Exception as e:
+            last_err = e
+            continue
+    if last_err:
+        raise last_err
+    raise RuntimeError("Empty response from Gemini")
+
+
+def _extract_json_dict(raw_text: str) -> dict:
+    cleaned = (raw_text or "").strip()
+    if cleaned.startswith("```json"):
+        cleaned = cleaned[7:]
+    elif cleaned.startswith("```"):
+        cleaned = cleaned[3:]
+    if cleaned.endswith("```"):
+        cleaned = cleaned[:-3]
+    cleaned = cleaned.strip()
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if match:
+            return json.loads(match.group(0))
+        raise
+
 
 async def analyze_chat_session(session_id: str):
     """
@@ -12,7 +110,6 @@ async def analyze_chat_session(session_id: str):
     """
     print(f"[QA Analyzer] Analyzing chat_session id={session_id}")
     async with AsyncSessionLocal() as session:
-        # Fetch chat messages
         stmt = select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.timestamp.asc())
         result = await session.execute(stmt)
         messages = result.scalars().all()
@@ -32,7 +129,6 @@ async def analyze_chat_session(session_id: str):
             
         transcript_text = "\n".join(chat_history)
         
-        # Fetch active QA Questions
         from backend.database.models import QAQuestion
         stmt_qa = select(QAQuestion).where(QAQuestion.is_active == True)
         res_qa = await session.execute(stmt_qa)
@@ -72,21 +168,9 @@ Yanıtını kesinlikle şu JSON formatında ver:
 }}
 """
             try:
-                import asyncio
                 client = get_genai_client()
-                qa_response = await asyncio.to_thread(
-                    client.models.generate_content,
-                    model="gemini-2.5-flash",
-                    contents=qa_prompt
-                )
-                qa_text = qa_response.text.strip()
-                if qa_text.startswith("```json"):
-                    qa_text = qa_text[7:]
-                if qa_text.endswith("```"):
-                    qa_text = qa_text[:-3]
-                qa_text = qa_text.strip()
-                
-                qa_data = json.loads(qa_text)
+                qa_text = await _generate_with_gemini_fallback(client, qa_prompt)
+                qa_data = _extract_json_dict(qa_text)
                 qa_score = max(0, min(100, qa_data.get("total_score", 100)))
                 qa_report_str = json.dumps(qa_data, ensure_ascii=False)
             except Exception as e:
@@ -99,11 +183,12 @@ Yanıtını kesinlikle şu JSON formatında ver:
             await session.commit()
             print(f"[QA Analyzer] Successfully updated chat session {session_id} -> QA Score = {qa_score}")
 
-async def analyze_call(call_id: str):
+
+async def analyze_call(call_id: str) -> dict:
     """
     Analyzes a call's transcripts using Gemini API to generate a brief summary 
     and extract the customer's sentiment (Duygu Durumu).
-    Updates the database with the results.
+    Updates the database with the results and returns the summary payload.
     """
     print(f"[Call Analyzer] Analyzing call_id={call_id}")
     async with AsyncSessionLocal() as session:
@@ -119,7 +204,13 @@ async def analyze_call(call_id: str):
                 db_call.summary = "Herhangi bir konuşma algılanmadı."
                 db_call.sentiment = "Nötr"
                 await session.commit()
-            return
+                return {
+                    "id": call_id,
+                    "summary": db_call.summary,
+                    "sentiment": db_call.sentiment,
+                    "qa_score": db_call.qa_score,
+                }
+            return {"id": call_id, "summary": "Herhangi bir konuşma algılanmadı.", "sentiment": "Nötr"}
             
         # 2. Build conversation history
         chat_history = []
@@ -132,6 +223,7 @@ async def analyze_call(call_id: str):
             chat_history.append(f"{speaker_label}: {turn.text}")
             
         transcript_text = "\n".join(chat_history)
+        fallback_summary, fallback_sentiment = build_fallback_summary_from_turns(turns)
         
         # 3. Call Gemini API
         try:
@@ -143,7 +235,7 @@ Aşağıdaki telefon görüşmesi transkriptini analiz et:
 {transcript_text}
 
 Senden iki şey istiyorum:
-1. Görüşmenin kısa bir özetini çıkar (en fazla 2 cümle, Türkçe).
+1. Görüşmenin anlaşılır ve net bir özetini çıkar (2-3 cümle, Türkçe).
 2. Müşterinin duygu durumunu şu kategorilerden biri olarak belirle: "Pozitif", "Nötr", "Olumsuz", "Öfkeli", "Memnun".
 
 Yanıtını kesinlikle şu JSON formatında ver:
@@ -152,22 +244,10 @@ Yanıtını kesinlikle şu JSON formatında ver:
   "sentiment": "kategori"
 }}
 """
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model="gemini-2.5-flash",
-                contents=prompt
-            )
-            
-            resp_text = response.text.strip()
-            if resp_text.startswith("```json"):
-                resp_text = resp_text[7:]
-            if resp_text.endswith("```"):
-                resp_text = resp_text[:-3]
-            resp_text = resp_text.strip()
-            
-            data = json.loads(resp_text)
-            summary_val = data.get("summary", "")
-            sentiment_val = data.get("sentiment", "Nötr")
+            resp_text = await _generate_with_gemini_fallback(client, prompt)
+            data = _extract_json_dict(resp_text)
+            summary_val = (data.get("summary") or "").strip() or fallback_summary
+            sentiment_val = (data.get("sentiment") or "").strip() or fallback_sentiment
             
             # Fetch QA Rules
             from backend.database.models import QAQuestion
@@ -209,19 +289,8 @@ Yanıtını kesinlikle şu JSON formatında ver:
 }}
 """
                 try:
-                    qa_response = await asyncio.to_thread(
-                        client.models.generate_content,
-                        model="gemini-2.5-flash",
-                        contents=qa_prompt
-                    )
-                    qa_text = qa_response.text.strip()
-                    if qa_text.startswith("```json"):
-                        qa_text = qa_text[7:]
-                    if qa_text.endswith("```"):
-                        qa_text = qa_text[:-3]
-                    qa_text = qa_text.strip()
-                    
-                    qa_data = json.loads(qa_text)
+                    qa_text = await _generate_with_gemini_fallback(client, qa_prompt)
+                    qa_data = _extract_json_dict(qa_text)
                     qa_score = max(0, min(100, qa_data.get("total_score", 100)))
                     qa_report_str = json.dumps(qa_data, ensure_ascii=False)
                 except Exception as ex_qa:
@@ -236,15 +305,28 @@ Yanıtını kesinlikle şu JSON formatında ver:
                 db_call.qa_report = qa_report_str
                 await session.commit()
                 print(f"[Call Analyzer] Successfully updated call_id={call_id} -> sentiment={sentiment_val}, qa_score={qa_score}")
+                return {
+                    "id": call_id,
+                    "summary": db_call.summary,
+                    "sentiment": db_call.sentiment,
+                    "qa_score": db_call.qa_score,
+                }
+            return {"id": call_id, "summary": summary_val, "sentiment": sentiment_val, "qa_score": qa_score}
         except Exception as e:
-            print(f"[Call Analyzer] Error analyzing call {call_id}: {e}")
-            # Fallback values
+            print(f"[Call Analyzer] Error analyzing call {call_id} with Gemini, using transcript fallback: {e}")
             db_call = await session.get(Call, call_id)
             if db_call:
-                if not db_call.summary:
-                    db_call.summary = "Görüşme özeti çıkartılamadı."
+                db_call.summary = fallback_summary
                 if not db_call.sentiment:
-                    db_call.sentiment = "Nötr"
+                    db_call.sentiment = fallback_sentiment
                 if db_call.qa_score is None:
                     db_call.qa_score = 100
                 await session.commit()
+                return {
+                    "id": call_id,
+                    "summary": db_call.summary,
+                    "sentiment": db_call.sentiment,
+                    "qa_score": db_call.qa_score,
+                }
+            return {"id": call_id, "summary": fallback_summary, "sentiment": fallback_sentiment, "qa_score": 100}
+

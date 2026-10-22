@@ -6561,6 +6561,15 @@ async def end_call_endpoint(
             print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus})")
             add_system_log("ASTERISK", "INFO", f"Arama Sonlandı: ID={call_id}, Durum={resolved_status}")
 
+            # Trigger AI Call Analyzer if summary is not yet populated
+            if not db_call.summary or "çıkartılamadı" in str(db_call.summary).lower():
+                try:
+                    import asyncio
+                    from backend.services.call_analyzer import analyze_call
+                    asyncio.create_task(analyze_call(call_id))
+                except Exception as ex_an:
+                    print(f"[End Call Analyzer Trigger Error]: {ex_an}")
+
             # Trigger automated WhatsApp Missed Call greeting if call was unanswered
             if resolved_status in ["no_answer", "busy", "failed", "cancelled"]:
                 caller_num = str(db_call.caller_number or "").strip()
@@ -6749,6 +6758,14 @@ async def get_call_transcripts(call_id: str, db: AsyncSession = Depends(get_db))
         return modified
         
     return transcripts
+
+
+@app.post("/api/calls/{call_id}/summarize")
+async def summarize_call_endpoint(call_id: str):
+    """Generates or regenerates the AI summary & sentiment for a call on demand."""
+    from backend.services.call_analyzer import analyze_call
+    res = await analyze_call(call_id)
+    return res or {"id": call_id, "summary": "", "sentiment": "Nötr"}
 
 @app.get("/api/appointments")
 async def list_appointments(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):

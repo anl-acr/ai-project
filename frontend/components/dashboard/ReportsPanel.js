@@ -724,6 +724,79 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       .catch((err) => console.error("[Reports] Görüşme detayları yüklenemedi:", err));
   };
 
+  const [summaryGenerating, setSummaryGenerating] = useState(false);
+
+  const isInvalidSummaryText = (s) => {
+    if (!s || typeof s !== "string") return true;
+    const lower = s.trim().toLocaleLowerCase("tr-TR");
+    if (!lower) return true;
+    return (
+      lower.includes("çıkartılamadı") ||
+      lower.includes("oluşturulamadı") ||
+      lower.includes("bulunmamaktadır")
+    );
+  };
+
+  const buildClientFallbackSummary = (turns) => {
+    if (!Array.isArray(turns) || turns.length === 0) return "";
+    const customerTexts = turns
+      .filter((t) => t.speaker === "customer" && t.text && t.text.trim())
+      .map((t) => t.text.trim());
+    const agentTexts = turns
+      .filter((t) => ["ai", "agent", "human"].includes(t.speaker) && t.text && t.text.trim())
+      .map((t) => t.text.trim());
+    const parts = [];
+    if (customerTexts.length > 0) {
+      const firstReq = customerTexts[0].length > 140 ? customerTexts[0].slice(0, 137) + "..." : customerTexts[0];
+      parts.push(`Müşteri görüşmede "${firstReq}" konusunda talepte bulundu.`);
+      if (customerTexts.length > 1 && customerTexts[customerTexts.length - 1] !== customerTexts[0]) {
+        const lastReq = customerTexts[customerTexts.length - 1];
+        const trimmedLast = lastReq.length > 120 ? lastReq.slice(0, 117) + "..." : lastReq;
+        parts.push(`Devamında "${trimmedLast}" ifadesiyle görüşmeyi sürdürdü.`);
+      }
+    } else {
+      parts.push("Görüşmede müşteri tarafından sesli bir ifade kaydedilmedi.");
+    }
+    if (agentTexts.length > 0) {
+      const lastResp = agentTexts[agentTexts.length - 1];
+      const trimmedResp = lastResp.length > 150 ? lastResp.slice(0, 147) + "..." : lastResp;
+      parts.push(`Temsilci/Asistan tarafından "${trimmedResp}" şeklinde bilgilendirme yapılarak görüşme tamamlandı.`);
+    }
+    return parts.join(" ").trim();
+  };
+
+  const handleGenerateCallSummary = async (targetCall) => {
+    if (!targetCall?.id) return;
+    setSummaryGenerating(true);
+    try {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/calls/${targetCall.id}/summarize`, {
+        method: "POST",
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.summary && !isInvalidSummaryText(data.summary)) {
+          setSelectedTranscriptCall((prev) =>
+            prev && prev.id === targetCall.id
+              ? { ...prev, summary: data.summary, sentiment: data.sentiment || prev.sentiment }
+              : prev
+          );
+          setCalls((prev) =>
+            prev.map((c) =>
+              c.id === targetCall.id
+                ? { ...c, summary: data.summary, sentiment: data.sentiment || c.sentiment }
+                : c
+            )
+          );
+        }
+      }
+    } catch (err) {
+      console.error("Error generating call summary:", err);
+    } finally {
+      setSummaryGenerating(false);
+    }
+  };
+
   useEffect(() => {
     if (selectedTranscriptCall) {
       setPopupLoading(true);
@@ -738,10 +811,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         })
         .catch(err => console.error("Error fetching popup transcripts:", err))
         .finally(() => setPopupLoading(false));
+
+      if (isSummaryPopupOpen && isInvalidSummaryText(selectedTranscriptCall.summary)) {
+        handleGenerateCallSummary(selectedTranscriptCall);
+      }
     } else {
       setPopupTranscripts([]);
     }
-  }, [selectedTranscriptCall, backendHost]);
+  }, [selectedTranscriptCall?.id, isSummaryPopupOpen, backendHost]);
 
   useEffect(() => {
     if (selectedQACall) {
@@ -1867,9 +1944,30 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
               {/* Summary Text Area */}
               <div className="p-5 bg-purple-50/40 dark:bg-purple-900/10 border border-purple-100/50 dark:border-purple-900/20 rounded-2xl text-xs text-slate-700 dark:text-purple-300 leading-relaxed font-semibold">
-                <span className="font-bold text-primary dark:text-purple-400 block mb-2 text-[10px] uppercase tracking-wider">Müşteri Temsilcisi / Yapay Zeka Özeti:</span>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <span className="font-bold text-primary dark:text-purple-400 text-[10px] uppercase tracking-wider">
+                    Müşteri Temsilcisi / Yapay Zeka Özeti:
+                  </span>
+                  <button
+                    type="button"
+                    disabled={summaryGenerating}
+                    onClick={() => handleGenerateCallSummary(selectedTranscriptCall)}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:text-primary transition disabled:opacity-50 cursor-pointer"
+                    title="Özeti Yeniden Oluştur"
+                  >
+                    <RefreshCw size={11} className={summaryGenerating ? "animate-spin" : ""} />
+                    <span>{summaryGenerating ? "Oluşturuluyor..." : "Özeti Yenile"}</span>
+                  </button>
+                </div>
                 <p className="whitespace-pre-line text-[11px] font-medium leading-relaxed">
-                  {selectedTranscriptCall.summary || "Bu görüşmeye ait yapay zeka özeti bulunmamaktadır."}
+                  {!isInvalidSummaryText(selectedTranscriptCall.summary)
+                    ? selectedTranscriptCall.summary
+                    : summaryGenerating
+                    ? "Yapay zeka görüşme özeti oluşturuluyor, lütfen bekleyin..."
+                    : buildClientFallbackSummary(popupTranscripts) ||
+                      (popupLoading
+                        ? "Görüşme verileri analiz ediliyor..."
+                        : "Bu görüşmeye ait konuşma metni bulunamadığından özet oluşturulamadı.")}
                 </p>
               </div>
             </div>
@@ -6116,10 +6214,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 </div>
 
                 {/* Call Summary (if exists, show in Sentiment and CDR modes) */}
-                {["sentiment", "cdr"].includes(viewMode) && selectedCall.summary && (
+                {["sentiment", "cdr"].includes(viewMode) && (!isInvalidSummaryText(selectedCall.summary) || transcripts.length > 0) && (
                   <div className="p-3 bg-purple-50 dark:bg-purple-900/20 border border-purple-100 dark:border-purple-900/30 rounded-xl text-xs text-purple-800 dark:text-purple-300 leading-relaxed font-semibold">
                     <span className="font-bold text-primary dark:text-purple-400 block mb-1">Görüşme Özeti (Yapay Zeka):</span>
-                    {selectedCall.summary}
+                    {!isInvalidSummaryText(selectedCall.summary) ? selectedCall.summary : buildClientFallbackSummary(transcripts)}
                   </div>
                 )}
 

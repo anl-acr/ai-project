@@ -9,12 +9,26 @@ from backend.database.config import AsyncSessionLocal
 from backend.database.models import DocumentChunk
 
 def get_genai_client():
-    api_key = os.getenv("GEMINI_API_KEY", "")
+    api_key = os.getenv("GEMINI_API_KEY", "").strip()
     if not api_key:
         from dotenv import load_dotenv
         base_dir = os.path.dirname(os.path.abspath(__file__))
         load_dotenv(os.path.join(base_dir, "..", ".env"))
-        api_key = os.getenv("GEMINI_API_KEY", "")
+        api_key = os.getenv("GEMINI_API_KEY", "").strip()
+    if not api_key:
+        try:
+            settings_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "settings.json")
+            if os.path.exists(settings_path):
+                with open(settings_path, "r", encoding="utf-8") as f:
+                    s_data = json.load(f)
+                    api_key = (
+                        s_data.get("gemini_api_key")
+                        or (s_data.get("ai_settings") or {}).get("gemini_api_key")
+                        or (s_data.get("general") or {}).get("gemini_api_key")
+                        or ""
+                    ).strip()
+        except Exception:
+            pass
     if not api_key:
         raise ValueError("GEMINI_API_KEY environment variable is not set.")
     return genai.Client(api_key=api_key)
