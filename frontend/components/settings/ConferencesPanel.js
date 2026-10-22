@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Search, Trash2, Edit2, X, Users, Check, AlertCircle, Mic, AlertTriangle, Download, Upload } from "lucide-react";
+import { Plus, Search, Trash2, Edit2, X, Users, Check, AlertCircle, Mic, AlertTriangle, Download, Upload, BookOpen, Phone, ChevronDown } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
@@ -10,6 +10,9 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [conferences, setConferences] = useState([]);
   const [users, setUsers] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [showContactPicker, setShowContactPicker] = useState(false);
+  const [contactSearchQuery, setContactSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -101,6 +104,17 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
         const uData = await resUsers.json();
         setUsers(uData);
       }
+
+      // Fetch contacts from directory for external participant selection
+      try {
+        const resContacts = await fetch(`${API_BASE}/api/contacts`);
+        if (resContacts.ok) {
+          const cData = await resContacts.json();
+          setContacts(Array.isArray(cData) ? cData : []);
+        }
+      } catch (cErr) {
+        console.error("Contacts load error in ConferencesPanel:", cErr);
+      }
     } catch (err) {
       setError("Bağlantı hatası oluştu.");
     } finally {
@@ -181,6 +195,8 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
     setSelectedInternals([]);
     setExternalNumbers([]);
     setCurrentExternal("");
+    setShowContactPicker(false);
+    setContactSearchQuery("");
     setRecordingEnabled(false);
     setShowModal(true);
   };
@@ -193,6 +209,8 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
     setSelectedInternals(item.internals || []);
     setExternalNumbers(item.externals || []);
     setCurrentExternal("");
+    setShowContactPicker(false);
+    setContactSearchQuery("");
     setRecordingEnabled(item.recording_enabled || false);
     setShowModal(true);
   };
@@ -204,10 +222,47 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
     );
   };
 
+  const normalizeDigits = (val) => String(val || "").replace(/\D/g, "");
+
+  const isSamePhone = (a, b) => {
+    const dA = normalizeDigits(a);
+    const dB = normalizeDigits(b);
+    if (!dA || !dB) return false;
+    if (dA === dB) return true;
+    if (dA.length >= 10 && dB.length >= 10 && dA.slice(-10) === dB.slice(-10)) return true;
+    return false;
+  };
+
+  const getContactNameForNumber = (num) => {
+    if (!num || !contacts || contacts.length === 0) return null;
+    const matched = contacts.find(c => c.phone_number && isSamePhone(c.phone_number, num));
+    if (!matched) return null;
+    return `${matched.first_name || ""} ${matched.last_name || ""}`.trim() || null;
+  };
+
+  const isContactSelected = (phoneStr) => {
+    const clean = normalizeDigits(phoneStr);
+    if (!clean) return false;
+    return externalNumbers.some(n => isSamePhone(n, clean));
+  };
+
+  const toggleContactExternal = (phoneStr) => {
+    const clean = normalizeDigits(phoneStr);
+    if (!clean) return;
+    setExternalNumbers(prev => {
+      const exists = prev.some(n => isSamePhone(n, clean));
+      if (exists) {
+        return prev.filter(n => !isSamePhone(n, clean));
+      }
+      return [...prev, clean];
+    });
+  };
+
   const addExternal = (e) => {
     e.preventDefault();
-    if (currentExternal.trim() && !externalNumbers.includes(currentExternal.trim())) {
-      setExternalNumbers(prev => [...prev, currentExternal.trim()]);
+    const clean = normalizeDigits(currentExternal);
+    if (clean && !externalNumbers.some(n => isSamePhone(n, clean))) {
+      setExternalNumbers(prev => [...prev, clean]);
       setCurrentExternal("");
     }
   };
@@ -540,11 +595,32 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
               </div>
 
               <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">Harici Numaralar (Dış Katılımcılar)</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                    Harici Numaralar (Dış Katılımcılar)
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShowContactPicker(prev => !prev)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all border ${
+                      showContactPicker
+                        ? `${lightBg} ${text} ${borderLight}`
+                        : "bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    }`}
+                  >
+                    <BookOpen size={13} />
+                    <span>Rehberden Seç</span>
+                    <span className="px-1.5 py-0.2 rounded-md text-[10px] bg-slate-200/70 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200">
+                      {(contacts || []).filter(c => c.phone_number).length}
+                    </span>
+                    <ChevronDown size={13} className={`transition-transform duration-200 ${showContactPicker ? "rotate-180" : ""}`} />
+                  </button>
+                </div>
+
                 <div className="flex gap-2 mb-2">
                   <input
                     type="text"
-                    placeholder="Numara yazıp Ekle'ye basın"
+                    placeholder="Numara yazıp Ekle'ye basın veya Rehberden seçin"
                     value={currentExternal}
                     onChange={(e) => setCurrentExternal(e.target.value.replace(/\D/g, ''))}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExternal(e); } }}
@@ -558,16 +634,114 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
                     Ekle
                   </button>
                 </div>
+
+                {/* Searchable Directory Contact Picker */}
+                {showContactPicker && (
+                  <div className="mb-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 space-y-2.5 animate-in fade-in duration-150">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type="text"
+                          placeholder="Rehberde isim veya telefon numarası ara..."
+                          value={contactSearchQuery}
+                          onChange={(e) => setContactSearchQuery(e.target.value)}
+                          className={`w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
+                        />
+                        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowContactPicker(false)}
+                        className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+                        title="Rehberi Kapat"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+
+                    {(() => {
+                      const q = contactSearchQuery.trim().toLowerCase();
+                      const validContacts = (contacts || []).filter(c => c.phone_number && normalizeDigits(c.phone_number));
+                      const filteredContacts = validContacts.filter(c => {
+                        if (!q) return true;
+                        const fullName = `${c.first_name || ""} ${c.last_name || ""}`.toLowerCase();
+                        const phoneStr = String(c.phone_number || "").toLowerCase();
+                        const emailStr = String(c.email || "").toLowerCase();
+                        return fullName.includes(q) || phoneStr.includes(q) || emailStr.includes(q);
+                      });
+
+                      if (validContacts.length === 0) {
+                        return (
+                          <div className="py-4 text-center text-xs text-slate-400 font-medium">
+                            Rehberde kayıtlı telefon numarası bulunamadı.
+                          </div>
+                        );
+                      }
+
+                      if (filteredContacts.length === 0) {
+                        return (
+                          <div className="py-4 text-center text-xs text-slate-400 font-medium">
+                            Aramanızla eşleşen rehber kaydı bulunamadı.
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
+                          {filteredContacts.map((c) => {
+                            const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "İsimsiz Kişi";
+                            const selected = isContactSelected(c.phone_number);
+                            return (
+                              <button
+                                key={c.id || c.phone_number}
+                                type="button"
+                                onClick={() => toggleContactExternal(c.phone_number)}
+                                className={`flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-all border ${
+                                  selected
+                                    ? `${lightBg} ${text} ${borderLight} font-bold shadow-xs`
+                                    : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200/70 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                }`}
+                              >
+                                <div className="min-w-0 pr-2">
+                                  <div className="font-bold truncate">{fullName}</div>
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+                                    <Phone size={10} />
+                                    <span className="font-mono">{c.phone_number}</span>
+                                  </div>
+                                </div>
+                                <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all ${
+                                  selected
+                                    ? `${bg} text-white`
+                                    : "border border-slate-300 dark:border-slate-700 text-transparent"
+                                }`}>
+                                  <Check size={12} />
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 {externalNumbers.length > 0 && (
                   <div className="flex flex-wrap gap-2 p-3 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
-                    {externalNumbers.map((num, idx) => (
-                      <div key={idx} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold ${lightBg} ${text} border ${borderLight}`}>
-                        {num}
-                        <button type="button" onClick={() => removeExternal(num)} className="hover:text-rose-500 transition-colors ml-1">
-                          <X size={12} />
-                        </button>
-                      </div>
-                    ))}
+                    {externalNumbers.map((num, idx) => {
+                      const cName = getContactNameForNumber(num);
+                      return (
+                        <div key={idx} className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-bold ${lightBg} ${text} border ${borderLight}`}>
+                          {cName ? (
+                            <span>{cName} <span className="opacity-75 font-mono">({num})</span></span>
+                          ) : (
+                            <span className="font-mono">{num}</span>
+                          )}
+                          <button type="button" onClick={() => removeExternal(num)} className="hover:text-rose-500 transition-colors ml-1" title="Kaldır">
+                            <X size={12} />
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
