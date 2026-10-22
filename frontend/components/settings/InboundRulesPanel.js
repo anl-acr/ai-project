@@ -102,9 +102,9 @@ const DualListBox = ({
               />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
             <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 bg-white dark:bg-slate-900/50 z-10">
+              <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10 border-b border-slate-100 dark:border-slate-800">
                 <tr>
                   <th className="p-2 w-8"></th>
                   {columns.map((col, idx) => <th key={idx} className="p-2 font-semibold text-slate-500">{col}</th>)}
@@ -172,9 +172,9 @@ const DualListBox = ({
               />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
+          <div className="flex-1 overflow-y-auto px-2 pb-2">
             <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 bg-white dark:bg-slate-900/50 z-10">
+              <thead className="sticky top-0 bg-white dark:bg-slate-900 z-10 border-b border-slate-100 dark:border-slate-800">
                 <tr>
                   <th className="p-2 w-8"></th>
                   {columns.map((col, idx) => <th key={idx} className="p-2 font-semibold text-slate-500">{col}</th>)}

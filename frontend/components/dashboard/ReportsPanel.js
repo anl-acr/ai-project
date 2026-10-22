@@ -152,22 +152,28 @@ const DualListBox = ({
               />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            <table className="w-full text-left text-xs">
-              <thead className={"sticky top-0 z-10 " + lightBg}>
-                <tr>
-                  <th className="p-2 w-8"></th>
-                  {columns.map((col, idx) => <th key={idx} className="p-2 font-semibold text-slate-500">{col}</th>)}
-                </tr>
-              </thead>
-              <tbody>
+          <div className="flex-1 overflow-y-auto px-2 pb-2 pt-1">
+            <table className="w-full text-left text-xs border-collapse">
+              {columns && columns.length > 1 && (
+                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900 border-b border-slate-200/70 dark:border-slate-800">
+                  <tr>
+                    <th className="p-2 w-8 bg-slate-50 dark:bg-slate-900"></th>
+                    {columns.map((col, idx) => (
+                      <th key={idx} className="p-2 font-semibold text-slate-500 bg-slate-50 dark:bg-slate-900">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+              )}
+              <tbody className="divide-y divide-slate-100/60 dark:divide-slate-800/60">
                 {filteredAvailable.map(item => (
                   <tr 
                     key={item.id} 
-                    className={`cursor-pointer transition-colors duration-150 ${hover} ${checkedAvailable.includes(item.id) ? lightBg : ''}`}
+                    className={`cursor-pointer transition-colors duration-150 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 ${checkedAvailable.includes(item.id) ? lightBg : ''}`}
                     onClick={() => toggleAvailable(item.id)}
                   >
-                    <td className="p-2">
+                    <td className="p-2 w-8">
                       <input 
                         type="checkbox" 
                         checked={checkedAvailable.includes(item.id)} 
@@ -186,11 +192,11 @@ const DualListBox = ({
 
         {/* Transfer Buttons */}
         <div className="flex flex-row md:flex-col items-center justify-center gap-2 px-2">
-          <button onClick={moveRight} disabled={checkedAvailable.length === 0} className={`p-2 rounded-lg border ${checkedAvailable.length > 0 ? "text-slate-800 dark:text-white cursor-pointer " + hover : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}>
+          <button onClick={moveRight} disabled={checkedAvailable.length === 0} className={`p-2 rounded-lg border ${checkedAvailable.length > 0 ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}>
             <ChevronRight size={18} className="hidden md:block" />
             <ArrowDown size={18} className="block md:hidden" />
           </button>
-          <button onClick={moveLeft} disabled={checkedSelected.length === 0} className={`p-2 rounded-lg border ${checkedSelected.length > 0 ? "text-slate-800 dark:text-white cursor-pointer " + hover : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}>
+          <button onClick={moveLeft} disabled={checkedSelected.length === 0} className={`p-2 rounded-lg border ${checkedSelected.length > 0 ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700" : "text-slate-300 dark:text-slate-600 cursor-not-allowed"} transition-colors bg-slate-50 dark:bg-slate-800 ` + borderLight}>
             <ChevronLeft size={18} className="hidden md:block" />
             <ArrowUp size={18} className="block md:hidden" />
           </button>
@@ -222,22 +228,28 @@ const DualListBox = ({
               />
             </div>
           </div>
-          <div className="flex-1 overflow-y-auto p-2">
-            <table className="w-full text-left text-xs">
-              <thead className={"sticky top-0 z-10 " + lightBg}>
-                <tr>
-                  <th className="p-2 w-8"></th>
-                  {columns.map((col, idx) => <th key={idx} className="p-2 font-semibold text-slate-500">{col}</th>)}
-                </tr>
-              </thead>
-              <tbody>
+          <div className="flex-1 overflow-y-auto px-2 pb-2 pt-1">
+            <table className="w-full text-left text-xs border-collapse">
+              {columns && columns.length > 1 && (
+                <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-900 border-b border-slate-200/70 dark:border-slate-800">
+                  <tr>
+                    <th className="p-2 w-8 bg-slate-50 dark:bg-slate-900"></th>
+                    {columns.map((col, idx) => (
+                      <th key={idx} className="p-2 font-semibold text-slate-500 bg-slate-50 dark:bg-slate-900">
+                        {col}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+              )}
+              <tbody className="divide-y divide-slate-100/60 dark:divide-slate-800/60">
                 {filteredSelected.map(item => (
                   <tr 
                     key={item.id} 
-                    className={`cursor-pointer transition-colors duration-150 ${hover} ${checkedSelected.includes(item.id) ? lightBg : ''}`}
+                    className={`cursor-pointer transition-colors duration-150 hover:bg-slate-100/80 dark:hover:bg-slate-800/60 ${checkedSelected.includes(item.id) ? lightBg : ''}`}
                     onClick={() => toggleSelected(item.id)}
                   >
-                    <td className="p-2">
+                    <td className="p-2 w-8">
                       <input 
                         type="checkbox" 
                         checked={checkedSelected.includes(item.id)} 
@@ -1014,22 +1026,70 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     };
   };
 
+  const normalizeAgentName = (name) => {
+    return String(name || "").replace(/\s*\(AI Agent\)\s*$/i, "").trim();
+  };
+
   const getConversant = (call) => {
     if (!call) return "";
-    const safeId = String(call.id || "");
+    if (call.conversant && String(call.conversant).trim()) {
+      return String(call.conversant).trim();
+    }
+    if (call.agent_name && String(call.agent_name).trim()) {
+      return String(call.agent_name).trim();
+    }
+
+    const caller = String(call.caller_number || "").trim();
+    const callee = String(call.callee_number || "").trim();
+
+    // Check if caller or callee matches a system user extension, username, or ID
+    if (Array.isArray(users) && users.length > 0) {
+      const matchedUser = users.find((u) => {
+        const uExt = String(u.extension || "").trim();
+        const uName = String(u.username || "").trim();
+        const uId = String(u.id || "").trim();
+        const uFull = String(u.full_name || u.name || "").trim();
+        return (
+          (uExt && (uExt === caller || uExt === callee)) ||
+          (uName && (uName === caller || uName === callee)) ||
+          (uId && (uId === caller || uId === callee)) ||
+          (uFull && (uFull === caller || uFull === callee))
+        );
+      });
+      if (matchedUser) {
+        return matchedUser.full_name || matchedUser.name || matchedUser.username || `Dahili ${matchedUser.extension}`;
+      }
+    }
+
+    // Check if caller or callee matches an AI Agent
+    if (Array.isArray(aiAgents) && aiAgents.length > 0) {
+      const matchedAi = aiAgents.find((a) => {
+        const aExt = String(a.extension || "").trim();
+        const aId = String(a.id || "").trim();
+        const aName = String(a.name || "").trim();
+        return (
+          (aExt && (aExt === caller || aExt === callee)) ||
+          (aId && (aId === caller || aId === callee)) ||
+          (aName && (aName === caller || aName === callee))
+        );
+      });
+      if (matchedAi && matchedAi.name) {
+        return matchedAi.name;
+      }
+    }
+
     if (call.status === "transferred") {
       return "Temsilci";
     }
-    
+
     const direction = getCallDirection(call);
     if (direction === "Giden (Temsilci)") {
-      const ext = call.caller_number;
-      const user = users.find(u => u.extension === ext || u.username === ext || u.id.toString() === ext);
-      return user ? user.full_name || user.username : ext;
+      return caller || "Temsilci";
     } else if (direction === "Gelen" || direction === "Giden (AI)") {
-      return "AI Agent Ece";
+      const firstAi = Array.isArray(aiAgents) && aiAgents.length > 0 ? aiAgents[0]?.name : null;
+      return firstAi || "AI Asistan";
     }
-    
+
     return "Temsilci";
   };
 
@@ -1327,17 +1387,33 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const uniqueConversants = Array.from(
     new Set([
       ...(Array.isArray(users)
-        ? users.map((u) => u.full_name || u.name || u.username || (u.extension ? `Dahili ${u.extension}` : "")).filter(Boolean)
+        ? users.map((u) => normalizeAgentName(u.full_name || u.name || u.username || (u.extension ? `Dahili ${u.extension}` : ""))).filter(Boolean)
         : []),
       ...(Array.isArray(aiAgents)
-        ? aiAgents.map((a) => a.name || (a.extension ? `AI (${a.extension})` : "")).filter(Boolean)
+        ? aiAgents.map((a) => normalizeAgentName(a.name || (a.extension ? `AI (${a.extension})` : ""))).filter(Boolean)
         : []),
       ...(Array.isArray(timelineReport?.agents)
-        ? timelineReport.agents.map((ag) => ag.agent_name).filter(Boolean)
+        ? timelineReport.agents.map((ag) => normalizeAgentName(ag.agent_name)).filter(Boolean)
         : []),
-      ...calls.map((c) => getConversant(c)).filter(Boolean),
+      ...calls.map((c) => normalizeAgentName(getConversant(c))).filter(Boolean),
     ])
   );
+
+  const matchesSelectedAgent = (agentName) => {
+    const norm = normalizeAgentName(agentName);
+    if (filterAgentsSelected.length > 0) {
+      const selectedNorms = filterAgentsSelected.map(normalizeAgentName);
+      if (!selectedNorms.includes(norm) && !filterAgentsSelected.includes(agentName)) {
+        return false;
+      }
+    }
+    if (filterConversant !== "All") {
+      if (norm !== normalizeAgentName(filterConversant) && agentName !== filterConversant) {
+        return false;
+      }
+    }
+    return true;
+  };
 
   const filteredCalls = calls.filter((c) => {
     // 1. Caller Number Filter
@@ -1362,14 +1438,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (statusLabel !== filterStatus) return false;
     }
 
-    // 5. Conversant Filter
-    // Apply Agent List Filter for perf, sentiment-heat & timeline
-    if ((viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "timeline") && filterAgentsSelected.length > 0) {
+    // 5. Conversant / Agent Filter across all report modes
+    if (filterAgentsSelected.length > 0 || filterConversant !== "All") {
       const conversant = getConversant(c);
-      if (!filterAgentsSelected.includes(conversant)) return false;
-    } else if (filterConversant !== "All") {
-      const conversant = getConversant(c);
-      if (conversant !== filterConversant) return false;
+      if (!matchesSelectedAgent(conversant)) return false;
     }
 
     // 6. Date Range Filter
@@ -1788,7 +1860,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <button 
                 onClick={() => setIsFilterOpen(true)}
                 className={`flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-xl border font-bold cursor-pointer transition-all duration-200 ${
-                  filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId
+                  filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0 || filterQueuesSelected.length > 0
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
                 }`}
@@ -2399,7 +2471,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         {/* Modal Popup (Popup/Modal Filter Options) */}
         {isFilterOpen && (
           <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
-            <div className={`bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200 ${viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "timeline" ? "max-w-2xl" : "max-w-md"}`}>
+            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
               {/* Modal Header */}
               <div className="flex items-center justify-between pb-2 border-b border-slate-150 dark:border-slate-800">
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -2440,7 +2512,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
                 {viewMode === "queue" ? (
                   <DualListBox 
-                    title=""
+                    title="Kuyruklar"
                     availableItems={filterQueuesAvailable}
                     selectedIds={filterQueuesSelected}
                     onChangeSelectedIds={setFilterQueuesSelected}
@@ -2452,98 +2524,82 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </>
                     )}
                   />
-                ) : viewMode === "wordcloud" ? null : (
+                ) : (
                   <>
                     {/* Call Direction */}
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Yön</label>
-                  <select
-                    value={filterDirection}
-                    onChange={(e) => setFilterDirection(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
-                  >
-                    <option value="All">Tümü (Yön)</option>
-                    {uniqueDirections.map(dir => (
-                      <option key={dir} value={dir}>{dir}</option>
-                    ))}
-                  </select>
-                </div>
+                      <select
+                        value={filterDirection}
+                        onChange={(e) => setFilterDirection(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
+                      >
+                        <option value="All">Tümü (Yön)</option>
+                        {uniqueDirections.map(dir => (
+                          <option key={dir} value={dir}>{dir}</option>
+                        ))}
+                      </select>
+                    </div>
 
-                {/* Call Status */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Çağrı Durumu</label>
-                  <select
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                    className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
-                  >
-                    <option value="All">Tümü (Durum)</option>
-                    {uniqueStatuses.map(status => (
-                      <option key={status} value={status}>{status}</option>
-                    ))}
-                  </select>
-                </div>
+                    {/* Call Status */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Çağrı Durumu</label>
+                      <select
+                        value={filterStatus}
+                        onChange={(e) => setFilterStatus(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
+                      >
+                        <option value="All">Tümü (Durum)</option>
+                        {uniqueStatuses.map(status => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                    </div>
 
-                {/* Conversant */}
-                {viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "timeline" ? (
-                  <div className="col-span-2">
-                    <DualListBox 
-                      title="Kullanıcılar"
-                      availableItems={uniqueConversants.map(c => ({ id: c, name: c }))}
-                      selectedIds={filterAgentsSelected}
-                      onChangeSelectedIds={setFilterAgentsSelected}
-                      columns={["İsim"]}
-                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
-                      renderRow={(item) => (
-                        <>
-                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
-                        </>
-                      )}
-                    />
-                  </div>
-                ) : (
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Görüşen Kişi</label>
-                    <select
-                      value={filterConversant}
-                      onChange={(e) => setFilterConversant(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-bold"
-                    >
-                      <option value="All">Tümü (Görüşen)</option>
-                      {uniqueConversants.map(conv => (
-                        <option key={conv} value={conv}>{conv}</option>
-                      ))}
-                    </select>
-                  </div>
+                    {/* Conversant / Users & AI Agents */}
+                    <div className="col-span-2">
+                      <DualListBox 
+                        title="Kullanıcılar"
+                        availableItems={uniqueConversants.map(c => ({ id: c, name: c }))}
+                        selectedIds={filterAgentsSelected}
+                        onChangeSelectedIds={setFilterAgentsSelected}
+                        columns={["İsim"]}
+                        bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                        renderRow={(item) => (
+                          <>
+                            <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                          </>
+                        )}
+                      />
+                    </div>
+
+                    {/* Caller Number and Call ID side by side */}
+                    <div className="col-span-2 grid grid-cols-2 gap-4">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Numara Ara</label>
+                        <input
+                          type="text"
+                          placeholder="örn. 0532..."
+                          value={filterCallerNumber}
+                          onChange={(e) => setFilterCallerNumber(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
+                        />
+                      </div>
+                      
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Çağrı ID</label>
+                        <input
+                          type="text"
+                          placeholder="ID Ara..."
+                          value={filterCallId}
+                          onChange={(e) => setFilterCallId(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
+                        />
+                      </div>
+                    </div>
+                  </>
                 )}
-
-                {/* Caller Number and Call ID side by side */}
-                <div className="col-span-2 grid grid-cols-2 gap-4">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Numara Ara</label>
-                    <input
-                      type="text"
-                      placeholder="örn. 0532..."
-                      value={filterCallerNumber}
-                      onChange={(e) => setFilterCallerNumber(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
-                    />
-                  </div>
-                  
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Çağrı ID</label>
-                    <input
-                      type="text"
-                      placeholder="ID Ara..."
-                      value={filterCallId}
-                      onChange={(e) => setFilterCallId(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+              </div>
 
           {/* Modal Footer */}
               <div className="flex items-center gap-3 pt-3 border-t border-slate-150 dark:border-slate-800">
@@ -3118,8 +3174,28 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   <tbody>
                     {(() => {
                       const stats = {};
+                      // Seed all selected or all available users & AI agents if they match current filter
+                      uniqueConversants.forEach(agentName => {
+                        if (matchesSelectedAgent(agentName)) {
+                          stats[agentName] = {
+                            agent: agentName,
+                            totalCalls: 0,
+                            totalTalkDuration: 0,
+                            answeredCalls: 0,
+                            missedCalls: 0,
+                            qaScoreSum: 0,
+                            qaScoreCount: 0,
+                            sentimentPositive: 0,
+                            sentimentNeutral: 0,
+                            sentimentNegative: 0,
+                            callsTotalList: [],
+                            callsAnsweredList: [],
+                            callsMissedList: []
+                          };
+                        }
+                      });
                       filteredCalls.forEach(call => {
-                        const agent = call.conversant || "Bilinmiyor";
+                        const agent = getConversant(call) || "Bilinmiyor";
                         if (!stats[agent]) {
                           stats[agent] = {
                             agent: agent,
@@ -3389,7 +3465,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       const heatmapData = {};
                       filteredCalls.forEach(call => {
                         if (!call.start_time) return;
-                        const agent = call.conversant || "Bilinmiyor";
+                        const agent = getConversant(call) || "Bilinmiyor";
                         const dateObj = new Date(call.start_time);
                         const hour = dateObj.getHours(); // 0-23
                         
@@ -3550,7 +3626,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       };
                     }
                     fcrData[num].callCount++;
-                    fcrData[num].lastAgent = call.conversant || "Bilinmiyor";
+                    fcrData[num].lastAgent = getConversant(call) || "Bilinmiyor";
                     fcrData[num].totalDuration += (call.duration_talk || 0);
                     fcrData[num].sentiment = call.sentiment || "neutral";
                   });
@@ -3651,10 +3727,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   let humanStats = { calls: 0, duration: 0, qaScoreSum: 0, qaCount: 0 };
                   
                   filteredCalls.forEach(call => {
-                    const agent = call.conversant || "";
+                    const agent = getConversant(call) || "";
                     const callIdInt = call.id ? parseInt(call.id.replace(/\D/g, '').slice(-1) || '0', 10) : 0;
-                    // Simulate roughly 33% AI calls for demonstration if no explicit AI name is found
-                    const isAI = agent.toLowerCase().includes("ai") || agent.toLowerCase().includes("bot") || agent.toLowerCase().includes("sanal") || (callIdInt % 3 === 0);
+                    // Check if agent is in aiAgents or matches AI naming
+                    const isKnownAi = (aiAgents || []).some(ai => ai.name === agent);
+                    const isAI = isKnownAi || agent.toLowerCase().includes("ai") || agent.toLowerCase().includes("bot") || agent.toLowerCase().includes("sanal") || (callIdInt % 3 === 0);
                     
                     const target = isAI ? aiStats : humanStats;
                     
@@ -3937,10 +4014,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     : [...fallbackUsers, ...fallbackAiAgents];
 
                   // Ensure any newly loaded users or AI agents not yet in baseAgents are appended
-                  const existingNames = new Set(baseAgents.map(a => a.agent_name));
+                  const existingNames = new Set(baseAgents.map(a => normalizeAgentName(a.agent_name)));
                   [...fallbackUsers, ...fallbackAiAgents].forEach(fb => {
-                    if (fb.agent_name && !existingNames.has(fb.agent_name)) {
-                      existingNames.add(fb.agent_name);
+                    const normFb = normalizeAgentName(fb.agent_name);
+                    if (normFb && !existingNames.has(normFb)) {
+                      existingNames.add(normFb);
                       baseAgents.push(fb);
                     }
                   });
@@ -3965,13 +4043,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       events: ag.events || []
                     }))
                     .filter((ag) => {
-                      if (selectedTimelineAgent !== "All" && ag.agent_name !== selectedTimelineAgent && ag.extension !== selectedTimelineAgent && ag.agent_id !== selectedTimelineAgent) {
+                      if (selectedTimelineAgent !== "All" && normalizeAgentName(ag.agent_name) !== normalizeAgentName(selectedTimelineAgent) && ag.extension !== selectedTimelineAgent && ag.agent_id !== selectedTimelineAgent) {
                         return false;
                       }
-                      if (filterAgentsSelected.length > 0 && !filterAgentsSelected.includes(ag.agent_name)) {
-                        return false;
-                      }
-                      if (filterConversant !== "All" && ag.agent_name !== filterConversant) {
+                      if (!matchesSelectedAgent(ag.agent_name)) {
                         return false;
                       }
                       return true;
@@ -5088,7 +5163,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   topEvents.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
                                       <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
-                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
+                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>
                                       <td className="p-4 text-center">
                                         {c.hasHold ? (
                                           <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.holdTime > 60 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
@@ -5580,7 +5655,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   complianceViolations.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
                                       <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
-                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
+                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>
                                       <td className="p-4 text-center">
                                         <span className={`inline-flex items-center justify-center w-9 h-6 rounded font-black text-xs ${c.complianceScore < 70 ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
                                           %{c.complianceScore}
@@ -5719,7 +5794,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   problematicCalls.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
                                       <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
-                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.conversant || "Bilinmiyor"}</td>
+                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>
                                       <td className="p-4 text-center">
                                         <span className={`inline-flex items-center justify-center w-10 h-6 rounded font-black text-xs ${c.silencePercent > 30 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
                                           %{c.silencePercent}
