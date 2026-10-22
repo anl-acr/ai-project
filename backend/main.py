@@ -6560,6 +6560,8 @@ async def end_call_endpoint(
                 if len(caller) <= 4 and caller.isdigit() and dur_sec < 30:
                     resolved_status = "no_answer"
 
+            if db_call.status == "transferred" and resolved_status == "completed":
+                resolved_status = "transferred"
             db_call.status = resolved_status
             await session.commit()
             print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus})")
@@ -6635,7 +6637,103 @@ async def list_calls(
         
     stmt = stmt.order_by(Call.start_time.desc())
     result = await db.execute(stmt)
-    return result.scalars().all()
+    calls_list = result.scalars().all()
+
+    if calls_list:
+        try:
+            now_utc = datetime.utcnow()
+            valid_starts = [c.start_time for c in calls_list if c.start_time]
+            if valid_starts:
+                min_start = min(valid_starts) - timedelta(seconds=10)
+                max_end = max([(c.end_time or now_utc) for c in calls_list]) + timedelta(seconds=60)
+                stmt_act = (
+                    select(AgentBreakLog)
+                    .where(
+                        AgentBreakLog.break_name.like("__ACTION__:%"),
+                        AgentBreakLog.start_time >= min_start,
+                        AgentBreakLog.start_time <= max_end
+                    )
+                    .order_by(AgentBreakLog.start_time.asc())
+                )
+                res_act = await db.execute(stmt_act)
+                action_logs = res_act.scalars().all()
+            else:
+                action_logs = []
+
+            for c in calls_list:
+                c_start = c.start_time or now_utc
+                c_end = c.end_time or now_utc
+                caller_str = str(c.caller_number or "").strip()
+                callee_str = str(c.callee_number or "").strip()
+                hangup_src = str(c.hangup_source or "").strip()
+                short_id = str(c.id or "")[:8]
+
+                is_transferred = (c.status == "transferred") or hangup_src.startswith("transfer:")
+                transfer_target = hangup_src.split(":", 1)[1].strip() if hangup_src.startswith("transfer:") else ""
+                transfer_type = "ami_transfer" if is_transferred else ""
+                hold_duration = 0
+                hold_count = 0
+                active_hold_start = None
+
+                for log in action_logs:
+                    if not log.start_time:
+                        continue
+                    if log.start_time < (c_start - timedelta(seconds=5)) or log.start_time > (c_end + timedelta(seconds=30)):
+                        continue
+                    b_name = str(log.break_name or "")
+                    log_ext = str(log.extension or "").strip()
+                    log_uid = str(log.user_id or "").strip()
+
+                    matched = (
+                        (log_ext and log_ext in (caller_str, callee_str))
+                        or (log_uid and log_uid in (caller_str, callee_str))
+                        or (caller_str and len(caller_str) >= 3 and caller_str in b_name)
+                        or (callee_str and len(callee_str) >= 3 and callee_str in b_name)
+                        or (short_id and short_id in b_name)
+                    )
+                    if not matched:
+                        continue
+
+                    parts = b_name.split(":", 2)
+                    act_key = parts[1] if len(parts) > 1 else ""
+                    act_detail = parts[2] if len(parts) > 2 else ""
+
+                    if act_key == "call_hold":
+                        hold_count += 1
+                        if log.duration_seconds and log.duration_seconds > 0:
+                            hold_duration += int(log.duration_seconds)
+                        elif active_hold_start is None:
+                            active_hold_start = log.start_time
+                    elif act_key == "call_unhold":
+                        if active_hold_start is not None:
+                            dur = max(1, int((log.start_time - active_hold_start).total_seconds()))
+                            hold_duration += dur
+                            active_hold_start = None
+                    elif act_key in ("call_transfer", "call_blind_transfer", "call_attended_transfer", "call_forwarded"):
+                        is_transferred = True
+                        transfer_type = act_key
+                        if "->" in act_detail:
+                            tgt = act_detail.split("->", 1)[1]
+                            tgt = tgt.replace("(Ön Görüşmeli)", "").replace("Hedef", "").strip()
+                            if tgt:
+                                transfer_target = tgt
+                        elif act_detail and not transfer_target:
+                            transfer_target = act_detail.strip()
+
+                if active_hold_start is not None:
+                    cap_end = min(c_end, active_hold_start + timedelta(seconds=300))
+                    if cap_end > active_hold_start:
+                        hold_duration += max(1, int((cap_end - active_hold_start).total_seconds()))
+
+                c.hold_duration = hold_duration
+                c.hold_count = hold_count
+                c.is_transferred = is_transferred
+                c.transfer_target = transfer_target
+                c.transfer_type = transfer_type
+        except Exception as enrich_err:
+            print(f"[List Calls Enrich Warning]: {enrich_err}")
+
+    return calls_list
 
 @app.get("/api/calls/active")
 async def get_active_calls(user_info: dict = Depends(get_user_info)):

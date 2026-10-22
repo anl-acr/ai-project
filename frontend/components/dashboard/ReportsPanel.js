@@ -305,6 +305,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [trunks, setTrunks] = useState([]);
   const [trunkStatuses, setTrunkStatuses] = useState({});
   const [queues, setQueues] = useState([]);
+  const [inboundRules, setInboundRules] = useState([]);
+  const [workflows, setWorkflows] = useState([]);
   const [selectedTrunkChartDate, setSelectedTrunkChartDate] = useState("ALL");
   const [selectedCall, setSelectedCall] = useState(null);
   const [transcripts, setTranscripts] = useState([]);
@@ -587,6 +589,53 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "ivr-drop") {
+      const ivrData = computeIvrReportData(filteredCalls);
+      const headers = ["Menü Adı", "Giriş (Hit)", "Terk (Drop)", "Terk Oranı (%)", "Aktarım", "Sonraki Adım"];
+      csvContent += headers.join(";") + "\n";
+      (ivrData.ivrMenus || []).forEach((m) => {
+        const dropPct = m.hits > 0 ? ((m.drops / m.hits) * 100).toFixed(1) : "0.0";
+        const row = [m.name, m.hits, m.drops, `%${dropPct}`, m.transfers, m.next];
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `ivr_terk_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    if (viewMode === "transfer-hold") {
+      const thData = computeTransferHoldReportData(filteredCalls);
+      const headers = ["Tarih/Saat", "Arayan Numara", "İlk Temsilci", "Bekletme Süresi (sn)", "Bekletme Sayısı", "Aktarım Durumu", "Aktarılan Birim / Hedef"];
+      csvContent += headers.join(";") + "\n";
+      (thData.callsWithEvents || []).forEach((c) => {
+        const row = [
+          formatDate(c.start_time),
+          getCustomerNumber(c),
+          getConversant(c) || "Bilinmiyor",
+          c.holdTime,
+          c.holdCount || (c.hasHold ? 1 : 0),
+          c.isTransferred ? "Aktarıldı" : "Yok",
+          c.transferTarget
+        ];
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `aktarma_bekletme_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -645,12 +694,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     try {
       const protocol = window.location.protocol;
       const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
-      const [uRes, aiRes, tRes, tsRes, qRes] = await Promise.all([
+      const [uRes, aiRes, tRes, tsRes, qRes, irRes, wfRes] = await Promise.all([
         fetch(`${protocol}//${backendHost}/api/settings/users`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/ai-agents`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/trunks`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/trunks/status`, { headers: { "X-Tenant-ID": activeTenantId } }),
-        fetch(`${protocol}//${backendHost}/api/settings/queues`, { headers: { "X-Tenant-ID": activeTenantId } })
+        fetch(`${protocol}//${backendHost}/api/settings/queues`, { headers: { "X-Tenant-ID": activeTenantId } }),
+        fetch(`${protocol}//${backendHost}/api/settings/inbound_rules`, { headers: { "X-Tenant-ID": activeTenantId } }),
+        fetch(`${protocol}//${backendHost}/api/settings/call-flow/workflows`, { headers: { "X-Tenant-ID": activeTenantId } })
       ]);
       if (uRes.ok) {
         const uData = await uRes.json();
@@ -671,6 +722,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (qRes.ok) {
         const qData = await qRes.json();
         setQueues(Array.isArray(qData) ? qData : (qData?.queues || []));
+      }
+      if (irRes.ok) {
+        const irData = await irRes.json();
+        setInboundRules(Array.isArray(irData) ? irData : (irData?.inbound_rules || []));
+      }
+      if (wfRes.ok) {
+        const wfData = await wfRes.json();
+        setWorkflows(Array.isArray(wfData) ? wfData : (wfData?.workflows || []));
       }
     } catch (err) {}
   };
@@ -1044,6 +1103,277 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     });
   };
 
+  const resolveTargetName = (targetRaw) => {
+    const raw = String(targetRaw || "").trim();
+    if (!raw || raw === "-") return "-";
+    if (raw === "transfer_to_human") return "Canlı Temsilci";
+
+    if (Array.isArray(users) && users.length > 0) {
+      const u = users.find(
+        (item) =>
+          String(item.extension || "").trim() === raw ||
+          String(item.id || "").trim() === raw ||
+          String(item.username || "").trim() === raw ||
+          String(item.full_name || item.name || "").trim() === raw
+      );
+      if (u) {
+        const name = u.full_name || u.name || u.username || `Dahili ${u.extension}`;
+        return u.extension ? `${name} (Dahili ${u.extension})` : name;
+      }
+    }
+
+    if (Array.isArray(queues) && queues.length > 0) {
+      const q = queues.find(
+        (item) =>
+          String(item.extension || "").trim() === raw ||
+          String(item.id || "").trim() === raw ||
+          String(item.name || "").trim() === raw
+      );
+      if (q) {
+        return q.extension ? `${q.name} (${q.extension})` : q.name;
+      }
+    }
+
+    if (Array.isArray(aiAgents) && aiAgents.length > 0) {
+      const a = aiAgents.find(
+        (item) =>
+          String(item.id || "").trim() === raw ||
+          String(item.extension || "").trim() === raw ||
+          String(item.name || "").trim() === raw
+      );
+      if (a) {
+        return `${a.name} (AI Asistan)`;
+      }
+    }
+
+    if (/^\d{3,5}$/.test(raw)) {
+      return `Dahili ${raw}`;
+    }
+    return raw;
+  };
+
+  const computeIvrReportData = (callsToAnalyze = filteredCalls) => {
+    const configuredMenus = [];
+
+    // 1. Check Inbound Rules routed to an active CallFlow (Workflow) containing IVR menu nodes
+    if (Array.isArray(inboundRules) && inboundRules.length > 0) {
+      inboundRules.forEach((rule) => {
+        const destType = String(rule.destination_type || "").toLowerCase();
+        if (destType === "call_flow" || destType === "ivr") {
+          const wf = (workflows || []).find(
+            (w) => String(w.id) === String(rule.destination_id) && w.status !== "draft"
+          );
+          if (wf && Array.isArray(wf.nodes)) {
+            const menuNodes = wf.nodes.filter((n) => String(n.type || "").toLowerCase() === "menu");
+            const conns = Array.isArray(wf.connections) ? wf.connections : [];
+            menuNodes.forEach((mNode) => {
+              const outConns = conns.filter((c) => c.fromNode === mNode.id);
+              if (outConns.length > 0) {
+                outConns.forEach((conn) => {
+                  const targetNode = wf.nodes.find((n) => n.id === conn.toNode);
+                  const portLabel = conn.fromPort || "*";
+                  const targetDesc = targetNode
+                    ? resolveTargetName(targetNode.value || targetNode.target || targetNode.title || targetNode.type)
+                    : "Bilinmeyen Hedef";
+                  configuredMenus.push({
+                    id: `${wf.id}-${mNode.id}-${portLabel}`,
+                    name: `${wf.name} — Tuş [${portLabel}]`,
+                    didPatterns: Array.isArray(rule.did_patterns) ? rule.did_patterns : [],
+                    matchMode: rule.did_match_mode || "all",
+                    next: targetDesc
+                  });
+                });
+              } else {
+                configuredMenus.push({
+                  id: `${wf.id}-${mNode.id}`,
+                  name: `${wf.name} (${mNode.title || "IVR Menü"})`,
+                  didPatterns: Array.isArray(rule.did_patterns) ? rule.did_patterns : [],
+                  matchMode: rule.did_match_mode || "all",
+                  next: wf.name
+                });
+              }
+            });
+          }
+        }
+      });
+    }
+
+    // 2. Check PBX Queues that have active ivr_routes configured
+    if (Array.isArray(queues) && queues.length > 0) {
+      queues.forEach((q) => {
+        const routes = q.ivr_routes;
+        if (routes && typeof routes === "object") {
+          Object.entries(routes).forEach(([digit, routeCfg]) => {
+            const targetVal = typeof routeCfg === "object" ? routeCfg?.target : routeCfg;
+            if (targetVal && String(targetVal).trim() !== "") {
+              configuredMenus.push({
+                id: `queue-${q.id || q.name}-${digit}`,
+                name: `${q.name} — Tuş [${digit}]`,
+                queueExt: String(q.extension || "").trim(),
+                next: resolveTargetName(targetVal)
+              });
+            }
+          });
+        }
+      });
+    }
+
+    const hasConfiguredIvr = configuredMenus.length > 0;
+    if (!hasConfiguredIvr) {
+      return {
+        hasConfiguredIvr: false,
+        ivrCalls: 0,
+        dropCalls: 0,
+        dropRate: "0.0",
+        transferToHuman: 0,
+        transferRate: "0.0",
+        ivrMenus: []
+      };
+    }
+
+    const inboundList = (callsToAnalyze || []).filter((c) => getCallDirection(c) === "Gelen");
+    let totalIvrHits = 0;
+    let totalIvrDrops = 0;
+    let totalIvrTransfers = 0;
+
+    const menuStats = configuredMenus.map((menu) => {
+      const matchingCalls = inboundList.filter((call) => {
+        const callee = String(call.callee_number || "").trim();
+        if (menu.queueExt) {
+          return callee === menu.queueExt;
+        }
+        if (menu.matchMode === "specific" && Array.isArray(menu.didPatterns) && menu.didPatterns.length > 0) {
+          return menu.didPatterns.some((p) => p && (callee === p || callee.endsWith(p) || p.endsWith(callee)));
+        }
+        return true;
+      });
+
+      const hits = matchingCalls.length;
+      const drops = matchingCalls.filter((c) => getCallStatus(c) === "Başarısız").length;
+      const transfers = matchingCalls.filter(
+        (c) =>
+          Boolean(c.is_transferred) ||
+          c.status === "transferred" ||
+          String(c.hangup_source || "").startsWith("transfer:")
+      ).length;
+
+      return {
+        ...menu,
+        hits,
+        drops,
+        transfers
+      };
+    });
+
+    totalIvrHits = inboundList.length;
+    totalIvrDrops = inboundList.filter((c) => getCallStatus(c) === "Başarısız").length;
+    totalIvrTransfers = inboundList.filter(
+      (c) =>
+        Boolean(c.is_transferred) ||
+        c.status === "transferred" ||
+        String(c.hangup_source || "").startsWith("transfer:")
+    ).length;
+
+    const dropRate = totalIvrHits > 0 ? ((totalIvrDrops / totalIvrHits) * 100).toFixed(1) : "0.0";
+    const transferRate = totalIvrHits > 0 ? ((totalIvrTransfers / totalIvrHits) * 100).toFixed(1) : "0.0";
+
+    return {
+      hasConfiguredIvr: true,
+      ivrCalls: totalIvrHits,
+      dropCalls: totalIvrDrops,
+      dropRate,
+      transferToHuman: totalIvrTransfers,
+      transferRate,
+      ivrMenus: menuStats
+    };
+  };
+
+  const computeTransferHoldReportData = (callsToAnalyze = filteredCalls) => {
+    const list = Array.isArray(callsToAnalyze) ? callsToAnalyze : [];
+    const totalFiltered = list.length;
+
+    let callsWithHold = 0;
+    let totalHoldTime = 0;
+    let transferredCalls = 0;
+    const deptCounts = {};
+
+    const callsWithEvents = list.map((call) => {
+      const holdTime = Math.max(0, Number(call.hold_duration || call.duration_hold || 0));
+      const holdCount = Math.max(0, Number(call.hold_count || (holdTime > 0 ? 1 : 0)));
+      const hasHold = holdTime > 0 || holdCount > 0;
+
+      if (hasHold) {
+        callsWithHold++;
+        totalHoldTime += holdTime;
+      }
+
+      const hangupSrc = String(call.hangup_source || "").trim();
+      const isTransferred = Boolean(
+        call.is_transferred ||
+          call.status === "transferred" ||
+          hangupSrc.startsWith("transfer:")
+      );
+
+      let rawTarget = String(call.transfer_target || "").trim();
+      if (!rawTarget && hangupSrc.startsWith("transfer:")) {
+        rawTarget = hangupSrc.slice(9).trim();
+      }
+
+      const transferTarget = isTransferred
+        ? rawTarget
+          ? resolveTargetName(rawTarget)
+          : "Canlı Temsilci"
+        : "-";
+
+      if (isTransferred) {
+        transferredCalls++;
+        deptCounts[transferTarget] = (deptCounts[transferTarget] || 0) + 1;
+      }
+
+      return {
+        ...call,
+        hasHold,
+        holdTime,
+        holdCount,
+        isTransferred,
+        transferTarget
+      };
+    });
+
+    const avgHoldTime = callsWithHold > 0 ? Math.round(totalHoldTime / callsWithHold) : 0;
+    const holdRate = totalFiltered > 0 ? Math.round((callsWithHold / totalFiltered) * 100) : 0;
+    const transferRate = totalFiltered > 0 ? Math.round((transferredCalls / totalFiltered) * 100) : 0;
+
+    const transferDepartments = Object.entries(deptCounts)
+      .map(([name, count]) => ({
+        name,
+        count,
+        pctOfTransfers: transferredCalls > 0 ? Math.round((count / transferredCalls) * 100) : 0,
+        pctOfTotal: totalFiltered > 0 ? Math.round((count / totalFiltered) * 100) : 0
+      }))
+      .sort((a, b) => b.count - a.count);
+
+    const topEvents = callsWithEvents
+      .filter((c) => c.hasHold || c.isTransferred)
+      .sort((a, b) => {
+        if (b.holdTime !== a.holdTime) return b.holdTime - a.holdTime;
+        return (b.isTransferred ? 1 : 0) - (a.isTransferred ? 1 : 0);
+      });
+
+    return {
+      totalFiltered,
+      callsWithHold,
+      totalHoldTime,
+      transferredCalls,
+      avgHoldTime,
+      holdRate,
+      transferRate,
+      transferDepartments,
+      callsWithEvents,
+      topEvents
+    };
+  };
+
   const getCallDurations = (call) => {
     if (!call) return { talk: "0:00", queue: "0:00", ivr: "0:00", total: "0:00" };
     let totalSeconds = 0;
@@ -1063,37 +1393,19 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return `${mins}:${remainingSecs.toString().padStart(2, "0")}`;
     };
 
-    // If the call failed, there is no talk time
     const status = getCallStatus(call);
     if (status === "Başarısız") {
-      return { 
-        talk: "0:00", 
-        queue: "0:00", 
-        ivr: formatSecs(totalSeconds), // Entire time was just IVR/Ringing
-        total: formatSecs(totalSeconds) 
+      return {
+        talk: "0:00",
+        queue: "0:00",
+        ivr: "0:00",
+        total: formatSecs(totalSeconds)
       };
     }
 
-    // Deterministic split based on call.id hash for mock effect on successful calls
-    const safeId = String(call.id || "");
-    const direction = getCallDirection(call);
-    
-    let ivrSeconds = safeId.length > 0 ? (safeId.charCodeAt(0) % 20) + 10 : 15; // 10 to 29 seconds
-    let queueSeconds = safeId.length > 1 ? ((safeId.charCodeAt(1) % 2 === 0) ? 0 : (safeId.charCodeAt(1) % 35) + 5) : 0; // 0 or 5 to 39 seconds
-    
-    // Outbound calls don't have IVR or Queue
-    if (direction.includes("Giden")) {
-      ivrSeconds = 0;
-      queueSeconds = 0;
-    }
-
-    // Adjust if totalSeconds is too short
-    if (ivrSeconds + queueSeconds >= totalSeconds) {
-      ivrSeconds = Math.floor(totalSeconds * 0.3);
-      queueSeconds = Math.floor(totalSeconds * 0.2);
-    }
-
-    const talkSeconds = totalSeconds - ivrSeconds - queueSeconds;
+    const ivrSeconds = Math.max(0, Number(call.duration_ivr || 0));
+    const queueSeconds = Math.max(0, Number(call.duration_queue || 0));
+    const talkSeconds = Math.max(0, totalSeconds - ivrSeconds - queueSeconds);
 
     return {
       talk: formatSecs(talkSeconds),
@@ -5354,25 +5666,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               /* IVR Drop Mode */
               <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
                 {(() => {
-                  const totalFiltered = filteredCalls.length;
-                  // IVR calls are typically a subset. Let's assume 85% hit the IVR
-                  const ivrCalls = Math.round(totalFiltered * 0.85);
-                  
-                  // Mock metrics
-                  const dropCalls = Math.round(ivrCalls * 0.12); // 12% drop rate
-                  const dropRate = ivrCalls > 0 ? ((dropCalls / ivrCalls) * 100).toFixed(1) : "0.0";
-                  
-                  const transferToHuman = Math.round(ivrCalls * 0.45); // 45% ask for human
-                  const transferRate = ivrCalls > 0 ? ((transferToHuman / ivrCalls) * 100).toFixed(1) : "0.0";
-                  
-                  // IVR Menus Mock Data
-                  const ivrMenus = [
-                    { id: 1, name: "Ana Menü (Karşılama)", hits: ivrCalls, drops: Math.round(dropCalls * 0.10), transfers: 0, next: "Alt Menülere Dağılım" },
-                    { id: 2, name: "Fatura ve Borç Sorgulama", hits: Math.round(ivrCalls * 0.35), drops: Math.round(dropCalls * 0.40), transfers: Math.round(transferToHuman * 0.20), next: "Self Servis veya Temsilci" },
-                    { id: 3, name: "Teknik Destek (Arıza)", hits: Math.round(ivrCalls * 0.40), drops: Math.round(dropCalls * 0.25), transfers: Math.round(transferToHuman * 0.60), next: "Temsilciye Aktarım" },
-                    { id: 4, name: "Tarife ve Kampanyalar", hits: Math.round(ivrCalls * 0.15), drops: Math.round(dropCalls * 0.20), transfers: Math.round(transferToHuman * 0.15), next: "AI Asistan veya Temsilci" },
-                    { id: 5, name: "Diğer İşlemler", hits: Math.round(ivrCalls * 0.10), drops: Math.round(dropCalls * 0.05), transfers: Math.round(transferToHuman * 0.05), next: "Temsilciye Aktarım" }
-                  ];
+                  const {
+                    hasConfiguredIvr,
+                    ivrCalls,
+                    dropCalls,
+                    dropRate,
+                    transferToHuman,
+                    transferRate,
+                    ivrMenus
+                  } = computeIvrReportData(filteredCalls);
 
                   return (
                     <>
@@ -5384,7 +5686,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <GitMerge size={28} />
                             {ivrCalls}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Sesli yanıt sistemine giren çağrılar</p>
+                          <p className="text-sm font-medium text-slate-500">
+                            {hasConfiguredIvr ? "Sesli yanıt sistemine giren çağrılar" : "Aktif IVR menüsü tanımlı değil"}
+                          </p>
                         </div>
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <p className={"text-xs font-bold uppercase tracking-wider " + text}>IVR Terk Oranı (Drop Rate)</p>
@@ -5401,31 +5705,42 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           <p className="text-sm font-medium text-slate-500">Canlı desteğe bağlanan çağrılar ({transferToHuman})</p>
                         </div>
                       </div>
-                      
+
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* IVR Funnel Chart / Breakdown */}
                         <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
                           <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Terk Dağılımı (Funnel)</h4>
                           <div className="flex flex-col gap-3 mt-2 flex-1 justify-center">
-                            {ivrMenus.map((menu, idx) => {
-                              const dropPercent = menu.hits > 0 ? ((menu.drops / menu.hits) * 100).toFixed(1) : 0;
-                              return (
-                                <div key={idx} className="flex flex-col gap-1">
-                                  <div className="flex justify-between items-end">
-                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate pr-2">{menu.name}</span>
-                                    <span className="text-[10px] font-bold text-rose-500 flex items-center gap-1">
-                                      <UserX size={10} /> {menu.drops} Terk (%{dropPercent})
-                                    </span>
+                            {ivrMenus.length === 0 ? (
+                              <div className="py-8 px-4 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                                <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                                  Sistemde aktif bir IVR (Sesli Yanıt) menüsü tanımlı değildir.
+                                </p>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                                  Gelen Arama Kuralları veya Kuyruk IVR yönlendirmelerinde aktif bir IVR menüsü bulunmadığı için terk dağılım verisi oluşmamıştır.
+                                </p>
+                              </div>
+                            ) : (
+                              ivrMenus.map((menu, idx) => {
+                                const dropPercent = menu.hits > 0 ? ((menu.drops / menu.hits) * 100).toFixed(1) : "0.0";
+                                return (
+                                  <div key={idx} className="flex flex-col gap-1">
+                                    <div className="flex justify-between items-end">
+                                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate pr-2">{menu.name}</span>
+                                      <span className="text-[10px] font-bold text-rose-500 flex items-center gap-1">
+                                        <UserX size={10} /> {menu.drops} Terk (%{dropPercent})
+                                      </span>
+                                    </div>
+                                    <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                      <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.min(100, parseFloat(dropPercent))}%` }}></div>
+                                    </div>
                                   </div>
-                                  <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                    <div className="h-full bg-rose-500 rounded-full" style={{ width: `${dropPercent}%` }}></div>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                                );
+                              })
+                            )}
                           </div>
                         </div>
-                        
+
                         {/* IVR Menus Table */}
                         <div className="lg:col-span-2 flex flex-col gap-4">
                           <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Menü Performans Detayları</h4>
@@ -5441,15 +5756,23 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 </tr>
                               </thead>
                               <tbody>
-                                {ivrMenus.map((m, idx) => (
-                                  <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{m.name}</td>
-                                    <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{m.hits}</td>
-                                    <td className="p-4 text-center font-black text-rose-500">{m.drops}</td>
-                                    <td className="p-4 text-center font-bold text-amber-500">{m.transfers}</td>
-                                    <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{m.next}</td>
+                                {ivrMenus.length === 0 ? (
+                                  <tr>
+                                    <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium text-sm">
+                                      Sistemde tanımlı aktif bir IVR menüsü veya seçili tarih aralığında kaydedilmiş IVR tuşlama verisi bulunmamaktadır.
+                                    </td>
                                   </tr>
-                                ))}
+                                ) : (
+                                  ivrMenus.map((m, idx) => (
+                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                      <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{m.name}</td>
+                                      <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{m.hits}</td>
+                                      <td className="p-4 text-center font-black text-rose-500">{m.drops}</td>
+                                      <td className="p-4 text-center font-bold text-amber-500">{m.transfers}</td>
+                                      <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{m.next}</td>
+                                    </tr>
+                                  ))
+                                )}
                               </tbody>
                             </table>
                           </div>
@@ -5463,47 +5786,18 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               /* Transfer & Hold Mode */
               <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
                 {(() => {
-                  const totalFiltered = filteredCalls.length;
-                  
-                  // Mock Calculations for Transfer and Hold
-                  let callsWithHold = 0;
-                  let totalHoldTime = 0;
-                  let transferredCalls = 0;
-                  
-                  // Map real transfer/hold data attached to calls
-                  const callsWithEvents = filteredCalls.map((call, idx) => {
-                    const qa = call.qa_score || 80;
-                    
-                    // Deriving hold and transfer from call data for now
-                    const hasHold = qa < 85 && qa > 50; 
-                    const holdTime = hasHold ? (100 - qa) * 2 : 0;
-                    
-                    if (hasHold) {
-                      callsWithHold++;
-                      totalHoldTime += holdTime;
-                    }
-                    
-                    const isTransferred = qa < 60;
-                    if (isTransferred) transferredCalls++;
-                    
-                    return {
-                      ...call,
-                      hasHold,
-                      holdTime,
-                      isTransferred,
-                      transferTarget: isTransferred ? "Teknik Destek" : "-"
-                    };
-                  });
-                  
-                  const avgHoldTime = callsWithHold > 0 ? Math.round(totalHoldTime / callsWithHold) : 0;
-                  const holdRate = totalFiltered > 0 ? Math.round((callsWithHold / totalFiltered) * 100) : 0;
-                  const transferRate = totalFiltered > 0 ? Math.round((transferredCalls / totalFiltered) * 100) : 0;
-                  
-                  // Sort to find calls with longest holds or transfers to display
-                  const topEvents = callsWithEvents
-                    .filter(c => c.hasHold || c.isTransferred)
-                    .sort((a, b) => b.holdTime - a.holdTime)
-                    .slice(0, 15);
+                  const {
+                    callsWithHold,
+                    transferredCalls,
+                    avgHoldTime,
+                    holdRate,
+                    transferRate,
+                    transferDepartments,
+                    topEvents
+                  } = computeTransferHoldReportData(filteredCalls);
+
+                  const barColors = ["bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-rose-500", "bg-purple-500"];
+                  const textColors = ["text-blue-500", "text-emerald-500", "text-amber-500", "text-rose-500", "text-purple-500"];
 
                   return (
                     <>
@@ -5530,51 +5824,56 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <PhoneForwarded size={28} />
                             %{transferRate}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Toplam {transferredCalls} çağrı başka departmana aktarıldı</p>
+                          <p className="text-sm font-medium text-slate-500">Toplam {transferredCalls} çağrı başka dahiliye/birime aktarıldı</p>
                         </div>
                       </div>
-                      
+
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                         {/* Transfer Departments Overview */}
                         <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
                           <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>En Çok Aktarım Yapılan Birimler</h4>
                           <div className="flex flex-col gap-4 mt-2">
-                            <div className="flex flex-col gap-1">
-                              <div className="flex justify-between items-end">
-                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Teknik Destek L2</span>
-                                <span className="text-[10px] font-bold text-blue-500">%{Math.round(transferRate * 0.6)}</span>
+                            {transferDepartments.length === 0 ? (
+                              <div className="py-6 px-4 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
+                                <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                                  Bu dönemde çağrı aktarımı yapılmamıştır.
+                                </p>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
+                                  Seçili tarih aralığında başka bir dahiliye, kuyruğa veya temsilciye aktarılan görüşme kaydı bulunmamaktadır.
+                                </p>
                               </div>
-                              <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-blue-500 rounded-full" style={{ width: '60%' }}></div>
-                              </div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <div className="flex justify-between items-end">
-                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Üst Düzey Şikayet (Escalation)</span>
-                                <span className="text-[10px] font-bold text-rose-500">%{Math.round(transferRate * 0.3)}</span>
-                              </div>
-                              <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-rose-500 rounded-full" style={{ width: '30%' }}></div>
-                              </div>
-                            </div>
-                            <div className="flex flex-col gap-1">
-                              <div className="flex justify-between items-end">
-                                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Finans ve Muhasebe</span>
-                                <span className="text-[10px] font-bold text-amber-500">%{Math.round(transferRate * 0.1)}</span>
-                              </div>
-                              <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-amber-500 rounded-full" style={{ width: '10%' }}></div>
-                              </div>
-                            </div>
+                            ) : (
+                              transferDepartments.map((dept, idx) => (
+                                <div key={idx} className="flex flex-col gap-1">
+                                  <div className="flex justify-between items-end">
+                                    <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate pr-2">{dept.name}</span>
+                                    <span className={`text-[10px] font-bold ${textColors[idx % textColors.length]}`}>
+                                      {dept.count} Aktarım (%{dept.pctOfTransfers})
+                                    </span>
+                                  </div>
+                                  <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full ${barColors[idx % barColors.length]} rounded-full`}
+                                      style={{ width: `${Math.min(100, dept.pctOfTransfers)}%` }}
+                                    ></div>
+                                  </div>
+                                </div>
+                              ))
+                            )}
                           </div>
-                          
-                          <div className={"mt-4 p-4 rounded-xl border border-blue-500/30 bg-blue-500/5"}>
+
+                          <div className={"mt-auto p-4 rounded-xl border border-blue-500/30 bg-blue-500/5"}>
                             <p className="text-xs text-blue-600 dark:text-blue-400 font-medium leading-relaxed">
-                              💡 <strong>Optimizasyon Önerisi:</strong> Çağrıların büyük çoğunluğu Teknik Destek ekiplerine aktarılıyor. IVR anonslarınızdaki Teknik Destek menüsünü ana menüde daha üst sıralara taşıyabilirsiniz.
+                              💡 <strong>Durum Özeti:</strong>{" "}
+                              {transferDepartments.length > 0
+                                ? `Seçili dönemde en çok aktarım "${transferDepartments[0].name}" hedefine (${transferDepartments[0].count} çağrı, tüm aktarımların %${transferDepartments[0].pctOfTransfers}'i) gerçekleştirilmiştir.`
+                                : callsWithHold > 0
+                                ? `Seçili dönemde toplam ${callsWithHold} çağrı ortalama ${avgHoldTime} sn beklemeye (Hold) alınmış, başka bir birime aktarım gerçekleşmemiştir.`
+                                : "Seçili tarih aralığında beklemeye alınan (Hold) veya başka bir dahiliye aktarılan (Transfer) çağrı bulunmamaktadır."}
                             </p>
                           </div>
                         </div>
-                        
+
                         {/* Event Details Table */}
                         <div className="lg:col-span-2 flex flex-col gap-4">
                           <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Detaylı Bekletme & Aktarım Olayları</h4>
@@ -5582,21 +5881,25 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>
                                   <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
                                   <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>İlk Temsilci</th>
                                   <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hold (Bekletme)</th>
                                   <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Aktarılan Birim</th>
+                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Aktarılan Birim / Hedef</th>
                                 </tr>
                               </thead>
                               <tbody>
                                 {topEvents.length === 0 ? (
                                   <tr>
-                                    <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu dönemde bekletme veya aktarım olayı yaşanmamıştır.</td>
+                                    <td colSpan="6" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">
+                                      Seçili tarih aralığında bekletme (Hold) veya aktarım (Transfer) olayı kaydedilmemiştir.
+                                    </td>
                                   </tr>
                                 ) : (
                                   topEvents.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                      <td className="p-4 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatDate(c.start_time)}</td>
                                       <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
                                       <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>
                                       <td className="p-4 text-center">

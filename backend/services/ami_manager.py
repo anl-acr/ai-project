@@ -150,9 +150,18 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
         res_item = response[0] if isinstance(response, list) and len(response) > 0 else response
         resp_val = res_item.get('Response') if hasattr(res_item, 'get') else getattr(res_item, 'Response', None)
         if resp_val == 'Success':
-            print(f"[AMI] Transfer Basarili: {call_id}")
-            # Update call status in database
-            # ...
+            print(f"[AMI] Transfer Basarili: {call_id} -> {extension}")
+            try:
+                from backend.database.config import AsyncSessionLocal
+                from backend.database.models import Call
+                async with AsyncSessionLocal() as session:
+                    db_call = await session.get(Call, call_id)
+                    if db_call:
+                        db_call.status = "transferred"
+                        db_call.hangup_source = f"transfer:{extension}"
+                        await session.commit()
+            except Exception as db_err:
+                print(f"[AMI] Transfer DB update error: {db_err}")
             return True
         else:
             print(f"[AMI] Transfer Basarisiz (Asterisk Red): {response}")
