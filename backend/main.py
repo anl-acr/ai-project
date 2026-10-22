@@ -853,39 +853,65 @@ DEFAULT_SETTINGS = {
             "role_code": "admin",
             "name": "Yönetici",
             "permissions": [
-                "pbx:read", "pbx:write", "pbx:delete",
-                "channels:read", "channels:write",
-                "breaks:read", "breaks:write", "breaks:delete",
-                "users:read", "users:write", "users:delete",
-                "roles:read", "roles:write", "roles:delete",
-                "call_panel:access", "call_panel:listen_records", "logs:access", "storage:access", "transcripts:access", "wallboard:access", "dialer:access", "call_flow:access", "ai_whisper:access", "omnichannel:access", "reports:access",
+                # Operasyon & İzleme
+                "dashboard:access", "wallboard:access", "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                # Yapay Zeka & Bilgi
                 "ai_agents:read", "ai_agents:write", "ai_agents:delete", "ai_agents:access",
-                "contacts:read", "contacts:write", "contacts:delete",
-                "canned_responses:read", "canned_responses:write", "canned_responses:delete",
-                "blacklist:read", "blacklist:write", "blacklist:delete",
-                "mobile_transfer:read", "mobile_transfer:write",
+                "ai_agent_scenarios:read", "ai_agent_scenarios:write", "ai_agent_scenarios:delete",
+                "rag_kb:read", "rag_kb:write", "rag_kb:delete",
+                "rule_editor:read", "rule_editor:write", "rule_editor:delete",
+                "ai_whisper:read", "ai_whisper:write", "ai_whisper:access",
+                "voice_biometrics:read", "voice_biometrics:write", "voice_biometrics:delete",
                 "qa:read", "qa:write", "qa:delete",
+                "lang_detect:read", "lang_detect:write",
+                "emotion_management:read", "emotion_management:write",
+                "ai_providers:read", "ai_providers:write",
+                # Santral (PBX) & Çağrı Yönlendirme
+                "pbx:read", "pbx:write", "pbx:delete",
+                "users:read", "users:write", "users:delete",
+                "announcements:read", "announcements:write", "announcements:delete",
+                "acd_queues:read", "acd_queues:write", "acd_queues:delete",
+                "autoprovision:read", "autoprovision:write", "autoprovision:delete",
                 "autoprovision_templates:read", "autoprovision_templates:write", "autoprovision_templates:delete",
                 "outbound_rules:read", "outbound_rules:write", "outbound_rules:delete",
-                "speed_dials:read", "speed_dials:write", "speed_dials:delete",
-                "conferences:read", "conferences:write", "conferences:delete",
-                "universal_api:read", "universal_api:write", "universal_api:delete",
-                "voice_biometrics:read", "voice_biometrics:write", "voice_biometrics:delete",
-                "announcements:read", "announcements:write", "announcements:delete",
-                "autoprovision:read", "autoprovision:write", "autoprovision:delete",
-                "acd_queues:read", "acd_queues:write", "acd_queues:delete",
-                "trunks:read", "trunks:write", "trunks:delete",
                 "inbound_rules:read", "inbound_rules:write", "inbound_rules:delete",
                 "call_pickup_groups:read", "call_pickup_groups:write", "call_pickup_groups:delete",
                 "subscriber_groups:read", "subscriber_groups:write", "subscriber_groups:delete",
+                "contacts:read", "contacts:write", "contacts:delete",
+                "trunks:read", "trunks:write", "trunks:delete",
+                "conferences:read", "conferences:write", "conferences:delete",
+                "speed_dials:read", "speed_dials:write", "speed_dials:delete",
+                "blacklist:read", "blacklist:write", "blacklist:delete",
+                "call_flow:read", "call_flow:write", "call_flow:delete", "call_flow:access",
+                "dialer:read", "dialer:write", "dialer:delete", "dialer:access",
+                "calendar:read", "calendar:write", "calendar:delete",
+                "follow_me:read", "follow_me:write",
+                "mobile_transfer:read", "mobile_transfer:write",
+                "smart_callback:read", "smart_callback:write",
+                "numbering_plan:read", "numbering_plan:write",
+                # Raporlar & Analiz
+                "reports:access", "agent_timeline:access", "transcripts:access",
                 "roi_settings:read", "roi_settings:write", "roi_settings:delete",
+                # İletişim Kanalları
+                "channels:read", "channels:write",
+                "canned_responses:read", "canned_responses:write", "canned_responses:delete",
+                # Yönetim, Güvenlik & Sistem Ayarları
+                "roles:read", "roles:write", "roles:delete",
+                "breaks:read", "breaks:write", "breaks:delete",
+                "locations:read", "locations:write", "locations:delete",
+                "nat:read", "nat:write", "nat:delete",
+                "universal_api:read", "universal_api:write", "universal_api:delete",
                 "ssl:read", "ssl:write",
                 "backup_restore:read", "backup_restore:write",
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
-                "security:read", "security:write", "security:delete",
+                "storage:access",
                 "api_budgets:read", "api_budgets:write",
+                "tenant_license:read", "tenant_license:write", "tenant_license:delete",
                 "email_notifications:read", "email_notifications:write", "email_notifications:delete",
-                "restore_points:read", "restore_points:write", "restore_points:delete"
+                "restore_points:read", "restore_points:write", "restore_points:delete",
+                "system_status:access", "logs:access", "sip_debugger:access",
+                "security:read", "security:write", "security:delete",
+                "system_version:access"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -894,20 +920,40 @@ DEFAULT_SETTINGS = {
             "role_code": "supervisor",
             "name": "Şef (Supervisor)",
             "permissions": [
-                "pbx:read", "pbx:write",
-                "channels:read", "channels:write",
-                "breaks:read", "breaks:write",
-                "users:read", "users:write",
-                "call_panel:access", "logs:access", "storage:access", "wallboard:access", "ai_whisper:access", "omnichannel:access",
-                "contacts:read", "contacts:write", "contacts:delete",
-                "canned_responses:read", "canned_responses:write", "canned_responses:delete",
-                "blacklist:read", "blacklist:write", "blacklist:delete",
-                "mobile_transfer:read", "mobile_transfer:write",
+                "dashboard:access", "wallboard:access", "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "ai_agents:read", "ai_agents:write", "ai_agent_scenarios:read", "ai_agent_scenarios:write",
+                "rag_kb:read", "rag_kb:write", "rule_editor:read", "rule_editor:write",
+                "ai_whisper:read", "ai_whisper:write", "ai_whisper:access",
+                "voice_biometrics:read", "voice_biometrics:write",
                 "qa:read", "qa:write", "qa:delete",
+                "pbx:read", "pbx:write",
+                "users:read", "users:write",
+                "announcements:read", "announcements:write",
+                "acd_queues:read", "acd_queues:write",
+                "outbound_rules:read", "inbound_rules:read",
+                "call_pickup_groups:read", "call_pickup_groups:write",
+                "subscriber_groups:read", "subscriber_groups:write",
+                "contacts:read", "contacts:write", "contacts:delete",
+                "conferences:read", "conferences:write",
+                "speed_dials:read", "speed_dials:write",
+                "blacklist:read", "blacklist:write", "blacklist:delete",
+                "call_flow:read", "call_flow:write", "call_flow:access",
+                "dialer:read", "dialer:write", "dialer:access",
+                "calendar:read", "calendar:write", "calendar:delete",
+                "follow_me:read", "follow_me:write",
+                "mobile_transfer:read", "mobile_transfer:write",
+                "smart_callback:read", "smart_callback:write",
+                "reports:access", "agent_timeline:access", "transcripts:access",
+                "channels:read", "channels:write",
+                "canned_responses:read", "canned_responses:write", "canned_responses:delete",
+                "breaks:read", "breaks:write",
+                "locations:read", "locations:write",
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
+                "storage:access", "logs:access", "sip_debugger:access",
                 "security:read", "security:write", "security:delete",
                 "email_notifications:read", "email_notifications:write",
-                "restore_points:read", "restore_points:write"
+                "restore_points:read", "restore_points:write",
+                "system_version:access"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         },
@@ -916,11 +962,14 @@ DEFAULT_SETTINGS = {
             "role_code": "agent",
             "name": "Müşteri Temsilcisi",
             "permissions": [
-                "call_panel:access", "omnichannel:access", 
+                "dashboard:access", "call_panel:access", "omnichannel:access",
                 "contacts:read", "contacts:write",
+                "calendar:read", "calendar:write",
                 "canned_responses:read", "blacklist:read",
+                "follow_me:read", "follow_me:write",
                 "mobile_transfer:read", "mobile_transfer:write",
-                "qa:read", "recording_retention:read"
+                "qa:read", "recording_retention:read",
+                "reports:access", "agent_timeline:access"
             ],
             "allowed_breaks": [1, 2, 3, 4]
         }
@@ -1206,8 +1255,44 @@ def load_settings():
                 for p in admin_defaults:
                     if p not in new_perms:
                         new_perms.append(p)
+            elif r.get("role_code") == "supervisor":
+                sup_defaults = DEFAULT_SETTINGS["roles"][1]["permissions"]
+                for p in sup_defaults:
+                    if p not in new_perms:
+                        new_perms.append(p)
+            elif r.get("role_code") == "agent":
+                agt_defaults = DEFAULT_SETTINGS["roles"][2]["permissions"]
+                for p in agt_defaults:
+                    if p not in new_perms:
+                        new_perms.append(p)
                 
             r["permissions"] = list(set(new_perms))
+
+        # Persist migrated role permissions back to PostgreSQL SystemRole table
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemRole
+            sync_sess = SyncSessionLocal()
+            try:
+                db_role_rows = sync_sess.query(SystemRole).all()
+                by_code = {row.role_code: row for row in db_role_rows if row.role_code}
+                dirty = False
+                for r in db["roles"]:
+                    rc = r.get("role_code")
+                    if rc and rc in by_code:
+                        row = by_code[rc]
+                        existing_set = set(row.permissions or [])
+                        migrated_set = set(r.get("permissions") or [])
+                        if not migrated_set.issubset(existing_set):
+                            row.permissions = list(existing_set.union(migrated_set))
+                            r["permissions"] = row.permissions
+                            dirty = True
+                if dirty:
+                    sync_sess.commit()
+            finally:
+                sync_sess.close()
+        except Exception as sync_err:
+            print(f"[Role Migration DB Sync Info]: {sync_err}")
             
     # Ensure auto_whisper_enabled exists in pbx settings (migration)
     if "pbx" in db and "auto_whisper_enabled" not in db["pbx"]:
@@ -10616,8 +10701,12 @@ async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
         roles = result.scalars().all()
         if roles:
             out = []
+            admin_defaults = DEFAULT_SETTINGS["roles"][0]["permissions"]
             for r in roles:
                 d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+                if d.get("role_code") in ["admin", "superadmin"]:
+                    merged = list(set((d.get("permissions") or []) + admin_defaults))
+                    d["permissions"] = merged
                 out.append(d)
             return out
     except Exception as e:

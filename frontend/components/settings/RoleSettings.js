@@ -1,55 +1,81 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
 const SYSTEM_FEATURES = [
-  { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
-  { id: "channels", name: "Kanal Entegrasyonları", icon: Smartphone, type: "crud_partial", color: "pink" },
-  { id: "breaks", name: "Mola Tanımları", icon: Coffee, type: "crud", color: "amber" },
-  { id: "users", name: "Kullanıcı Yönetimi", icon: User, type: "crud", color: "blue" },
-  { id: "roles", name: "Rol Tanımları", icon: Shield, type: "crud", color: "purple" },
-  { id: "call_panel", name: "Çağrı Paneli", icon: Coffee, type: "access", color: "emerald" },
+  // 1. Operasyon & İzleme
+  { id: "dashboard", name: "Gerçek Zamanlı AI Pano", icon: Activity, type: "access", color: "purple" },
+  { id: "wallboard", name: "Canlı İzleme Paneli (Wallboard)", icon: Monitor, type: "access", color: "indigo" },
+  { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: Coffee, type: "access", color: "emerald" },
   { id: "call_panel:listen_records", name: "Temsilci Paneli Ses Kaydı Dinleme", icon: Volume2, type: "access", color: "emerald" },
-  { id: "logs", name: "Sistem Logları", icon: Terminal, type: "access", color: "cyan" },
-  { id: "storage", name: "Recording/NAS Depolama", icon: HardDrive, type: "access", color: "rose" },
-  { id: "transcripts", name: "Maskesiz Görüşme Metinleri Yetkisi", icon: Terminal, type: "access", color: "orange" },
-  { id: "dialer", name: "Dış Arama Modülü (Dialer)", icon: Smartphone, type: "access", color: "blue" },
-  { id: "call_flow", name: "Arama Akış Yönetimi (Call Flow)", icon: GitBranch, type: "access", color: "indigo" },
-  { id: "ai_agents", name: "Yapay Zeka Temsilcileri (AI Agents)", icon: Bot, type: "crud", color: "purple" },
-  { id: "ai_whisper", name: "AI Fısıldama Yetkisi", icon: Terminal, type: "access", color: "amber" },
   { id: "omnichannel", name: "Ortak Gelen Kutusu (Omnichannel)", icon: MessageSquare, type: "access", color: "purple" },
-  { id: "contacts", name: "Rehber (Contacts)", icon: BookOpen, type: "crud", color: "blue" },
-  { id: "canned_responses", name: "Hızlı Cevap Taslakları", icon: FileText, type: "crud", color: "pink" },
-  { id: "blacklist", name: "Kara Liste ve Suistimal Koruması (AI Abuse Shield)", icon: Shield, type: "crud", color: "rose" },
-  { id: "mobile_transfer", name: "Mobil Numaraya Akıllı AI Transferi", icon: Smartphone, type: "crud_partial", color: "indigo" },
-  { id: "qa", name: "Otomatik Kalite Değerlendirme (Automated QA)", icon: FileText, type: "crud", color: "indigo" },
+
+  // 2. Yapay Zeka & Bilgi
+  { id: "ai_agents", name: "Yapay Zeka Temsilcileri (AI Agents)", icon: Bot, type: "crud", color: "purple" },
+  { id: "ai_agent_scenarios", name: "AI Temsilci Senaryo Editörü", icon: GitBranch, type: "crud", color: "purple" },
+  { id: "rag_kb", name: "Bilgi Bankası (RAG) Yönetimi", icon: Database, type: "crud", color: "blue" },
+  { id: "rule_editor", name: "Kural & Senaryo Editörü", icon: Sliders, type: "crud", color: "indigo" },
+  { id: "ai_whisper", name: "AI Fısıldama Yönetimi & Yetkisi", icon: Sparkles, type: "crud_partial", color: "amber" },
+  { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" },
+  { id: "qa", name: "Otomatik Kalite Değerlendirme (QA)", icon: FileText, type: "crud", color: "indigo" },
+  { id: "lang_detect", name: "Otomatik Dil Algılama", icon: Languages, type: "crud_partial", color: "rose" },
+  { id: "emotion_management", name: "Dinamik Duygu Yönetimi", icon: Heart, type: "crud_partial", color: "rose" },
+  { id: "ai_providers", name: "Yapay Zeka API Sağlayıcı Ayarları", icon: Bot, type: "crud_partial", color: "purple" },
+
+  // 3. Santral (PBX) & Çağrı Yönlendirme
+  { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
+  { id: "users", name: "Kullanıcı Yönetimi", icon: User, type: "crud", color: "blue" },
+  { id: "announcements", name: "Anons Yönetimi", icon: Volume2, type: "crud", color: "pink" },
+  { id: "acd_queues", name: "ACD Kuyruk Yönetimi", icon: Users, type: "crud", color: "blue" },
+  { id: "autoprovision", name: "Oto Provizyon Cihaz Yönetimi", icon: Smartphone, type: "crud", color: "indigo" },
   { id: "autoprovision_templates", name: "Otoprovizyon Şablonları", icon: FileText, type: "crud", color: "amber" },
   { id: "outbound_rules", name: "Giden Arama Kuralları", icon: ArrowUpRight, type: "crud", color: "indigo" },
-  { id: "speed_dials", name: "Hızlı Arama Yönetimi", icon: PhoneCall, type: "crud", color: "rose" },
-  { id: "conferences", name: "Konferans Yönetimi", icon: Users, type: "crud", color: "blue" },
-  { id: "universal_api", name: "Evrensel API & Webhook Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
-  { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" },
-  { id: "announcements", name: "Anons Yönetimi", icon: Volume2, type: "crud", color: "pink" },
-  { id: "reports", name: "Gelişmiş Çağrı Raporları ve KPI Panosu", icon: FileText, type: "access", color: "purple" },
-  { id: "autoprovision", name: "Otoprovizyon", icon: Smartphone, type: "crud", color: "indigo" },
-  { id: "acd_queues", name: "ACD Kuyruk Yönetimi", icon: Users, type: "crud", color: "blue" },
-  { id: "trunks", name: "Santral Dış Hatları (Trunks)", icon: Cable, type: "crud", color: "indigo" },
   { id: "inbound_rules", name: "Gelen Arama Kuralları", icon: PhoneCall, type: "crud", color: "pink" },
   { id: "call_pickup_groups", name: "Çağrı Toplama Grupları", icon: Users, type: "crud", color: "blue" },
   { id: "subscriber_groups", name: "Abone Grupları", icon: Users, type: "crud", color: "blue" },
+  { id: "contacts", name: "Rehber (Contacts)", icon: BookOpen, type: "crud", color: "blue" },
+  { id: "trunks", name: "Dış Hat Tanımı (SIP Trunks)", icon: Cable, type: "crud", color: "indigo" },
+  { id: "conferences", name: "Konferans Yönetimi", icon: Users, type: "crud", color: "blue" },
+  { id: "speed_dials", name: "Hızlı Arama Yönetimi", icon: PhoneCall, type: "crud", color: "rose" },
+  { id: "blacklist", name: "Numara Engelleme & Kara Liste", icon: Shield, type: "crud", color: "rose" },
+  { id: "call_flow", name: "Arama Akış Yönetimi (Call Flow)", icon: GitBranch, type: "crud", color: "indigo" },
+  { id: "dialer", name: "Dış Arama Modülü (Dialer)", icon: Smartphone, type: "crud", color: "blue" },
+  { id: "calendar", name: "Randevu Takvimi", icon: Calendar, type: "crud", color: "amber" },
+  { id: "follow_me", name: "Beni Takip Et (Follow Me) Özelliği", icon: PhoneCall, type: "crud_partial", color: "indigo" },
+  { id: "mobile_transfer", name: "Mobil Numaraya Akıllı AI Transferi", icon: Smartphone, type: "crud_partial", color: "indigo" },
+  { id: "smart_callback", name: "Akıllı Geri Arama (Smart Callback)", icon: Shuffle, type: "crud_partial", color: "indigo" },
+  { id: "numbering_plan", name: "Numara Planı Ayarları", icon: Hash, type: "crud_partial", color: "blue" },
+
+  // 4. Raporlar & Analiz
+  { id: "reports", name: "Gelişmiş Çağrı Raporları ve KPI Panosu", icon: FileText, type: "access", color: "purple" },
+  { id: "agent_timeline", name: "Temsilci Kronolojisi Raporu", icon: Clock, type: "access", color: "emerald" },
+  { id: "transcripts", name: "Maskesiz Görüşme Metinleri Yetkisi", icon: Terminal, type: "access", color: "orange" },
   { id: "roi_settings", name: "ROI Rapor Ayarları", icon: FileText, type: "crud", color: "amber" },
-  { id: "ssl", name: "SSL Sertifika Yönetimi", icon: Shield, type: "crud_partial", color: "emerald" },
-  { id: "backup_restore", name: "Yedekleme ve Geri Yükleme", icon: HardDrive, type: "crud_partial", color: "blue" },
-  { id: "recording_retention", name: "Ses Kayıt ve Saklama Süresi Yönetimi", icon: Server, type: "crud_partial", color: "rose" },
-  { id: "security", name: "Güvenlik Kalkanı", icon: Shield, type: "crud_partial", color: "cyan" },
-  { id: "api_budgets", name: "API Bütçe ve Tüketim Takibi", icon: HardDrive, type: "crud_partial", color: "emerald" },
-  { id: "sip_debugger", name: "SIP Trafik Yakalayıcı (sngrep)", icon: Terminal, type: "access", color: "indigo" },
+
+  // 5. İletişim Kanalları
+  { id: "channels", name: "Kanal Entegrasyonları (WhatsApp/Meta/TG)", icon: Smartphone, type: "crud_partial", color: "pink" },
+  { id: "canned_responses", name: "Hızlı Cevap Taslakları", icon: FileText, type: "crud", color: "pink" },
+
+  // 6. Yönetim, Güvenlik & Sistem Ayarları
+  { id: "roles", name: "Rol ve Yetki Tanımları", icon: Shield, type: "crud", color: "purple" },
+  { id: "breaks", name: "Mola Tanımları", icon: Coffee, type: "crud", color: "amber" },
+  { id: "locations", name: "Lokasyon ve Departmanlar", icon: MapPin, type: "crud", color: "rose" },
   { id: "nat", name: "NAT ve Dış IP Ayarları", icon: Network, type: "crud", color: "blue" },
-  { id: "ai_agent_scenarios", name: "AI Temsilci Senaryo Editörü", icon: GitBranch, type: "crud", color: "purple" },
-  { id: "tenant_license", name: "Lisans ve Müşteri Yönetimi", icon: Lock, type: "crud", color: "rose" },
+  { id: "universal_api", name: "Evrensel API & Webhook Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
+  { id: "ssl", name: "SSL Sertifika Yönetimi", icon: Shield, type: "crud_partial", color: "emerald" },
+  { id: "backup_restore", name: "Sistem Yedekleme ve Geri Yükleme", icon: HardDrive, type: "crud_partial", color: "blue" },
+  { id: "recording_retention", name: "Kayıt & Saklama Süresi Sistemi", icon: Server, type: "crud", color: "rose" },
+  { id: "storage", name: "Recording/NAS Depolama Erişimi", icon: HardDrive, type: "access", color: "rose" },
+  { id: "api_budgets", name: "API Bütçe ve Tüketim Takibi", icon: HardDrive, type: "crud_partial", color: "emerald" },
+  { id: "tenant_license", name: "Müşteri (Tenant) & Lisans Yönetimi", icon: Lock, type: "crud", color: "rose" },
   { id: "email_notifications", name: "E-Mail ve WhatsApp Sistem Bildirimleri", icon: Mail, type: "crud", color: "blue" },
-  { id: "restore_points", name: "Geri Yükleme Noktası Yönetimi (Ayarlar)", icon: RotateCcw, type: "crud", color: "emerald" }
+  { id: "restore_points", name: "Geri Yükleme Noktası Yönetimi", icon: RotateCcw, type: "crud", color: "emerald" },
+  { id: "system_status", name: "Sistem Panosu & Sağlık İzleme", icon: Server, type: "access", color: "cyan" },
+  { id: "logs", name: "Olay Günlükleri & Sistem Logları", icon: Terminal, type: "access", color: "cyan" },
+  { id: "sip_debugger", name: "SIP Trafik Yakalayıcı (sngrep)", icon: Terminal, type: "access", color: "indigo" },
+  { id: "security", name: "Güvenlik Kalkanı (Fail2Ban & UFW)", icon: Shield, type: "crud", color: "cyan" },
+  { id: "system_version", name: "Sistem Versiyonu & Değişiklik Günlüğü", icon: GitBranch, type: "access", color: "indigo" }
 ];
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {
@@ -371,25 +397,26 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       {SYSTEM_FEATURES.map((feat) => {
                         const Icon = feat.icon;
-                        const hasRead = r.permissions.includes(`${feat.id}:read`);
+                        const hasRead = r.permissions.includes(`${feat.id}:read`) || (feat.id === "ai_whisper" && r.permissions.includes("ai_whisper:access")) || (feat.id === "call_flow" && r.permissions.includes("call_flow:access")) || (feat.id === "dialer" && r.permissions.includes("dialer:access"));
                         const hasWrite = r.permissions.includes(`${feat.id}:write`);
                         const hasDelete = r.permissions.includes(`${feat.id}:delete`);
-                        const hasAccess = r.permissions.includes(`${feat.id}:access`);
+                        const hasAccess = r.permissions.includes(`${feat.id}:access`) || r.permissions.includes(feat.id);
                         
                         const activeCount = [hasRead, hasWrite, hasDelete, hasAccess].filter(Boolean).length;
                         
                         return (
                           <div
                             key={feat.id}
-                            className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2.5 bg-slate-50/50 dark:bg-slate-950/30 ${
+                            title={feat.name}
+                            className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-950/30 ${
                               activeCount > 0 
                                 ? "border-slate-200 dark:border-slate-800/80" 
                                 : "border-slate-200/40 dark:border-slate-800/20 opacity-40"
                             }`}
                           >
-                            <div className="flex items-center gap-2 truncate">
-                              <Icon size={12} className={activeCount > 0 ? "text-slate-600 dark:text-slate-400" : "text-slate-400"} />
-                              <span className="text-[10px] font-bold text-slate-700 dark:text-slate-350 truncate">{feat.name.split(" ")[0]}</span>
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <Icon size={12} className={`shrink-0 ${activeCount > 0 ? "text-slate-600 dark:text-slate-400" : "text-slate-400"}`} />
+                              <span className="text-[10px] font-bold text-slate-700 dark:text-slate-350 truncate">{feat.name}</span>
                             </div>
                             
                             {/* Action Matrix Dots */}
@@ -538,29 +565,34 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                 <div className="space-y-6">
                   {[
                     {
-                      id: "pbx",
-                      name: "Santral & Çağrı Yönetimi",
-                      items: ["pbx", "acd_queues", "trunks", "inbound_rules", "outbound_rules", "call_pickup_groups", "subscriber_groups", "conferences", "speed_dials", "autoprovision", "autoprovision_templates", "announcements"]
+                      id: "operations",
+                      name: "Operasyon & Canlı İzleme",
+                      items: ["dashboard", "wallboard", "call_panel", "call_panel:listen_records", "omnichannel"]
                     },
                     {
                       id: "ai",
                       name: "Yapay Zeka & Otomasyon",
-                      items: ["ai_agents", "ai_whisper", "voice_biometrics", "qa", "blacklist", "mobile_transfer", "call_flow"]
+                      items: ["ai_agents", "ai_agent_scenarios", "rag_kb", "rule_editor", "ai_whisper", "voice_biometrics", "qa", "lang_detect", "emotion_management", "ai_providers"]
+                    },
+                    {
+                      id: "pbx",
+                      name: "Santral (PBX) & Çağrı Yönlendirme",
+                      items: ["pbx", "users", "announcements", "acd_queues", "autoprovision", "autoprovision_templates", "outbound_rules", "inbound_rules", "call_pickup_groups", "subscriber_groups", "contacts", "trunks", "conferences", "speed_dials", "blacklist", "call_flow", "dialer", "calendar", "follow_me", "mobile_transfer", "smart_callback", "numbering_plan"]
                     },
                     {
                       id: "reports",
-                      name: "Raporlar & İzleme",
-                      items: ["reports", "call_panel", "call_panel:listen_records", "transcripts", "logs", "storage"]
+                      name: "Raporlar & Performans Analitiği",
+                      items: ["reports", "agent_timeline", "transcripts", "roi_settings"]
                     },
                     {
                       id: "omnichannel",
-                      name: "Müşteri & İletişim (Omnichannel)",
-                      items: ["omnichannel", "contacts", "canned_responses", "dialer", "channels"]
+                      name: "İletişim Kanalları & Şablonlar",
+                      items: ["channels", "canned_responses"]
                     },
                     {
                       id: "system",
-                      name: "Sistem Ayarları",
-                      items: ["users", "roles", "breaks", "universal_api", "locations", "roi_settings", "ssl", "backup_restore", "recording_retention", "security", "api_budgets"]
+                      name: "Yönetim, Güvenlik & Sistem Ayarları",
+                      items: ["roles", "breaks", "locations", "nat", "universal_api", "ssl", "backup_restore", "recording_retention", "storage", "api_budgets", "tenant_license", "email_notifications", "restore_points", "system_status", "logs", "sip_debugger", "security", "system_version"]
                     }
                   ].map(category => (
                     <div key={category.id} className="space-y-3">
@@ -570,6 +602,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                       <div className="space-y-3">
                         {SYSTEM_FEATURES.filter(f => category.items.includes(f.id)).map((feat) => {
                           const Icon = feat.icon;
+                          const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
+                          const hasAccessSelected = selectedPermissions.includes(accessKey) || selectedPermissions.includes(`${feat.id}:access`);
                           return (
                             <div
                               key={feat.id}
@@ -668,9 +702,9 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                 {feat.type === "access" && (
                                   <button
                                     type="button"
-                                    onClick={() => togglePermission(`${feat.id}:access`)}
+                                    onClick={() => togglePermission(accessKey)}
                                     className={`px-3 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                      selectedPermissions.includes(`${feat.id}:access`)
+                                      hasAccessSelected
                                         ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/40"
                                         : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
                                     }`}
