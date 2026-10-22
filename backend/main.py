@@ -8787,8 +8787,29 @@ async def get_agent_timeline_report(
                 "extension": ext_val,
                 "role": u.get("role") or "agent",
                 "avatar": u.get("avatar") or "",
-                "is_online": ext_val in registered_endpoints or str(u.get("id")) in registered_endpoints
+                "is_online": ext_val in registered_endpoints or str(u.get("id")) in registered_endpoints,
+                "is_ai": False
             })
+
+    # Include AI Agents in timeline report
+    ai_agents_cfg = [
+        a for a in settings.get("ai_agents", [])
+        if is_default_tenant(tenant_id) or a.get("tenant_id") in (tenant_id, None, "tenant-default", "default")
+    ]
+    for idx_ai, ai_ag in enumerate(ai_agents_cfg):
+        ai_id = str(ai_ag.get("id") or f"ai-{idx_ai + 1}")
+        ai_name = str(ai_ag.get("name") or "AI Agent").strip()
+        ai_ext = str(ai_ag.get("extension") or "AI").strip()
+        agents_list.append({
+            "id": ai_id,
+            "name": ai_name,
+            "extension": ai_ext,
+            "role": "ai_agent",
+            "avatar": ai_ag.get("avatar") or "",
+            "is_online": bool(ai_ag.get("active", True)),
+            "is_ai": True,
+            "is_primary_ai": idx_ai == 0
+        })
 
     # Fetch calls in window
     stmt_calls = select(Call).where(
@@ -8979,11 +9000,18 @@ async def get_agent_timeline_report(
             callee = str(call.callee_number or "").strip()
             st = str(call.status or "").lower()
 
-            is_caller = (caller == ag_ext or caller == ag_id or (len(ag_ext) >= 3 and caller.endswith(ag_ext)))
-            is_callee = (callee == ag_ext or callee == ag_id or (len(ag_ext) >= 3 and callee.endswith(ag_ext)))
+            if ag.get("is_ai"):
+                is_caller = caller in (ag_ext, ag_id, ag_name)
+                is_callee = (
+                    callee in ("Santral AI", "AI", ag_ext, ag_id, ag_name)
+                    or (ag.get("is_primary_ai") and callee not in seen_exts and caller not in seen_exts)
+                )
+            else:
+                is_caller = (caller == ag_ext or caller == ag_id or (len(ag_ext) >= 3 and caller.endswith(ag_ext)))
+                is_callee = (callee == ag_ext or callee == ag_id or (len(ag_ext) >= 3 and callee.endswith(ag_ext)))
 
             if not is_caller and not is_callee:
-                if st == "transferred" and len(agents_list) == 1:
+                if not ag.get("is_ai") and st == "transferred" and len([x for x in agents_list if not x.get("is_ai")]) == 1:
                     is_callee = True
                 else:
                     continue

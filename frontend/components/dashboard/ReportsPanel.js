@@ -289,12 +289,25 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
   const [calls, setCalls] = useState([]);
   const [users, setUsers] = useState([]);
+  const [aiAgents, setAiAgents] = useState([]);
   const [selectedCall, setSelectedCall] = useState(null);
   const [transcripts, setTranscripts] = useState([]);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isColumnSelectOpen, setIsColumnSelectOpen] = useState(false);
-  const [filterStartDate, setFilterStartDate] = useState(getNinetyDaysAgoString());
-  const [filterEndDate, setFilterEndDate] = useState(getTodayDateString());
+  const [filterStartDate, setFilterStartDate] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("reports_filter_start_date");
+      if (saved) return saved;
+    }
+    return getTodayDateString();
+  });
+  const [filterEndDate, setFilterEndDate] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("reports_filter_end_date");
+      if (saved) return saved;
+    }
+    return getTodayDateString();
+  });
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterDirection, setFilterDirection] = useState("All");
   const [filterConversant, setFilterConversant] = useState("All");
@@ -340,10 +353,28 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [roiHumanCost, setRoiHumanCost] = useState(30000);
   const [roiHumanCount, setRoiHumanCount] = useState(5);
   const [timelineReport, setTimelineReport] = useState(null);
-  const [timelineDate, setTimelineDate] = useState(getTodayDateString());
+  const [timelineDate, setTimelineDate] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem("reports_filter_end_date") || localStorage.getItem("reports_filter_start_date") || getTodayDateString();
+    }
+    return getTodayDateString();
+  });
   const [selectedTimelineAgent, setSelectedTimelineAgent] = useState("All");
   const [selectedTimelineAgentModal, setSelectedTimelineAgentModal] = useState(null);
   const [timelineLoading, setTimelineLoading] = useState(false);
+
+  // Persist selected filter dates to localStorage and sync timelineDate
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      if (filterStartDate) localStorage.setItem("reports_filter_start_date", filterStartDate);
+      if (filterEndDate) localStorage.setItem("reports_filter_end_date", filterEndDate);
+    }
+    const labelDate =
+      filterStartDate && filterEndDate && filterStartDate !== filterEndDate
+        ? `${filterStartDate} / ${filterEndDate}`
+        : filterEndDate || filterStartDate || getTodayDateString();
+    setTimelineDate(labelDate);
+  }, [filterStartDate, filterEndDate]);
 
   const fetchAgentTimeline = async (targetDate = timelineDate, showSpin = false) => {
     if (showSpin) setTimelineLoading(true);
@@ -352,7 +383,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
       const params = new URLSearchParams();
       params.append("tenant_id", activeTenantId);
-      if (targetDate) params.append("date", targetDate);
+      if (filterStartDate) params.append("start_date", filterStartDate);
+      if (filterEndDate) params.append("end_date", filterEndDate);
+      if (filterEndDate || filterStartDate) params.append("date", filterEndDate || filterStartDate);
       const res = await fetch(`${protocol}//${backendHost}/api/reports/agent-timeline?${params.toString()}`, {
         headers: { "X-Tenant-ID": activeTenantId }
       });
@@ -369,13 +402,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
   useEffect(() => {
     if (viewMode === "timeline") {
-      fetchAgentTimeline(timelineDate, true);
+      fetchAgentTimeline(filterEndDate || filterStartDate, true);
       const tlInterval = setInterval(() => {
-        fetchAgentTimeline(timelineDate, false);
+        fetchAgentTimeline(filterEndDate || filterStartDate, false);
       }, 5000);
       return () => clearInterval(tlInterval);
     }
-  }, [viewMode, timelineDate, backendHost]);
+  }, [viewMode, filterStartDate, filterEndDate, backendHost]);
 
   const columnLabels = {
     startTime: "Tarih / Saat",
@@ -534,21 +567,30 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
 
+  const fetchUsersAndAiAgents = async () => {
+    try {
+      const protocol = window.location.protocol;
+      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+      const [uRes, aiRes] = await Promise.all([
+        fetch(`${protocol}//${backendHost}/api/settings/users`, { headers: { "X-Tenant-ID": activeTenantId } }),
+        fetch(`${protocol}//${backendHost}/api/settings/ai-agents`, { headers: { "X-Tenant-ID": activeTenantId } })
+      ]);
+      if (uRes.ok) {
+        const uData = await uRes.json();
+        setUsers(Array.isArray(uData) ? uData : (uData?.users || []));
+      }
+      if (aiRes.ok) {
+        const aiData = await aiRes.json();
+        setAiAgents(Array.isArray(aiData) ? aiData : (aiData?.ai_agents || []));
+      }
+    } catch (err) {}
+  };
+
   // Fetch calls on mount and poll in the background silently every 3 seconds to get automatic call updates
   useEffect(() => {
     fetchCalls(true);
     fetchRoiSettings();
-    const fetchUsers = async () => {
-      try {
-        const protocol = window.location.protocol;
-        const res = await fetch(`${protocol}//${backendHost}/api/settings/users`);
-        if (res.ok) {
-          const data = await res.json();
-          setUsers(data);
-        }
-      } catch (err) {}
-    };
-    fetchUsers();
+    fetchUsersAndAiAgents();
   }, []);
 
   const fetchRoiSettings = async () => {
@@ -566,6 +608,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   useEffect(() => {
     const handleTenantChange = () => {
       fetchCalls(true);
+      fetchUsersAndAiAgents();
     };
 
     if (typeof window !== "undefined") {
@@ -692,6 +735,18 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterConversant("All");
     setFilterCallerNumber("");
     setFilterCallId("");
+    setFilterAgentsSelected([]);
+    setFilterQueuesSelected([]);
+    setSelectedTimelineAgent("All");
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem("reports_filter_start_date", todayStr);
+      localStorage.setItem("reports_filter_end_date", todayStr);
+    }
+
+    if (viewMode === "timeline") {
+      fetchAgentTimeline(todayStr, true);
+    }
 
     setIsLoading(true);
     const protocol = window.location.protocol === "https:" ? "https:" : "http:";
@@ -1263,9 +1318,26 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return timeline;
   };
 
-  const uniqueDirections = [...new Set(calls.map(c => getCallDirection(c)))].filter(Boolean);
-  const uniqueStatuses = [...new Set(calls.map(c => getCallStatus(c)))].filter(Boolean);
-  const uniqueConversants = [...new Set(calls.map(c => getConversant(c)))].filter(Boolean);
+  const uniqueDirections = Array.from(
+    new Set(["Gelen", "Giden (Temsilci)", "Giden (AI)", ...calls.map((c) => getCallDirection(c)).filter(Boolean)])
+  );
+  const uniqueStatuses = Array.from(
+    new Set(["Başarılı", "Başarısız (Cevapsız)", "Meşgul", "Aktarıldı", ...calls.map((c) => getCallStatus(c)).filter(Boolean)])
+  );
+  const uniqueConversants = Array.from(
+    new Set([
+      ...(Array.isArray(users)
+        ? users.map((u) => u.full_name || u.name || u.username || (u.extension ? `Dahili ${u.extension}` : "")).filter(Boolean)
+        : []),
+      ...(Array.isArray(aiAgents)
+        ? aiAgents.map((a) => a.name || (a.extension ? `AI (${a.extension})` : "")).filter(Boolean)
+        : []),
+      ...(Array.isArray(timelineReport?.agents)
+        ? timelineReport.agents.map((ag) => ag.agent_name).filter(Boolean)
+        : []),
+      ...calls.map((c) => getConversant(c)).filter(Boolean),
+    ])
+  );
 
   const filteredCalls = calls.filter((c) => {
     // 1. Caller Number Filter
@@ -2484,6 +2556,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 <button
                   onClick={() => {
                     fetchCalls(true);
+                    if (viewMode === "timeline") {
+                      fetchAgentTimeline(filterEndDate || filterStartDate, true);
+                    }
                     setIsFilterOpen(false);
                   }}
                   className="flex-1 py-2 bg-primary hover:bg-primary/90 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
@@ -3805,35 +3880,71 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               /* Agent Status Timeline (Temsilci Kronolojisi) Mode - Single Row Table + Magnifier Detail Modal */
               <div className="p-5 flex flex-col gap-5 h-full overflow-y-auto scrollbar-thin">
                 {(() => {
-                  const rawAgents = (timelineReport?.agents && timelineReport.agents.length > 0)
-                    ? timelineReport.agents
-                    : (users && users.length > 0
-                        ? users.map(u => ({
-                            agent_id: String(u.id),
-                            agent_name: u.full_name || u.name || `Dahili ${u.extension}`,
-                            extension: String(u.extension || ""),
-                            avatar: u.avatar || "",
-                            is_online: false,
-                            has_real_activity: false,
-                            shift_start_time: "-",
-                            shift_end_time: "-",
-                            total_online_label: "-",
-                            total_talk_label: "0 dk",
-                            total_break_label: "0 dk",
-                            inbound_total_count: 0,
-                            inbound_answered_count: 0,
-                            answered_count: 0,
-                            outbound_count: 0,
-                            missed_count: 0,
-                            transfer_count: 0,
-                            pickup_count: 0,
-                            action_count: 0,
-                            efficiency_pct: 0,
-                            availability_pct: 0,
-                            answer_rate_pct: 0,
-                            events: []
-                          }))
-                        : []);
+                  const fallbackUsers = (users || []).map(u => ({
+                    agent_id: String(u.id),
+                    agent_name: u.full_name || u.name || u.username || `Dahili ${u.extension}`,
+                    extension: String(u.extension || ""),
+                    avatar: u.avatar || "",
+                    is_online: false,
+                    is_ai: false,
+                    has_real_activity: false,
+                    shift_start_time: "-",
+                    shift_end_time: "-",
+                    total_online_label: "-",
+                    total_talk_label: "0 dk",
+                    total_break_label: "0 dk",
+                    inbound_total_count: 0,
+                    inbound_answered_count: 0,
+                    answered_count: 0,
+                    outbound_count: 0,
+                    missed_count: 0,
+                    transfer_count: 0,
+                    pickup_count: 0,
+                    action_count: 0,
+                    efficiency_pct: 0,
+                    availability_pct: 0,
+                    answer_rate_pct: 0,
+                    events: []
+                  }));
+                  const fallbackAiAgents = (aiAgents || []).map(ai => ({
+                    agent_id: String(ai.id || ai.name),
+                    agent_name: `${ai.name} (AI Agent)`,
+                    extension: String(ai.extension || "AI"),
+                    avatar: ai.avatar || "",
+                    is_online: ai.active !== false,
+                    is_ai: true,
+                    has_real_activity: false,
+                    shift_start_time: ai.active !== false ? "7/24 Aktif" : "-",
+                    shift_end_time: "-",
+                    total_online_label: ai.active !== false ? "24 sa 0 dk" : "-",
+                    total_talk_label: "0 dk",
+                    total_break_label: "0 dk",
+                    inbound_total_count: 0,
+                    inbound_answered_count: 0,
+                    answered_count: 0,
+                    outbound_count: 0,
+                    missed_count: 0,
+                    transfer_count: 0,
+                    pickup_count: 0,
+                    action_count: 0,
+                    efficiency_pct: 100,
+                    availability_pct: 100,
+                    answer_rate_pct: 100,
+                    events: []
+                  }));
+                  const baseAgents = (timelineReport?.agents && timelineReport.agents.length > 0)
+                    ? [...timelineReport.agents]
+                    : [...fallbackUsers, ...fallbackAiAgents];
+
+                  // Ensure any newly loaded users or AI agents not yet in baseAgents are appended
+                  const existingNames = new Set(baseAgents.map(a => a.agent_name));
+                  [...fallbackUsers, ...fallbackAiAgents].forEach(fb => {
+                    if (fb.agent_name && !existingNames.has(fb.agent_name)) {
+                      existingNames.add(fb.agent_name);
+                      baseAgents.push(fb);
+                    }
+                  });
+                  const rawAgents = baseAgents;
 
                   const preparedAgents = rawAgents
                     .map((ag) => ({
@@ -3858,6 +3969,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         return false;
                       }
                       if (filterAgentsSelected.length > 0 && !filterAgentsSelected.includes(ag.agent_name)) {
+                        return false;
+                      }
+                      if (filterConversant !== "All" && ag.agent_name !== filterConversant) {
                         return false;
                       }
                       return true;
@@ -4038,59 +4152,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
                   return (
                     <>
-                      {/* Filter & Action Toolbar */}
-                      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <div className="flex items-center gap-2">
-                            <CalendarIcon size={15} className={text} />
-                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Tarih:</span>
-                            <input
-                              type="date"
-                              value={timelineDate}
-                              onChange={(e) => setTimelineDate(e.target.value)}
-                              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none"
-                            />
-                            <button
-                              onClick={() => setTimelineDate(getTodayDateString())}
-                              className={"px-2.5 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer " + lightBg + " " + text + " " + borderLight}
-                            >
-                              Bugün
-                            </button>
-                          </div>
-
-                          <div className="h-5 w-[1px] bg-slate-200 dark:bg-slate-800 hidden sm:block" />
-
-                          <div className="flex items-center gap-2">
-                            <Users size={15} className={text} />
-                            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Temsilci:</span>
-                            <select
-                              value={selectedTimelineAgent}
-                              onChange={(e) => setSelectedTimelineAgent(e.target.value)}
-                              className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-slate-100 focus:outline-none"
-                            >
-                              <option value="All">Tüm Temsilciler ({rawAgents.length})</option>
-                              {rawAgents.map((ag) => (
-                                <option key={ag.agent_id || ag.extension} value={ag.agent_name}>
-                                  {ag.agent_name} (Dahili: {ag.extension})
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <span className="text-[11px] font-semibold text-slate-400 hidden md:inline">
-                            Canlı sistem hareketleri otomatik kaydedilir
-                          </span>
-                          <button
-                            onClick={() => fetchAgentTimeline(timelineDate, true)}
-                            className={"flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[11px] font-bold text-white shadow-sm transition cursor-pointer " + bg + " " + hover}
-                          >
-                            <RefreshCw size={12} className={timelineLoading ? "animate-spin" : ""} />
-                            <span>Yenile</span>
-                          </button>
-                        </div>
-                      </div>
 
                       {/* Compact KPI Summary Strip */}
                       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
