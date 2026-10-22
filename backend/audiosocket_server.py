@@ -783,9 +783,56 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
 
         # Get dynamic Call Flow Action based on dialed DID (Wait 200ms to ensure dialplan API request is fully processed)
         await asyncio.sleep(0.2)
+
+        # Enforce Blacklist / Blocked Status before routing to Extension or AI Agent
+        try:
+            import re
+            from sqlalchemy import select
+            async with AsyncSessionLocal() as session:
+                db_call = await session.get(Call, call_id)
+                caller_num = str(db_call.caller_number or "").strip() if db_call else ""
+                is_blocked_call = bool(db_call and db_call.status in ("blocked", "rejected_limit"))
+
+                if not is_blocked_call and caller_num and caller_num != "Bilinmeyen Temsilci":
+                    c_digits = re.sub(r"\D", "", caller_num)
+                    c_last10 = c_digits[-10:] if len(c_digits) >= 10 else ""
+
+                    res_bl = await session.execute(select(BlacklistItem))
+                    all_bl = res_bl.scalars().all()
+                    for b in all_bl:
+                        b_val = str(b.value or "").strip()
+                        b_digits = re.sub(r"\D", "", b_val)
+                        if b_val.lower() == caller_num.lower() or (c_digits and b_digits and c_digits == b_digits) or (c_last10 and len(b_digits) >= 10 and c_last10 == b_digits[-10:]):
+                            is_blocked_call = True
+                            break
+
+                    if not is_blocked_call:
+                        st_cfg = load_settings()
+                        for b in st_cfg.get("blacklist", []):
+                            b_val = str((b.get("value") if isinstance(b, dict) else getattr(b, "value", "")) or "").strip()
+                            b_digits = re.sub(r"\D", "", b_val)
+                            if b_val.lower() == caller_num.lower() or (c_digits and b_digits and c_digits == b_digits) or (c_last10 and len(b_digits) >= 10 and c_last10 == b_digits[-10:]):
+                                is_blocked_call = True
+                                break
+
+                    if is_blocked_call and db_call:
+                        db_call.status = "blocked"
+                        db_call.end_time = datetime.datetime.utcnow()
+                        await session.commit()
+
+                if is_blocked_call:
+                    print(f"[Abuse Shield / AudioSocket] Blocked call {call_id} from blacklisted caller '{caller_num}'. Terminating immediately.")
+                    from backend.services.ami_manager import hangup_call
+                    await hangup_call(call_id, caller_number=caller_num)
+                    writer.close()
+                    await writer.wait_closed()
+                    return
+        except Exception as bl_err:
+            print(f"[AudioSocket Blacklist Check Error]: {bl_err}")
+
         did = await get_call_did(call_id)
         call_eval = evaluate_call_flow_action(did)
-        
+
         route_action = call_eval.get("action")
         print(f"[Call Flow Route] DID: {did} -> Action: {route_action}, Target/Agent: {call_eval.get('target') or call_eval.get('agent_id')}")
 

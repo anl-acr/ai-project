@@ -2116,11 +2116,14 @@ same => n,Set(UUID_VAL=${{UUID()}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
 same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,GotoIf($["${{REGEX("blocked" ${{CURL_RESULT}})}}" = "1"]?hangup_blocked_x)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
 same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
+same => n(hangup_blocked_x),NoOp(KARA LISTE / GUVENLIK ENGELI: Arayan reddedildi -> ${{CALLERID(num)}})
+same => n,Hangup(21)
 
 ; Uluslararası / + ile gelen DID numaraları için (+90...)
 exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${{EXTEN}} - Arayan: ${{CALLERID(num)}})
@@ -2128,11 +2131,14 @@ same => n,Set(UUID_VAL=${{UUID()}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
 same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,GotoIf($["${{REGEX("blocked" ${{CURL_RESULT}})}}" = "1"]?hangup_blocked_plus)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
 same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
+same => n(hangup_blocked_plus),NoOp(KARA LISTE / GUVENLIK ENGELI: Arayan reddedildi -> ${{CALLERID(num)}})
+same => n,Hangup(21)
 
 ; Fallback (s uzantısı)
 exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${{CALLERID(num)}})
@@ -2144,11 +2150,14 @@ same => n,Set(EXTEN_FROM_HEADER=${{CUT(CUT(HEADER_TO,@,1),:,2)}})
 same => n,Set(TRUNK_EXTEN=${{CUT(CUT(CHANNEL(name),/,2),-,1)}})
 same => n,Set(REAL_DID=${{IF($[${{ISNULL(${{EXTEN_FROM_HEADER}})}} | "${{EXTEN_FROM_HEADER}}"="s"]?${{TRUNK_EXTEN}}:${{EXTEN_FROM_HEADER}})}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{REAL_DID}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,GotoIf($["${{REGEX("blocked" ${{CURL_RESULT}})}}" = "1"]?hangup_blocked_s)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
 same => n,AudioSocket(${{CALL_UUID}},{audiosocket_host})
 same => n,Hangup()
+same => n(hangup_blocked_s),NoOp(KARA LISTE / GUVENLIK ENGELI: Arayan reddedildi -> ${{CALLERID(num)}})
+same => n,Hangup(21)
 
 ; Hangup handler (h uzantısı)
 exten => h,1,NoOp(Cagri sonlandi: ${{EXTEN}})
@@ -4237,9 +4246,60 @@ async def delete_subscriber_group(group_id: int):
 # ----------------------------------------------------
 # API Routes: ACL Check (Asterisk için)
 # ----------------------------------------------------
+async def is_phone_or_value_blacklisted(val_to_check: str, session=None) -> tuple[bool, str]:
+    raw_val = str(val_to_check or "").strip()
+    if not raw_val:
+        return False, ""
+    digits = re.sub(r"\D", "", raw_val)
+    last10 = digits[-10:] if len(digits) >= 10 else ""
+
+    def matches_entry(entry_val: str) -> bool:
+        ev = str(entry_val or "").strip()
+        if not ev:
+            return False
+        if ev.lower() == raw_val.lower():
+            return True
+        ev_digits = re.sub(r"\D", "", ev)
+        if digits and ev_digits:
+            if digits == ev_digits:
+                return True
+            if last10 and len(ev_digits) >= 10 and last10 == ev_digits[-10:]:
+                return True
+        return False
+
+    try:
+        if session is not None:
+            res_bl = await session.execute(select(BlacklistItem))
+            for b in res_bl.scalars().all():
+                if matches_entry(b.value):
+                    return True, str(b.reason or "Kara Liste Engeli")
+        else:
+            async with AsyncSessionLocal() as s:
+                res_bl = await s.execute(select(BlacklistItem))
+                for b in res_bl.scalars().all():
+                    if matches_entry(b.value):
+                        return True, str(b.reason or "Kara Liste Engeli")
+    except Exception as e:
+        print(f"[Blacklist DB Check Warning]: {e}")
+
+    for b in settings_db.get("blacklist", []):
+        b_val = b.get("value") if isinstance(b, dict) else getattr(b, "value", "")
+        b_reason = (b.get("reason") if isinstance(b, dict) else getattr(b, "reason", "")) or "Kara Liste Engeli"
+        if matches_entry(b_val):
+            return True, str(b_reason)
+
+    return False, ""
+
+
 @app.get("/api/acl/check_subscriber_call")
 async def check_subscriber_call(caller: str, callee: str):
     from fastapi import Response
+    is_bl_caller, _ = await is_phone_or_value_blacklisted(caller)
+    is_bl_callee, _ = await is_phone_or_value_blacklisted(callee)
+    if is_bl_caller or is_bl_callee:
+        print(f"[Abuse Shield] Internal subscriber call blocked via Blacklist: {caller} -> {callee}")
+        return Response(content="DENY", media_type="text/plain")
+
     groups = settings_db.get("subscriber_groups", [])
     
     caller_groups = []
@@ -4280,6 +4340,18 @@ async def check_outbound_call(caller: str = "", callee: str = "", channel: str =
     caller_str = str(caller or "").strip()
     callee_str = str(callee or "").strip()
     via_upper = str(via or "").upper()
+
+    # 0. Kara Liste (Blacklist) kontrolü
+    is_bl_caller, bl_reason_c = await is_phone_or_value_blacklisted(caller_str)
+    is_bl_callee, bl_reason_d = await is_phone_or_value_blacklisted(callee_str)
+    if is_bl_caller or is_bl_callee:
+        bl_reason = bl_reason_d or bl_reason_c or "BLACKLISTED"
+        print(f"[Abuse Shield] Outbound call blocked via Blacklist: {caller_str} -> {callee_str} ({bl_reason})")
+        try:
+            add_system_log("ABUSE_SHIELD", "WARNING", f"Kara Liste Dış Arama Engellendi: {caller_str} -> {callee_str} ({bl_reason})")
+        except Exception:
+            pass
+        return Response(content=f"DENY:BLACKLISTED", media_type="text/plain")
 
     # 1. Kullanıcının abone grubu uluslararası (international) arama yetkisini kontrol et
     allow_international = False
@@ -6388,28 +6460,37 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 print(f"[Call Register Tenant Error]: {e_tenant}")
 
             try:
-                stmt_black = select(BlacklistItem).where(
-                    (BlacklistItem.type == "phone") & 
-                    (BlacklistItem.value == str(caller))
-                )
-                res_black = await session.execute(stmt_black)
-                blacklisted = res_black.scalars().first()
-                
-                if blacklisted:
+                is_bl, bl_reason = await is_phone_or_value_blacklisted(caller, session=session)
+                if not is_bl and did and did != "s":
+                    is_bl, bl_reason = await is_phone_or_value_blacklisted(did, session=session)
+
+                if is_bl:
                     import asyncio
                     from backend.services.ami_manager import hangup_call
-                    print(f"[Abuse Shield] Blocked incoming call from blacklisted caller: {caller}")
-                    new_call = Call(
-                        id=call_id,
-                        caller_number=caller,
-                        callee_number=did,
-                        status="blocked",
-                        tenant_id=call_tenant,
-                        start_time=datetime.datetime.utcnow()
-                    )
-                    session.add(new_call)
+                    print(f"[Abuse Shield] Blocked call from/to blacklisted number: caller={caller}, did={did} ({bl_reason})")
+                    add_system_log("ABUSE_SHIELD", "WARNING", f"Kara Liste Çağrı Engellendi: {caller} -> {did} ({bl_reason})")
+                    existing_bl_call = await session.get(Call, call_id)
+                    if existing_bl_call:
+                        existing_bl_call.caller_number = caller or existing_bl_call.caller_number or "Bilinmeyen"
+                        existing_bl_call.callee_number = did or existing_bl_call.callee_number or "s"
+                        existing_bl_call.status = "blocked"
+                        existing_bl_call.tenant_id = call_tenant
+                        existing_bl_call.end_time = datetime.datetime.utcnow()
+                        existing_bl_call.hangup_source = f"blacklist:{bl_reason}"
+                    else:
+                        new_call = Call(
+                            id=call_id,
+                            caller_number=caller or "Bilinmeyen",
+                            callee_number=did or "s",
+                            status="blocked",
+                            tenant_id=call_tenant,
+                            start_time=datetime.datetime.utcnow(),
+                            end_time=datetime.datetime.utcnow(),
+                            hangup_source=f"blacklist:{bl_reason}"
+                        )
+                        session.add(new_call)
                     await session.commit()
-                    asyncio.create_task(hangup_call(call_id))
+                    asyncio.create_task(hangup_call(call_id, caller_number=caller))
                     return {"status": "blocked", "message": "Caller is blacklisted."}
             except Exception as e_bl:
                 print(f"[Call Register Blacklist Error]: {e_bl}")
@@ -6442,18 +6523,23 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                         )
                     except Exception:
                         pass
-                    new_call = Call(
-                        id=call_id,
-                        caller_number=caller or "Bilinmeyen",
-                        callee_number=did or "s",
-                        status="rejected_limit",
-                        tenant_id=call_tenant,
-                        start_time=datetime.datetime.utcnow(),
-                        end_time=datetime.datetime.utcnow()
-                    )
-                    session.add(new_call)
+                    existing_lim_call = await session.get(Call, call_id)
+                    if existing_lim_call:
+                        existing_lim_call.status = "rejected_limit"
+                        existing_lim_call.end_time = datetime.datetime.utcnow()
+                    else:
+                        new_call = Call(
+                            id=call_id,
+                            caller_number=caller or "Bilinmeyen",
+                            callee_number=did or "s",
+                            status="rejected_limit",
+                            tenant_id=call_tenant,
+                            start_time=datetime.datetime.utcnow(),
+                            end_time=datetime.datetime.utcnow()
+                        )
+                        session.add(new_call)
                     await session.commit()
-                    asyncio.create_task(hangup_call(call_id))
+                    asyncio.create_task(hangup_call(call_id, caller_number=caller))
                     return {"status": "blocked", "message": f"Concurrent call channel limit ({eff_max}) reached."}
                 elif used_now >= base_max and tol_max > 0:
                     # Base concurrent channels are full, but Tolerance Channel allows the call to continue!
@@ -6560,7 +6646,9 @@ async def end_call_endpoint(
                 if len(caller) <= 4 and caller.isdigit() and dur_sec < 30:
                     resolved_status = "no_answer"
 
-            if db_call.status == "transferred" and resolved_status == "completed":
+            if db_call.status in ("blocked", "rejected_limit"):
+                resolved_status = db_call.status
+            elif db_call.status == "transferred" and resolved_status == "completed":
                 resolved_status = "transferred"
             db_call.status = resolved_status
             await session.commit()
@@ -7674,16 +7762,73 @@ class BlockWordSchema(BaseModel):
 
 @app.get("/api/blacklist")
 async def list_blacklist():
+    db_items = []
+    db_ok = False
     try:
         async with AsyncSessionLocal() as session:
             stmt = select(BlacklistItem).order_by(BlacklistItem.timestamp.desc())
             result = await session.execute(stmt)
-            items = result.scalars().all()
-            if items:
-                return items
+            rows = result.scalars().all()
+            db_ok = True
+            for r in rows:
+                db_items.append({
+                    "id": r.id,
+                    "type": r.type or "phone",
+                    "value": r.value,
+                    "reason": r.reason or "Manuel Engelleme",
+                    "timestamp": r.timestamp.isoformat() if r.timestamp else datetime.datetime.utcnow().isoformat()
+                })
     except Exception as e:
         print(f"[List Blacklist DB Warning]: {e}")
-    return settings_db.get("blacklist", [])
+
+    mem_items = settings_db.get("blacklist", [])
+    if not db_ok:
+        return mem_items
+
+    # Merge any memory-only items into DB so IDs and records stay 100% synchronized
+    seen_keys = set()
+    unified = []
+    for item in db_items:
+        val_str = str(item.get("value") or "").strip()
+        digits = re.sub(r"\D", "", val_str)
+        key = digits[-10:] if len(digits) >= 10 else val_str.lower()
+        if key and key not in seen_keys:
+            seen_keys.add(key)
+            unified.append(item)
+
+    mem_migrated = False
+    for m in mem_items:
+        m_val = (m.get("value") if isinstance(m, dict) else getattr(m, "value", "")).strip()
+        if not m_val:
+            continue
+        m_digits = re.sub(r"\D", "", m_val)
+        m_key = m_digits[-10:] if len(m_digits) >= 10 else m_val.lower()
+        if m_key not in seen_keys:
+            seen_keys.add(m_key)
+            m_type = (m.get("type") if isinstance(m, dict) else getattr(m, "type", "phone")) or "phone"
+            m_reason = (m.get("reason") if isinstance(m, dict) else getattr(m, "reason", "Manuel Engelleme")) or "Manuel Engelleme"
+            try:
+                async with AsyncSessionLocal() as session:
+                    new_db_item = BlacklistItem(type=m_type, value=m_val, reason=m_reason)
+                    session.add(new_db_item)
+                    await session.commit()
+                    await session.refresh(new_db_item)
+                    unified.append({
+                        "id": new_db_item.id,
+                        "type": new_db_item.type,
+                        "value": new_db_item.value,
+                        "reason": new_db_item.reason,
+                        "timestamp": new_db_item.timestamp.isoformat() if new_db_item.timestamp else datetime.datetime.utcnow().isoformat()
+                    })
+                    mem_migrated = True
+            except Exception:
+                unified.append(m if isinstance(m, dict) else {"id": getattr(m, "id", 0), "type": m_type, "value": m_val, "reason": m_reason})
+
+    if mem_migrated or len(unified) != len(mem_items):
+        settings_db["blacklist"] = unified
+        save_settings(settings_db)
+
+    return unified
 
 @app.post("/api/blacklist")
 @app.post("/blacklist")
@@ -7693,12 +7838,18 @@ async def add_to_blacklist(payload: BlacklistItemSchema):
         raise HTTPException(status_code=400, detail="Değer boş olamaz.")
 
     label = "Telefon numarası" if payload.type == "phone" else "E-posta adresi"
+    val_digits = re.sub(r"\D", "", val)
+    val_last10 = val_digits[-10:] if (payload.type == "phone" and len(val_digits) >= 10) else None
 
     current_list = settings_db.setdefault("blacklist", [])
     for b in current_list:
         b_val = (b.get("value") if isinstance(b, dict) else getattr(b, "value", "")).strip()
         if b_val.lower() == val.lower():
             raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut.")
+        if val_last10:
+            b_digits = re.sub(r"\D", "", b_val)
+            if len(b_digits) >= 10 and b_digits[-10:] == val_last10:
+                raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut ({b_val}).")
 
     new_item = {
         "id": int(datetime.datetime.now().timestamp() * 1000),
@@ -7710,10 +7861,17 @@ async def add_to_blacklist(payload: BlacklistItemSchema):
 
     try:
         async with AsyncSessionLocal() as session:
-            stmt = select(BlacklistItem).where(BlacklistItem.value == val)
+            stmt = select(BlacklistItem)
             res = await session.execute(stmt)
-            if res.scalar_one_or_none():
-                raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut.")
+            existing_items = res.scalars().all()
+            for ex in existing_items:
+                ex_val = (ex.value or "").strip()
+                if ex_val.lower() == val.lower():
+                    raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut.")
+                if val_last10:
+                    ex_digits = re.sub(r"\D", "", ex_val)
+                    if len(ex_digits) >= 10 and ex_digits[-10:] == val_last10:
+                        raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut ({ex_val}).")
 
             item = BlacklistItem(
                 type=payload.type,
@@ -7738,19 +7896,55 @@ async def add_to_blacklist(payload: BlacklistItemSchema):
 
 @app.delete("/api/blacklist/{item_id}")
 async def remove_from_blacklist(item_id: int):
+    removed_values = set()
+    current_list = settings_db.get("blacklist", [])
+    for b in current_list:
+        b_id = b.get("id") if isinstance(b, dict) else getattr(b, "id", None)
+        if str(b_id) == str(item_id):
+            b_val = (b.get("value") if isinstance(b, dict) else getattr(b, "value", "")).strip()
+            if b_val:
+                removed_values.add(b_val)
+
     try:
         async with AsyncSessionLocal() as session:
             item = await session.get(BlacklistItem, item_id)
             if item:
+                if item.value:
+                    removed_values.add(item.value.strip())
                 await session.delete(item)
+                await session.commit()
+
+            # Also delete any matching records by value/last10 digits so duplicates don't linger
+            if removed_values:
+                stmt_all = select(BlacklistItem)
+                res_all = await session.execute(stmt_all)
+                for row in res_all.scalars().all():
+                    r_val = (row.value or "").strip()
+                    r_digits = re.sub(r"\D", "", r_val)
+                    for target_v in removed_values:
+                        t_digits = re.sub(r"\D", "", target_v)
+                        if r_val.lower() == target_v.lower() or (len(r_digits) >= 10 and len(t_digits) >= 10 and r_digits[-10:] == t_digits[-10:]):
+                            await session.delete(row)
+                            break
                 await session.commit()
     except Exception as e:
         print(f"[Delete Blacklist DB Warning]: {e}")
 
-    current_list = settings_db.get("blacklist", [])
-    settings_db["blacklist"] = [b for b in current_list if (b.get("id") if isinstance(b, dict) else getattr(b, "id", None)) != item_id]
+    def _should_keep(b):
+        b_id = b.get("id") if isinstance(b, dict) else getattr(b, "id", None)
+        if str(b_id) == str(item_id):
+            return False
+        b_val = (b.get("value") if isinstance(b, dict) else getattr(b, "value", "")).strip()
+        b_digits = re.sub(r"\D", "", b_val)
+        for target_v in removed_values:
+            t_digits = re.sub(r"\D", "", target_v)
+            if b_val.lower() == target_v.lower() or (len(b_digits) >= 10 and len(t_digits) >= 10 and b_digits[-10:] == t_digits[-10:]):
+                return False
+        return True
+
+    settings_db["blacklist"] = [b for b in current_list if _should_keep(b)]
     save_settings(settings_db)
-    add_system_log("ABUSE_SHIELD", "INFO", f"Kara Listeden Kaldırıldı: ID {item_id}")
+    add_system_log("ABUSE_SHIELD", "INFO", f"Kara Listeden Kaldırıldı: ID {item_id} ({', '.join(removed_values) if removed_values else ''})")
     return {"status": "success", "message": "Kara liste kaydı başarıyla silindi."}
 
 @app.get("/api/block-words")

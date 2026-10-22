@@ -211,7 +211,7 @@ async def spy_on_call(call_id: str, agent_extension: str) -> bool:
         print(f"[AMI] ChanSpy sirasinda hata: {e}")
         return False
 
-async def hangup_call(call_id: str) -> bool:
+async def hangup_call(call_id: str, caller_number: str = None) -> bool:
     """
     AMI command to hang up/drop the active Asterisk call channel.
     """
@@ -222,14 +222,47 @@ async def hangup_call(call_id: str) -> bool:
 
     ast_id = call_id_to_asterisk_id.get(call_id, call_id)
     channel_name = active_channels.get(ast_id)
+
     if not channel_name:
-        print(f"[AMI] Hata: UniqueID {call_id} için aktif kanal adi bulunamadi.")
+        for k, v in list(active_channels.items()):
+            if k in ast_id or ast_id in k or k in call_id or call_id in k:
+                channel_name = v
+                break
+
+    if not channel_name:
+        try:
+            import re
+            caller_digits = re.sub(r"\D", "", str(caller_number or ""))
+            caller_last10 = caller_digits[-10:] if len(caller_digits) >= 10 else caller_digits
+            res = await manager.send_action({"Action": "CoreShowChannels"})
+            if res and hasattr(res, 'responses'):
+                for r in res.responses:
+                    ch = r.get('Channel')
+                    uid = r.get('Uniqueid')
+                    cid = re.sub(r"\D", "", str(r.get('CallerIDNum') or ""))
+                    cid_last10 = cid[-10:] if len(cid) >= 10 else cid
+                    if ch and uid:
+                        active_channels[uid] = ch
+                        if uid == ast_id or uid in ast_id or ast_id in uid:
+                            channel_name = ch
+                            break
+                        if caller_last10 and cid_last10 and caller_last10 == cid_last10:
+                            channel_name = ch
+                            break
+            if not channel_name and len(active_channels) == 1:
+                channel_name = list(active_channels.values())[0]
+        except Exception as ex:
+            print(f"[AMI] Hangup CoreShowChannels error: {ex}")
+
+    if not channel_name:
+        print(f"[AMI] Hata: UniqueID {call_id} (Asterisk ID: {ast_id}) için aktif kanal adi bulunamadi.")
         return False
 
     print(f"[AMI] Arama sonlandiriliyor (Hangup) -> Channel: {channel_name}")
     action = {
         'Action': 'Hangup',
-        'Channel': channel_name
+        'Channel': channel_name,
+        'Cause': '21'
     }
     try:
         response = await manager.send_action(action)

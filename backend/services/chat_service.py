@@ -20,19 +20,30 @@ def load_settings():
     return {}
 
 async def auto_blacklist_sender(channel: str, sender_info: str, reason: str):
-    from backend.main import add_system_log
+    from backend.main import add_system_log, settings_db, save_settings, is_phone_or_value_blacklisted
     async with AsyncSessionLocal() as session:
-        stmt = select(BlacklistItem).where(BlacklistItem.value == sender_info)
-        res = await session.execute(stmt)
-        if not res.scalar_one_or_none():
+        already_bl, _ = await is_phone_or_value_blacklisted(sender_info, session)
+        if not already_bl:
+            item_type = "email" if channel.lower() == "mail" else "phone"
             item = BlacklistItem(
-                type="email" if channel.lower() == "mail" else "phone",
+                type=item_type,
                 value=sender_info,
                 reason=reason,
                 timestamp=datetime.datetime.utcnow()
             )
             session.add(item)
             await session.commit()
+            await session.refresh(item)
+            current_list = settings_db.setdefault("blacklist", [])
+            current_list.insert(0, {
+                "id": item.id,
+                "type": item_type,
+                "value": sender_info,
+                "reason": reason,
+                "timestamp": item.timestamp.isoformat() if item.timestamp else datetime.datetime.utcnow().isoformat()
+            })
+            settings_db["blacklist"] = current_list
+            save_settings(settings_db)
             print(f"[Abuse Shield] Auto-blacklisted sender: {sender_info} (Reason: {reason})")
             add_system_log("ABUSE_SHIELD", "WARNING", f"Gönderici Kara Listeye Alındı: {sender_info} (Sebep: {reason})")
 
@@ -62,13 +73,11 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
     """
     print(f"[Chat Service] Inbound message from {sender_info} on channel {channel} (Recipient ID: {recipient_phone_id}): '{text}'")
     try:
+        from backend.main import is_phone_or_value_blacklisted
         async with AsyncSessionLocal() as session:
-            # Check blacklist
-            stmt_black = select(BlacklistItem).where(BlacklistItem.value == sender_info)
-            res_black = await session.execute(stmt_black)
-            blacklisted = res_black.scalar_one_or_none()
-            
-            if blacklisted:
+            # Check blacklist (flexible phone / last-10-digits & email check)
+            is_bl, _ = await is_phone_or_value_blacklisted(sender_info, session)
+            if is_bl:
                 print(f"[Abuse Shield] Ignored message from blacklisted sender: {sender_info}")
                 return "Görüşmeniz suistimal tespiti nedeniyle sistem tarafından otomatik olarak sonlandırılmıştır."
 
