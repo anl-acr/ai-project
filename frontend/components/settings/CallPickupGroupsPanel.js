@@ -20,8 +20,8 @@ const DualListBox = ({
   const [checkedAvailable, setCheckedAvailable] = useState([]);
   const [checkedSelected, setCheckedSelected] = useState([]);
 
-  const unselectedItems = availableItems.filter(i => !selectedIds.includes(i.id));
-  const selectedItems = selectedIds.map(id => availableItems.find(i => i.id === id)).filter(Boolean);
+  const unselectedItems = availableItems.filter(i => !selectedIds.some(sid => String(sid) === String(i.id)));
+  const selectedItems = selectedIds.map(id => availableItems.find(i => String(i.id) === String(id))).filter(Boolean);
 
   const filteredAvailable = unselectedItems.filter(i => 
     Object.values(i).some(v => String(v).toLowerCase().includes(availableSearch.toLowerCase()))
@@ -195,6 +195,7 @@ export default function CallPickupGroupsPanel({ backendHost }) {
 
   const [groups, setGroups] = useState([]);
   const [users, setUsers] = useState([]);
+  const [subscriberGroups, setSubscriberGroups] = useState([]);
   
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -226,13 +227,15 @@ export default function CallPickupGroupsPanel({ backendHost }) {
 
   const fetchData = async () => {
     try {
-      const [resGroups, resUsers] = await Promise.all([
+      const [resGroups, resUsers, resSubGroups] = await Promise.all([
         fetch(`${API_BASE}/api/settings/call_pickup_groups`),
-        fetch(`${API_BASE}/api/settings/users`)
+        fetch(`${API_BASE}/api/settings/users`),
+        fetch(`${API_BASE}/api/settings/subscriber_groups`)
       ]);
 
       if (resGroups.ok) setGroups(await resGroups.json());
       if (resUsers.ok) setUsers(await resUsers.json());
+      if (resSubGroups.ok) setSubscriberGroups(await resSubGroups.json());
 
       setLoading(false);
     } catch (err) {
@@ -241,13 +244,106 @@ export default function CallPickupGroupsPanel({ backendHost }) {
     }
   };
 
+  const getGroupMemberUserIds = (group, usersList = users) => {
+    const rawExts = group?.extensions || group?.members || [];
+    const matchedIds = [];
+    rawExts.forEach(val => {
+      const u = (usersList || []).find(
+        usr => usr.id === val || String(usr.id) === String(val) || String(usr.extension) === String(val)
+      );
+      if (u && !matchedIds.includes(u.id)) {
+        matchedIds.push(u.id);
+      }
+    });
+    return matchedIds;
+  };
+
+  const userAndGroupItems = [
+    ...(subscriberGroups || []).map(g => {
+      const memberUserIds = getGroupMemberUserIds(g, users);
+      return {
+        id: `group_${g.id}`,
+        groupId: g.id,
+        isSubscriberGroup: true,
+        extension: `Abone Grubu (${memberUserIds.length})`,
+        full_name: g.name,
+        memberUserIds
+      };
+    }),
+    ...(users || []).map(u => ({
+      ...u,
+      isSubscriberGroup: false
+    }))
+  ];
+
+  const handleExtensionsChange = (newSelectedIds) => {
+    const prevIds = formData.extensions || [];
+    const addedIds = newSelectedIds.filter(id => !prevIds.some(pid => String(pid) === String(id)));
+    const removedIds = prevIds.filter(id => !newSelectedIds.some(nid => String(nid) === String(id)));
+
+    if (addedIds.length === 0 && removedIds.length === 0) {
+      setFormData(prev => ({ ...prev, extensions: newSelectedIds }));
+      return;
+    }
+
+    let updatedIds = [...newSelectedIds];
+
+    // Eklenen abone grubu varsa içindeki kullanıcıları da seçili listesine ekle
+    addedIds.forEach(addedId => {
+      if (String(addedId).startsWith("group_")) {
+        const grpItem = userAndGroupItems.find(item => String(item.id) === String(addedId));
+        if (grpItem && Array.isArray(grpItem.memberUserIds)) {
+          grpItem.memberUserIds.forEach(uid => {
+            if (!updatedIds.some(x => String(x) === String(uid))) {
+              updatedIds.push(uid);
+            }
+          });
+        }
+      }
+    });
+
+    // Çıkarılan abone grubu varsa içindeki kullanıcıları da seçili listesinden çıkar
+    removedIds.forEach(removedId => {
+      if (String(removedId).startsWith("group_")) {
+        const grpItem = userAndGroupItems.find(item => String(item.id) === String(removedId));
+        if (grpItem && Array.isArray(grpItem.memberUserIds)) {
+          const remainingGroupIds = updatedIds.filter(id => String(id).startsWith("group_"));
+          const protectedUserIds = new Set();
+          remainingGroupIds.forEach(gid => {
+            const otherGrp = userAndGroupItems.find(item => String(item.id) === String(gid));
+            (otherGrp?.memberUserIds || []).forEach(uid => protectedUserIds.add(String(uid)));
+          });
+          updatedIds = updatedIds.filter(
+            id => !grpItem.memberUserIds.some(uid => String(uid) === String(id)) || protectedUserIds.has(String(id))
+          );
+        }
+      }
+    });
+
+    setFormData(prev => ({ ...prev, extensions: updatedIds }));
+  };
+
   const handleOpenModal = (group = null) => {
     setError(null);
     if (group) {
       setSelectedGroup(group);
+      let initialExts = [...(group.extensions || [])];
+      initialExts.forEach(id => {
+        if (String(id).startsWith("group_")) {
+          const grpId = String(id).replace("group_", "");
+          const grp = (subscriberGroups || []).find(g => String(g.id) === grpId);
+          if (grp) {
+            getGroupMemberUserIds(grp, users).forEach(uid => {
+              if (!initialExts.some(x => String(x) === String(uid))) {
+                initialExts.push(uid);
+              }
+            });
+          }
+        }
+      });
       setFormData({
         name: group.name || "",
-        extensions: group.extensions || []
+        extensions: initialExts
       });
     } else {
       setSelectedGroup(null);
@@ -335,7 +431,12 @@ export default function CallPickupGroupsPanel({ backendHost }) {
   const handleExportExcel = () => {
     const data = groups.map(group => {
       const memberNames = (group.extensions || []).map(uid => {
-        const u = users.find(x => x.id === uid || x.extension === uid);
+        if (String(uid).startsWith("group_")) {
+          const gid = String(uid).replace("group_", "");
+          const grp = subscriberGroups.find(g => String(g.id) === gid);
+          return grp ? `[Abone Grubu: ${grp.name}]` : uid;
+        }
+        const u = users.find(x => String(x.id) === String(uid) || String(x.extension) === String(uid));
         return u ? `${u.full_name} (${u.extension})` : uid;
       }).join(", ");
       return {
@@ -368,15 +469,28 @@ export default function CallPickupGroupsPanel({ backendHost }) {
           const name = String(row["Grup Adı"] || "").trim();
           if (!name) continue;
           const membersRaw = String(row["Aboneler"] || "").split(",").map(s => s.trim()).filter(Boolean);
-          const extensions = membersRaw.map(mName => {
+          const extensions = [];
+          membersRaw.forEach(mName => {
+            const cleanGrp = mName.replace(/^\[Abone Grubu:\s*/i, "").replace(/\]$/, "").trim();
+            const foundGroup = subscriberGroups.find(g => g.name && g.name.toLowerCase() === cleanGrp.toLowerCase());
+            if (foundGroup) {
+              const gid = `group_${foundGroup.id}`;
+              if (!extensions.includes(gid)) extensions.push(gid);
+              getGroupMemberUserIds(foundGroup, users).forEach(uid => {
+                if (!extensions.includes(uid)) extensions.push(uid);
+              });
+              return;
+            }
             const u = users.find(x =>
               (x.full_name && x.full_name.toLowerCase() === mName.toLowerCase()) ||
               (`${x.full_name} (${x.extension})`).toLowerCase() === mName.toLowerCase() ||
               String(x.extension) === mName ||
               String(x.id) === mName
             );
-            return u ? u.id : null;
-          }).filter(Boolean);
+            if (u && !extensions.includes(u.id)) {
+              extensions.push(u.id);
+            }
+          });
 
           const existing = groups.find(g => g.name && g.name.toLowerCase() === name.toLowerCase());
 
@@ -509,27 +623,49 @@ export default function CallPickupGroupsPanel({ backendHost }) {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex -space-x-2 overflow-hidden">
-                          {group.extensions && group.extensions.length > 0 ? (
-                            group.extensions.slice(0, 5).map((uid) => {
-                              const u = users.find(x => x.id === uid);
-                              return (
-                                <div key={uid} className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={u ? u.full_name : uid}>
-                                  {u?.avatar ? (
-                                    <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
-                                  ) : (
-                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{u ? u.full_name.charAt(0) : '?'}</span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {group.extensions && group.extensions.length > 0 ? (() => {
+                            const groupIds = group.extensions.filter(uid => String(uid).startsWith("group_"));
+                            const userIds = group.extensions.filter(uid => !String(uid).startsWith("group_"));
+                            return (
+                              <>
+                                {groupIds.map(gid => {
+                                  const rawId = String(gid).replace("group_", "");
+                                  const grp = subscriberGroups.find(g => String(g.id) === rawId);
+                                  return (
+                                    <span
+                                      key={gid}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}
+                                      title={grp ? `Abone Grubu: ${grp.name}` : gid}
+                                    >
+                                      <Users size={11} />
+                                      {grp ? grp.name : gid}
+                                    </span>
+                                  );
+                                })}
+                                <div className="flex -space-x-2 overflow-hidden">
+                                  {userIds.slice(0, 5).map((uid) => {
+                                    const u = users.find(x => String(x.id) === String(uid) || String(x.extension) === String(uid));
+                                    return (
+                                      <div key={uid} className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={u ? `${u.full_name} (${u.extension})` : uid}>
+                                        {u?.avatar ? (
+                                          <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
+                                        ) : (
+                                          <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{u ? u.full_name.charAt(0) : '?'}</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {userIds.length > 5 && (
+                                    <div className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                                      <span className="text-[10px] font-bold text-slate-500">+{userIds.length - 5}</span>
+                                    </div>
                                   )}
                                 </div>
-                              );
-                            })
-                          ) : (
+                              </>
+                            );
+                          })() : (
                             <span className="text-xs text-slate-400 italic">Abone Yok</span>
-                          )}
-                          {group.extensions && group.extensions.length > 5 && (
-                            <div className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
-                              <span className="text-[10px] font-bold text-slate-500">+{group.extensions.length - 5}</span>
-                            </div>
                           )}
                         </div>
                       </td>
@@ -616,17 +752,34 @@ export default function CallPickupGroupsPanel({ backendHost }) {
               {/* Aboneler Section */}
               <div className="space-y-4">
                 <DualListBox 
-                  title="Aboneler"
-                  availableItems={users}
+                  title="Aboneler / Abone Grupları"
+                  availableItems={userAndGroupItems}
                   selectedIds={formData.extensions}
-                  onChangeSelectedIds={(newIds) => setFormData(prev => ({...prev, extensions: newIds}))}
-                  columns={["İç Hat No", "Görünen İsim"]}
+                  onChangeSelectedIds={handleExtensionsChange}
+                  columns={["İç Hat No / Grup", "Görünen İsim"]}
                   bg={bg} hover={hover} text={text} border={border} lightBg={lightBg}
                   renderRow={(item) => (
-                    <>
-                      <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.extension || "-"}</td>
-                      <td className="p-2 text-slate-500">{item.full_name}</td>
-                    </>
+                    item.isSubscriberGroup ? (
+                      <>
+                        <td className="p-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}>
+                            <Users size={11} />
+                            Abone Grubu
+                          </span>
+                        </td>
+                        <td className="p-2 text-slate-800 dark:text-slate-200 font-bold">
+                          {item.full_name}
+                          <span className="ml-1.5 text-[10px] font-medium text-slate-400">
+                            ({(item.memberUserIds || []).length} Abone)
+                          </span>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.extension || "-"}</td>
+                        <td className="p-2 text-slate-500">{item.full_name}</td>
+                      </>
+                    )
                   )}
                 />
               </div>

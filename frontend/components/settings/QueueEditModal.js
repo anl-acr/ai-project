@@ -92,6 +92,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
   // State for Members & Supervisors
   const [allUsers, setAllUsers] = useState([]);
+  const [subscriberGroupsList, setSubscriberGroupsList] = useState([]);
   const [queueMembers, setQueueMembers] = useState([]); // { user_id, type: 'dynamic' | 'static', priority: 1, is_ai: boolean }
   const [supervisors, setSupervisors] = useState([]);
   const [systemRoles, setSystemRoles] = useState([]);
@@ -112,6 +113,21 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         }
       };
       fetchUsers();
+
+      // Fetch Subscriber Groups
+      const fetchSubscriberGroups = async () => {
+        try {
+          const res = await tenantFetch(`${API_BASE}/api/settings/subscriber_groups`);
+          if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data?.subscriber_groups || []);
+            setSubscriberGroupsList(list);
+          }
+        } catch (err) {
+          console.error("Subscriber groups fetch error:", err);
+        }
+      };
+      fetchSubscriberGroups();
 
       // Fetch AI Agents
       const fetchAiAgents = async () => {
@@ -744,10 +760,37 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     return r ? r.name : roleCode;
   };
 
+  const getGroupMemberUserIds = (group, usersList = allUsers) => {
+    const rawExts = group?.extensions || group?.members || [];
+    const matchedIds = [];
+    rawExts.forEach(val => {
+      const u = (usersList || []).find(
+        usr => usr.id === val || String(usr.id) === String(val) || String(usr.extension) === String(val)
+      );
+      if (u && !matchedIds.includes(u.id)) {
+        matchedIds.push(u.id);
+      }
+    });
+    return matchedIds;
+  };
+
   const renderMembersTab = () => {
-    // Combine Human Users and AI Agents
+    // Combine Subscriber Groups, Human Users, and AI Agents
     const combinedAvailable = [
-      ...allUsers.map(u => ({ ...u, is_ai: false })),
+      ...(subscriberGroupsList || []).map(g => {
+        const memberUserIds = getGroupMemberUserIds(g, allUsers);
+        return {
+          id: `group_${g.id}`,
+          group_id: g.id,
+          full_name: g.name,
+          extension: `Abone Grubu (${memberUserIds.length} Abone)`,
+          role: "subscriber_group",
+          is_subscriber_group: true,
+          is_ai: false,
+          memberUserIds
+        };
+      }),
+      ...allUsers.map(u => ({ ...u, is_ai: false, is_subscriber_group: false })),
       ...aiAgentsList.map(a => ({
         id: `ai_${a.id}`,
         ai_id: a.id,
@@ -755,19 +798,20 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         extension: `AI Agent`,
         role: "ai_agent",
         is_ai: true,
+        is_subscriber_group: false,
         avatar: "https://cdn-icons-png.flaticon.com/512/4712/4712035.png"
       }))
     ];
 
     // Filter unassigned members
     const unassignedMembers = combinedAvailable.filter(u => 
-      !queueMembers.find(qm => qm.user_id === u.id || qm.user_id === u.ai_id)
+      !queueMembers.find(qm => String(qm.user_id) === String(u.id) || (u.ai_id && String(qm.user_id) === String(u.ai_id)))
     );
 
     const filteredUnassigned = unassignedMembers.filter(u =>
       !memberSearchQuery || 
-      u.full_name.toLowerCase().includes(memberSearchQuery.toLowerCase()) || 
-      String(u.extension).toLowerCase().includes(memberSearchQuery.toLowerCase())
+      String(u.full_name || "").toLowerCase().includes(memberSearchQuery.toLowerCase()) || 
+      String(u.extension || "").toLowerCase().includes(memberSearchQuery.toLowerCase())
     );
 
     // Supervisor lists
@@ -776,9 +820,68 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
     const toggleMember = (user) => {
       const targetId = user.ai_id || user.id;
-      const exists = queueMembers.find(qm => qm.user_id === targetId || qm.user_id === user.id);
+      const isSubGroup = !!user.is_subscriber_group || String(targetId || "").startsWith("group_");
+
+      if (isSubGroup) {
+        const grpKey = String(targetId);
+        const grpId = grpKey.replace("group_", "");
+        const grpObj = (subscriberGroupsList || []).find(g => String(g.id) === grpId);
+        const memberUserIds = user.memberUserIds || (grpObj ? getGroupMemberUserIds(grpObj, allUsers) : []);
+        const exists = queueMembers.some(qm => String(qm.user_id) === grpKey);
+
+        if (exists) {
+          // Abone grubu çıkarıldığında hem grubu hem de içindeki kullanıcıları (başka seçili grupta değillerse) çıkar
+          setQueueMembers(prev => {
+            const remainingGroupKeys = prev
+              .map(qm => String(qm.user_id))
+              .filter(uid => uid.startsWith("group_") && uid !== grpKey);
+            const protectedUserIds = new Set();
+            remainingGroupKeys.forEach(rk => {
+              const otherGid = rk.replace("group_", "");
+              const otherGrp = (subscriberGroupsList || []).find(g => String(g.id) === otherGid);
+              if (otherGrp) {
+                getGroupMemberUserIds(otherGrp, allUsers).forEach(uid => protectedUserIds.add(String(uid)));
+              }
+            });
+            return prev.filter(qm => {
+              const qid = String(qm.user_id);
+              if (qid === grpKey) return false;
+              if (memberUserIds.some(uid => String(uid) === qid) && !protectedUserIds.has(qid)) return false;
+              return true;
+            });
+          });
+        } else {
+          // Abone grubu eklendiğinde hem abone grubunu hem de içindeki tüm user'ları ekle
+          setQueueMembers(prev => {
+            const next = [...prev];
+            if (!next.some(qm => String(qm.user_id) === grpKey)) {
+              next.push({
+                user_id: grpKey,
+                type: 'dynamic',
+                is_ai: false,
+                is_subscriber_group: true,
+                priority: 1
+              });
+            }
+            memberUserIds.forEach(uid => {
+              if (!next.some(qm => String(qm.user_id) === String(uid))) {
+                next.push({
+                  user_id: uid,
+                  type: 'dynamic',
+                  is_ai: false,
+                  priority: 1
+                });
+              }
+            });
+            return next;
+          });
+        }
+        return;
+      }
+
+      const exists = queueMembers.find(qm => String(qm.user_id) === String(targetId) || String(qm.user_id) === String(user.id));
       if (exists) {
-        setQueueMembers(prev => prev.filter(qm => qm.user_id !== targetId && qm.user_id !== user.id));
+        setQueueMembers(prev => prev.filter(qm => String(qm.user_id) !== String(targetId) && String(qm.user_id) !== String(user.id)));
       } else {
         setQueueMembers(prev => [...prev, { 
           user_id: targetId, 
@@ -790,10 +893,24 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     };
 
     const updateMemberType = (userId, newType) => {
+      if (String(userId).startsWith("group_")) {
+        const grpId = String(userId).replace("group_", "");
+        const grpObj = (subscriberGroupsList || []).find(g => String(g.id) === grpId);
+        const memberIds = grpObj ? getGroupMemberUserIds(grpObj, allUsers).map(String) : [];
+        setQueueMembers(prev => prev.map(qm => (String(qm.user_id) === String(userId) || memberIds.includes(String(qm.user_id))) ? { ...qm, type: newType } : qm));
+        return;
+      }
       setQueueMembers(prev => prev.map(qm => qm.user_id === userId ? { ...qm, type: newType } : qm));
     };
 
     const updateMemberPriority = (userId, newPriority) => {
+      if (String(userId).startsWith("group_")) {
+        const grpId = String(userId).replace("group_", "");
+        const grpObj = (subscriberGroupsList || []).find(g => String(g.id) === grpId);
+        const memberIds = grpObj ? getGroupMemberUserIds(grpObj, allUsers).map(String) : [];
+        setQueueMembers(prev => prev.map(qm => (String(qm.user_id) === String(userId) || memberIds.includes(String(qm.user_id))) ? { ...qm, priority: newPriority } : qm));
+        return;
+      }
       setQueueMembers(prev => prev.map(qm => qm.user_id === userId ? { ...qm, priority: newPriority } : qm));
     };
 
@@ -815,7 +932,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             onClick={() => setMemberView("agents")}
             className={`px-4 py-1.5 text-xs font-bold rounded-full transition-all ${memberView === 'agents' ? `${bg} text-white shadow-sm` : 'bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'}`}
           >
-            Kuyruk Temsilcileri (İnsan & AI)
+            Kuyruk Temsilcileri (İnsan, Abone Grubu & AI)
           </button>
           <button 
             onClick={() => setMemberView("supervisors")}
@@ -826,11 +943,11 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </div>
 
         <div className="grid grid-cols-2 gap-4 flex-1 overflow-hidden p-6 pb-2">
-          {/* Sol: Tüm Kullanıcılar ve AI Temsilcileri */}
+          {/* Sol: Tüm Kullanıcılar, Abone Grupları ve AI Temsilcileri */}
           <div className="flex flex-col border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/50 dark:bg-slate-900/50">
             <div className="p-3 border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/80 flex flex-col gap-2">
               <h4 className="text-xs font-bold text-slate-800 dark:text-white">
-                {memberView === "agents" ? "Sistemdeki Kullanıcılar & AI Temsilcileri" : "Yönetici Adayları"}
+                {memberView === "agents" ? "Kullanıcılar, Abone Grupları & AI Temsilcileri" : "Yönetici Adayları"}
               </h4>
 
               {memberView === "agents" && (
@@ -838,7 +955,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
                   <input
                     type="text"
-                    placeholder="Temsilci ara..."
+                    placeholder="Temsilci veya abone grubu ara..."
                     value={memberSearchQuery}
                     onChange={(e) => setMemberSearchQuery(e.target.value)}
                     className="w-full pl-8 pr-3 py-1.5 text-[11px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -853,12 +970,20 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   key={u.id} 
                   onClick={() => memberView === "agents" ? toggleMember(u) : toggleSupervisor(u)} 
                   className={`flex items-center gap-3 p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-all border border-transparent hover:border-slate-200 dark:hover:border-slate-700 ${
-                    u.is_ai ? "bg-purple-50/60 dark:bg-purple-950/20 border-purple-200/50 dark:border-purple-900/40" : ""
+                    u.is_ai
+                      ? "bg-purple-50/60 dark:bg-purple-950/20 border-purple-200/50 dark:border-purple-900/40"
+                      : u.is_subscriber_group
+                        ? `${lightBg} border ${borderLight}`
+                        : ""
                   }`}
                 >
                   {u.is_ai ? (
                     <div className="w-8 h-8 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
                       <Bot size={18} />
+                    </div>
+                  ) : u.is_subscriber_group ? (
+                    <div className={`w-8 h-8 rounded-lg ${lightBg} ${text} flex items-center justify-center shrink-0 border ${borderLight}`}>
+                      <Users size={16} />
                     </div>
                   ) : (
                     <img src={u.avatar || `https://ui-avatars.com/api/?name=${u.full_name}&background=random`} alt="" className="w-8 h-8 rounded-lg bg-slate-200 shrink-0" />
@@ -872,9 +997,18 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                           AI Temsilci
                         </span>
                       )}
+                      {u.is_subscriber_group && (
+                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text} border ${borderLight}`}>
+                          Abone Grubu
+                        </span>
+                      )}
                     </div>
                     <p className="text-[10px] text-slate-400 truncate">
-                      {u.is_ai ? "Yapay Zeka Temsilcisi" : `${getRoleLabel(u.role)} • Dahili: ${u.extension}`}
+                      {u.is_ai
+                        ? "Yapay Zeka Temsilcisi"
+                        : u.is_subscriber_group
+                          ? `${(u.memberUserIds || []).length} Abone`
+                          : `${getRoleLabel(u.role)} • Dahili: ${u.extension}`}
                     </p>
                   </div>
                   <ChevronRight size={14} className="text-slate-300 shrink-0" />
@@ -899,21 +1033,33 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
             <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
               {memberView === "agents" && queueMembers.map(qm => {
-                // Find in allUsers or aiAgentsList
-                const user = allUsers.find(x => x.id === qm.user_id);
-                const ai = aiAgentsList.find(x => x.id === qm.user_id);
-                const name = user ? user.full_name : (ai ? `🤖 ${ai.name}` : `Üye #${qm.user_id}`);
+                const isSubGroup = !!qm.is_subscriber_group || String(qm.user_id || "").startsWith("group_");
+                const grpId = isSubGroup ? String(qm.user_id).replace("group_", "") : null;
+                const grpObj = isSubGroup ? (subscriberGroupsList || []).find(g => String(g.id) === grpId) : null;
+                const grpMemberIds = grpObj ? getGroupMemberUserIds(grpObj, allUsers) : [];
+
+                const user = !isSubGroup ? allUsers.find(x => String(x.id) === String(qm.user_id)) : null;
+                const ai = !isSubGroup ? aiAgentsList.find(x => String(x.id) === String(qm.user_id)) : null;
+                const name = isSubGroup
+                  ? (grpObj ? grpObj.name : `Abone Grubu #${grpId}`)
+                  : (user ? user.full_name : (ai ? `🤖 ${ai.name}` : `Üye #${qm.user_id}`));
                 const isAi = !!ai || !!qm.is_ai;
 
                 return (
                   <div key={qm.user_id} className={`flex flex-col p-2.5 rounded-xl border shadow-sm transition-all group ${
-                    isAi 
-                      ? "bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800/40" 
-                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+                    isSubGroup
+                      ? `${lightBg} border ${borderLight}`
+                      : isAi 
+                        ? "bg-purple-50/40 dark:bg-purple-950/20 border-purple-200 dark:border-purple-800/40" 
+                        : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700"
                   }`}>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
-                        {isAi ? (
+                        {isSubGroup ? (
+                          <div className={`w-7 h-7 rounded-lg ${lightBg} ${text} border ${borderLight} flex items-center justify-center shrink-0`}>
+                            <Users size={15} />
+                          </div>
+                        ) : isAi ? (
                           <div className="w-7 h-7 rounded-lg bg-purple-100 dark:bg-purple-900/50 text-purple-600 dark:text-purple-400 flex items-center justify-center shrink-0">
                             <Bot size={16} />
                           </div>
@@ -922,14 +1068,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                         )}
 
                         <div className="min-w-0">
-                          <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{name}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{name}</p>
+                            {isSubGroup && (
+                              <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${lightBg} ${text} border ${borderLight}`}>
+                                Abone Grubu
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-slate-400">
-                            {isAi ? "Yapay Zeka Temsilcisi" : `Dahili: ${user?.extension || '-'}`}
+                            {isSubGroup
+                              ? `${grpMemberIds.length} Abone (Grup çıkarıldığında üyeleri de çıkarılır)`
+                              : isAi
+                                ? "Yapay Zeka Temsilcisi"
+                                : `Dahili: ${user?.extension || '-'}`}
                           </span>
                         </div>
                       </div>
 
-                      <button onClick={() => toggleMember({ id: qm.user_id, ai_id: qm.user_id, is_ai: isAi })} className="w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 text-slate-300 flex items-center justify-center transition-all shrink-0">
+                      <button onClick={() => toggleMember({ id: qm.user_id, ai_id: qm.user_id, is_ai: isAi, is_subscriber_group: isSubGroup, memberUserIds: grpMemberIds })} className="w-6 h-6 rounded-md hover:bg-rose-50 hover:text-rose-500 text-slate-300 flex items-center justify-center transition-all shrink-0" title={isSubGroup ? "Abone Grubunu ve Üyelerini Çıkar" : "Çıkar"}>
                         <X size={13} />
                       </button>
                     </div>

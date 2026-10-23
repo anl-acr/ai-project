@@ -2061,10 +2061,24 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
                 members = json.loads(members)
             except Exception:
                 members = []
+        added_exts = set()
+        all_groups = settings_db.get("subscriber_groups", [])
         for member in members:
             user_id = member.get("user_id") if isinstance(member, dict) else member
-            u = next((u for u in users_list if str(u["id"]) == str(user_id)), None)
-            if u and u.get("extension"):
+            s_uid = str(user_id or "")
+            if s_uid.startswith("group_"):
+                gid = s_uid.replace("group_", "", 1)
+                grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+                if grp:
+                    for ext_or_id in (grp.get("extensions") or grp.get("members") or []):
+                        u_grp = next((u for u in users_list if str(u.get("id")) == str(ext_or_id) or str(u.get("extension")) == str(ext_or_id)), None)
+                        if u_grp and u_grp.get("extension") and str(u_grp["extension"]) not in added_exts:
+                            added_exts.add(str(u_grp["extension"]))
+                            conf_content += f"member => PJSIP/{u_grp['extension']}\n"
+                continue
+            u = next((u for u in users_list if str(u.get("id")) == s_uid or str(u.get("extension")) == s_uid), None)
+            if u and u.get("extension") and str(u["extension"]) not in added_exts:
+                added_exts.add(str(u["extension"]))
                 conf_content += f"member => PJSIP/{u['extension']}\n"
                 
     config_dir = ASTERISK_CONFIG_DIR
@@ -4228,6 +4242,8 @@ async def save_call_pickup_group(request: Request, user_info: dict = Depends(get
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     data = await request.json()
     data["tenant_id"] = target_tenant
+    if "extensions" in data:
+        data["extensions"] = _expand_subscriber_groups_in_allowed_users(data.get("extensions", []))
     group_name = data.get("name")
     group_id = data.get("id")
 

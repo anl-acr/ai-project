@@ -14,6 +14,7 @@ export default function AcdQueuesPanel({ backendHost }) {
 
   const [queues, setQueues] = useState([]);
   const [allUsers, setAllUsers] = useState([]);
+  const [subscriberGroups, setSubscriberGroups] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [selectedQueue, setSelectedQueue] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState({ show: false, id: null });
@@ -33,10 +34,41 @@ export default function AcdQueuesPanel({ backendHost }) {
     actions: true
   });
 
+  const enrichQueuesList = (queuesList, usersList, groupsList) => {
+    return (queuesList || []).map(q => {
+      const rawMembers = q.queueMembers || [];
+      const mList = rawMembers.map(qm => {
+        if (String(qm.user_id || "").startsWith("group_")) {
+          const gid = String(qm.user_id).replace("group_", "");
+          const grp = (groupsList || []).find(g => String(g.id) === gid);
+          return grp ? `[Abone Grubu: ${grp.name}]` : null;
+        }
+        const u = (usersList || []).find(x => String(x.id) === String(qm.user_id));
+        return u ? u.full_name : (qm.is_ai ? `AI Temsilci` : "Bilinmeyen Kullanıcı");
+      }).filter(Boolean);
+      const actualUsersCount = rawMembers.filter(qm => !String(qm.user_id || "").startsWith("group_")).length;
+      const sList = (q.supervisors || []).map(sid => {
+        const u = (usersList || []).find(x => String(x.id) === String(sid));
+        return u ? u.full_name : "Bilinmeyen Yönetici";
+      });
+      return {
+        ...q,
+        members_count: actualUsersCount,
+        members_list: mList,
+        supervisors_count: sList.length,
+        supervisors_list: sList
+      };
+    });
+  };
+
   const fetchData = async () => {
     try {
-      const usersRes = await fetch(`${API_BASE}/api/settings/users`);
-      let usersData = [];
+      const [usersRes, groupsRes, queuesRes] = await Promise.all([
+        fetch(`${API_BASE}/api/settings/users`),
+        fetch(`${API_BASE}/api/settings/subscriber_groups`),
+        fetch(`${API_BASE}/api/settings/queues`)
+      ]);
+
       let usersList = [];
       if (usersRes.ok) {
         const rawUsers = await usersRes.json();
@@ -44,29 +76,17 @@ export default function AcdQueuesPanel({ backendHost }) {
       }
       setAllUsers(usersList);
 
-      const queuesRes = await fetch(`${API_BASE}/api/settings/queues`);
+      let groupsList = [];
+      if (groupsRes.ok) {
+        const rawGroups = await groupsRes.json();
+        groupsList = Array.isArray(rawGroups) ? rawGroups : (rawGroups?.subscriber_groups || []);
+      }
+      setSubscriberGroups(groupsList);
+
       if (queuesRes.ok) {
         const rawQueues = await queuesRes.json();
         const queuesList = Array.isArray(rawQueues) ? rawQueues : (rawQueues?.queues || []);
-        // Map real names for members and supervisors
-        const enrichedQueues = queuesList.map(q => {
-          const mList = (q.queueMembers || []).map(qm => {
-            const u = usersList.find(x => x.id === qm.user_id);
-            return u ? u.full_name : "Bilinmeyen Kullanıcı";
-          });
-          const sList = (q.supervisors || []).map(sid => {
-            const u = usersList.find(x => x.id === sid);
-            return u ? u.full_name : "Bilinmeyen Yönetici";
-          });
-          return {
-            ...q,
-            members_count: mList.length,
-            members_list: mList,
-            supervisors_count: sList.length,
-            supervisors_list: sList
-          };
-        });
-        setQueues(enrichedQueues);
+        setQueues(enrichQueuesList(queuesList, usersList, groupsList));
       }
     } catch (err) {
       console.error("Data fetch error:", err);
@@ -99,25 +119,7 @@ export default function AcdQueuesPanel({ backendHost }) {
       if (res.ok) {
         const data = await res.json();
         const resQueues = Array.isArray(data?.queues) ? data.queues : (Array.isArray(data) ? data : newQueues);
-        // Re-enrich with names
-        const enrichedQueues = resQueues.map(q => {
-          const mList = (q.queueMembers || []).map(qm => {
-            const u = allUsers.find(x => x.id === qm.user_id);
-            return u ? u.full_name : "Bilinmeyen Kullanıcı";
-          });
-          const sList = (q.supervisors || []).map(sid => {
-            const u = allUsers.find(x => x.id === sid);
-            return u ? u.full_name : "Bilinmeyen Yönetici";
-          });
-          return {
-            ...q,
-            members_count: mList.length,
-            members_list: mList,
-            supervisors_count: sList.length,
-            supervisors_list: sList
-          };
-        });
-        setQueues(enrichedQueues);
+        setQueues(enrichQueuesList(resQueues, allUsers, subscriberGroups));
         setShowModal(false);
         setSelectedQueue(null);
       } else {
