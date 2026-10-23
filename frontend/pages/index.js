@@ -54,7 +54,13 @@ import {
   Terminal,
   Upload,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  LayoutGrid,
+  List,
+  ArrowUp,
+  ArrowDown,
+  GripVertical,
+  RotateCcw
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
@@ -81,7 +87,7 @@ import CalendarPanel from "../components/dashboard/CalendarPanel";
 import LiveDashboardPanel from "../components/dashboard/LiveDashboardPanel";
 import SystemStatusPanel from "../components/dashboard/SystemStatusPanel";
 import AgentSessionCard from "../components/phone/AgentSessionCard";
-import AgentPanel from "../components/callcenter/AgentPanel";
+import AgentPanel, { ALL_TABS as CALL_PANEL_ALL_TABS, loadCallPanelPrefs, saveCallPanelPrefs, DEFAULT_CALL_PANEL_PREFS } from "../components/callcenter/AgentPanel";
 import WallboardPanel from "../components/dashboard/WallboardPanel";
 import DialerSettings from "../components/settings/DialerSettings";
 import CallFlowEditor from "../components/settings/CallFlowEditor";
@@ -217,6 +223,8 @@ export default function Home() {
   const [selectedAgentProfileTab, setSelectedAgentProfileTab] = useState("available");
   const [agentQueuesList, setAgentQueuesList] = useState([]);
   const [agentAiAgentsList, setAgentAiAgentsList] = useState([]);
+  const [callPanelPrefs, setCallPanelPrefs] = useState(() => loadCallPanelPrefs(null));
+  const [draggedPanelTabIdx, setDraggedPanelTabIdx] = useState(null);
   const [openCategories, setOpenCategories] = useState({
     operations: true,
     ai: true,
@@ -525,6 +533,7 @@ export default function Home() {
       setAgentActiveProfile(resolvedProf);
       setSelectedAgentProfileTab(resolvedProf);
       setAgentProfiles(normalizeUserProfiles(currentUser.profiles));
+      setCallPanelPrefs(loadCallPanelPrefs(currentUser));
 
       if (settingsModalOpen) {
         const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
@@ -2800,10 +2809,283 @@ export default function Home() {
                 >
                   Güvenlik
                 </button>
+                <button 
+                  onClick={() => setActiveModalTab("call_panel")}
+                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "call_panel" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                >
+                  Çağrı Paneli
+                </button>
               </div>
 
               {/* Modal Body */}
               <div className="space-y-4">
+
+                {/* Çağrı Paneli Görünüm ve Sıralama Özelleştirme Sekmesi */}
+                {activeModalTab === "call_panel" && (() => {
+                  const currentOrder = Array.isArray(callPanelPrefs?.tabOrder) && callPanelPrefs.tabOrder.length > 0
+                    ? callPanelPrefs.tabOrder
+                    : DEFAULT_CALL_PANEL_PREFS.tabOrder;
+
+                  const orderedTabItems = currentOrder
+                    .map(id => CALL_PANEL_ALL_TABS.find(t => t.id === id))
+                    .filter(Boolean);
+
+                  // Ensure any missing tabs from CALL_PANEL_ALL_TABS are appended
+                  CALL_PANEL_ALL_TABS.forEach(t => {
+                    if (!orderedTabItems.some(item => item.id === t.id)) {
+                      orderedTabItems.push(t);
+                    }
+                  });
+
+                  const updatePrefsLive = (patch) => {
+                    const next = {
+                      ...callPanelPrefs,
+                      ...patch
+                    };
+                    setCallPanelPrefs(next);
+                    saveCallPanelPrefs(currentUser, next);
+                  };
+
+                  const moveTabItem = (index, direction) => {
+                    const targetIndex = index + direction;
+                    if (targetIndex < 0 || targetIndex >= orderedTabItems.length) return;
+                    const nextIds = orderedTabItems.map(t => t.id);
+                    const [moved] = nextIds.splice(index, 1);
+                    nextIds.splice(targetIndex, 0, moved);
+                    updatePrefsLive({ tabOrder: nextIds });
+                  };
+
+                  const handleDragStart = (idx) => {
+                    setDraggedPanelTabIdx(idx);
+                  };
+
+                  const handleDragOver = (e, idx) => {
+                    e.preventDefault();
+                    if (draggedPanelTabIdx === null || draggedPanelTabIdx === idx) return;
+                    const nextIds = orderedTabItems.map(t => t.id);
+                    const [moved] = nextIds.splice(draggedPanelTabIdx, 1);
+                    nextIds.splice(idx, 0, moved);
+                    setDraggedPanelTabIdx(idx);
+                    updatePrefsLive({ tabOrder: nextIds });
+                  };
+
+                  const handleDragEnd = () => {
+                    setDraggedPanelTabIdx(null);
+                  };
+
+                  const resetTabOrder = () => {
+                    updatePrefsLive({
+                      viewMode: DEFAULT_CALL_PANEL_PREFS.viewMode,
+                      boxSize: DEFAULT_CALL_PANEL_PREFS.boxSize,
+                      tabOrder: [...DEFAULT_CALL_PANEL_PREFS.tabOrder]
+                    });
+                  };
+
+                  return (
+                    <div className="space-y-5 max-h-[65vh] overflow-y-auto pr-1">
+                      {/* 1. Temsilci Ekranı Görünüm Şekli (Liste / Kutucuk) */}
+                      <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                              Temsilci Ekranı Görünüm Düzeni
+                            </h5>
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                              Temsilci ekranının ve çağrı paneli seçeneklerinin liste veya kutucuk şeklinde görünmesini seçin.
+                            </p>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${lightBg} ${text} border ${borderLight}`}>
+                            {callPanelPrefs.viewMode === "box"
+                              ? `Kutucuk (${callPanelPrefs.boxSize === "small" ? "Küçük" : "Büyük"})`
+                              : "Liste Görünümü"}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Liste Görünümü Seçeneği */}
+                          <button
+                            type="button"
+                            onClick={() => updatePrefsLive({ viewMode: "list" })}
+                            className={`p-3.5 rounded-2xl border text-left transition-all flex items-start gap-3 ${
+                              callPanelPrefs.viewMode === "list"
+                                ? `${lightBg} ${border} ring-2 ${ring}`
+                                : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                            }`}
+                          >
+                            <div className={`p-2.5 rounded-xl shrink-0 ${
+                              callPanelPrefs.viewMode === "list"
+                                ? `${bg} text-white shadow-sm`
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                            }`}>
+                              <List size={18} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                  Liste Görünümü
+                                </span>
+                                {callPanelPrefs.viewMode === "list" && (
+                                  <CheckCircle size={14} className={text} />
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">
+                                Temsilci ekranı tablo/satır listesi olarak, çağrı paneli sekmeleri ise yatay şerit halinde gösterilir.
+                              </p>
+                            </div>
+                          </button>
+
+                          {/* Kutucuk Görünümü Seçeneği */}
+                          <button
+                            type="button"
+                            onClick={() => updatePrefsLive({ viewMode: "box" })}
+                            className={`p-3.5 rounded-2xl border text-left transition-all flex items-start gap-3 ${
+                              callPanelPrefs.viewMode === "box"
+                                ? `${lightBg} ${border} ring-2 ${ring}`
+                                : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                            }`}
+                          >
+                            <div className={`p-2.5 rounded-xl shrink-0 ${
+                              callPanelPrefs.viewMode === "box"
+                                ? `${bg} text-white shadow-sm`
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"
+                            }`}>
+                              <LayoutGrid size={18} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                  Kutucuk Görünümü
+                                </span>
+                                {callPanelPrefs.viewMode === "box" && (
+                                  <CheckCircle size={14} className={text} />
+                                )}
+                              </div>
+                              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">
+                                Temsilci ekranı ve menü seçenekleri büyük veya küçük kart kutucukları halinde gösterilir.
+                              </p>
+                            </div>
+                          </button>
+                        </div>
+
+                        {/* Kutucuk Boyutu Seçimi (Büyük / Küçük) */}
+                        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div>
+                            <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 block">
+                              Kutucuk Boyutu Seçeneği
+                            </span>
+                            <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                              Kutucuk görünümünde kartların büyük veya küçük boyutlu olmasını belirleyin.
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => updatePrefsLive({ viewMode: "box", boxSize: "large" })}
+                              className={`px-3.5 py-2 rounded-xl text-[11px] font-extrabold transition-all flex items-center gap-2 border ${
+                                callPanelPrefs.viewMode === "box" && callPanelPrefs.boxSize === "large"
+                                  ? `${bg} text-white border-transparent shadow-sm`
+                                  : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                              }`}
+                            >
+                              <LayoutGrid size={14} />
+                              <span>Büyük Kutucuk</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => updatePrefsLive({ viewMode: "box", boxSize: "small" })}
+                              className={`px-3.5 py-2 rounded-xl text-[11px] font-extrabold transition-all flex items-center gap-2 border ${
+                                callPanelPrefs.viewMode === "box" && callPanelPrefs.boxSize === "small"
+                                  ? `${bg} text-white border-transparent shadow-sm`
+                                  : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-300"
+                              }`}
+                            >
+                              <LayoutGrid size={12} />
+                              <span>Küçük Kutucuk</span>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* 2. Temsilci Çağrı Paneli Seçeneklerinin Sıralaması */}
+                      <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                              Temsilci Çağrı Paneli Seçenek Sıralaması
+                            </h5>
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                              Seçenekleri sürükleyip bırakarak veya sağdaki yukarı/aşağı ok butonlarını kullanarak istediğiniz sıraya dizin.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={resetTabOrder}
+                            className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center gap-1.5"
+                            title="Varsayılan görünüm ve sıralamaya dön"
+                          >
+                            <RotateCcw size={12} />
+                            <span>Varsayılana Sıfırla</span>
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 gap-1.5">
+                          {orderedTabItems.map((tabItem, idx) => {
+                            const IconComp = tabItem.icon;
+                            const isDragging = draggedPanelTabIdx === idx;
+                            return (
+                              <div
+                                key={tabItem.id}
+                                draggable
+                                onDragStart={() => handleDragStart(idx)}
+                                onDragOver={(e) => handleDragOver(e, idx)}
+                                onDragEnd={handleDragEnd}
+                                className={`flex items-center justify-between px-3 py-2 rounded-xl border transition-all cursor-move select-none ${
+                                  isDragging
+                                    ? `${lightBg} ${border} opacity-80 scale-[0.99]`
+                                    : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                }`}
+                              >
+                                <div className="flex items-center gap-2.5 min-w-0">
+                                  <GripVertical size={14} className="text-slate-400 shrink-0" />
+                                  <span className={`w-5 h-5 rounded-lg text-[10px] font-black flex items-center justify-center shrink-0 ${lightBg} ${text}`}>
+                                    {idx + 1}
+                                  </span>
+                                  <div className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
+                                    <IconComp size={13} />
+                                  </div>
+                                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                    {tabItem.label}
+                                  </span>
+                                </div>
+
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    disabled={idx === 0}
+                                    onClick={() => moveTabItem(idx, -1)}
+                                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-all"
+                                    title="Yukarı Taşı"
+                                  >
+                                    <ArrowUp size={12} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={idx === orderedTabItems.length - 1}
+                                    onClick={() => moveTabItem(idx, 1)}
+                                    className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 disabled:opacity-30 disabled:pointer-events-none transition-all"
+                                    title="Aşağı Taşı"
+                                  >
+                                    <ArrowDown size={12} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Personal Profiles Tab (Müsait, Dışarıda, Toplantı, Diğer) */}
                 {activeModalTab === "profiles" && (() => {
@@ -3644,6 +3926,7 @@ export default function Home() {
                     localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
                     localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
                     localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
+                    saveCallPanelPrefs(currentUser, callPanelPrefs);
 
                     let passwordPayload = {};
                     if (newPassword || confirmPassword) {
@@ -3679,6 +3962,7 @@ export default function Home() {
                             forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null,
                             active_profile: agentActiveProfile,
                             profiles: agentProfiles,
+                            call_panel_prefs: callPanelPrefs,
                             auto_logout_enabled: autoLogoutEnabled,
                             auto_logout_duration: autoLogoutDuration,
                             two_factor_enabled: twoFactorEnabled,

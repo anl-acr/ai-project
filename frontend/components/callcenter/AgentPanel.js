@@ -12,25 +12,96 @@ import AgentChatTab from "./tabs/AgentChatTab";
 import AgentQueuePeersTab from "./tabs/AgentQueuePeersTab";
 import { useTheme } from "../../utils/theme";
 
-const ALL_TABS = [
-  { id: "dashboard", perm: "call_panel:tab_dashboard", name: "Pano", icon: LayoutDashboard },
-  { id: "webphone", perm: "call_panel:tab_webphone", name: "Webphone", icon: PhoneCall },
-  { id: "agents", perm: "call_panel:tab_agents", name: "Temsilciler", icon: Headphones },
-  { id: "speeddial", perm: "call_panel:tab_speeddial", name: "Hızlı Arama", icon: List },
-  { id: "missed", perm: "call_panel:tab_missed", name: "Kayıp Çağrı", icon: PhoneMissed },
-  { id: "directory", perm: "call_panel:tab_directory", name: "Rehber", icon: Users },
-  { id: "history", perm: "call_panel:tab_history", name: "Çağrı Geçmişi", icon: History },
-  { id: "voicemail", perm: "call_panel:tab_voicemail", name: "Sesli Posta", icon: Voicemail },
-  { id: "chat", perm: "call_panel:tab_chat", name: "Sohbet", icon: MessageSquare },
+export const ALL_TABS = [
+  { id: "dashboard", perm: "call_panel:tab_dashboard", name: "Pano", desc: "Günlük çağrı ve mola özet panosu", icon: LayoutDashboard },
+  { id: "webphone", perm: "call_panel:tab_webphone", name: "Webphone", desc: "WebRTC yazılım telefonu ve hat kontrolü", icon: PhoneCall },
+  { id: "agents", perm: "call_panel:tab_agents", name: "Temsilciler", desc: "Kuyruktaki diğer temsilcilerin canlı durumu", icon: Headphones },
+  { id: "speeddial", perm: "call_panel:tab_speeddial", name: "Hızlı Arama", desc: "Tek tıkla hızlı arama kısayolları", icon: List },
+  { id: "missed", perm: "call_panel:tab_missed", name: "Kayıp Çağrı", desc: "Cevapsız kalan çağrıların listesi", icon: PhoneMissed },
+  { id: "directory", perm: "call_panel:tab_directory", name: "Rehber", desc: "Dahili aboneler ve müşteri rehberi", icon: Users },
+  { id: "history", perm: "call_panel:tab_history", name: "Çağrı Geçmişi", desc: "Geçmiş aramalar ve ses kayıtları", icon: History },
+  { id: "voicemail", perm: "call_panel:tab_voicemail", name: "Sesli Posta", desc: "Bırakılan sesli mesaj kayıtları", icon: Voicemail },
+  { id: "chat", perm: "call_panel:tab_chat", name: "Sohbet", desc: "Temsilciler arası iç yazışma alanı", icon: MessageSquare },
 ];
+
+export const DEFAULT_CALL_PANEL_PREFS = {
+  viewMode: "list", // "list" | "box"
+  boxSize: "large", // "large" | "small"
+  tabOrder: ALL_TABS.map((t) => t.id),
+};
+
+export function normalizeCallPanelPrefs(raw) {
+  const defaultOrder = ALL_TABS.map((t) => t.id);
+  if (!raw || typeof raw !== "object") {
+    return { ...DEFAULT_CALL_PANEL_PREFS, tabOrder: [...defaultOrder] };
+  }
+  const viewMode = raw.viewMode === "box" ? "box" : "list";
+  const boxSize = raw.boxSize === "small" ? "small" : "large";
+  let tabOrder = Array.isArray(raw.tabOrder) ? raw.tabOrder.filter((id) => defaultOrder.includes(id)) : [];
+  for (const id of defaultOrder) {
+    if (!tabOrder.includes(id)) {
+      tabOrder.push(id);
+    }
+  }
+  return { viewMode, boxSize, tabOrder };
+}
+
+export function loadCallPanelPrefs(currentUser) {
+  if (typeof window === "undefined") return { ...DEFAULT_CALL_PANEL_PREFS };
+  try {
+    const uid = currentUser?.id || currentUser?.extension || localStorage.getItem("current_user_id") || "default";
+    const userScoped = localStorage.getItem(`agent_call_panel_prefs_${uid}`);
+    if (userScoped) {
+      return normalizeCallPanelPrefs(JSON.parse(userScoped));
+    }
+    if (currentUser?.call_panel_prefs && typeof currentUser.call_panel_prefs === "object") {
+      return normalizeCallPanelPrefs(currentUser.call_panel_prefs);
+    }
+    const globalSaved = localStorage.getItem("agent_call_panel_prefs");
+    if (globalSaved) {
+      return normalizeCallPanelPrefs(JSON.parse(globalSaved));
+    }
+  } catch (e) {}
+  return normalizeCallPanelPrefs(null);
+}
+
+export function saveCallPanelPrefs(currentUser, nextPrefs) {
+  const normalized = normalizeCallPanelPrefs(nextPrefs);
+  if (typeof window !== "undefined") {
+    try {
+      const uid = currentUser?.id || currentUser?.extension || localStorage.getItem("current_user_id") || "default";
+      localStorage.setItem(`agent_call_panel_prefs_${uid}`, JSON.stringify(normalized));
+      localStorage.setItem("agent_call_panel_prefs", JSON.stringify(normalized));
+      window.dispatchEvent(new CustomEvent("AGENT_PANEL_PREFS_UPDATED", { detail: normalized }));
+    } catch (e) {}
+  }
+  return normalized;
+}
 
 export default function AgentPanel({ backendHost, currentUser, activeCallId, isVisible = true }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [pendingDial, setPendingDial] = useState(null);
   const [rolePermissions, setRolePermissions] = useState(null);
+  const [panelPrefs, setPanelPrefs] = useState(() => loadCallPanelPrefs(currentUser));
 
   const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
+
+  useEffect(() => {
+    setPanelPrefs(loadCallPanelPrefs(currentUser));
+  }, [currentUser?.id, currentUser?.extension, currentUser?.call_panel_prefs]);
+
+  useEffect(() => {
+    const handlePrefsUpdate = (e) => {
+      if (e?.detail) {
+        setPanelPrefs(normalizeCallPanelPrefs(e.detail));
+      } else {
+        setPanelPrefs(loadCallPanelPrefs(currentUser));
+      }
+    };
+    window.addEventListener("AGENT_PANEL_PREFS_UPDATED", handlePrefsUpdate);
+    return () => window.removeEventListener("AGENT_PANEL_PREFS_UPDATED", handlePrefsUpdate);
+  }, [currentUser]);
 
   useEffect(() => {
     let mounted = true;
@@ -111,9 +182,16 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   }, [rolePermissions, currentUser?.role]);
 
   const tabs = useMemo(() => {
-    const allowed = ALL_TABS.filter(t => callPanelPerms.checkTab(t.perm));
-    return allowed.length > 0 ? allowed : [ALL_TABS[0]];
-  }, [callPanelPerms]);
+    const orderMap = new Map();
+    (panelPrefs?.tabOrder || []).forEach((id, idx) => orderMap.set(id, idx));
+    const orderedAll = [...ALL_TABS].sort((a, b) => {
+      const idxA = orderMap.has(a.id) ? orderMap.get(a.id) : 999;
+      const idxB = orderMap.has(b.id) ? orderMap.get(b.id) : 999;
+      return idxA - idxB;
+    });
+    const allowed = orderedAll.filter(t => callPanelPerms.checkTab(t.perm));
+    return allowed.length > 0 ? allowed : [orderedAll[0] || ALL_TABS[0]];
+  }, [callPanelPerms, panelPrefs?.tabOrder]);
 
   useEffect(() => {
     if (tabs.length > 0 && !tabs.some(t => t.id === activeTab)) {
@@ -144,27 +222,59 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   }, [isVisible, tabs]);
 
   const isWebphoneScreenActive = Boolean(isVisible && activeTab === "webphone");
+  const isBoxView = panelPrefs?.viewMode === "box";
+  const isSmallBox = panelPrefs?.boxSize === "small";
 
   return (
     <div className="flex h-full w-full max-w-[1600px] gap-5 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
       {/* Sidebar & Tabs */}
-      <div className={`w-52 shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:block`}>
-        <div className="flex flex-col space-y-1.5">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
-                activeTab === tab.id
-                  ? `${bg} text-white shadow-md`
-                  : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
-              }`}
-            >
-              <tab.icon size={18} />
-              <span className="text-sm">{tab.name}</span>
-            </button>
-          ))}
-        </div>
+      <div
+        className={`${
+          isBoxView ? (isSmallBox ? "w-56" : "w-64") : "w-52"
+        } shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:block transition-all duration-200`}
+      >
+        {isBoxView ? (
+          <div className={`grid grid-cols-2 ${isSmallBox ? "gap-1.5" : "gap-2.5"}`}>
+            {tabs.map((tab) => {
+              const isAct = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex flex-col items-center justify-center text-center rounded-2xl font-bold transition-all border ${
+                    isSmallBox ? "p-2.5 gap-1.5 min-h-[68px]" : "p-4 gap-2 min-h-[96px]"
+                  } ${
+                    isAct
+                      ? `${bg} text-white border-transparent shadow-md`
+                      : `bg-slate-50/70 dark:bg-slate-800/50 ${borderLight} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`
+                  }`}
+                >
+                  <tab.icon size={isSmallBox ? 17 : 22} />
+                  <span className={`${isSmallBox ? "text-[11px]" : "text-xs"} leading-tight line-clamp-2`}>
+                    {tab.name}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col space-y-1.5">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
+                  activeTab === tab.id
+                    ? `${bg} text-white shadow-md`
+                    : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
+                }`}
+              >
+                <tab.icon size={18} />
+                <span className="text-sm">{tab.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Mobile Tabs (Horizontal) - Just in case on small screens */}
@@ -200,14 +310,14 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             callPanelPerms={callPanelPerms}
           />
         </div>
-        {activeTab === "dashboard" && <AgentDashboardTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} />}
-        {activeTab === "agents" && <AgentQueuePeersTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} />}
-        {activeTab === "speeddial" && <AgentSpeedDialTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} />}
-        {activeTab === "missed" && <AgentMissedCallsTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} />}
-        {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} />}
-        {activeTab === "history" && <AgentHistoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} />}
-        {activeTab === "voicemail" && <AgentVoicemailTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} />}
-        {activeTab === "chat" && <AgentChatTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} />}
+        {activeTab === "dashboard" && <AgentDashboardTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "agents" && <AgentQueuePeersTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "speeddial" && <AgentSpeedDialTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "missed" && <AgentMissedCallsTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "history" && <AgentHistoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "voicemail" && <AgentVoicemailTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "chat" && <AgentChatTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
       </div>
     </div>
   );

@@ -3787,6 +3787,7 @@ class ProfileUpdateSchema(BaseModel):
     password_expiry_months: Optional[int] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = None
+    call_panel_prefs: Optional[dict] = None
 
 @app.post("/api/agent/profile/{user_id}")
 async def update_agent_profile_endpoint(user_id: Union[int, str], payload: ProfileUpdateSchema):
@@ -3855,6 +3856,9 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     if payload.profiles is not None:
         user["profiles"] = payload.profiles
         ensure_user_profiles(user)
+
+    if payload.call_panel_prefs is not None:
+        user["call_panel_prefs"] = payload.call_panel_prefs
 
     if payload.auto_logout_enabled is not None:
         user["auto_logout_enabled"] = payload.auto_logout_enabled
