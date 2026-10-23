@@ -2217,6 +2217,11 @@ same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Playback(ss-noservice)
 same => n,Hangup()
 same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
 
 ; 1. Ön Yönlendirme ve Aktif Profil Kontrolü (Offline / Koşulsuz Yönlendirme / Cihaz Seçimi)
 same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL)}})
@@ -2227,8 +2232,10 @@ same => n,Set(DIAL_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEO
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
 
 ; 2. PJSIP Dahili Arama (Profil veya Yönlendirme Zaman Aşımı Süresi)
-same => n(dial_pjsip),NoOp(PJSIP Dahiliye Arama Yapiliyor: PJSIP/${{EXTEN}} Timeout=${{DIAL_TIMEOUT}}s)
-same => n,Dial(PJSIP/${{EXTEN}},${{DIAL_TIMEOUT}},tT)
+same => n(dial_pjsip),Set(TARGET_CONTACTS=${{PJSIP_DIAL_CONTACTS(${{EXTEN}})}})
+same => n,Set(DIAL_STR=${{IF($["${{TARGET_CONTACTS}}"=""]?PJSIP/${{EXTEN}}:${{TARGET_CONTACTS}})}})
+same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor: ${{DIAL_STR}} Timeout=${{DIAL_TIMEOUT}}s)
+same => n,Dial(${{DIAL_STR}},${{DIAL_TIMEOUT}},tT)
 same => n,NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
 
@@ -4375,43 +4382,66 @@ async def is_phone_or_value_blacklisted(val_to_check: str, session=None) -> tupl
 @app.get("/api/acl/check_subscriber_call")
 async def check_subscriber_call(caller: str, callee: str):
     from fastapi import Response
-    is_bl_caller, _ = await is_phone_or_value_blacklisted(caller)
-    is_bl_callee, _ = await is_phone_or_value_blacklisted(callee)
+    caller_str = str(caller or "").strip()
+    callee_str = str(callee or "").strip()
+    is_bl_caller, _ = await is_phone_or_value_blacklisted(caller_str)
+    is_bl_callee, _ = await is_phone_or_value_blacklisted(callee_str)
     if is_bl_caller or is_bl_callee:
-        print(f"[Abuse Shield] Internal subscriber call blocked via Blacklist: {caller} -> {callee}")
+        print(f"[Abuse Shield] Internal subscriber call blocked via Blacklist: {caller_str} -> {callee_str}")
         return Response(content="DENY", media_type="text/plain")
 
     groups = settings_db.get("subscriber_groups", [])
-    
+    users_list = settings_db.get("users", [])
+    uid_to_ext = {}
+    for u in users_list:
+        uid = str(u.get("id") or "").strip()
+        uext = str(u.get("extension") or "").strip()
+        if uid and uext:
+            uid_to_ext[uid] = uext
+
     caller_groups = []
     callee_groups = []
-    
+
     for g in groups:
-        exts = g.get("extensions", [])
-        if caller in exts:
+        raw_exts = g.get("extensions", []) or []
+        resolved_exts = set()
+        for item in raw_exts:
+            s_item = str(item).strip()
+            resolved_exts.add(s_item)
+            if s_item in uid_to_ext:
+                resolved_exts.add(uid_to_ext[s_item])
+        if caller_str in resolved_exts:
             caller_groups.append(g)
-        if callee in exts:
+        if callee_str in resolved_exts:
             callee_groups.append(g)
-            
+
     if not caller_groups or not callee_groups:
         return Response(content="ALLOW", media_type="text/plain")
-        
+
     caller_gids = set(str(g.get("id")) for g in caller_groups)
     callee_gids = set(str(g.get("id")) for g in callee_groups)
-    
+
     if caller_gids.intersection(callee_gids):
         return Response(content="ALLOW", media_type="text/plain")
-        
+
+    has_any_acl_restriction = False
     for g in caller_groups:
-        outbound = set(str(x) for x in g.get("allowed_outbound_groups", []))
-        if outbound.intersection(callee_gids):
-            return Response(content="ALLOW", media_type="text/plain")
-            
+        outbound = [str(x) for x in (g.get("allowed_outbound_groups") or []) if str(x).strip()]
+        if outbound:
+            has_any_acl_restriction = True
+            if set(outbound).intersection(callee_gids):
+                return Response(content="ALLOW", media_type="text/plain")
+
     for g in callee_groups:
-        inbound = set(str(x) for x in g.get("allowed_inbound_groups", []))
-        if inbound.intersection(caller_gids):
-            return Response(content="ALLOW", media_type="text/plain")
-            
+        inbound = [str(x) for x in (g.get("allowed_inbound_groups") or []) if str(x).strip()]
+        if inbound:
+            has_any_acl_restriction = True
+            if set(inbound).intersection(caller_gids):
+                return Response(content="ALLOW", media_type="text/plain")
+
+    if not has_any_acl_restriction:
+        return Response(content="ALLOW", media_type="text/plain")
+
     return Response(content="DENY", media_type="text/plain")
 
 

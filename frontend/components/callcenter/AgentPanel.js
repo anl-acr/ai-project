@@ -19,12 +19,19 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
   useEffect(() => {
     const handleTriggerCall = (e) => {
       if (e.detail) {
-        setPendingDial(e.detail);
+        setPendingDial(String(e.detail));
         setActiveTab("webphone");
       }
     };
+    const handleIncomingCall = () => {
+      setActiveTab("webphone");
+    };
     window.addEventListener('TRIGGER_CALL', handleTriggerCall);
-    return () => window.removeEventListener('TRIGGER_CALL', handleTriggerCall);
+    window.addEventListener('INCOMING_WEBPHONE_CALL', handleIncomingCall);
+    return () => {
+      window.removeEventListener('TRIGGER_CALL', handleTriggerCall);
+      window.removeEventListener('INCOMING_WEBPHONE_CALL', handleIncomingCall);
+    };
   }, []);
 
   const tabs = [
@@ -82,8 +89,10 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
 
       {/* Tab Content Area */}
       <div className={`flex-1 h-full overflow-hidden relative rounded-3xl bg-white dark:bg-slate-900 shadow-sm border ${borderLight}`}>
+        <div className={activeTab === "webphone" ? "w-full h-full" : "hidden"}>
+          <AgentWebphoneTab backendHost={backendHost} currentUser={currentUser} activeCallId={activeCallId} pendingDial={pendingDial} setPendingDial={setPendingDial} />
+        </div>
         {activeTab === "dashboard" && <AgentDashboardTab backendHost={backendHost} currentUser={currentUser} />}
-        {activeTab === "webphone" && <AgentWebphoneTab backendHost={backendHost} currentUser={currentUser} activeCallId={activeCallId} pendingDial={pendingDial} setPendingDial={setPendingDial} />}
         {activeTab === "speeddial" && <AgentSpeedDialTab backendHost={backendHost} currentUser={currentUser} />}
         {activeTab === "missed" && <AgentMissedCallsTab backendHost={backendHost} currentUser={currentUser} />}
         {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} />}

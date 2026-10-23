@@ -94,7 +94,8 @@ export default function AgentDirectoryTab({ backendHost, currentUser }) {
 
 
   const triggerCall = (number) => {
-    alert(`Aranıyor: ${number}\n\nNot: Gerçek çağrı entegrasyonu MVP aşamasında henüz aktif değildir.`);
+    if (!number) return;
+    window.dispatchEvent(new CustomEvent("TRIGGER_CALL", { detail: String(number) }));
   };
 
   const getTypeBadge = (type) => {

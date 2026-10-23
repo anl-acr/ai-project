@@ -16,6 +16,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [isOnHold, setIsOnHold] = useState(false);
+  const [callNotification, setCallNotification] = useState(null);
 
   // Contacts & Add Contact Modal State
   const [contacts, setContacts] = useState([]);
@@ -29,6 +30,36 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
   const sessionRef = useRef(null);
   const audioElRef = useRef(null);
   const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!callNotification) return;
+    const t = setTimeout(() => setCallNotification(null), 5000);
+    return () => clearTimeout(t);
+  }, [callNotification]);
+
+  const attachRemoteAudio = (sessionObj) => {
+    const peerConnection = sessionObj?.sessionDescriptionHandler?.peerConnection;
+    if (!peerConnection) return;
+    const selectedSpeaker = typeof window !== "undefined" ? localStorage.getItem("selected_speaker") : null;
+
+    const bindTrack = (track) => {
+      if (track && track.kind === "audio" && audioElRef.current) {
+        const remoteStream = new MediaStream([track]);
+        if (selectedSpeaker && typeof audioElRef.current.setSinkId === "function") {
+          audioElRef.current.setSinkId(selectedSpeaker).catch(() => {});
+        }
+        audioElRef.current.srcObject = remoteStream;
+        audioElRef.current.play().catch((e) => console.error(e));
+      }
+    };
+
+    peerConnection.addEventListener("track", (event) => {
+      bindTrack(event.track);
+    });
+    peerConnection.getReceivers().forEach((receiver) => {
+      bindTrack(receiver.track);
+    });
+  };
 
   // Fetch system contacts & directory
   const fetchContactsAndDirectory = async () => {
@@ -96,6 +127,26 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
       authorizationPassword: password,
       displayName: `Temsilci ${agentExtension}`,
       hackIpInContact: true,
+      delegate: {
+        onInvite: (invite) => {
+          const callerNum = invite?.remoteIdentity?.uri?.user || "Bilinmeyen";
+          sessionRef.current = invite;
+          setDialNumber(callerNum);
+          setCallStatus("Ringing");
+          setCallNotification(null);
+          window.dispatchEvent(new CustomEvent("INCOMING_WEBPHONE_CALL", { detail: callerNum }));
+
+          invite.stateChange.addListener((state) => {
+            if (state === SIP.SessionState.Established) {
+              setCallStatus("InCall");
+              attachRemoteAudio(invite);
+            } else if (state === SIP.SessionState.Terminated) {
+              setCallStatus("Idle");
+              sessionRef.current = null;
+            }
+          });
+        }
+      }
     };
 
     const ua = new SIP.UserAgent(userAgentOptions);
@@ -116,6 +167,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
 
     ua.start()
       .then(() => {
+        setIsRegistered(true);
         const registerer = new SIP.Registerer(ua);
         return registerer.register();
       })
@@ -167,16 +219,45 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
 
   const handleDial = (num) => setDialNumber(prev => prev + num);
   
+  const handleAnswerCall = async () => {
+    if (!sessionRef.current || callStatus !== "Ringing") return;
+    try {
+      await sessionRef.current.accept({
+        sessionDescriptionHandlerOptions: {
+          constraints: { audio: true, video: false }
+        }
+      });
+      attachRemoteAudio(sessionRef.current);
+      setCallStatus("InCall");
+    } catch (err) {
+      console.error("Arama cevaplanamadı:", err);
+      setCallNotification({
+        type: "error",
+        message: "Çağrı yanıtlanamadı. Lütfen mikrofon izinlerinizi kontrol edin."
+      });
+    }
+  };
+
   const handleCall = async (targetNum = dialNumber) => {
-    if (!targetNum || !userAgentRef.current || !webrtcConfig) return;
+    const cleanTarget = String(targetNum || "").replace(/[^0-9*#+]/g, "");
+    if (!cleanTarget) return;
+    if (!userAgentRef.current || !webrtcConfig) {
+      setCallNotification({
+        type: "error",
+        message: "WebPhone bağlantısı hazırlanıyor, lütfen birkaç saniye sonra tekrar deneyin."
+      });
+      return;
+    }
+    setCallNotification(null);
+    setDialNumber(cleanTarget);
     setCallStatus("Calling");
-    if (String(targetNum).startsWith("*8") || String(targetNum).startsWith("**")) {
-      const pickupLbl = String(targetNum).startsWith("*8") ? "Grup Çağrı Toplama (*8)" : `Hedefli Çağrı Toplama (${targetNum})`;
+    if (String(cleanTarget).startsWith("*8") || String(cleanTarget).startsWith("**")) {
+      const pickupLbl = String(cleanTarget).startsWith("*8") ? "Grup Çağrı Toplama (*8)" : `Hedefli Çağrı Toplama (${cleanTarget})`;
       recordWebphoneTimelineEvent("call_pickup", pickupLbl);
     }
 
     const hostOnly = webrtcConfig.asteriskWssUrl.split('/')[2].split(':')[0];
-    const targetURI = SIP.UserAgent.makeURI(`sip:${targetNum}@${hostOnly}`);
+    const targetURI = SIP.UserAgent.makeURI(`sip:${cleanTarget}@${hostOnly}`);
     const inviter = new SIP.Inviter(userAgentRef.current, targetURI, {
       sessionDescriptionHandlerOptions: {
         constraints: { audio: true, video: false }
@@ -188,27 +269,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     inviter.stateChange.addListener((state) => {
       if (state === SIP.SessionState.Established) {
         setCallStatus("InCall");
-        
-        const peerConnection = inviter.sessionDescriptionHandler.peerConnection;
-        if (peerConnection) {
-          peerConnection.addEventListener("track", (event) => {
-            if (event.track.kind === "audio" && audioElRef.current) {
-              const remoteStream = new MediaStream([event.track]);
-              audioElRef.current.srcObject = remoteStream;
-              audioElRef.current.play().catch(e => console.error(e));
-            }
-          });
-          const receivers = peerConnection.getReceivers();
-          receivers.forEach((receiver) => {
-            if (receiver.track && receiver.track.kind === "audio") {
-              const remoteStream = new MediaStream([receiver.track]);
-              if (audioElRef.current) {
-                audioElRef.current.srcObject = remoteStream;
-                audioElRef.current.play().catch(e => console.error(e));
-              }
-            }
-          });
-        }
+        attachRemoteAudio(inviter);
       } else if (state === SIP.SessionState.Terminated) {
         setCallStatus("Idle");
         sessionRef.current = null;
@@ -216,20 +277,50 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     });
 
     try {
-      await inviter.invite();
+      await inviter.invite({
+        requestDelegate: {
+          onReject: (response) => {
+            const code = response?.message?.statusCode;
+            if (code === 486 || code === 600) {
+              setCallNotification({
+                type: "error",
+                message: `Aranan numara (${cleanTarget}) şu anda meşgul.`
+              });
+            } else if (code === 480 || code === 503 || code === 404) {
+              setCallNotification({
+                type: "error",
+                message: `Aranan dahili veya numara (${cleanTarget}) şu anda çevrimdışı veya ulaşılamıyor.`
+              });
+            } else if (code === 403 || code === 603) {
+              setCallNotification({
+                type: "error",
+                message: `Arama reddedildi veya bu numarayı (${cleanTarget}) arama yetkiniz bulunmuyor.`
+              });
+            }
+          }
+        }
+      });
     } catch (err) {
       console.error("Arama başlatılamadı:", err);
       setCallStatus("Idle");
+      setCallNotification({
+        type: "error",
+        message: "Arama başlatılamadı. Lütfen mikrofon izninizi ve bağlantınızı kontrol edin."
+      });
     }
   };
 
   const handleHangup = () => {
     if (sessionRef.current) {
-      if (callStatus === "Calling") {
-        sessionRef.current.cancel();
-      } else {
-        sessionRef.current.bye();
-      }
+      try {
+        if (callStatus === "Calling") {
+          sessionRef.current.cancel();
+        } else if (callStatus === "Ringing") {
+          sessionRef.current.reject();
+        } else {
+          sessionRef.current.bye();
+        }
+      } catch (e) {}
     }
     setCallStatus("Idle");
     setDialNumber("");
@@ -305,11 +396,13 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
   };
 
   useEffect(() => {
-    if (pendingDial && isRegistered && callStatus === "Idle") {
-      setDialNumber(pendingDial);
-      const numToDial = pendingDial;
-      setPendingDial(null);
-      setTimeout(() => handleCall(numToDial), 100);
+    if (pendingDial) {
+      setDialNumber(String(pendingDial));
+      if (isRegistered && callStatus === "Idle") {
+        const numToDial = String(pendingDial);
+        setPendingDial(null);
+        setTimeout(() => handleCall(numToDial), 100);
+      }
     }
   }, [pendingDial, isRegistered, callStatus]);
 
@@ -329,10 +422,23 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
           
           {/* Enhanced Dialpad */}
           <div className={`p-6 bg-white dark:bg-slate-900 border ${borderLight} rounded-3xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 flex flex-col items-center shrink-0 animate-in fade-in slide-in-from-left-4 duration-700`}>
+            {callNotification && (
+              <div className="w-full mb-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800/60 text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-start justify-between gap-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                <span>{callNotification.message}</span>
+                <button
+                  type="button"
+                  onClick={() => setCallNotification(null)}
+                  className="text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 shrink-0"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
+
             {/* Status Display */}
             <div className="text-center mb-6 w-full">
               <p className={`text-[10px] font-extrabold uppercase tracking-widest ${callStatus !== 'Idle' ? 'text-emerald-500' : 'text-slate-400 dark:text-slate-500'}`}>
-                {callStatus === "InCall" ? "Görüşme Aktif" : callStatus === "Calling" ? "Aranıyor..." : "Hat Müsait"}
+                {callStatus === "InCall" ? "Görüşme Aktif" : callStatus === "Calling" ? "Aranıyor..." : callStatus === "Ringing" ? "Gelen Çağrı..." : "Hat Müsait"}
               </p>
               <div className="mt-1 flex flex-col items-center justify-center">
                 <input 
@@ -375,8 +481,8 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
             {/* Action Buttons */}
             <div className="flex items-center justify-center gap-6 mt-8 w-full">
                <button 
-                 onClick={() => handleCall()}
-                 disabled={callStatus !== "Idle"}
+                 onClick={() => (callStatus === "Ringing" ? handleAnswerCall() : handleCall())}
+                 disabled={callStatus !== "Idle" && callStatus !== "Ringing"}
                  className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 hover:from-emerald-500 hover:to-emerald-700 disabled:opacity-50 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all hover:scale-105 active:scale-95"
                >
                  <Phone size={24} className="fill-current" />
@@ -412,7 +518,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
 
                  <div className="relative z-10 flex flex-col items-center w-full">
                    <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 shadow-md dark:shadow-xl transition-all duration-500 ${callStatus === 'InCall' ? 'bg-emerald-100 border-2 border-emerald-400 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400' : 'bg-amber-100 border-2 border-amber-400 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400'}`}>
-                     {isOnHold ? <Pause size={32} /> : <Phone size={32} className={callStatus === 'Calling' ? 'animate-bounce' : ''} />}
+                     {isOnHold ? <Pause size={32} /> : <Phone size={32} className={callStatus === 'Calling' || callStatus === 'Ringing' ? 'animate-bounce' : ''} />}
                    </div>
                    
                    {matchedContact ? (
@@ -454,21 +560,34 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
                        <span className={`relative inline-flex rounded-full h-3 w-3 ${callStatus === 'InCall' ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
                      </span>
                      <p className={`font-semibold tracking-widest uppercase text-sm ${callStatus === 'InCall' ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
-                       {callStatus === 'InCall' ? (isOnHold ? 'Beklemede' : `Görüşme Aktif - ${formatDuration(callDuration)}`) : 'Aranıyor...'}
+                       {callStatus === 'InCall' ? (isOnHold ? 'Beklemede' : `Görüşme Aktif - ${formatDuration(callDuration)}`) : callStatus === 'Ringing' ? 'Gelen Çağrı...' : 'Aranıyor...'}
                      </p>
                    </div>
                    
                    {/* Call Controls */}
                    <div className="flex items-center gap-6 mt-10">
-                     <button onClick={toggleMute} className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${isMuted ? 'bg-rose-100 border-rose-300 text-rose-500 dark:bg-rose-500/20 dark:border-rose-500/50 dark:text-rose-400' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10'}`}>
-                       {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
-                     </button>
-                     <button onClick={toggleHold} className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${isOnHold ? 'bg-amber-100 border-amber-300 text-amber-600 dark:bg-amber-500/20 dark:border-amber-500/50 dark:text-amber-400' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10'}`}>
-                       {isOnHold ? <Play size={22} /> : <Pause size={22} />}
-                     </button>
-                     <button onClick={handleHangup} className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group">
-                       <PhoneOff size={28} className="group-hover:scale-110 transition-transform" />
-                     </button>
+                     {callStatus === "Ringing" ? (
+                       <>
+                         <button onClick={handleAnswerCall} className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 hover:from-emerald-500 hover:to-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all hover:scale-110 group" title="Yanıtla">
+                           <Phone size={28} className="fill-current group-hover:scale-110 transition-transform" />
+                         </button>
+                         <button onClick={handleHangup} className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group" title="Reddet">
+                           <PhoneOff size={28} className="group-hover:scale-110 transition-transform" />
+                         </button>
+                       </>
+                     ) : (
+                       <>
+                         <button onClick={toggleMute} className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${isMuted ? 'bg-rose-100 border-rose-300 text-rose-500 dark:bg-rose-500/20 dark:border-rose-500/50 dark:text-rose-400' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10'}`}>
+                           {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
+                         </button>
+                         <button onClick={toggleHold} className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${isOnHold ? 'bg-amber-100 border-amber-300 text-amber-600 dark:bg-amber-500/20 dark:border-amber-500/50 dark:text-amber-400' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10'}`}>
+                           {isOnHold ? <Play size={22} /> : <Pause size={22} />}
+                         </button>
+                         <button onClick={handleHangup} className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group">
+                           <PhoneOff size={28} className="group-hover:scale-110 transition-transform" />
+                         </button>
+                       </>
+                     )}
                    </div>
                  </div>
                </div>
