@@ -344,11 +344,17 @@ export default function CallChatWidget({
       } else if (type === "transfer") {
         if (mode === "blind") {
           webphoneManager.blindTransfer(target);
+        } else if (mode === "complete") {
+          webphoneManager.completeAttendedTransfer();
         } else {
-          webphoneManager.toggleHold();
+          webphoneManager.startAttendedTransfer(target);
         }
       } else if (type === "conference") {
-        webphoneManager.recordTimelineEvent("call_conference", `${target} konferansa eklendi`);
+        if (target) {
+          webphoneManager.addParticipantToConference(target);
+        } else {
+          webphoneManager.startConference();
+        }
       }
     };
 
@@ -614,6 +620,64 @@ export default function CallChatWidget({
                     Hat {agentExtension}
                   </span>
                 </div>
+
+                {/* Multi-line compact switcher if 2+ lines exist */}
+                {Array.isArray(wpState.lines) && wpState.lines.length > 1 && (
+                  <div className="p-2.5 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200/60 dark:border-slate-800 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold uppercase text-slate-500">
+                        Aktif Hatlar ({wpState.lines.length})
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => webphoneManager.swapLines()}
+                          className="px-2 py-0.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-200"
+                        >
+                          Hat Değiştir
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => webphoneManager.completeAttendedTransfer()}
+                          className="px-2 py-0.5 rounded-lg bg-violet-600 text-[10px] font-bold text-white"
+                        >
+                          Birleştir & Aktar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            wpState.isConferenceActive
+                              ? webphoneManager.stopConference()
+                              : webphoneManager.startConference()
+                          }
+                          className="px-2 py-0.5 rounded-lg bg-emerald-600 text-[10px] font-bold text-white"
+                        >
+                          {wpState.isConferenceActive ? "Konf. Ayır" : "Konferans"}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      {wpState.lines.map((l) => (
+                        <div
+                          key={l.id}
+                          onClick={() => webphoneManager.switchLine(l.id)}
+                          className={`cursor-pointer px-2.5 py-1.5 rounded-xl border text-xs flex items-center justify-between ${
+                            l.id === wpState.activeLineId
+                              ? "border-emerald-500 bg-emerald-50/60 dark:bg-emerald-950/30 font-bold"
+                              : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900"
+                          }`}
+                        >
+                          <span>
+                            Hat {l.lineNumber}: {l.remoteDisplayName || l.remoteNumber}
+                          </span>
+                          <span className="text-[10px] text-slate-500">
+                            {wpState.isConferenceActive ? "Konf." : l.isOnHold ? "Beklemede" : "Aktif"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Main Call State Display */}
                 <div className="p-5 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200/60 dark:border-slate-900 text-center">

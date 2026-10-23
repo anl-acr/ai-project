@@ -7214,6 +7214,41 @@ async def webrtc_blind_transfer_endpoint(payload: dict = Body(...)):
     return {"status": "success" if ok else "fallback_refer", "transferred_via_ami": bool(ok)}
 
 
+@app.post("/api/webrtc/attended-transfer")
+async def webrtc_attended_transfer_endpoint(payload: dict = Body(...)):
+    agent_extension = str(payload.get("agent_extension") or "").strip()
+    remote_1 = str(payload.get("remote_number_1") or "").strip()
+    remote_2 = str(payload.get("remote_number_2") or "").strip()
+    if not agent_extension or (not remote_1 and not remote_2):
+        raise HTTPException(status_code=400, detail="Eksik kontrollü transfer parametreleri.")
+
+    from backend.services.ami_manager import attended_transfer_agent_calls
+    ok = await attended_transfer_agent_calls(agent_extension, remote_1, remote_2)
+
+    set_live_extension_call_state(agent_extension, None)
+    if remote_1 and len(remote_1) <= 5:
+        set_live_extension_call_state(remote_1, "busy")
+    if remote_2 and len(remote_2) <= 5:
+        set_live_extension_call_state(remote_2, "busy")
+
+    try:
+        async with AsyncSessionLocal() as session:
+            session.add(AgentBreakLog(
+                user_id=agent_extension,
+                extension=agent_extension,
+                agent_name=resolve_user_name_by_ext_or_id(agent_extension) or None,
+                break_name=f"__ACTION__:call_attended_transfer:{remote_1 or 'Hat 1'} <-> {remote_2 or 'Hat 2'}",
+                start_time=datetime.datetime.utcnow(),
+                end_time=datetime.datetime.utcnow(),
+                duration_seconds=0
+            ))
+            await session.commit()
+    except Exception as e_tr:
+        print(f"[WebRTC Attended Transfer Log Error]: {e_tr}")
+
+    return {"status": "success" if ok else "fallback_refer", "transferred_via_ami": bool(ok)}
+
+
 # ----------------------------------------------------
 # API Routes: Calls & Transcripts History
 # ----------------------------------------------------

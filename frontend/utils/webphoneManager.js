@@ -7,10 +7,14 @@ class WebphoneManager {
     this.userAgent = null;
     this.registerer = null;
     this.session = null;
+    this.linesMap = new Map(); // lineId -> lineObj
+    this.lineCounter = 0;
     this.audioEl = null;
     this.durationInterval = null;
     this.registerNotifyInterval = null;
     this.activeUserKey = null;
+    this.confAudioCtx = null;
+    this.confMicStream = null;
 
     this.state = {
       isLoadingConfig: true,
@@ -28,25 +32,143 @@ class WebphoneManager {
       activeSipCallId: null,
       isWebphoneScreenActive: false,
       backendHost: "localhost:8000",
-      currentUser: null
+      currentUser: null,
+      // Multi-line & Conference state
+      lines: [],
+      activeLineId: null,
+      isConferenceActive: false,
+      attendedTransferPending: false
     };
+
+    this.startGlobalDurationLoop();
   }
 
-  ensureAudioElement() {
+  ensureAudioElement(lineId = "global") {
     if (typeof window === "undefined") return null;
-    if (!this.audioEl) {
-      let existing = document.getElementById("aida-global-webphone-audio");
-      if (!existing) {
-        existing = document.createElement("audio");
-        existing.id = "aida-global-webphone-audio";
-        existing.autoplay = true;
-        existing.playsInline = true;
-        existing.style.display = "none";
-        document.body.appendChild(existing);
-      }
+    const domId = `aida-webphone-audio-${lineId}`;
+    let existing = document.getElementById(domId);
+    if (!existing) {
+      existing = document.createElement("audio");
+      existing.id = domId;
+      existing.autoplay = true;
+      existing.playsInline = true;
+      existing.style.display = "none";
+      document.body.appendChild(existing);
+    }
+    if (lineId === "global") {
       this.audioEl = existing;
     }
-    return this.audioEl;
+    return existing;
+  }
+
+  removeLineAudioElement(lineId) {
+    if (typeof window === "undefined" || !lineId) return;
+    const domId = `aida-webphone-audio-${lineId}`;
+    const el = document.getElementById(domId);
+    if (el) {
+      try {
+        el.pause();
+        el.srcObject = null;
+        el.remove();
+      } catch (e) {}
+    }
+  }
+
+  startGlobalDurationLoop() {
+    if (typeof window === "undefined") return;
+    if (this.durationInterval) clearInterval(this.durationInterval);
+    this.durationInterval = setInterval(() => {
+      let changed = false;
+      for (const line of this.linesMap.values()) {
+        if (line.callStatus === "InCall" && line.establishedAt) {
+          const nextDur = Math.max(0, Math.floor((Date.now() - line.establishedAt) / 1000));
+          if (nextDur !== line.callDuration) {
+            line.callDuration = nextDur;
+            changed = true;
+          }
+        }
+      }
+      if (changed) {
+        this.syncLinesToState();
+      }
+    }, 1000);
+  }
+
+  getNextLineNumber() {
+    const used = new Set();
+    for (const l of this.linesMap.values()) {
+      used.add(l.lineNumber);
+    }
+    let n = 1;
+    while (used.has(n)) n++;
+    return n;
+  }
+
+  syncLinesToState(extraPatch = {}) {
+    const allLines = Array.from(this.linesMap.values()).sort((a, b) => a.lineNumber - b.lineNumber);
+    let actId = extraPatch.activeLineId !== undefined ? extraPatch.activeLineId : this.state.activeLineId;
+
+    if (!actId || !this.linesMap.has(actId)) {
+      const inCallOrRinging =
+        allLines.find((l) => l.callStatus === "Ringing") ||
+        allLines.find((l) => l.callStatus === "Calling") ||
+        allLines.find((l) => l.callStatus === "InCall" && !l.isOnHold) ||
+        allLines[0] ||
+        null;
+      actId = inCallOrRinging ? inCallOrRinging.id : null;
+    }
+
+    const activeLine = actId ? this.linesMap.get(actId) : null;
+    this.session = activeLine ? activeLine.session : null;
+
+    const serializedLines = allLines.map((l) => ({
+      id: l.id,
+      lineNumber: l.lineNumber,
+      remoteNumber: l.remoteNumber,
+      remoteDisplayName: l.remoteDisplayName,
+      callStatus: l.callStatus,
+      callDuration: l.callDuration,
+      isMuted: l.isMuted,
+      isOnHold: l.isOnHold,
+      sipCallId: l.sipCallId,
+      direction: l.direction
+    }));
+
+    const inCallLines = allLines.filter((l) => l.callStatus === "InCall");
+    const nextConfActive =
+      inCallLines.length >= 2
+        ? extraPatch.isConferenceActive !== undefined
+          ? extraPatch.isConferenceActive
+          : this.state.isConferenceActive
+        : false;
+
+    if (!nextConfActive && this.confAudioCtx) {
+      this.teardownConferenceAudioBridge();
+    }
+
+    const nextAttendedPending =
+      allLines.length >= 2
+        ? extraPatch.attendedTransferPending !== undefined
+          ? extraPatch.attendedTransferPending
+          : this.state.attendedTransferPending
+        : false;
+
+    const patch = {
+      ...extraPatch,
+      lines: serializedLines,
+      activeLineId: actId,
+      isConferenceActive: nextConfActive,
+      attendedTransferPending: nextAttendedPending,
+      callStatus: activeLine ? activeLine.callStatus : "Idle",
+      remoteNumber: activeLine ? activeLine.remoteNumber : "",
+      remoteDisplayName: activeLine ? activeLine.remoteDisplayName : "",
+      callDuration: activeLine ? activeLine.callDuration : 0,
+      isMuted: activeLine ? activeLine.isMuted : false,
+      isOnHold: activeLine ? activeLine.isOnHold : false,
+      activeSipCallId: activeLine ? activeLine.sipCallId : null
+    };
+
+    this.setState(patch);
   }
 
   getState() {
@@ -98,6 +220,10 @@ class WebphoneManager {
     }
   }
 
+  showNotification(message, type = "info") {
+    this.setCallNotification({ type, message });
+  }
+
   getApiBase() {
     const host = this.state.backendHost || "localhost:8000";
     if (typeof window !== "undefined") {
@@ -117,10 +243,10 @@ class WebphoneManager {
         body: JSON.stringify({
           action,
           caller: payload.caller || ext,
-          callee: payload.callee || this.state.remoteNumber || this.state.dialNumber || "",
+          callee: payload.callee || payload.destination || this.state.remoteNumber || this.state.dialNumber || "",
           sip_call_id: payload.sip_call_id || this.state.activeSipCallId || "",
           status: payload.status || "",
-          duration: payload.duration || this.state.callDuration || 0
+          duration: payload.duration ?? this.state.callDuration ?? 0
         })
       }).catch(() => {});
     } catch (e) {}
@@ -303,42 +429,30 @@ class WebphoneManager {
     this.registerNotifyInterval = setInterval(sendNotify, 8000);
   }
 
-  startDurationTimer() {
-    if (this.durationInterval) clearInterval(this.durationInterval);
-    this.setState({ callDuration: 0 });
-    this.durationInterval = setInterval(() => {
-      if (this.state.callStatus === "InCall") {
-        this.setState({ callDuration: this.state.callDuration + 1 });
-      }
-    }, 1000);
-  }
-
-  stopDurationTimer() {
-    if (this.durationInterval) {
-      clearInterval(this.durationInterval);
-      this.durationInterval = null;
-    }
-    this.setState({
-      callDuration: 0,
-      isMuted: false,
-      isOnHold: false
-    });
-  }
-
-  attachRemoteAudio(sessionObj) {
-    const audioEl = this.ensureAudioElement();
-    const peerConnection = sessionObj?.sessionDescriptionHandler?.peerConnection;
+  attachRemoteAudioForLine(line) {
+    if (!line || !line.session) return;
+    const audioEl = this.ensureAudioElement(line.id);
+    const peerConnection = line.session?.sessionDescriptionHandler?.peerConnection;
     if (!peerConnection || !audioEl) return;
 
     const selectedSpeaker = typeof window !== "undefined" ? localStorage.getItem("selected_speaker") : null;
 
+    // Save original outgoing mic track if not yet stored
+    peerConnection.getSenders().forEach((sender) => {
+      if (sender.track && sender.track.kind === "audio" && !line.origMicTrack) {
+        line.origMicTrack = sender.track;
+      }
+    });
+
     const bindTrack = (track) => {
       if (track && track.kind === "audio") {
+        line.remoteTrack = track;
         const remoteStream = new MediaStream([track]);
         if (selectedSpeaker && typeof audioEl.setSinkId === "function") {
           audioEl.setSinkId(selectedSpeaker).catch(() => {});
         }
         audioEl.srcObject = remoteStream;
+        audioEl.muted = Boolean(line.isOnHold && !this.state.isConferenceActive);
         audioEl.play().catch((e) => console.error("[WebphoneManager] Audio play error:", e));
       }
     };
@@ -349,6 +463,33 @@ class WebphoneManager {
     peerConnection.getReceivers().forEach((receiver) => {
       bindTrack(receiver.track);
     });
+  }
+
+  applyLineAudioState(line) {
+    if (!line) return;
+    const audioEl = this.ensureAudioElement(line.id);
+    const inConf = this.state.isConferenceActive;
+    const shouldReceiveAudio = inConf || (!line.isOnHold && this.state.activeLineId === line.id);
+    const shouldSendMic = !line.isMuted && (inConf || (!line.isOnHold && this.state.activeLineId === line.id));
+
+    if (audioEl) {
+      audioEl.muted = !shouldReceiveAudio;
+    }
+
+    const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+    if (pc && !inConf) {
+      pc.getSenders().forEach((sender) => {
+        if (sender.track && sender.track.kind === "audio") {
+          sender.track.enabled = shouldSendMic;
+        }
+      });
+    }
+  }
+
+  applyAllLinesAudioState() {
+    for (const line of this.linesMap.values()) {
+      this.applyLineAudioState(line);
+    }
   }
 
   handleIncomingInvite(invite) {
@@ -369,21 +510,40 @@ class WebphoneManager {
     const callerNum = invite?.remoteIdentity?.uri?.user || "Bilinmeyen";
     const rawDisplayName = (invite?.remoteIdentity?.displayName || "").replace(/^"|"$/g, "").trim();
     const sipCallId = invite?.request?.callId || `sip-${Date.now()}`;
-    const myExt = String(this.user?.extension || "1000");
+    const myExt = String(this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension || "1000");
 
-    this.session = invite;
-    this.setState({
-      callStatus: "Ringing",
-      dialNumber: callerNum,
+    const lineId = `line-${++this.lineCounter}-${Date.now()}`;
+    const lineObj = {
+      id: lineId,
+      lineNumber: this.getNextLineNumber(),
+      session: invite,
       remoteNumber: callerNum,
       remoteDisplayName: rawDisplayName && rawDisplayName !== callerNum ? rawDisplayName : "",
-      activeSipCallId: sipCallId,
+      callStatus: "Ringing",
+      callDuration: 0,
+      establishedAt: null,
+      isMuted: false,
+      isOnHold: false,
+      sipCallId,
+      direction: "inbound",
+      origMicTrack: null,
+      remoteTrack: null
+    };
+
+    this.linesMap.set(lineId, lineObj);
+
+    // If no active call is currently in progress, focus the ringing line immediately
+    const hasInCall = Array.from(this.linesMap.values()).some((l) => l.id !== lineId && l.callStatus === "InCall");
+    this.syncLinesToState({
+      activeLineId: hasInCall ? this.state.activeLineId : lineId,
+      dialNumber: hasInCall ? this.state.dialNumber : callerNum,
       callNotification: null
     });
 
     this.logWebrtcCallToBackend("ringing", {
       sip_call_id: sipCallId,
       caller: callerNum,
+      callee: myExt,
       destination: myExt
     });
 
@@ -395,55 +555,87 @@ class WebphoneManager {
     }
 
     invite.stateChange.addListener((state) => {
+      const currentLine = this.linesMap.get(lineId);
+      if (!currentLine) return;
+
       if (state === SIP.SessionState.Established) {
         stopRingtoneSound();
-        this.setState({ callStatus: "InCall" });
-        this.startDurationTimer();
-        this.attachRemoteAudio(invite);
+        // Put other active lines on hold when this incoming call is answered
+        for (const other of this.linesMap.values()) {
+          if (other.id !== lineId && other.callStatus === "InCall") {
+            other.isOnHold = true;
+          }
+        }
+        currentLine.callStatus = "InCall";
+        currentLine.isOnHold = false;
+        currentLine.establishedAt = Date.now();
+        this.attachRemoteAudioForLine(currentLine);
+        this.syncLinesToState({ activeLineId: lineId });
+        this.applyAllLinesAudioState();
+
         this.logWebrtcCallToBackend("answer", {
           sip_call_id: sipCallId,
           caller: callerNum,
+          callee: myExt,
           destination: myExt
         });
       } else if (state === SIP.SessionState.Terminated) {
         stopRingtoneSound();
-        const durSec = this.callStartTimestamp ? Math.round((Date.now() - this.callStartTimestamp) / 1000) : 0;
-        this.stopDurationTimer();
+        const durSec = currentLine.establishedAt
+          ? Math.max(0, Math.round((Date.now() - currentLine.establishedAt) / 1000))
+          : currentLine.callDuration || 0;
+
         this.logWebrtcCallToBackend("end", {
           sip_call_id: sipCallId,
           caller: callerNum,
+          callee: myExt,
           destination: myExt,
           duration: durSec,
           status: durSec > 0 ? "completed" : "no_answer"
         });
-        this.session = null;
-        this.setState({
-          callStatus: "Idle",
-          remoteNumber: "",
-          remoteDisplayName: "",
-          activeSipCallId: null
-        });
+
+        this.removeLineAudioElement(lineId);
+        this.linesMap.delete(lineId);
+        this.syncLinesToState();
+        this.applyAllLinesAudioState();
       }
     });
   }
 
-  async answerCall() {
-    if (!this.session || this.state.callStatus !== "Ringing") return;
+  async answerCall(targetLineId = null) {
+    const line =
+      (targetLineId && this.linesMap.get(targetLineId)) ||
+      Array.from(this.linesMap.values()).find((l) => l.callStatus === "Ringing") ||
+      (this.state.activeLineId ? this.linesMap.get(this.state.activeLineId) : null);
+
+    if (!line || line.callStatus !== "Ringing") return;
+
     try {
       stopRingtoneSound();
+      // Place any other active lines on hold before answering
+      for (const other of this.linesMap.values()) {
+        if (other.id !== line.id && other.callStatus === "InCall") {
+          other.isOnHold = true;
+        }
+      }
+
       const selectedMic = typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null;
       const constraints = {
         audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
         video: false
       };
-      await this.session.accept({
+      await line.session.accept({
         sessionDescriptionHandlerOptions: {
           constraints,
           iceGatheringTimeout: 400
         }
       });
-      this.attachRemoteAudio(this.session);
-      this.setState({ callStatus: "InCall" });
+      line.callStatus = "InCall";
+      line.isOnHold = false;
+      if (!line.establishedAt) line.establishedAt = Date.now();
+      this.attachRemoteAudioForLine(line);
+      this.syncLinesToState({ activeLineId: line.id });
+      this.applyAllLinesAudioState();
     } catch (err) {
       console.error("[WebphoneManager] Answer error:", err);
       this.setCallNotification({
@@ -453,7 +645,7 @@ class WebphoneManager {
     }
   }
 
-  async makeCall(targetNum) {
+  async makeCall(targetNum, options = {}) {
     const cleanTarget = String(targetNum || this.state.dialNumber || "").replace(/[^0-9*#+]/g, "");
     if (!cleanTarget) return;
 
@@ -465,31 +657,17 @@ class WebphoneManager {
       return;
     }
 
-    const myExt = this.state.webrtcConfig.agentExtension || this.state.currentUser?.extension || "";
-    const sipCallId = `webphone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    this.setState({
-      callNotification: null,
-      dialNumber: cleanTarget,
-      remoteNumber: cleanTarget,
-      remoteDisplayName: "",
-      callStatus: "Calling",
-      activeSipCallId: sipCallId
-    });
-
-    if (cleanTarget.startsWith("*8") || cleanTarget.startsWith("**")) {
-      const pickupLbl = cleanTarget.startsWith("*8")
-        ? "Grup Çağrı Toplama (*8)"
-        : `Hedefli Çağrı Toplama (${cleanTarget})`;
-      this.recordTimelineEvent("call_pickup", pickupLbl);
+    // Place existing active lines on hold when starting a new call
+    for (const existing of this.linesMap.values()) {
+      if (existing.callStatus === "InCall" && !existing.isOnHold && !this.state.isConferenceActive) {
+        existing.isOnHold = true;
+        this.recordTimelineEvent("call_hold", `${existing.remoteNumber} yeni hat araması için beklemeye alındı`);
+      }
     }
 
-    this.logWebrtcCallToBackend("start", {
-      caller: myExt,
-      callee: cleanTarget,
-      sip_call_id: sipCallId,
-      status: "in_progress"
-    });
+    const myExt = this.state.webrtcConfig.agentExtension || this.state.currentUser?.extension || "";
+    const sipCallId = `webphone-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const lineId = `line-${++this.lineCounter}-${Date.now()}`;
 
     const hostOnly = this.state.webrtcConfig.asteriskWssUrl.split("/")[2].split(":")[0];
     const targetURI = SIP.UserAgent.makeURI(`sip:${cleanTarget}@${hostOnly}`);
@@ -507,18 +685,72 @@ class WebphoneManager {
       }
     });
 
-    this.session = inviter;
+    const lineObj = {
+      id: lineId,
+      lineNumber: this.getNextLineNumber(),
+      session: inviter,
+      remoteNumber: cleanTarget,
+      remoteDisplayName: String(options.displayName || "").trim(),
+      callStatus: "Calling",
+      callDuration: 0,
+      establishedAt: null,
+      isMuted: false,
+      isOnHold: false,
+      sipCallId,
+      direction: "outbound",
+      autoConferenceOnAnswer: Boolean(options.joinConference),
+      origMicTrack: null,
+      remoteTrack: null
+    };
+
+    this.linesMap.set(lineId, lineObj);
+    this.syncLinesToState({
+      activeLineId: lineId,
+      dialNumber: cleanTarget,
+      callNotification: null,
+      attendedTransferPending: Boolean(options.attendedTransfer) || this.state.attendedTransferPending
+    });
+    this.applyAllLinesAudioState();
+
+    if (cleanTarget.startsWith("*8") || cleanTarget.startsWith("**")) {
+      const pickupLbl = cleanTarget.startsWith("*8")
+        ? "Grup Çağrı Toplama (*8)"
+        : `Hedefli Çağrı Toplama (${cleanTarget})`;
+      this.recordTimelineEvent("call_pickup", pickupLbl);
+    }
+
+    this.logWebrtcCallToBackend("start", {
+      caller: myExt,
+      callee: cleanTarget,
+      sip_call_id: sipCallId,
+      status: "in_progress"
+    });
+
     let wasEstablished = false;
     let rejectStatusCode = null;
 
     inviter.stateChange.addListener((state) => {
+      const currentLine = this.linesMap.get(lineId);
+      if (!currentLine) return;
+
       if (state === SIP.SessionState.Establishing) {
-        this.attachRemoteAudio(inviter);
+        this.attachRemoteAudioForLine(currentLine);
       } else if (state === SIP.SessionState.Established) {
         wasEstablished = true;
-        this.setState({ callStatus: "InCall" });
-        this.startDurationTimer();
-        this.attachRemoteAudio(inviter);
+        currentLine.callStatus = "InCall";
+        currentLine.isOnHold = false;
+        currentLine.establishedAt = Date.now();
+        this.attachRemoteAudioForLine(currentLine);
+        this.syncLinesToState({ activeLineId: lineId });
+        this.applyAllLinesAudioState();
+
+        if (currentLine.autoConferenceOnAnswer) {
+          currentLine.autoConferenceOnAnswer = false;
+          setTimeout(() => {
+            this.startConference();
+          }, 300);
+        }
+
         this.logWebrtcCallToBackend("answer", {
           caller: myExt,
           callee: cleanTarget,
@@ -526,7 +758,10 @@ class WebphoneManager {
           status: "in_progress"
         });
       } else if (state === SIP.SessionState.Terminated) {
-        const finalDuration = this.state.callDuration || 0;
+        const finalDuration = currentLine.establishedAt
+          ? Math.max(0, Math.round((Date.now() - currentLine.establishedAt) / 1000))
+          : currentLine.callDuration || 0;
+
         let finalStatus = wasEstablished ? "completed" : "no_answer";
         if (!wasEstablished) {
           if (rejectStatusCode === 486 || rejectStatusCode === 600) finalStatus = "busy";
@@ -541,14 +776,11 @@ class WebphoneManager {
           duration: finalDuration
         });
 
-        this.stopDurationTimer();
-        this.session = null;
-        this.setState({
-          callStatus: "Idle",
-          remoteNumber: "",
-          remoteDisplayName: "",
-          activeSipCallId: null
-        });
+        this.removeLineAudioElement(lineId);
+        this.linesMap.delete(lineId);
+        // If another line remains on hold and no other line is active, keep it selected so user can resume or auto-resume
+        this.syncLinesToState();
+        this.applyAllLinesAudioState();
       }
     });
 
@@ -556,7 +788,8 @@ class WebphoneManager {
       await inviter.invite({
         requestDelegate: {
           onProgress: () => {
-            this.attachRemoteAudio(inviter);
+            const currentLine = this.linesMap.get(lineId);
+            if (currentLine) this.attachRemoteAudioForLine(currentLine);
           },
           onReject: (response) => {
             const code = response?.message?.statusCode;
@@ -582,12 +815,10 @@ class WebphoneManager {
       });
     } catch (err) {
       console.error("[WebphoneManager] Invite error:", err);
-      this.setState({
-        callStatus: "Idle",
-        remoteNumber: "",
-        remoteDisplayName: "",
-        activeSipCallId: null
-      });
+      this.removeLineAudioElement(lineId);
+      this.linesMap.delete(lineId);
+      this.syncLinesToState();
+      this.applyAllLinesAudioState();
       this.setCallNotification({
         type: "error",
         message: "Arama başlatılamadı. Lütfen mikrofon izninizi ve bağlantınızı kontrol edin."
@@ -595,83 +826,149 @@ class WebphoneManager {
     }
   }
 
-  hangupCall() {
-    stopRingtoneSound();
-    if (this.session) {
-      const remoteNum = this.state.remoteNumber || this.state.dialNumber || "Bilinmeyen";
-      try {
-        if (this.state.callStatus === "Calling") {
-          this.session.cancel();
-        } else if (this.state.callStatus === "Ringing") {
-          this.recordTimelineEvent("call_rejected", `${remoteNum} gelen çağrısı meşgule/redde atıldı`);
-          this.session.reject();
-        } else {
-          this.session.bye();
-        }
-      } catch (e) {}
+  switchLine(targetLineId) {
+    const targetLine = this.linesMap.get(targetLineId);
+    if (!targetLine) return;
+
+    if (targetLine.callStatus === "Ringing") {
+      this.answerCall(targetLineId);
+      return;
     }
-    this.stopDurationTimer();
-    this.session = null;
-    this.setState({
-      callStatus: "Idle",
-      remoteNumber: "",
-      remoteDisplayName: "",
-      activeSipCallId: null
+
+    if (!this.state.isConferenceActive) {
+      for (const line of this.linesMap.values()) {
+        if (line.id === targetLineId) {
+          if (line.isOnHold) {
+            line.isOnHold = false;
+            this.recordTimelineEvent("call_unhold", `${line.remoteNumber} hattına geçiş yapıldı (beklemeden alındı)`);
+          }
+        } else if (line.callStatus === "InCall" && !line.isOnHold) {
+          line.isOnHold = true;
+          this.recordTimelineEvent("call_hold", `${line.remoteNumber} hattı beklemeye alındı`);
+        }
+      }
+    }
+
+    this.syncLinesToState({
+      activeLineId: targetLineId,
+      dialNumber: targetLine.remoteNumber
     });
+    this.applyAllLinesAudioState();
   }
 
-  toggleMute() {
-    if (!this.session) return;
-    const pc = this.session.sessionDescriptionHandler?.peerConnection;
-    if (pc) {
-      const nextMuted = !this.state.isMuted;
-      pc.getSenders().forEach((sender) => {
-        if (sender.track && sender.track.kind === "audio") {
-          sender.track.enabled = !nextMuted;
-        }
-      });
-      if (nextMuted) {
-        const num = this.state.remoteNumber || this.state.dialNumber;
-        this.recordTimelineEvent(
-          "call_mute",
-          num ? `${num} görüşmesinde mikrofon kapatıldı` : "Görüşmede mikrofon kapatıldı"
-        );
-      }
-      this.setState({ isMuted: nextMuted });
+  swapLines() {
+    const allLines = Array.from(this.linesMap.values()).sort((a, b) => a.lineNumber - b.lineNumber);
+    if (allLines.length < 2) return;
+    const currentIndex = allLines.findIndex((l) => l.id === this.state.activeLineId);
+    const nextIndex = (currentIndex + 1) % allLines.length;
+    this.switchLine(allLines[nextIndex].id);
+  }
+
+  hangupCall(targetLineId = null) {
+    stopRingtoneSound();
+    const lineId = targetLineId || this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : null;
+
+    if (!line) {
+      this.syncLinesToState();
+      return;
     }
-  }
 
-  toggleHold() {
-    if (!this.session) return;
-    const pc = this.session.sessionDescriptionHandler?.peerConnection;
-    if (pc) {
-      const nextHold = !this.state.isOnHold;
-      pc.getSenders().forEach((sender) => {
-        if (sender.track && sender.track.kind === "audio") {
-          sender.track.enabled = !nextHold;
-        }
-      });
-      const num = this.state.remoteNumber || this.state.dialNumber;
-      if (nextHold) {
-        this.recordTimelineEvent("call_hold", num ? `${num} beklemeye alındı` : "Görüşme beklemeye alındı");
+    const remoteNum = line.remoteNumber || "Bilinmeyen";
+    try {
+      if (line.callStatus === "Calling") {
+        line.session.cancel();
+      } else if (line.callStatus === "Ringing") {
+        this.recordTimelineEvent("call_rejected", `${remoteNum} gelen çağrısı meşgule/redde atıldı`);
+        line.session.reject();
       } else {
-        this.recordTimelineEvent("call_unhold", num ? `${num} beklemeden alındı` : "Beklemeden geri dönüldü");
+        line.session.bye();
       }
-      this.setState({ isOnHold: nextHold });
-    }
+    } catch (e) {}
+
+    this.removeLineAudioElement(line.id);
+    this.linesMap.delete(line.id);
+    this.syncLinesToState();
+    this.applyAllLinesAudioState();
   }
 
-  async blindTransfer(target, targetName = "") {
+  hangupAllCalls() {
+    const ids = Array.from(this.linesMap.keys());
+    ids.forEach((id) => this.hangupCall(id));
+  }
+
+  toggleMute(targetLineId = null) {
+    const lineId = targetLineId || this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : null;
+    if (!line) return;
+
+    const nextMuted = !line.isMuted;
+    line.isMuted = nextMuted;
+
+    if (this.state.isConferenceActive) {
+      // In conference mode, mute/unmute all lines' mic state
+      for (const l of this.linesMap.values()) {
+        l.isMuted = nextMuted;
+      }
+      if (this.confMicStream) {
+        this.confMicStream.getAudioTracks().forEach((t) => {
+          t.enabled = !nextMuted;
+        });
+      }
+    }
+
+    if (nextMuted) {
+      this.recordTimelineEvent(
+        "call_mute",
+        line.remoteNumber ? `${line.remoteNumber} görüşmesinde mikrofon kapatıldı` : "Görüşmede mikrofon kapatıldı"
+      );
+    }
+
+    this.syncLinesToState();
+    this.applyAllLinesAudioState();
+  }
+
+  toggleHold(targetLineId = null) {
+    const lineId = targetLineId || this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : null;
+    if (!line || line.callStatus !== "InCall") return;
+
+    const nextHold = !line.isOnHold;
+    line.isOnHold = nextHold;
+
+    if (!nextHold && !this.state.isConferenceActive) {
+      // Unholding this line automatically holds other lines
+      for (const other of this.linesMap.values()) {
+        if (other.id !== line.id && other.callStatus === "InCall") {
+          other.isOnHold = true;
+        }
+      }
+    }
+
+    if (nextHold) {
+      this.recordTimelineEvent("call_hold", line.remoteNumber ? `${line.remoteNumber} beklemeye alındı` : "Görüşme beklemeye alındı");
+    } else {
+      this.recordTimelineEvent("call_unhold", line.remoteNumber ? `${line.remoteNumber} beklemeden alındı` : "Beklemeden geri dönüldü");
+    }
+
+    this.syncLinesToState({ activeLineId: line.id });
+    this.applyAllLinesAudioState();
+  }
+
+  async blindTransfer(target, targetName = "", targetLineId = null) {
     const cleanTarget = String(target || "").trim().replace(/\s+/g, "");
-    if (!cleanTarget || this.state.callStatus === "Idle") return;
-    const remoteNum = this.state.remoteNumber || this.state.dialNumber || "Çağrı";
-    const myExt = String(this.user?.extension || "1000").trim();
+    const lineId = targetLineId || this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : null;
+    if (!cleanTarget || !line) return;
+
+    const remoteNum = line.remoteNumber || "Çağrı";
+    const myExt = String(this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension || "1000").trim();
     const label = targetName ? `${targetName} (${cleanTarget})` : cleanTarget;
 
-    this.recordTimelineEvent("call_blind_transfer", `${remoteNum} -> Hedef ${label}`);
+    this.recordTimelineEvent("call_blind_transfer", `${remoteNum} -> Hedef ${label} (Kontrolsüz Transfer)`);
 
     try {
-      const res = await fetch("/api/webrtc/blind-transfer", {
+      const res = await fetch(`${this.getApiBase()}/api/webrtc/blind-transfer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -683,8 +980,8 @@ class WebphoneManager {
       if (res.ok) {
         const data = await res.json();
         if (data?.transferred_via_ami) {
-          this.showNotification(`Çağrı ${label} numarasına transfer edildi.`, "info");
-          this.hangupCall();
+          this.showNotification(`Çağrı (${remoteNum}) kontrolsüz olarak ${label} numarasına aktarıldı.`, "info");
+          this.hangupCall(line.id);
           return;
         }
       }
@@ -693,21 +990,222 @@ class WebphoneManager {
     }
 
     try {
-      if (this.session && this.state.webrtcConfig?.asteriskWssUrl) {
+      if (line.session && this.state.webrtcConfig?.asteriskWssUrl) {
         const domain = this.state.webrtcConfig.asteriskWssUrl.split("/")[2].split(":")[0];
         const targetURI = SIP.UserAgent.makeURI(`sip:${cleanTarget}@${domain}`);
         if (targetURI) {
-          await this.session.refer(targetURI);
-          this.showNotification(`Çağrı ${label} numarasına transfer edildi.`, "info");
+          await line.session.refer(targetURI);
+          this.showNotification(`Çağrı (${remoteNum}) kontrolsüz olarak ${label} numarasına aktarıldı.`, "info");
           setTimeout(() => {
-            if (this.session) {
-              this.hangupCall();
-            }
+            this.hangupCall(line.id);
           }, 600);
         }
       }
     } catch (err) {
       console.error("[WebphoneManager] Blind transfer error:", err);
+    }
+  }
+
+  async startAttendedTransfer(target, targetName = "") {
+    const cleanTarget = String(target || "").trim().replace(/\s+/g, "");
+    if (!cleanTarget) return;
+    this.recordTimelineEvent(
+      "call_attended_transfer_consult",
+      `Kontrollü transfer için ${targetName ? `${targetName} (${cleanTarget})` : cleanTarget} aranıyor`
+    );
+    await this.makeCall(cleanTarget, {
+      attendedTransfer: true,
+      displayName: targetName
+    });
+  }
+
+  async completeAttendedTransfer(line1Id = null, line2Id = null) {
+    const allLines = Array.from(this.linesMap.values()).sort((a, b) => a.lineNumber - b.lineNumber);
+    if (allLines.length < 2) {
+      this.showNotification("Kontrollü transferi tamamlamak için en az 2 aktif hat olmalıdır.", "error");
+      return;
+    }
+
+    const line1 = (line1Id && this.linesMap.get(line1Id)) || allLines[0];
+    const line2 = (line2Id && this.linesMap.get(line2Id)) || allLines.find((l) => l.id !== line1.id);
+    if (!line1 || !line2) return;
+
+    const myExt = String(this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension || "1000").trim();
+    const rem1 = line1.remoteNumber;
+    const rem2 = line2.remoteNumber;
+
+    this.recordTimelineEvent("call_attended_transfer_complete", `Kontrollü Transfer Tamamlandı: ${rem1} <-> ${rem2}`);
+
+    try {
+      const res = await fetch(`${this.getApiBase()}/api/webrtc/attended-transfer`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_extension: myExt,
+          remote_number_1: rem1,
+          remote_number_2: rem2
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.transferred_via_ami) {
+          this.showNotification(`Kontrollü transfer tamamlandı: ${rem1} ve ${rem2} birbirine bağlandı.`, "info");
+          this.hangupAllCalls();
+          return;
+        }
+      }
+    } catch (e) {
+      // Fallback to SIP.js attended refer
+    }
+
+    try {
+      if (line1.session && line2.session) {
+        await line1.session.refer(line2.session);
+        this.showNotification(`Kontrollü transfer tamamlandı: ${rem1} ve ${rem2} birbirine bağlandı.`, "info");
+        setTimeout(() => {
+          this.hangupAllCalls();
+        }, 600);
+      }
+    } catch (err) {
+      console.error("[WebphoneManager] Attended transfer error:", err);
+      this.showNotification("Kontrollü transfer sırasında bir hata oluştu.", "error");
+    }
+  }
+
+  async addParticipantToConference(target, targetName = "") {
+    const cleanTarget = String(target || "").trim().replace(/\s+/g, "");
+    if (!cleanTarget) return;
+    this.recordTimelineEvent(
+      "call_conference_invite",
+      `${targetName ? `${targetName} (${cleanTarget})` : cleanTarget} konferans görüşmesi için aranıyor`
+    );
+    await this.makeCall(cleanTarget, {
+      joinConference: true,
+      displayName: targetName
+    });
+  }
+
+  async startConference() {
+    const inCallLines = Array.from(this.linesMap.values()).filter((l) => l.callStatus === "InCall");
+    if (inCallLines.length < 2) {
+      this.showNotification("Konferans başlatmak için en az 2 aktif görüşme hattı olmalıdır.", "error");
+      return;
+    }
+
+    // Unhold all lines in the conference
+    for (const line of inCallLines) {
+      line.isOnHold = false;
+    }
+
+    await this.setupConferenceAudioBridge(inCallLines);
+
+    const nums = inCallLines.map((l) => l.remoteNumber).join(" + ");
+    this.recordTimelineEvent("call_conference", `Konferans birleştirildi (${nums})`);
+    this.showNotification(`Konferans görüşmesi aktif (${nums})`, "info");
+
+    this.syncLinesToState({
+      isConferenceActive: true,
+      attendedTransferPending: false
+    });
+    this.applyAllLinesAudioState();
+  }
+
+  stopConference() {
+    this.teardownConferenceAudioBridge();
+    const allLines = Array.from(this.linesMap.values());
+    const activeId = this.state.activeLineId;
+    for (const line of allLines) {
+      if (line.callStatus === "InCall") {
+        line.isOnHold = line.id !== activeId;
+      }
+    }
+    this.recordTimelineEvent("call_conference_split", "Konferans görüşmesi ayrıldı, tekli hatta dönüldü");
+    this.syncLinesToState({ isConferenceActive: false });
+    this.applyAllLinesAudioState();
+  }
+
+  async setupConferenceAudioBridge(inCallLines) {
+    if (typeof window === "undefined") return;
+    this.teardownConferenceAudioBridge();
+
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      this.confAudioCtx = ctx;
+
+      const selectedMic = localStorage.getItem("selected_mic") || null;
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
+        video: false
+      });
+      this.confMicStream = micStream;
+      const micSource = ctx.createMediaStreamSource(micStream);
+
+      const lineSources = new Map();
+      for (const line of inCallLines) {
+        const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+        if (!pc) continue;
+        const receivers = pc.getReceivers().filter((r) => r.track && r.track.kind === "audio");
+        if (receivers.length > 0) {
+          const remoteStream = new MediaStream([receivers[0].track]);
+          const srcNode = ctx.createMediaStreamSource(remoteStream);
+          lineSources.set(line.id, srcNode);
+        }
+      }
+
+      // Mix Mic + all other lines' remote audio into each line's outgoing RTP sender
+      for (const line of inCallLines) {
+        const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+        if (!pc) continue;
+        const dest = ctx.createMediaStreamDestination();
+        micSource.connect(dest);
+
+        for (const [otherId, otherSourceNode] of lineSources.entries()) {
+          if (otherId !== line.id) {
+            otherSourceNode.connect(dest);
+          }
+        }
+
+        const mixedTrack = dest.stream.getAudioTracks()[0];
+        if (mixedTrack) {
+          pc.getSenders().forEach((sender) => {
+            if (sender.track && sender.track.kind === "audio") {
+              if (!line.origMicTrack) {
+                line.origMicTrack = sender.track;
+              }
+              sender.replaceTrack(mixedTrack).catch(() => {});
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[WebphoneManager] Conference audio mixer error:", err);
+    }
+  }
+
+  teardownConferenceAudioBridge() {
+    for (const line of this.linesMap.values()) {
+      const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+      if (pc && line.origMicTrack) {
+        pc.getSenders().forEach((sender) => {
+          if (sender.track && sender.track.kind === "audio") {
+            sender.replaceTrack(line.origMicTrack).catch(() => {});
+          }
+        });
+      }
+    }
+    if (this.confMicStream) {
+      try {
+        this.confMicStream.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
+      this.confMicStream = null;
+    }
+    if (this.confAudioCtx) {
+      try {
+        this.confAudioCtx.close();
+      } catch (e) {}
+      this.confAudioCtx = null;
     }
   }
 }

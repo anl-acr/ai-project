@@ -439,32 +439,36 @@ async def blind_transfer_agent_call(agent_extension: str, target_extension: str,
                 if bridge_id:
                     agent_bridge_id = bridge_id
 
-        # 1. Match by shared BridgeId with agent_ch
-        if agent_bridge_id:
+        # 1. If remote_number is specified, match peer_ch by remote_number first (crucial for multi-line calls)
+        if rem_digits:
+            for row in ch_rows:
+                if row["ch_lower"].startswith(f"pjsip/{ag_ext.lower()}-") or row["ch_lower"].startswith(f"sip/{ag_ext.lower()}-"):
+                    continue
+                if row["ch_lower"].startswith(f"pjsip/{rem_digits.lower()}-") or row["ch_lower"].startswith(f"sip/{rem_digits.lower()}-"):
+                    peer_ch = row["channel"]
+                    if row["bridge_id"]:
+                        agent_bridge_id = row["bridge_id"]
+                    break
+                row_last10 = row["cid_digits"][-10:] if len(row["cid_digits"]) >= 10 else row["cid_digits"]
+                if rem_last10 and row_last10 and rem_last10 == row_last10:
+                    peer_ch = row["channel"]
+                    if row["bridge_id"]:
+                        agent_bridge_id = row["bridge_id"]
+                    break
+
+        # 2. Match by shared BridgeId with agent_ch
+        if not peer_ch and agent_bridge_id:
             for row in ch_rows:
                 if row["channel"] != agent_ch and row["bridge_id"] == agent_bridge_id:
                     peer_ch = row["channel"]
                     break
 
-        # 2. Match by ConnectedLineNum or Exten == ag_ext
+        # 3. Match by ConnectedLineNum or Exten == ag_ext
         if not peer_ch:
             for row in ch_rows:
                 if row["channel"] == agent_ch:
                     continue
                 if row["conn_num"] == ag_ext or row["exten"] == ag_ext:
-                    peer_ch = row["channel"]
-                    break
-
-        # 3. Match by remote_number (PJSIP/{remote_number}- or CallerIDNum)
-        if not peer_ch and rem_digits:
-            for row in ch_rows:
-                if row["channel"] == agent_ch:
-                    continue
-                if row["ch_lower"].startswith(f"pjsip/{rem_digits.lower()}-") or row["ch_lower"].startswith(f"sip/{rem_digits.lower()}-"):
-                    peer_ch = row["channel"]
-                    break
-                row_last10 = row["cid_digits"][-10:] if len(row["cid_digits"]) >= 10 else row["cid_digits"]
-                if rem_last10 and row_last10 and rem_last10 == row_last10:
                     peer_ch = row["channel"]
                     break
 
@@ -474,6 +478,23 @@ async def blind_transfer_agent_call(agent_extension: str, target_extension: str,
                 if row["channel"] != agent_ch:
                     peer_ch = row["channel"]
                     break
+
+        # Resolve the specific agent_ch bridged with peer_ch if multiple agent lines exist
+        if peer_ch:
+            peer_row = next((r for r in ch_rows if r["channel"] == peer_ch), None)
+            if peer_row and peer_row.get("bridge_id"):
+                matching_ag = next(
+                    (
+                        r["channel"]
+                        for r in ch_rows
+                        if r["channel"] != peer_ch
+                        and r["bridge_id"] == peer_row["bridge_id"]
+                        and (r["ch_lower"].startswith(f"pjsip/{ag_ext.lower()}-") or r["ch_lower"].startswith(f"sip/{ag_ext.lower()}-"))
+                    ),
+                    None,
+                )
+                if matching_ag:
+                    agent_ch = matching_ag
     except Exception as ex:
         print(f"[AMI] BlindTransfer CoreShowChannels error: {ex}")
 
@@ -503,6 +524,120 @@ async def blind_transfer_agent_call(agent_extension: str, target_extension: str,
         print(f"[AMI] BlindTransfer Redirect error: {e_red}")
 
     return False
+
+
+async def attended_transfer_agent_calls(agent_extension: str, remote_number_1: str, remote_number_2: str) -> bool:
+    """
+    Attended (Warm) Transfer:
+    Finds the two peer channels currently connected to agent_extension (Line 1: remote_number_1, Line 2: remote_number_2)
+    and bridges them directly together using Asterisk AMI Bridge action, then hangs up the agent's channels.
+    """
+    import re
+    manager = await get_ami_manager()
+    if not manager:
+        print("[AMI] Hata: AMI baglantisi olmadigi icin attended transfer yapilamadi.")
+        return False
+
+    ag_ext = str(agent_extension or "").strip()
+    rem1_digits = re.sub(r"\D", "", str(remote_number_1 or ""))
+    rem2_digits = re.sub(r"\D", "", str(remote_number_2 or ""))
+    rem1_last10 = rem1_digits[-10:] if len(rem1_digits) >= 10 else rem1_digits
+    rem2_last10 = rem2_digits[-10:] if len(rem2_digits) >= 10 else rem2_digits
+
+    if not ag_ext:
+        return False
+
+    ch_rows = []
+    agent_channels = []
+    agent_bridge_ids = set()
+
+    try:
+        res = await manager.send_action({"Action": "CoreShowChannels"})
+        for r in _iter_ami_responses(res):
+            if not hasattr(r, "get"):
+                continue
+            ch = str(r.get("Channel") or "").strip()
+            if not ch:
+                continue
+            cid = str(r.get("CallerIDNum") or "").strip()
+            conn_num = str(r.get("ConnectedLineNum") or "").strip()
+            exten_val = str(r.get("Exten") or "").strip()
+            bridge_id = str(r.get("BridgeId") or "").strip()
+            ch_lower = ch.lower()
+            is_agent_leg = ch_lower.startswith(f"pjsip/{ag_ext.lower()}-") or ch_lower.startswith(f"sip/{ag_ext.lower()}-")
+            row = {
+                "channel": ch,
+                "ch_lower": ch_lower,
+                "cid": cid,
+                "cid_digits": re.sub(r"\D", "", cid),
+                "conn_num": conn_num,
+                "conn_digits": re.sub(r"\D", "", conn_num),
+                "exten": exten_val,
+                "bridge_id": bridge_id,
+                "is_agent_leg": is_agent_leg,
+            }
+            ch_rows.append(row)
+            if is_agent_leg:
+                agent_channels.append(ch)
+                if bridge_id:
+                    agent_bridge_ids.add(bridge_id)
+
+        def match_peer_for_remote(rem_dig, rem_l10, exclude_ch=None):
+            if not rem_dig:
+                return None
+            for row in ch_rows:
+                if row["is_agent_leg"] or row["channel"] == exclude_ch:
+                    continue
+                if row["ch_lower"].startswith(f"pjsip/{rem_dig.lower()}-") or row["ch_lower"].startswith(f"sip/{rem_dig.lower()}-"):
+                    return row["channel"]
+                row_l10 = row["cid_digits"][-10:] if len(row["cid_digits"]) >= 10 else row["cid_digits"]
+                if rem_l10 and row_l10 and rem_l10 == row_l10:
+                    return row["channel"]
+                if row["exten"] == rem_dig or row["conn_digits"] == rem_dig:
+                    return row["channel"]
+            return None
+
+        peer_1 = match_peer_for_remote(rem1_digits, rem1_last10)
+        peer_2 = match_peer_for_remote(rem2_digits, rem2_last10, exclude_ch=peer_1)
+
+        # Fallback: check non-agent channels sharing a bridge with agent_channels
+        if not peer_1 or not peer_2:
+            bridged_peers = [
+                r["channel"]
+                for r in ch_rows
+                if not r["is_agent_leg"] and (r["bridge_id"] in agent_bridge_ids or r["conn_num"] == ag_ext or r["exten"] == ag_ext)
+            ]
+            for bp in bridged_peers:
+                if not peer_1 and bp != peer_2:
+                    peer_1 = bp
+                elif not peer_2 and bp != peer_1:
+                    peer_2 = bp
+
+        if not peer_1 or not peer_2:
+            print(f"[AMI] AttendedTransfer: Iki peer kanal bulunamadi (peer1={peer_1}, peer2={peer_2}, ag={ag_ext})")
+            return False
+
+        print(f"[AMI] AttendedTransfer Bridge: {peer_1} <---> {peer_2}")
+        response = await manager.send_action({
+            "Action": "Bridge",
+            "Channel1": peer_1,
+            "Channel2": peer_2,
+            "Tone": "yes"
+        })
+        res_item = response[0] if isinstance(response, list) and len(response) > 0 else response
+        resp_val = res_item.get("Response") if hasattr(res_item, "get") else getattr(res_item, "Response", None)
+        if resp_val == "Success":
+            for ag_ch in agent_channels:
+                try:
+                    await manager.send_action({"Action": "Hangup", "Channel": ag_ch, "Cause": "16"})
+                except Exception:
+                    pass
+            return True
+    except Exception as ex:
+        print(f"[AMI] AttendedTransfer error: {ex}")
+
+    return False
+
 
 # background task to keep AMI connected
 async def start_ami_listener():
