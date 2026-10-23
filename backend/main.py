@@ -6945,6 +6945,9 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     db_call.agent_name = resolved_agent_name
                 await session.commit()
 
+            set_live_extension_call_state(caller, "ringing")
+            set_live_extension_call_state(did, "ringing")
+
             print(f"[Asterisk Dialplan] Call registered successfully: {call_id} (Caller: {caller}, DID: {did}, Agent: {resolved_agent_name}, Tenant: {call_tenant})")
             if did and (str(did).startswith("*8") or str(did).startswith("**")):
                 pickup_target = "Grup Çağrı Toplama (*8)" if str(did).startswith("*8") else f"Hedefli Çağrı Toplama ({did})"
@@ -6962,6 +6965,54 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
         print(f"[Register Call Endpoint Error]: {e}")
     return Response(content="ALLOW", media_type="text/plain")
 
+
+live_extension_call_state = {}
+
+
+def set_live_extension_call_state(ext_val: str, state: Optional[str]):
+    ext_s = str(ext_val or "").strip()
+    if not ext_s or len(ext_s) > 6 or ext_s in ("s", "h"):
+        return
+    if not state:
+        live_extension_call_state.pop(ext_s, None)
+    else:
+        live_extension_call_state[ext_s] = {
+            "state": state,
+            "updated_at": datetime.datetime.utcnow()
+        }
+
+
+def get_live_user_call_state(ext_val: str, is_reg: bool) -> str:
+    """
+    Returns 'busy' (Kırmızı - Meşgul), 'ringing' (Turuncu - Çalıyor),
+    'online' (Yeşil - Aktif/Müsait), or 'offline' (Gri - Aktif Değil).
+    """
+    ext_s = str(ext_val or "").strip()
+    now_utc = datetime.datetime.utcnow()
+    if ext_s:
+        info = live_extension_call_state.get(ext_s)
+        if info:
+            st = info.get("state")
+            upd = info.get("updated_at") or now_utc
+            age_sec = (now_utc - upd).total_seconds()
+            if st == "ringing" and age_sec <= 65:
+                return "ringing"
+            elif st == "busy" and age_sec <= 3600:
+                return "busy"
+            else:
+                live_extension_call_state.pop(ext_s, None)
+
+        try:
+            from backend.services.ami_manager import get_extension_call_state
+            ami_st = get_extension_call_state(ext_s)
+            if ami_st in ("busy", "ringing"):
+                return ami_st
+        except Exception:
+            pass
+
+    return "online" if is_reg else "offline"
+
+
 @app.get("/api/calls/end")
 async def end_call_endpoint(
     call_id: str,
@@ -6972,6 +7023,8 @@ async def end_call_endpoint(
     async with AsyncSessionLocal() as session:
         db_call = await session.get(Call, call_id)
         if db_call:
+            set_live_extension_call_state(db_call.caller_number, None)
+            set_live_extension_call_state(db_call.callee_number, None)
             db_call.end_time = datetime.datetime.utcnow()
             db_call.recording_path = f"/api/recordings/{call_id}.wav"
 
@@ -7043,15 +7096,25 @@ async def end_call_endpoint(
 @app.post("/api/calls/webrtc-log")
 async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = Depends(get_user_info)):
     try:
-        call_id = str(payload.get("call_id") or "").strip()
+        call_id = str(payload.get("call_id") or payload.get("sip_call_id") or "").strip()
         caller = str(payload.get("caller") or "").strip()
         callee = str(payload.get("callee") or "").strip()
         status = str(payload.get("status") or "in_progress").strip().lower()
-        event_type = str(payload.get("event") or "start").strip().lower()
+        event_type = str(payload.get("event") or payload.get("action") or "start").strip().lower()
         duration = int(payload.get("duration") or 0)
 
         if not caller or not callee:
             return {"status": "ignored", "reason": "missing_numbers"}
+
+        if event_type in ("start", "ringing"):
+            set_live_extension_call_state(caller, "ringing")
+            set_live_extension_call_state(callee, "ringing")
+        elif event_type == "answer":
+            set_live_extension_call_state(caller, "busy")
+            set_live_extension_call_state(callee, "busy")
+        elif event_type == "end":
+            set_live_extension_call_state(caller, None)
+            set_live_extension_call_state(callee, None)
 
         if not call_id:
             call_id = str(uuid.uuid4())
@@ -7090,7 +7153,7 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     id=call_id,
                     caller_number=caller,
                     callee_number=callee,
-                    status="completed" if (event_type == "end" and duration > 0) else status,
+                    status="completed" if (event_type == "end" and duration > 0) else ("in_progress" if status == "ringing" else status),
                     tenant_id=call_tenant,
                     start_time=now_utc - datetime.timedelta(seconds=max(0, duration)) if event_type == "end" else now_utc,
                     end_time=now_utc if event_type == "end" else None,
@@ -7108,7 +7171,7 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     if duration > 0 or status == "completed":
                         db_call.status = "completed"
                     elif db_call.status not in ("completed", "transferred", "blocked"):
-                        db_call.status = status if status != "in_progress" else "no_answer"
+                        db_call.status = status if status not in ("in_progress", "ringing") else "no_answer"
                     if not db_call.summary and len(caller) <= 5 and len(callee) <= 5:
                         db_call.summary = "Dahili Görüşme"
 
@@ -7117,6 +7180,38 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
     except Exception as e_wlog:
         print(f"[WebRTC Call Log Error]: {e_wlog}")
         return {"status": "error", "message": str(e_wlog)}
+
+
+@app.post("/api/webrtc/blind-transfer")
+async def webrtc_blind_transfer_endpoint(payload: dict = Body(...)):
+    agent_extension = str(payload.get("agent_extension") or "").strip()
+    target = str(payload.get("target") or "").strip()
+    remote_number = str(payload.get("remote_number") or "").strip()
+    if not agent_extension or not target:
+        raise HTTPException(status_code=400, detail="Eksik transfer parametreleri.")
+
+    from backend.services.ami_manager import blind_transfer_agent_call
+    ok = await blind_transfer_agent_call(agent_extension, target, remote_number=remote_number)
+
+    set_live_extension_call_state(agent_extension, None)
+    set_live_extension_call_state(target, "ringing")
+
+    try:
+        async with AsyncSessionLocal() as session:
+            session.add(AgentBreakLog(
+                user_id=agent_extension,
+                extension=agent_extension,
+                agent_name=resolve_user_name_by_ext_or_id(agent_extension) or None,
+                break_name=f"__ACTION__:call_blind_transfer:{remote_number or 'Çağrı'} -> Hedef {target}",
+                start_time=datetime.datetime.utcnow(),
+                end_time=datetime.datetime.utcnow(),
+                duration_seconds=0
+            ))
+            await session.commit()
+    except Exception as e_tr:
+        print(f"[WebRTC Blind Transfer Log Error]: {e_tr}")
+
+    return {"status": "success" if ok else "fallback_refer", "transferred_via_ami": bool(ok)}
 
 
 # ----------------------------------------------------
@@ -10257,6 +10352,12 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
                 continue
             seen_exts.add(ext_val)
             u_name = str(su.full_name or su.email or f"Dahili {ext_val}").strip()
+            uid_str = str(su.id or "")
+            st_ext = get_agent_state(ext_val)
+            st_uid = get_agent_state(uid_str)
+            presence_online = (st_ext and st_ext.get("is_logged_in", False)) or (st_uid and st_uid.get("is_logged_in", False))
+            is_reg = (ext_val in registered_endpoints or uid_str in registered_endpoints) and presence_online
+            c_state = get_live_user_call_state(ext_val, is_reg)
             directory.append({
                 "type": "user",
                 "id": su.id,
@@ -10265,7 +10366,9 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
                 "number": ext_val,
                 "extension": ext_val,
                 "avatar": getattr(su, "avatar_url", None),
-                "status": "available"
+                "is_registered": is_reg,
+                "call_state": c_state,
+                "status": c_state
             })
     except Exception:
         pass
@@ -10276,6 +10379,12 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
             continue
         seen_exts.add(ext_val)
         u_name = str(u.get("full_name") or u.get("name") or u.get("username") or u.get("email") or f"Dahili {ext_val}").strip()
+        uid_str = str(u.get("id") or "")
+        st_ext = get_agent_state(ext_val)
+        st_uid = get_agent_state(uid_str)
+        presence_online = (st_ext and st_ext.get("is_logged_in", False)) or (st_uid and st_uid.get("is_logged_in", False))
+        is_reg = (ext_val in registered_endpoints or uid_str in registered_endpoints) and presence_online
+        c_state = get_live_user_call_state(ext_val, is_reg)
         directory.append({
             "type": "user",
             "id": u.get("id"),
@@ -10284,7 +10393,9 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
             "number": ext_val,
             "extension": ext_val,
             "avatar": u.get("avatar_url") or u.get("avatar"),
-            "status": "available"
+            "is_registered": is_reg,
+            "call_state": c_state,
+            "status": c_state
         })
     for q in queues:
         directory.append({
@@ -12061,6 +12172,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         is_reg = (ext in registered_endpoints or uid in registered_endpoints) and presence_online
         u["is_registered"] = is_reg
         u["sip_status"] = "online" if is_reg else "offline"
+        u["call_state"] = get_live_user_call_state(ext, is_reg)
         u["ip_address"] = reg_ip if is_reg else ""
 
     return raw_users

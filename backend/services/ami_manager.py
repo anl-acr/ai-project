@@ -9,6 +9,8 @@ AMI_SECRET = os.getenv("AMI_SECRET", "backend_secure_key_99")
 
 # Registry to map uniqueid -> active Asterisk channel name
 active_channels = {}
+# Registry to map uniqueid -> {"channel": str, "caller": str, "exten": str, "state": "ringing"|"busy"}
+channel_states = {}
 # Registry to map Call UUID (call_id) -> Asterisk's internal Uniqueid (asterisk_id)
 call_id_to_asterisk_id = {}
 class RegisteredEndpointsDict(dict):
@@ -23,6 +25,31 @@ class RegisteredEndpointsDict(dict):
 
 registered_endpoints = RegisteredEndpointsDict()
 manager_instance = None
+
+def get_extension_call_state(ext: str):
+    """Returns 'busy' if the extension is in an active/Up channel, 'ringing' if ringing, or None."""
+    ext_s = str(ext or "").strip()
+    if not ext_s:
+        return None
+    found_ringing = False
+    pjsip_prefix = f"pjsip/{ext_s}-"
+    sip_prefix = f"sip/{ext_s}-"
+    for uid, info in list(channel_states.items()):
+        ch_lower = str(info.get("channel") or "").lower()
+        caller_s = str(info.get("caller") or "").strip()
+        exten_s = str(info.get("exten") or "").strip()
+        st = info.get("state") or "ringing"
+        if ch_lower.startswith(pjsip_prefix) or ch_lower.startswith(sip_prefix) or caller_s == ext_s or exten_s == ext_s:
+            if st == "busy":
+                return "busy"
+            found_ringing = True
+    if found_ringing:
+        return "ringing"
+    for uid, ch in list(active_channels.items()):
+        ch_lower = str(ch or "").lower()
+        if ch_lower.startswith(pjsip_prefix) or ch_lower.startswith(sip_prefix):
+            return "busy"
+    return None
 
 async def _check_and_hangup_blacklisted_channel(manager: Manager, channel: str, uniqueid: str, caller_num: str, exten: str):
     try:
@@ -70,15 +97,43 @@ def register_event_handlers(manager: Manager):
         channel = event.get('Channel')
         caller_num = str(event.get('CallerIDNum') or "").strip()
         exten = str(event.get('Exten') or "").strip()
+        state_desc = str(event.get('ChannelStateDesc') or "").strip().lower()
+        init_state = "busy" if state_desc == "up" else "ringing"
         if uniqueid and channel:
             active_channels[uniqueid] = channel
-            print(f"[AMI] Yeni Kanal Kaydedildi: {uniqueid} -> {channel} (Caller: {caller_num}, Exten: {exten})")
+            channel_states[uniqueid] = {
+                "channel": channel,
+                "caller": caller_num,
+                "exten": exten,
+                "state": init_state
+            }
+            print(f"[AMI] Yeni Kanal Kaydedildi: {uniqueid} -> {channel} (Caller: {caller_num}, Exten: {exten}, State: {init_state})")
             if caller_num or exten:
                 asyncio.create_task(_check_and_hangup_blacklisted_channel(m, channel, uniqueid, caller_num, exten))
+
+    @manager.register_event('Newstate')
+    def handle_new_state(m, event):
+        uniqueid = event.get('Uniqueid')
+        channel = event.get('Channel')
+        caller_num = str(event.get('CallerIDNum') or "").strip()
+        exten = str(event.get('Exten') or "").strip()
+        connected_num = str(event.get('ConnectedLineNum') or "").strip()
+        state_desc = str(event.get('ChannelStateDesc') or "").strip().lower()
+        state_code = str(event.get('ChannelState') or "").strip()
+        if uniqueid:
+            mapped = "busy" if (state_desc == "up" or state_code == "6") else "ringing"
+            existing = channel_states.get(uniqueid, {})
+            channel_states[uniqueid] = {
+                "channel": channel or existing.get("channel") or active_channels.get(uniqueid, ""),
+                "caller": caller_num or existing.get("caller") or "",
+                "exten": exten or connected_num or existing.get("exten") or "",
+                "state": mapped
+            }
 
     @manager.register_event('Hangup')
     def handle_hangup(m, event):
         uniqueid = event.get('Uniqueid')
+        channel_states.pop(uniqueid, None)
         if uniqueid in active_channels:
             channel = active_channels.pop(uniqueid)
             print(f"[AMI] Kanal Silindi (Hangup): {uniqueid} ({channel})")
@@ -327,6 +382,127 @@ async def hangup_call(call_id: str, caller_number: str = None) -> bool:
         pass
 
     return ok
+
+
+async def blind_transfer_agent_call(agent_extension: str, target_extension: str, remote_number: str = "") -> bool:
+    """
+    Redirects the peer channel currently talking/ringing with agent_extension
+    to target_extension in webrtc_agents context via Asterisk AMI.
+    """
+    import re
+    manager = await get_ami_manager()
+    if not manager:
+        print("[AMI] Hata: AMI baglantisi olmadigi icin blind transfer yapilamadi.")
+        return False
+
+    ag_ext = str(agent_extension or "").strip()
+    tgt_ext = str(target_extension or "").strip()
+    rem_digits = re.sub(r"\D", "", str(remote_number or ""))
+    rem_last10 = rem_digits[-10:] if len(rem_digits) >= 10 else rem_digits
+
+    if not ag_ext or not tgt_ext:
+        return False
+
+    agent_ch = None
+    agent_bridge_id = None
+    peer_ch = None
+    ch_rows = []
+
+    try:
+        res = await manager.send_action({"Action": "CoreShowChannels"})
+        for r in _iter_ami_responses(res):
+            if not hasattr(r, "get"):
+                continue
+            ch = str(r.get("Channel") or "").strip()
+            if not ch:
+                continue
+            uid = str(r.get("Uniqueid") or "").strip()
+            cid = str(r.get("CallerIDNum") or "").strip()
+            conn_num = str(r.get("ConnectedLineNum") or "").strip()
+            exten_val = str(r.get("Exten") or "").strip()
+            bridge_id = str(r.get("BridgeId") or "").strip()
+            if uid:
+                active_channels[uid] = ch
+            row = {
+                "channel": ch,
+                "ch_lower": ch.lower(),
+                "uid": uid,
+                "cid": cid,
+                "cid_digits": re.sub(r"\D", "", cid),
+                "conn_num": conn_num,
+                "exten": exten_val,
+                "bridge_id": bridge_id,
+            }
+            ch_rows.append(row)
+            if row["ch_lower"].startswith(f"pjsip/{ag_ext.lower()}-") or row["ch_lower"].startswith(f"sip/{ag_ext.lower()}-"):
+                agent_ch = ch
+                if bridge_id:
+                    agent_bridge_id = bridge_id
+
+        # 1. Match by shared BridgeId with agent_ch
+        if agent_bridge_id:
+            for row in ch_rows:
+                if row["channel"] != agent_ch and row["bridge_id"] == agent_bridge_id:
+                    peer_ch = row["channel"]
+                    break
+
+        # 2. Match by ConnectedLineNum or Exten == ag_ext
+        if not peer_ch:
+            for row in ch_rows:
+                if row["channel"] == agent_ch:
+                    continue
+                if row["conn_num"] == ag_ext or row["exten"] == ag_ext:
+                    peer_ch = row["channel"]
+                    break
+
+        # 3. Match by remote_number (PJSIP/{remote_number}- or CallerIDNum)
+        if not peer_ch and rem_digits:
+            for row in ch_rows:
+                if row["channel"] == agent_ch:
+                    continue
+                if row["ch_lower"].startswith(f"pjsip/{rem_digits.lower()}-") or row["ch_lower"].startswith(f"sip/{rem_digits.lower()}-"):
+                    peer_ch = row["channel"]
+                    break
+                row_last10 = row["cid_digits"][-10:] if len(row["cid_digits"]) >= 10 else row["cid_digits"]
+                if rem_last10 and row_last10 and rem_last10 == row_last10:
+                    peer_ch = row["channel"]
+                    break
+
+        # 4. Fallback if exactly 2 channels exist and one is agent_ch
+        if not peer_ch and agent_ch and len(ch_rows) == 2:
+            for row in ch_rows:
+                if row["channel"] != agent_ch:
+                    peer_ch = row["channel"]
+                    break
+    except Exception as ex:
+        print(f"[AMI] BlindTransfer CoreShowChannels error: {ex}")
+
+    if not peer_ch:
+        print(f"[AMI] BlindTransfer icin hedef peer kanal bulunamadi (Agent={ag_ext}, Remote={remote_number}, Target={tgt_ext})")
+        return False
+
+    print(f"[AMI] BlindTransfer: Peer Kanal {peer_ch} -> Hedef {tgt_ext} (Context: webrtc_agents)")
+    try:
+        response = await manager.send_action({
+            "Action": "Redirect",
+            "Channel": peer_ch,
+            "Exten": tgt_ext,
+            "Context": "webrtc_agents",
+            "Priority": "1",
+        })
+        res_item = response[0] if isinstance(response, list) and len(response) > 0 else response
+        resp_val = res_item.get("Response") if hasattr(res_item, "get") else getattr(res_item, "Response", None)
+        if resp_val == "Success":
+            if agent_ch:
+                try:
+                    await manager.send_action({"Action": "Hangup", "Channel": agent_ch, "Cause": "16"})
+                except Exception:
+                    pass
+            return True
+    except Exception as e_red:
+        print(f"[AMI] BlindTransfer Redirect error: {e_red}")
+
+    return False
 
 # background task to keep AMI connected
 async def start_ami_listener():

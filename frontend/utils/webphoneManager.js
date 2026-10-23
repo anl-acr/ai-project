@@ -369,6 +369,7 @@ class WebphoneManager {
     const callerNum = invite?.remoteIdentity?.uri?.user || "Bilinmeyen";
     const rawDisplayName = (invite?.remoteIdentity?.displayName || "").replace(/^"|"$/g, "").trim();
     const sipCallId = invite?.request?.callId || `sip-${Date.now()}`;
+    const myExt = String(this.user?.extension || "1000");
 
     this.session = invite;
     this.setState({
@@ -378,6 +379,12 @@ class WebphoneManager {
       remoteDisplayName: rawDisplayName && rawDisplayName !== callerNum ? rawDisplayName : "",
       activeSipCallId: sipCallId,
       callNotification: null
+    });
+
+    this.logWebrtcCallToBackend("ringing", {
+      sip_call_id: sipCallId,
+      caller: callerNum,
+      destination: myExt
     });
 
     if (typeof window !== "undefined") {
@@ -393,9 +400,22 @@ class WebphoneManager {
         this.setState({ callStatus: "InCall" });
         this.startDurationTimer();
         this.attachRemoteAudio(invite);
+        this.logWebrtcCallToBackend("answer", {
+          sip_call_id: sipCallId,
+          caller: callerNum,
+          destination: myExt
+        });
       } else if (state === SIP.SessionState.Terminated) {
         stopRingtoneSound();
+        const durSec = this.callStartTimestamp ? Math.round((Date.now() - this.callStartTimestamp) / 1000) : 0;
         this.stopDurationTimer();
+        this.logWebrtcCallToBackend("end", {
+          sip_call_id: sipCallId,
+          caller: callerNum,
+          destination: myExt,
+          duration: durSec,
+          status: durSec > 0 ? "completed" : "no_answer"
+        });
         this.session = null;
         this.setState({
           callStatus: "Idle",
@@ -641,14 +661,51 @@ class WebphoneManager {
     }
   }
 
-  blindTransfer(target) {
-    if (!this.session || !target || !this.state.webrtcConfig?.asteriskWssUrl) return;
+  async blindTransfer(target, targetName = "") {
+    const cleanTarget = String(target || "").trim().replace(/\s+/g, "");
+    if (!cleanTarget || this.state.callStatus === "Idle") return;
+    const remoteNum = this.state.remoteNumber || this.state.dialNumber || "Çağrı";
+    const myExt = String(this.user?.extension || "1000").trim();
+    const label = targetName ? `${targetName} (${cleanTarget})` : cleanTarget;
+
+    this.recordTimelineEvent("call_blind_transfer", `${remoteNum} -> Hedef ${label}`);
+
     try {
-      const remoteNum = this.state.remoteNumber || this.state.dialNumber || "Çağrı";
-      this.recordTimelineEvent("call_blind_transfer", `${remoteNum} -> Hedef ${target}`);
-      const domain = this.state.webrtcConfig.asteriskWssUrl.split("/")[2].split(":")[0];
-      const targetURI = SIP.UserAgent.makeURI(`sip:${target}@${domain}`);
-      this.session.refer(targetURI);
+      const res = await fetch("/api/webrtc/blind-transfer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent_extension: myExt,
+          remote_number: remoteNum,
+          target: cleanTarget
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data?.transferred_via_ami) {
+          this.showNotification(`Çağrı ${label} numarasına transfer edildi.`, "info");
+          this.hangupCall();
+          return;
+        }
+      }
+    } catch (e) {
+      // Fallback to SIP REFER below
+    }
+
+    try {
+      if (this.session && this.state.webrtcConfig?.asteriskWssUrl) {
+        const domain = this.state.webrtcConfig.asteriskWssUrl.split("/")[2].split(":")[0];
+        const targetURI = SIP.UserAgent.makeURI(`sip:${cleanTarget}@${domain}`);
+        if (targetURI) {
+          await this.session.refer(targetURI);
+          this.showNotification(`Çağrı ${label} numarasına transfer edildi.`, "info");
+          setTimeout(() => {
+            if (this.session) {
+              this.hangupCall();
+            }
+          }, 600);
+        }
+      }
     } catch (err) {
       console.error("[WebphoneManager] Blind transfer error:", err);
     }
