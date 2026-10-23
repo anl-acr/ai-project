@@ -858,6 +858,10 @@ DEFAULT_SETTINGS = {
             "permissions": [
                 # Operasyon & İzleme
                 "dashboard:access", "wallboard:access", "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
+                "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
+                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 # Yapay Zeka & Bilgi
                 "ai_agents:read", "ai_agents:write", "ai_agents:delete", "ai_agents:access",
                 "ai_agent_scenarios:read", "ai_agent_scenarios:write", "ai_agent_scenarios:delete",
@@ -924,6 +928,10 @@ DEFAULT_SETTINGS = {
             "name": "Şef (Supervisor)",
             "permissions": [
                 "dashboard:access", "wallboard:access", "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
+                "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
+                "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "ai_agents:read", "ai_agents:write", "ai_agent_scenarios:read", "ai_agent_scenarios:write",
                 "rag_kb:read", "rag_kb:write", "rule_editor:read", "rule_editor:write",
                 "ai_whisper:read", "ai_whisper:write", "ai_whisper:access",
@@ -966,6 +974,10 @@ DEFAULT_SETTINGS = {
             "name": "Müşteri Temsilcisi",
             "permissions": [
                 "dashboard:access", "call_panel:access", "omnichannel:access",
+                "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
+                "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
+                "call_panel:listen_records", "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "contacts:read", "contacts:write",
                 "calendar:read", "calendar:write",
                 "canned_responses:read", "blacklist:read",
@@ -1252,6 +1264,23 @@ def load_settings():
                 if r.get("role_code") == "admin" and "restore_points:delete" not in new_perms:
                     new_perms.append("restore_points:delete")
 
+            # Migrate call_panel granular sub-permissions if role has call_panel:access but no call_panel:tab_* yet
+            has_call_panel_subs = any(
+                p.startswith("call_panel:tab_") or p.startswith("call_panel:webphone_") or p.startswith("call_panel:agents_")
+                for p in new_perms
+            )
+            if "call_panel:access" in new_perms and not has_call_panel_subs:
+                default_cp_subs = [
+                    "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
+                    "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
+                    "call_panel:listen_records", "call_panel:webphone_save_contact", "call_panel:webphone_transfer",
+                    "call_panel:webphone_conference", "call_panel:webphone_reject",
+                    "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
+                ]
+                for cp_p in default_cp_subs:
+                    if cp_p not in new_perms:
+                        new_perms.append(cp_p)
+
             # Auto assign all system permissions to admin and superadmin roles
             if r.get("role_code") in ["admin", "superadmin"]:
                 admin_defaults = DEFAULT_SETTINGS["roles"][0]["permissions"]
@@ -1261,11 +1290,15 @@ def load_settings():
             elif r.get("role_code") == "supervisor":
                 sup_defaults = DEFAULT_SETTINGS["roles"][1]["permissions"]
                 for p in sup_defaults:
+                    if has_call_panel_subs and p.startswith("call_panel:") and p != "call_panel:access":
+                        continue
                     if p not in new_perms:
                         new_perms.append(p)
             elif r.get("role_code") == "agent":
                 agt_defaults = DEFAULT_SETTINGS["roles"][2]["permissions"]
                 for p in agt_defaults:
+                    if has_call_panel_subs and p.startswith("call_panel:") and p != "call_panel:access":
+                        continue
                     if p not in new_perms:
                         new_perms.append(p)
                 

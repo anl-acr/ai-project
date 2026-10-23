@@ -55,3 +55,18 @@ export const findContactByPhone = (phone, contactsList = [], directoryList = [])
 
   return null;
 };
+
+export const maskPhoneLast4 = (phone, shouldMask = false) => {
+  if (!phone) return "";
+  const str = String(phone).trim();
+  if (!shouldMask) return str;
+  const digits = str.replace(/\D/g, "");
+  // Do not mask short internal extensions (e.g., 1000, 200)
+  if (digits.length <= 5) return str;
+  if (digits.length >= 10) {
+    const prefix = str.slice(0, Math.max(0, str.length - 4)).trim();
+    return `${prefix} ** **`;
+  }
+  return `${str.slice(0, Math.max(0, str.length - 4))} ** **`;
+};
+

@@ -3,6 +3,54 @@ import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone,
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
+export const CALL_PANEL_SUB_GROUPS = [
+  {
+    id: "tabs",
+    title: "Panel Sekmeleri",
+    items: [
+      { id: "call_panel:tab_dashboard", name: "Pano" },
+      { id: "call_panel:tab_webphone", name: "Webphone" },
+      { id: "call_panel:tab_agents", name: "Temsilciler" },
+      { id: "call_panel:tab_speeddial", name: "Hızlı Arama" },
+      { id: "call_panel:tab_missed", name: "Kayıp Çağrı" },
+      { id: "call_panel:tab_directory", name: "Rehber" },
+      { id: "call_panel:tab_history", name: "Çağrı Geçmişi" },
+      { id: "call_panel:tab_voicemail", name: "Sesli Posta" },
+      { id: "call_panel:tab_chat", name: "Sohbet" }
+    ]
+  },
+  {
+    id: "webphone_features",
+    title: "Webphone Özellikleri",
+    items: [
+      { id: "call_panel:listen_records", name: "Ses Kayıt Dinleme" },
+      { id: "call_panel:webphone_save_contact", name: "Rehbere Kaydı" },
+      { id: "call_panel:webphone_transfer", name: "Çağrı Transferi" },
+      { id: "call_panel:webphone_conference", name: "Konferans" },
+      { id: "call_panel:webphone_reject", name: "Çağrı Reddi" },
+      {
+        id: "call_panel:webphone_mask_number",
+        name: "Numara Maskeleme (Kayıtlı İsim ve Son 4 Hane ** **)",
+        isRestriction: true
+      }
+    ]
+  },
+  {
+    id: "agents_tab_features",
+    title: "Temsilciler Sekmesi Yetkileri",
+    items: [
+      { id: "call_panel:agents_status", name: "Sadece Durum Görüşebilir (Müsait - Molada - Meşgul)" },
+      { id: "call_panel:agents_duration", name: "Durum ile Birlikte Süre Bilgisi (Ne Kadar Süredir Müsait / Molada / Meşgul)" },
+      { id: "call_panel:agents_call_counts", name: "Diğer Agentların Çağrı Adetleri" },
+      { id: "call_panel:agents_login_logout", name: "Diğer Agentların Login / Logout Zamanları" }
+    ]
+  }
+];
+
+export const DEFAULT_CALL_PANEL_SUB_PERMS = CALL_PANEL_SUB_GROUPS.flatMap(g =>
+  g.items.filter(it => !it.isRestriction).map(it => it.id)
+);
+
 const SYSTEM_FEATURES = [
   // 1. Operasyon & İzleme
   { id: "dashboard", name: "Gerçek Zamanlı AI Pano", icon: Activity, type: "access", color: "purple" },
@@ -181,7 +229,13 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     setEditingRole(r);
     setRoleCode(r.role_code);
     setRoleName(r.name);
-    setSelectedPermissions(r.permissions || []);
+    let initialPerms = Array.isArray(r.permissions) ? [...r.permissions] : [];
+    const hasCallPanelAccess = initialPerms.includes("call_panel:access") || initialPerms.includes("call_panel");
+    const hasAnyTabPerm = initialPerms.some(p => p.startsWith("call_panel:tab_"));
+    if (hasCallPanelAccess && !hasAnyTabPerm) {
+      initialPerms = Array.from(new Set([...initialPerms, ...DEFAULT_CALL_PANEL_SUB_PERMS]));
+    }
+    setSelectedPermissions(initialPerms);
     setSelectedBreaks(r.allowed_breaks || []);
     setShowModal(true);
   };
@@ -257,7 +311,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     if (selectedPermissions.includes(permCode)) {
       setSelectedPermissions(selectedPermissions.filter(p => p !== permCode));
     } else {
-      setSelectedPermissions([...selectedPermissions, permCode]);
+      if (permCode === "call_panel:access" && !selectedPermissions.some(p => p.startsWith("call_panel:tab_"))) {
+        setSelectedPermissions(Array.from(new Set([...selectedPermissions, permCode, ...DEFAULT_CALL_PANEL_SUB_PERMS])));
+      } else {
+        setSelectedPermissions([...selectedPermissions, permCode]);
+      }
     }
   };
 
@@ -567,7 +625,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                     {
                       id: "operations",
                       name: "Operasyon & Canlı İzleme",
-                      items: ["dashboard", "wallboard", "call_panel", "call_panel:listen_records", "omnichannel"]
+                      items: ["dashboard", "wallboard", "call_panel", "omnichannel"]
                     },
                     {
                       id: "ai",
@@ -607,113 +665,162 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                           return (
                             <div
                               key={feat.id}
-                              className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4"
+                              className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl flex flex-col gap-4"
                             >
-                              {/* Title & Icon Header */}
-                              <div className="flex items-center gap-3 md:w-1/3 shrink-0">
-                                <div className="p-2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-slate-500 dark:text-slate-400">
-                                  <Icon size={14} />
+                              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                {/* Title & Icon Header */}
+                                <div className="flex items-center gap-3 md:w-1/3 shrink-0">
+                                  <div className="p-2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-slate-500 dark:text-slate-400">
+                                    <Icon size={14} />
+                                  </div>
+                                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                                    {feat.name}
+                                  </span>
                                 </div>
-                                <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                                  {feat.name}
-                                </span>
+
+                                {/* Granular Action Switches */}
+                                <div className="flex flex-wrap gap-3 flex-1 md:justify-end">
+                                  {feat.type === "crud" && (
+                                    <>
+                                      {/* Read */}
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePermission(`${feat.id}:read`)}
+                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                          selectedPermissions.includes(`${feat.id}:read`)
+                                            ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <Eye size={10} />
+                                        <span>Görüntüleme</span>
+                                      </button>
+
+                                      {/* Write */}
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePermission(`${feat.id}:write`)}
+                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                          selectedPermissions.includes(`${feat.id}:write`)
+                                            ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
+                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <Edit3 size={10} />
+                                        <span>Düzenleme</span>
+                                      </button>
+
+                                      {/* Delete */}
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePermission(`${feat.id}:delete`)}
+                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                          selectedPermissions.includes(`${feat.id}:delete`)
+                                            ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-200 dark:border-rose-900/40"
+                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <Trash size={10} />
+                                        <span>Silme</span>
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {feat.type === "crud_partial" && (
+                                    <>
+                                      {/* Read */}
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePermission(`${feat.id}:read`)}
+                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                          selectedPermissions.includes(`${feat.id}:read`)
+                                            ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <Eye size={10} />
+                                        <span>Görüntüleme</span>
+                                      </button>
+
+                                      {/* Write */}
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePermission(`${feat.id}:write`)}
+                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                          selectedPermissions.includes(`${feat.id}:write`)
+                                            ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
+                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <Edit3 size={10} />
+                                        <span>Güncelleme</span>
+                                      </button>
+                                    </>
+                                  )}
+
+                                  {feat.type === "access" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => togglePermission(accessKey)}
+                                      className={`px-3 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                        hasAccessSelected
+                                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/40"
+                                          : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                      }`}
+                                    >
+                                      <Unlock size={10} />
+                                      <span>Erişim İzni</span>
+                                    </button>
+                                  )}
+                                </div>
                               </div>
 
-                              {/* Granular Action Switches */}
-                              <div className="flex flex-wrap gap-3 flex-1 md:justify-end">
-                                {feat.type === "crud" && (
-                                  <>
-                                    {/* Read */}
-                                    <button
-                                      type="button"
-                                      onClick={() => togglePermission(`${feat.id}:read`)}
-                                      className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                        selectedPermissions.includes(`${feat.id}:read`)
-                                          ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
-                                          : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                      }`}
-                                    >
-                                      <Eye size={10} />
-                                      <span>Görüntüleme</span>
-                                    </button>
-
-                                    {/* Write */}
-                                    <button
-                                      type="button"
-                                      onClick={() => togglePermission(`${feat.id}:write`)}
-                                      className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                        selectedPermissions.includes(`${feat.id}:write`)
-                                          ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
-                                          : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                      }`}
-                                    >
-                                      <Edit3 size={10} />
-                                      <span>Düzenleme</span>
-                                    </button>
-
-                                    {/* Delete */}
-                                    <button
-                                      type="button"
-                                      onClick={() => togglePermission(`${feat.id}:delete`)}
-                                      className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                        selectedPermissions.includes(`${feat.id}:delete`)
-                                          ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-200 dark:border-rose-900/40"
-                                          : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                      }`}
-                                    >
-                                      <Trash size={10} />
-                                      <span>Silme</span>
-                                    </button>
-                                  </>
-                                )}
-
-                                {feat.type === "crud_partial" && (
-                                  <>
-                                    {/* Read */}
-                                    <button
-                                      type="button"
-                                      onClick={() => togglePermission(`${feat.id}:read`)}
-                                      className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                        selectedPermissions.includes(`${feat.id}:read`)
-                                          ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
-                                          : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                      }`}
-                                    >
-                                      <Eye size={10} />
-                                      <span>Görüntüleme</span>
-                                    </button>
-
-                                    {/* Write */}
-                                    <button
-                                      type="button"
-                                      onClick={() => togglePermission(`${feat.id}:write`)}
-                                      className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                        selectedPermissions.includes(`${feat.id}:write`)
-                                          ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
-                                          : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                      }`}
-                                    >
-                                      <Edit3 size={10} />
-                                      <span>Güncelleme</span>
-                                    </button>
-                                  </>
-                                )}
-
-                                {feat.type === "access" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => togglePermission(accessKey)}
-                                    className={`px-3 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                      hasAccessSelected
-                                        ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/40"
-                                        : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                    }`}
-                                  >
-                                    <Unlock size={10} />
-                                    <span>Erişim İzni</span>
-                                  </button>
-                                )}
-                              </div>
+                              {/* Nested Sub-Options for Temsilci Çağrı Paneli (call_panel) */}
+                              {feat.id === "call_panel" && hasAccessSelected && (
+                                <div className="mt-1 pt-3.5 border-t border-slate-200/70 dark:border-slate-800/80 space-y-4">
+                                  {CALL_PANEL_SUB_GROUPS.map((subGroup) => (
+                                    <div key={subGroup.id} className="space-y-2">
+                                      <div className="flex items-center justify-between">
+                                        <span className="text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                                          {subGroup.title}
+                                        </span>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {subGroup.items.map((subItem) => {
+                                          const isSubSelected = selectedPermissions.includes(subItem.id);
+                                          return (
+                                            <button
+                                              key={subItem.id}
+                                              type="button"
+                                              onClick={() => togglePermission(subItem.id)}
+                                              className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all flex items-center gap-1.5 text-left ${
+                                                isSubSelected
+                                                  ? subItem.isRestriction
+                                                    ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800/60"
+                                                    : `${lightBg} ${text} ${border}`
+                                                  : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                              }`}
+                                            >
+                                              <div
+                                                className={`w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 ${
+                                                  isSubSelected
+                                                    ? subItem.isRestriction
+                                                      ? "bg-amber-500 border-amber-500 text-white"
+                                                      : `${bg} border-transparent text-white`
+                                                    : "border-slate-300 dark:border-slate-700"
+                                                }`}
+                                              >
+                                                {isSubSelected && <Check size={9} strokeWidth={3} />}
+                                              </div>
+                                              <span>{subItem.name}</span>
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           );
                         })}

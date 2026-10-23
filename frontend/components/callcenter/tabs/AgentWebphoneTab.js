@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import TranscriptPanel from "../../dashboard/TranscriptPanel";
 import AgentSessionCard from "../../phone/AgentSessionCard";
-import { Phone, PhoneOff, Mic, MicOff, Pause, Play, UserPlus, UserCheck, X } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Pause, Play, UserPlus, UserCheck, X, ArrowRight, Radio } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
-import { findContactByPhone } from "../../../utils/contactUtils";
+import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
 import { webphoneManager } from "../../../utils/webphoneManager";
 
 export default function AgentWebphoneTab({
@@ -12,10 +12,23 @@ export default function AgentWebphoneTab({
   activeCallId,
   pendingDial,
   setPendingDial,
-  isWebphoneScreenActive = true
+  isWebphoneScreenActive = true,
+  callPanelPerms = {}
 }) {
   const { borderLight } = useTheme();
   const [wpState, setWpState] = useState(() => webphoneManager.getState());
+
+  const canSaveContact = callPanelPerms.canSaveContact !== false;
+  const canTransfer = callPanelPerms.canTransfer !== false;
+  const canConference = callPanelPerms.canConference !== false;
+  const canRejectCall = callPanelPerms.canRejectCall !== false;
+  const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
+
+  // In-Call Transfer & Conference Popovers
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [transferTarget, setTransferTarget] = useState("");
+  const [conferenceOpen, setConferenceOpen] = useState(false);
+  const [conferenceTarget, setConferenceTarget] = useState("");
 
   // Contacts & Add Contact Modal State
   const [contacts, setContacts] = useState([]);
@@ -86,6 +99,15 @@ export default function AgentWebphoneTab({
     isOnHold,
     callNotification
   } = wpState;
+
+  useEffect(() => {
+    if (callStatus === "Idle") {
+      setTransferOpen(false);
+      setConferenceOpen(false);
+      setTransferTarget("");
+      setConferenceTarget("");
+    }
+  }, [callStatus]);
 
   const setDialNumber = (val) => {
     if (typeof val === "function") {
@@ -182,6 +204,9 @@ export default function AgentWebphoneTab({
   const matchedContact = findContactByPhone(activePhoneNum, contacts, directory);
   const resolvedDisplayName = matchedContact?.displayName || (remoteDisplayName && remoteDisplayName !== activePhoneNum ? remoteDisplayName : "");
   const resolvedIsInternal = Boolean(matchedContact?.isInternal || (activePhoneNum && String(activePhoneNum).length <= 5 && resolvedDisplayName));
+  const displayPhoneNum = callStatus !== "Idle" && maskPhoneNumbers
+    ? maskPhoneLast4(activePhoneNum, true)
+    : activePhoneNum;
 
   return (
     <div className="w-full h-full p-4 lg:p-6 overflow-hidden flex flex-col relative">
@@ -218,7 +243,7 @@ export default function AgentWebphoneTab({
                 <input 
                   ref={inputRef}
                   type="text"
-                  value={dialNumber}
+                  value={callStatus !== "Idle" ? displayPhoneNum : dialNumber}
                   onChange={(e) => setDialNumber(e.target.value.replace(/[^0-9*#+]/g, ''))}
                   onKeyDown={(e) => e.key === 'Enter' && callStatus === 'Idle' && handleCall()}
                   placeholder="Numara Girin..."
@@ -262,7 +287,7 @@ export default function AgentWebphoneTab({
                  <Phone size={24} className="fill-current" />
                </button>
                
-               {callStatus !== "Idle" && (
+               {callStatus !== "Idle" && (callStatus !== "Ringing" || canRejectCall) && (
                  <button 
                    onClick={handleHangup}
                    className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-105 active:scale-95 animate-in zoom-in"
@@ -305,26 +330,33 @@ export default function AgentWebphoneTab({
                          {resolvedDisplayName}
                        </h2>
                        <p className="text-xl font-mono font-semibold text-slate-500 dark:text-slate-400 tracking-widest mb-3">
-                         {activePhoneNum}
+                         {displayPhoneNum}
                        </p>
                      </div>
                    ) : (
                      <div className="flex flex-col items-center text-center">
+                       {maskPhoneNumbers && (
+                         <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
+                           Kayıtsız Numara
+                         </span>
+                       )}
                        <h2 className="text-4xl md:text-5xl font-extrabold text-slate-800 dark:text-white tracking-widest mb-2 font-mono drop-shadow-sm dark:drop-shadow-lg">
-                         {activePhoneNum}
+                         {displayPhoneNum}
                        </h2>
-                       <button
-                         onClick={() => {
-                           setNewContact({ firstName: "", lastName: "", email: "" });
-                           setContactError("");
-                           setIsAddContactOpen(true);
-                         }}
-                         title="Kişiyi Rehbere Kaydet"
-                         className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-rose-500/20 transition-all shrink-0 cursor-pointer"
-                       >
-                         <UserPlus size={15} />
-                         Rehbere Kaydet
-                       </button>
+                       {canSaveContact && (
+                         <button
+                           onClick={() => {
+                             setNewContact({ firstName: "", lastName: "", email: "" });
+                             setContactError("");
+                             setIsAddContactOpen(true);
+                           }}
+                           title="Kişiyi Rehbere Kaydet"
+                           className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-rose-500/20 transition-all shrink-0 cursor-pointer"
+                         >
+                           <UserPlus size={15} />
+                           Rehbere Kaydet
+                         </button>
+                       )}
                      </div>
                    )}
                    
@@ -339,25 +371,120 @@ export default function AgentWebphoneTab({
                    </div>
                    
                    {/* Call Controls */}
-                   <div className="flex items-center gap-6 mt-10">
+                   <div className="flex flex-wrap items-center justify-center gap-4 mt-8 relative">
                      {callStatus === "Ringing" ? (
                        <>
                          <button onClick={handleAnswerCall} className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 hover:from-emerald-500 hover:to-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all hover:scale-110 group" title="Yanıtla">
                            <Phone size={28} className="fill-current group-hover:scale-110 transition-transform" />
                          </button>
-                         <button onClick={handleHangup} className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group" title="Reddet">
-                           <PhoneOff size={28} className="group-hover:scale-110 transition-transform" />
-                         </button>
+                         {canRejectCall && (
+                           <button onClick={handleHangup} className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group" title="Reddet">
+                             <PhoneOff size={28} className="group-hover:scale-110 transition-transform" />
+                           </button>
+                         )}
                        </>
                      ) : (
                        <>
-                         <button onClick={toggleMute} className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${isMuted ? 'bg-rose-100 border-rose-300 text-rose-500 dark:bg-rose-500/20 dark:border-rose-500/50 dark:text-rose-400' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10'}`}>
+                         <button onClick={toggleMute} title={isMuted ? "Sesi Aç" : "Sessize Al"} className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${isMuted ? 'bg-rose-100 border-rose-300 text-rose-500 dark:bg-rose-500/20 dark:border-rose-500/50 dark:text-rose-400' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10'}`}>
                            {isMuted ? <MicOff size={22} /> : <Mic size={22} />}
                          </button>
-                         <button onClick={toggleHold} className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${isOnHold ? 'bg-amber-100 border-amber-300 text-amber-600 dark:bg-amber-500/20 dark:border-amber-500/50 dark:text-amber-400' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10'}`}>
+                         <button onClick={toggleHold} title={isOnHold ? "Devam Et" : "Beklemeye Al"} className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${isOnHold ? 'bg-amber-100 border-amber-300 text-amber-600 dark:bg-amber-500/20 dark:border-amber-500/50 dark:text-amber-400' : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10'}`}>
                            {isOnHold ? <Play size={22} /> : <Pause size={22} />}
                          </button>
-                         <button onClick={handleHangup} className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group">
+
+                         {callStatus === "InCall" && canTransfer && (
+                           <div className="relative">
+                             <button
+                               type="button"
+                               onClick={() => {
+                                 setTransferOpen((p) => !p);
+                                 setConferenceOpen(false);
+                               }}
+                               title="Çağrı Transferi"
+                               className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${
+                                 transferOpen
+                                   ? "bg-violet-100 border-violet-300 text-violet-600 dark:bg-violet-500/20 dark:border-violet-500/50 dark:text-violet-400"
+                                   : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
+                               }`}
+                             >
+                               <ArrowRight size={22} />
+                             </button>
+                             {transferOpen && (
+                               <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-60 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-30 space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                                 <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                                   Hedef Dahili / Numara
+                                 </span>
+                                 <input
+                                   type="text"
+                                   placeholder="Örn: 1001"
+                                   value={transferTarget}
+                                   onChange={(e) => setTransferTarget(e.target.value)}
+                                   className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none"
+                                 />
+                                 <button
+                                   type="button"
+                                   onClick={() => {
+                                     if (!transferTarget.trim()) return;
+                                     webphoneManager.blindTransfer(transferTarget.trim());
+                                     setTransferOpen(false);
+                                     setTransferTarget("");
+                                   }}
+                                   className="w-full py-1.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-[11px] font-bold transition-colors"
+                                 >
+                                   Çağrıyı Aktar
+                                 </button>
+                               </div>
+                             )}
+                           </div>
+                         )}
+
+                         {callStatus === "InCall" && canConference && (
+                           <div className="relative">
+                             <button
+                               type="button"
+                               onClick={() => {
+                                 setConferenceOpen((p) => !p);
+                                 setTransferOpen(false);
+                               }}
+                               title="Konferans"
+                               className={`w-14 h-14 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${
+                                 conferenceOpen
+                                   ? "bg-emerald-100 border-emerald-300 text-emerald-600 dark:bg-emerald-500/20 dark:border-emerald-500/50 dark:text-emerald-400"
+                                   : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
+                               }`}
+                             >
+                               <Radio size={22} />
+                             </button>
+                             {conferenceOpen && (
+                               <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-60 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-30 space-y-2 animate-in fade-in zoom-in-95 duration-150">
+                                 <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider block">
+                                   Katılımcı Dahili No
+                                 </span>
+                                 <input
+                                   type="text"
+                                   placeholder="Örn: 1002"
+                                   value={conferenceTarget}
+                                   onChange={(e) => setConferenceTarget(e.target.value)}
+                                   className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none"
+                                 />
+                                 <button
+                                   type="button"
+                                   onClick={() => {
+                                     if (!conferenceTarget.trim()) return;
+                                     webphoneManager.recordTimelineEvent("call_conference", `${conferenceTarget.trim()} konferansa eklendi`);
+                                     setConferenceOpen(false);
+                                     setConferenceTarget("");
+                                   }}
+                                   className="w-full py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold transition-colors"
+                                 >
+                                   Konferansa Ekle
+                                 </button>
+                               </div>
+                             )}
+                           </div>
+                         )}
+
+                         <button onClick={handleHangup} title="Çağrıyı Sonlandır" className="w-16 h-16 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group">
                            <PhoneOff size={28} className="group-hover:scale-110 transition-transform" />
                          </button>
                        </>
@@ -368,11 +495,11 @@ export default function AgentWebphoneTab({
                
                {/* Transcript Panel shrinks to fill remaining space */}
                <div className="flex-1 overflow-hidden">
-                 <TranscriptPanel callId={activeCallId} backendHost={backendHost} />
+                 <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
                </div>
              </div>
            ) : (
-             <TranscriptPanel callId={activeCallId} backendHost={backendHost} />
+             <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
            )}
 
         </div>
@@ -404,7 +531,7 @@ export default function AgentWebphoneTab({
             <div className="space-y-3 text-left">
               <div>
                 <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">Telefon Numarası</label>
-                <input type="text" value={dialNumber} disabled className="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-mono font-bold border border-slate-200 dark:border-slate-700" />
+                <input type="text" value={displayPhoneNum || dialNumber} disabled className="w-full px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-sm font-mono font-bold border border-slate-200 dark:border-slate-700" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

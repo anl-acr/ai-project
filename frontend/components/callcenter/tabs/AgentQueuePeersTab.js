@@ -17,8 +17,12 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 
-export default function AgentQueuePeersTab({ backendHost, currentUser }) {
+export default function AgentQueuePeersTab({ backendHost, currentUser, callPanelPerms }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const canSeeStatus = callPanelPerms ? callPanelPerms.agentsCanSeeStatus !== false : true;
+  const canSeeDuration = callPanelPerms ? callPanelPerms.agentsCanSeeDuration !== false : true;
+  const canSeeCallCounts = callPanelPerms ? callPanelPerms.agentsCanSeeCallCounts !== false : true;
+  const canSeeLoginLogout = callPanelPerms ? callPanelPerms.agentsCanSeeLoginLogout !== false : true;
   const [data, setData] = useState({ queues: [], agents: [] });
   const [loading, setLoading] = useState(true);
   const [selectedQueueId, setSelectedQueueId] = useState("all");
@@ -318,10 +322,14 @@ export default function AgentQueuePeersTab({ backendHost, currentUser }) {
               <thead>
                 <tr className={`border-b ${borderLight} bg-slate-50/70 dark:bg-slate-800/50 text-[11px] font-bold uppercase tracking-wider text-slate-400`}>
                   <th className="py-3.5 px-4">Temsilci</th>
-                  <th className="py-3.5 px-4">Anlık Durum & Süre</th>
-                  <th className="py-3.5 px-4 text-center">Çağrı Adetleri (Bugün)</th>
-                  <th className="py-3.5 px-4 text-center">Mola / Konuşma</th>
-                  <th className="py-3.5 px-4 text-center">Login / Logout Zamanı</th>
+                  {(canSeeStatus || canSeeDuration) && (
+                    <th className="py-3.5 px-4">
+                      {canSeeStatus && canSeeDuration ? "Anlık Durum & Süre" : canSeeStatus ? "Anlık Durum" : "Durum Süresi"}
+                    </th>
+                  )}
+                  {canSeeCallCounts && <th className="py-3.5 px-4 text-center">Çağrı Adetleri (Bugün)</th>}
+                  {canSeeDuration && <th className="py-3.5 px-4 text-center">Mola / Konuşma</th>}
+                  {canSeeLoginLogout && <th className="py-3.5 px-4 text-center">Login / Logout Zamanı</th>}
                   <th className="py-3.5 px-4 text-right">İşlem</th>
                 </tr>
               </thead>
@@ -361,7 +369,9 @@ export default function AgentQueuePeersTab({ backendHost, currentUser }) {
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${lightBg} ${text}`}>
                                 {(agent.name || "T").charAt(0).toUpperCase()}
                               </div>
-                              <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 ${meta.solidDot}`}></span>
+                              {canSeeStatus && (
+                                <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 ${meta.solidDot}`}></span>
+                              )}
                             </div>
                             <div>
                               <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
@@ -391,85 +401,97 @@ export default function AgentQueuePeersTab({ backendHost, currentUser }) {
                         </td>
 
                         {/* Live Status & Duration */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex flex-col items-start gap-1">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${meta.badgeBg}`}>
-                              <span className="relative flex h-2 w-2">
-                                <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${meta.dot}`}></span>
-                                <span className={`relative inline-flex rounded-full h-2 w-2 ${meta.solidDot}`}></span>
-                              </span>
-                              {meta.title}
-                            </span>
-                            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 pl-1">
-                              <Clock size={12} className="text-slate-400 shrink-0" />
-                              <span>{meta.durationPhrase}</span>
-                              {liveSec > 0 && (
-                                <span className="text-[11px] font-mono text-slate-400">
-                                  ({formatClockDuration(liveSec)})
+                        {(canSeeStatus || canSeeDuration) && (
+                          <td className="py-3.5 px-4">
+                            <div className="flex flex-col items-start gap-1">
+                              {canSeeStatus && (
+                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${meta.badgeBg}`}>
+                                  <span className="relative flex h-2 w-2">
+                                    <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${meta.dot}`}></span>
+                                    <span className={`relative inline-flex rounded-full h-2 w-2 ${meta.solidDot}`}></span>
+                                  </span>
+                                  {meta.title}
                                 </span>
                               )}
+                              {canSeeDuration && (
+                                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 pl-1">
+                                  <Clock size={12} className="text-slate-400 shrink-0" />
+                                  <span>{meta.durationPhrase}</span>
+                                  {liveSec > 0 && (
+                                    <span className="text-[11px] font-mono text-slate-400">
+                                      ({formatClockDuration(liveSec)})
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          </div>
-                        </td>
+                          </td>
+                        )}
 
                         {/* Call Counts */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center justify-center gap-2">
-                            <div className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-center min-w-[54px]" title="Toplam Çağrı">
-                              <p className="text-[10px] font-bold text-slate-400 uppercase">Toplam</p>
-                              <p className="text-sm font-black text-slate-800 dark:text-white">{agent.total_calls || 0}</p>
+                        {canSeeCallCounts && (
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center justify-center gap-2">
+                              <div className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-center min-w-[54px]" title="Toplam Çağrı">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase">Toplam</p>
+                                <p className="text-sm font-black text-slate-800 dark:text-white">{agent.total_calls || 0}</p>
+                              </div>
+                              <div className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 text-center min-w-[50px]" title="Gelen Çağrı">
+                                <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase flex items-center justify-center gap-0.5">
+                                  <PhoneIncoming size={10} /> Gelen
+                                </p>
+                                <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">{agent.inbound_calls || 0}</p>
+                              </div>
+                              <div className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 text-center min-w-[50px]" title="Giden Çağrı">
+                                <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase flex items-center justify-center gap-0.5">
+                                  <PhoneOutgoing size={10} /> Giden
+                                </p>
+                                <p className="text-sm font-black text-blue-600 dark:text-blue-400">{agent.outbound_calls || 0}</p>
+                              </div>
+                              <div className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 text-center min-w-[50px]" title="Cevapsız Çağrı">
+                                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase flex items-center justify-center gap-0.5">
+                                  <PhoneMissed size={10} /> Kaçan
+                                </p>
+                                <p className="text-sm font-black text-rose-600 dark:text-rose-400">{agent.missed_calls || 0}</p>
+                              </div>
                             </div>
-                            <div className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 text-center min-w-[50px]" title="Gelen Çağrı">
-                              <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase flex items-center justify-center gap-0.5">
-                                <PhoneIncoming size={10} /> Gelen
-                              </p>
-                              <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">{agent.inbound_calls || 0}</p>
-                            </div>
-                            <div className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 text-center min-w-[50px]" title="Giden Çağrı">
-                              <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase flex items-center justify-center gap-0.5">
-                                <PhoneOutgoing size={10} /> Giden
-                              </p>
-                              <p className="text-sm font-black text-blue-600 dark:text-blue-400">{agent.outbound_calls || 0}</p>
-                            </div>
-                            <div className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 text-center min-w-[50px]" title="Cevapsız Çağrı">
-                              <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase flex items-center justify-center gap-0.5">
-                                <PhoneMissed size={10} /> Kaçan
-                              </p>
-                              <p className="text-sm font-black text-rose-600 dark:text-rose-400">{agent.missed_calls || 0}</p>
-                            </div>
-                          </div>
-                        </td>
+                          </td>
+                        )}
 
                         {/* Break & Talk Totals Today */}
-                        <td className="py-3.5 px-4 text-center">
-                          <div className="inline-flex flex-col gap-1 text-xs">
-                            <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-                              <PhoneCall size={12} className="text-emerald-500" />
-                              Konuşma: {formatDurationText(agent.talk_duration_seconds || 0)}
-                            </span>
-                            <span className="inline-flex items-center gap-1.5 font-semibold text-amber-600 dark:text-amber-400">
-                              <Coffee size={12} />
-                              Mola:{" "}
-                              {formatDurationText(
-                                (agent.break_duration_seconds || 0) + (agent.status === "break" ? liveSec : 0)
-                              )}
-                            </span>
-                          </div>
-                        </td>
+                        {canSeeDuration && (
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="inline-flex flex-col gap-1 text-xs">
+                              <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
+                                <PhoneCall size={12} className="text-emerald-500" />
+                                Konuşma: {formatDurationText(agent.talk_duration_seconds || 0)}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 font-semibold text-amber-600 dark:text-amber-400">
+                                <Coffee size={12} />
+                                Mola:{" "}
+                                {formatDurationText(
+                                  (agent.break_duration_seconds || 0) + (agent.status === "break" ? liveSec : 0)
+                                )}
+                              </span>
+                            </div>
+                          </td>
+                        )}
 
                         {/* Login / Logout Time */}
-                        <td className="py-3.5 px-4 text-center">
-                          <div className="inline-flex flex-col gap-1 text-xs font-mono">
-                            <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
-                              <LogIn size={12} />
-                              Login: {agent.login_time || "-"}
-                            </span>
-                            <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-semibold">
-                              <LogOut size={12} />
-                              Logout: {agent.logout_time || "-"}
-                            </span>
-                          </div>
-                        </td>
+                        {canSeeLoginLogout && (
+                          <td className="py-3.5 px-4 text-center">
+                            <div className="inline-flex flex-col gap-1 text-xs font-mono">
+                              <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
+                                <LogIn size={12} />
+                                Login: {agent.login_time || "-"}
+                              </span>
+                              <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-semibold">
+                                <LogOut size={12} />
+                                Logout: {agent.logout_time || "-"}
+                              </span>
+                            </div>
+                          </td>
+                        )}
 
                         {/* Action */}
                         <td className="py-3.5 px-4 text-right">

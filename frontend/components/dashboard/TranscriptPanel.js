@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Bot, MessageSquare, User, Save, History, FileText, Calendar, Check, AlertCircle, Phone, Play, Square, ArrowRight, Radio, PhoneOff } from "lucide-react";
 
-export default function TranscriptPanel({ callId, backendHost = "localhost:8000" }) {
+export default function TranscriptPanel({ callId, backendHost = "localhost:8000", callPanelPerms = {} }) {
+  const canTransfer = callPanelPerms.canTransfer !== false;
+  const canConference = callPanelPerms.canConference !== false;
   // Demo Mode override
   const [isDemoCall, setIsDemoCall] = useState(false);
   const activeCallId = isDemoCall ? "demo-call-99" : callId;
@@ -309,107 +311,111 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
           </button>
 
           {/* Transfer Button */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setTransferOpen(!transferOpen);
-                setConferenceOpen(false);
-              }}
-              className={`px-3 py-1.5 rounded-xl border text-[10px] font-extrabold uppercase tracking-wide transition-all flex items-center gap-1.5 focus:outline-none ${
-                transferOpen
-                  ? "bg-violet-50 dark:bg-violet-950/30 border-violet-300 dark:border-violet-850 text-violet-600 dark:text-violet-400"
-                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
-              }`}
-            >
-              <ArrowRight size={11} className={transferOpen ? "text-violet-500" : "text-slate-400"} />
-              <span>Çağrı Aktar</span>
-            </button>
+          {canTransfer && (
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setTransferOpen(!transferOpen);
+                  setConferenceOpen(false);
+                }}
+                className={`px-3 py-1.5 rounded-xl border text-[10px] font-extrabold uppercase tracking-wide transition-all flex items-center gap-1.5 focus:outline-none ${
+                  transferOpen
+                    ? "bg-violet-50 dark:bg-violet-950/30 border-violet-300 dark:border-violet-850 text-violet-600 dark:text-violet-400"
+                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
+                }`}
+              >
+                <ArrowRight size={11} className={transferOpen ? "text-violet-500" : "text-slate-400"} />
+                <span>Çağrı Aktar</span>
+              </button>
 
-            {transferOpen && (
-              <div className="absolute right-0 mt-2 w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-30 space-y-2.5 animate-in fade-in duration-100">
-                <span className="text-[8px] font-extrabold text-slate-400 dark:text-slate-550 uppercase tracking-widest block">Hedef Dahili Numara</span>
-                <input
-                  type="text"
-                  placeholder="Örn: 201, 202"
-                  value={transferTarget}
-                  onChange={(e) => setTransferTarget(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold focus:outline-none text-slate-800 dark:text-white"
-                />
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      if(!transferTarget) return;
-                      window.dispatchEvent(new CustomEvent("softphone-action", {
-                        detail: { type: "transfer", target: transferTarget, mode: "blind" }
-                      }));
-                      setTransferOpen(false);
-                      setTransferTarget("");
-                    }}
-                    className="flex-1 py-1.5 rounded-lg bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 text-[8px] font-black uppercase tracking-wider hover:opacity-90"
-                  >
-                    Kontrolsüz
-                  </button>
-                  <button
-                    onClick={() => {
-                      if(!transferTarget) return;
-                      window.dispatchEvent(new CustomEvent("softphone-action", {
-                        detail: { type: "transfer", target: transferTarget, mode: "attended" }
-                      }));
-                      setTransferOpen(false);
-                      setTransferTarget("");
-                    }}
-                    className="flex-1 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[8px] font-black uppercase tracking-wider"
-                  >
-                    Kontrollü
-                  </button>
+              {transferOpen && (
+                <div className="absolute right-0 mt-2 w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-30 space-y-2.5 animate-in fade-in duration-100">
+                  <span className="text-[8px] font-extrabold text-slate-400 dark:text-slate-550 uppercase tracking-widest block">Hedef Dahili Numara</span>
+                  <input
+                    type="text"
+                    placeholder="Örn: 201, 202"
+                    value={transferTarget}
+                    onChange={(e) => setTransferTarget(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold focus:outline-none text-slate-800 dark:text-white"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        if(!transferTarget) return;
+                        window.dispatchEvent(new CustomEvent("softphone-action", {
+                          detail: { type: "transfer", target: transferTarget, mode: "blind" }
+                        }));
+                        setTransferOpen(false);
+                        setTransferTarget("");
+                      }}
+                      className="flex-1 py-1.5 rounded-lg bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-950 text-[8px] font-black uppercase tracking-wider hover:opacity-90"
+                    >
+                      Kontrolsüz
+                    </button>
+                    <button
+                      onClick={() => {
+                        if(!transferTarget) return;
+                        window.dispatchEvent(new CustomEvent("softphone-action", {
+                          detail: { type: "transfer", target: transferTarget, mode: "attended" }
+                        }));
+                        setTransferOpen(false);
+                        setTransferTarget("");
+                      }}
+                      className="flex-1 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-[8px] font-black uppercase tracking-wider"
+                    >
+                      Kontrollü
+                    </button>
+                  </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* Conference Button */}
-          <div className="relative">
-            <button
-              onClick={() => {
-                setConferenceOpen(!conferenceOpen);
-                setTransferOpen(false);
-              }}
-              className={`px-3 py-1.5 rounded-xl border text-[10px] font-extrabold uppercase tracking-wide transition-all flex items-center gap-1.5 focus:outline-none ${
-                conferenceOpen
-                  ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-850 text-primary dark:text-emerald-400"
-                  : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
-              }`}
-            >
-              <Radio size={11} className={conferenceOpen ? "text-primary animate-pulse" : "text-slate-400"} />
-              <span>Konferans</span>
-            </button>
+          {canConference && (
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setConferenceOpen(!conferenceOpen);
+                  setTransferOpen(false);
+                }}
+                className={`px-3 py-1.5 rounded-xl border text-[10px] font-extrabold uppercase tracking-wide transition-all flex items-center gap-1.5 focus:outline-none ${
+                  conferenceOpen
+                    ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-850 text-primary dark:text-emerald-400"
+                    : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-sm"
+                }`}
+              >
+                <Radio size={11} className={conferenceOpen ? "text-primary animate-pulse" : "text-slate-400"} />
+                <span>Konferans</span>
+              </button>
 
-            {conferenceOpen && (
-              <div className="absolute right-0 mt-2 w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-30 space-y-2.5 animate-in fade-in duration-100">
-                <span className="text-[8px] font-extrabold text-slate-400 dark:text-slate-550 uppercase tracking-widest block">Katılımcı Dahili No</span>
-                <input
-                  type="text"
-                  placeholder="Örn: 202, 301"
-                  value={conferenceTarget}
-                  onChange={(e) => setConferenceTarget(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold focus:outline-none text-slate-800 dark:text-white"
-                />
-                <button
-                  onClick={() => {
-                    if(!conferenceTarget) return;
-                    window.dispatchEvent(new CustomEvent("softphone-action", {
-                      detail: { type: "conference", target: conferenceTarget }
-                    }));
-                    setConferenceOpen(false);
-                    setConferenceTarget("");
-                  }}
-                  className="w-full py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-[8px] font-black uppercase tracking-wider"
-                >
-                  Konferansa Ekle (3-Way)
-                </button>
-              </div>
-            )}
-          </div>
+              {conferenceOpen && (
+                <div className="absolute right-0 mt-2 w-64 p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-xl z-30 space-y-2.5 animate-in fade-in duration-100">
+                  <span className="text-[8px] font-extrabold text-slate-400 dark:text-slate-550 uppercase tracking-widest block">Katılımcı Dahili No</span>
+                  <input
+                    type="text"
+                    placeholder="Örn: 202, 301"
+                    value={conferenceTarget}
+                    onChange={(e) => setConferenceTarget(e.target.value)}
+                    className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold focus:outline-none text-slate-800 dark:text-white"
+                  />
+                  <button
+                    onClick={() => {
+                      if(!conferenceTarget) return;
+                      window.dispatchEvent(new CustomEvent("softphone-action", {
+                        detail: { type: "conference", target: conferenceTarget }
+                      }));
+                      setConferenceOpen(false);
+                      setConferenceTarget("");
+                    }}
+                    className="w-full py-1.5 rounded-lg bg-primary hover:bg-primary/90 text-white text-[8px] font-black uppercase tracking-wider"
+                  >
+                    Konferansa Ekle (3-Way)
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Hangup Button */}
           <button

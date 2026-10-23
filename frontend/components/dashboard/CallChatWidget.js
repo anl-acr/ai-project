@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Phone, PhoneOff, ShieldAlert, Wifi, WifiOff, MessageSquare, Send, X, Clock, ArrowRight, PhoneCall, Radio, Shield, Fingerprint, CheckCircle, AlertTriangle, Mic, MicOff, Pause, Play } from "lucide-react";
-import { findContactByPhone } from "../../utils/contactUtils";
+import { findContactByPhone, maskPhoneLast4 } from "../../utils/contactUtils";
 import { webphoneManager } from "../../utils/webphoneManager";
 
 export default function CallChatWidget({
@@ -10,6 +10,7 @@ export default function CallChatWidget({
 }) {
   const [contacts, setContacts] = useState([]);
   const [directory, setDirectory] = useState([]);
+  const [rolePermissions, setRolePermissions] = useState(null);
 
   // Expanded/Collapsed State
   const [isOpen, setIsOpen] = useState(false);
@@ -35,6 +36,30 @@ export default function CallChatWidget({
 
   const agentExtension = webrtcConfig?.agentExtension || currentUser?.extension || "";
   const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : `http://${backendHost}`;
+
+  useEffect(() => {
+    if (!currentUser?.role) return;
+    fetch(`${API_BASE}/api/settings/roles`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((roles) => {
+        if (Array.isArray(roles)) {
+          const matched = roles.find((item) => item.id === currentUser.role);
+          if (matched && Array.isArray(matched.permissions)) {
+            setRolePermissions(matched.permissions);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [currentUser?.role, API_BASE]);
+
+  const hasWebphoneSubPerms = Array.isArray(rolePermissions) && rolePermissions.some((p) => p.startsWith("call_panel:webphone_") || p === "call_panel:listen_records");
+  const canRejectCall =
+    currentUser?.role === "admin" && !hasWebphoneSubPerms
+      ? true
+      : !hasWebphoneSubPerms
+      ? true
+      : rolePermissions.includes("call_panel:webphone_reject");
+  const maskPhoneNumbers = Array.isArray(rolePermissions) && rolePermissions.includes("call_panel:webphone_mask_number");
 
   // Voice Biometric States
   const [biometricStatus, setBiometricStatus] = useState(null);
@@ -439,6 +464,7 @@ export default function CallChatWidget({
   const matchedCaller = callerNum ? findContactByPhone(callerNum, contacts, directory) : null;
   const callerDisplayName = matchedCaller?.displayName || (rawSipName && rawSipName !== callerNum ? rawSipName : "");
   const callerAvatar = matchedCaller?.avatar_url || matchedCaller?.avatar || null;
+  const displayCallerNum = maskPhoneLast4(callerNum, maskPhoneNumbers);
 
   return (
     <div className="fixed bottom-6 right-6 z-[100] font-sans antialiased">
@@ -473,11 +499,11 @@ export default function CallChatWidget({
             {isLoadingConfig
               ? "Bağlanıyor..."
               : callStatus === "Ringing"
-              ? `Gelen Çağrı: ${callerDisplayName || callerNum || "Bilinmeyen"}`
+              ? `Gelen Çağrı: ${callerDisplayName || displayCallerNum || "Bilinmeyen"}`
               : callStatus === "Calling"
-              ? `Aranıyor: ${callerDisplayName || callerNum || "Bilinmeyen"}`
+              ? `Aranıyor: ${callerDisplayName || displayCallerNum || "Bilinmeyen"}`
               : callStatus === "InCall"
-              ? `Görüşmede: ${callerDisplayName || callerNum || agentExtension} (${formatSeconds(callDuration)})`
+              ? `Görüşmede: ${callerDisplayName || displayCallerNum || agentExtension} (${formatSeconds(callDuration)})`
               : registered
               ? `Dahili ${agentExtension}`
               : `Dahili ${agentExtension || 'X'} (Bağlı Değil)`}
@@ -607,7 +633,7 @@ export default function CallChatWidget({
                       {callerAvatar ? (
                         <img
                           src={callerAvatar}
-                          alt={callerDisplayName || callerNum}
+                          alt={callerDisplayName || displayCallerNum}
                           className="h-14 w-14 rounded-full object-cover mx-auto border-2 border-amber-400 shadow-md animate-pulse"
                         />
                       ) : (
@@ -623,12 +649,12 @@ export default function CallChatWidget({
                               {callerDisplayName}
                             </p>
                             <p className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 mt-0.5">
-                              {callerNum}
+                              {displayCallerNum}
                             </p>
                           </>
                         ) : (
                           <p className="text-sm font-black font-mono text-slate-800 dark:text-white mt-1">
-                            {callerNum || "Bilinmeyen Numara"}
+                            {displayCallerNum || "Bilinmeyen Numara"}
                           </p>
                         )}
                       </div>
@@ -649,7 +675,7 @@ export default function CallChatWidget({
                       {callerAvatar ? (
                         <img
                           src={callerAvatar}
-                          alt={callerDisplayName || callerNum}
+                          alt={callerDisplayName || displayCallerNum}
                           className="h-14 w-14 rounded-full object-cover mx-auto border-2 border-amber-400 shadow-md animate-bounce"
                         />
                       ) : (
@@ -665,12 +691,12 @@ export default function CallChatWidget({
                               {callerDisplayName}
                             </p>
                             <p className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 mt-0.5">
-                              {callerNum}
+                              {displayCallerNum}
                             </p>
                           </>
                         ) : (
                           <p className="text-sm font-black font-mono text-slate-800 dark:text-white mt-1">
-                            {callerNum || "Bilinmeyen Numara"}
+                            {displayCallerNum || "Bilinmeyen Numara"}
                           </p>
                         )}
                       </div>
@@ -683,12 +709,14 @@ export default function CallChatWidget({
                         >
                           <Phone size={13} /> Cevapla
                         </button>
-                        <button
-                          onClick={hangupCall}
-                          className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors"
-                        >
-                          <PhoneOff size={13} /> Reddet
-                        </button>
+                        {canRejectCall && (
+                          <button
+                            onClick={hangupCall}
+                            className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <PhoneOff size={13} /> Reddet
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}
@@ -700,7 +728,7 @@ export default function CallChatWidget({
                           {callerAvatar ? (
                             <img
                               src={callerAvatar}
-                              alt={callerDisplayName || callerNum}
+                              alt={callerDisplayName || displayCallerNum}
                               className="h-11 w-11 rounded-full object-cover border-2 border-emerald-400 shrink-0 shadow-sm"
                             />
                           ) : (
@@ -712,9 +740,9 @@ export default function CallChatWidget({
                             <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] uppercase tracking-wider mb-0.5">
                               {isOnHold ? "Beklemede" : "Görüşme Aktif"}
                             </p>
-                            {(callerDisplayName || callerNum) && (
+                            {(callerDisplayName || displayCallerNum) && (
                               <p className="text-xs font-extrabold text-slate-700 dark:text-slate-200 truncate mb-0.5">
-                                {callerDisplayName ? `${callerDisplayName} (${callerNum})` : callerNum}
+                                {callerDisplayName ? `${callerDisplayName} (${displayCallerNum})` : displayCallerNum}
                               </p>
                             )}
                             <p className="text-xl font-black font-mono text-slate-800 dark:text-white leading-none">

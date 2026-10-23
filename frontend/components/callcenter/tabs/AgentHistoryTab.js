@@ -17,7 +17,7 @@ import {
   RefreshCw
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
-import { findContactByPhone } from "../../../utils/contactUtils";
+import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
 
 const DATE_FILTER_OPTIONS = [
   { id: "today", label: "Bugün" },
@@ -56,8 +56,10 @@ function getDateWindow(period) {
   };
 }
 
-export default function AgentHistoryTab({ backendHost, currentUser }) {
+export default function AgentHistoryTab({ backendHost, currentUser, callPanelPerms = {} }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const canListenRecords = callPanelPerms.canListenRecords !== false;
+  const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
   const [calls, setCalls] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [directory, setDirectory] = useState([]);
@@ -551,12 +553,12 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
                                 {matchedContact.displayName}
                               </span>
                               <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
-                                {contactNumber}
+                                {maskPhoneLast4(contactNumber, maskPhoneNumbers)}
                               </span>
                             </div>
                           ) : (
                             <span className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
-                              {contactNumber}
+                              {maskPhoneLast4(contactNumber, maskPhoneNumbers)}
                             </span>
                           )}
                         </td>
@@ -580,14 +582,16 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
                             >
                               <Phone size={14} />
                             </button>
-                            <button
-                              onClick={() => setActiveAudio(call)}
-                              className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${activeAudio?.id === call.id ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/20" : !call.recording_path ? "bg-slate-100 text-slate-400 dark:bg-slate-800/50 dark:text-slate-600 cursor-not-allowed" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"}`}
-                              title={call.recording_path ? "Ses Kaydını Dinle" : "Ses kaydı bulunamadı"}
-                              disabled={!call.recording_path}
-                            >
-                              {activeAudio?.id === call.id ? <Headphones size={14} className="animate-pulse" /> : <Play size={14} />}
-                            </button>
+                            {canListenRecords && (
+                              <button
+                                onClick={() => setActiveAudio(call)}
+                                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${activeAudio?.id === call.id ? "bg-emerald-500 text-white shadow-md shadow-emerald-500/20" : !call.recording_path ? "bg-slate-100 text-slate-400 dark:bg-slate-800/50 dark:text-slate-600 cursor-not-allowed" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"}`}
+                                title={call.recording_path ? "Ses Kaydını Dinle" : "Ses kaydı bulunamadı"}
+                                disabled={!call.recording_path}
+                              >
+                                {activeAudio?.id === call.id ? <Headphones size={14} className="animate-pulse" /> : <Play size={14} />}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -601,7 +605,7 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
       </div>
 
       {/* Floating Audio Player */}
-      {activeAudio && activeAudio.recording_path && (
+      {canListenRecords && activeAudio && activeAudio.recording_path && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-slate-950 border border-slate-700 dark:border-slate-800 shadow-2xl rounded-2xl p-4 w-[400px] z-50 flex flex-col gap-3 animate-in slide-in-from-bottom-10 fade-in duration-300">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -610,7 +614,7 @@ export default function AgentHistoryTab({ backendHost, currentUser }) {
               </div>
               <div>
                 <p className="text-xs font-bold text-white tracking-wide truncate">
-                  Görüşme Kaydı ({activeAudio.caller_number === currentUser?.extension ? activeAudio.callee_number : activeAudio.caller_number})
+                  Görüşme Kaydı ({maskPhoneLast4(activeAudio.caller_number === currentUser?.extension ? activeAudio.callee_number : activeAudio.caller_number, maskPhoneNumbers)})
                 </p>
                 <p className="text-[10px] text-slate-400 font-mono mt-0.5">
                   {activeAudio.start_time
