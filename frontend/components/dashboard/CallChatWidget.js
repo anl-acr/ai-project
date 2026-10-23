@@ -112,6 +112,19 @@ export default function CallChatWidget({
     prevWebphoneScreenRef.current = isWebphoneScreenActive;
   }, [callStatus, isWebphoneScreenActive]);
 
+  // Open popup visually (NO ringtone sound) when a phone in the subscriber group starts ringing
+  useEffect(() => {
+    const handleGroupRinging = (e) => {
+      const list = e?.detail;
+      if (Array.isArray(list) && list.length > 0) {
+        setIsOpen(true);
+        setActiveTab("phone");
+      }
+    };
+    window.addEventListener("GROUP_CALL_RINGING", handleGroupRinging);
+    return () => window.removeEventListener("GROUP_CALL_RINGING", handleGroupRinging);
+  }, []);
+
   useEffect(() => {
     const fetchContacts = async () => {
       try {
@@ -485,7 +498,7 @@ export default function CallChatWidget({
           <span className="relative flex h-2.5 w-2.5">
             {isLoadingConfig ? (
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-300 dark:bg-slate-600 animate-pulse"></span>
-            ) : callStatus === "Ringing" || callStatus === "Calling" ? (
+            ) : callStatus === "Ringing" || callStatus === "Calling" || (Array.isArray(wpState.groupRingingCalls) && wpState.groupRingingCalls.length > 0) ? (
               <>
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
@@ -510,6 +523,8 @@ export default function CallChatWidget({
               ? `Aranıyor: ${callerDisplayName || displayCallerNum || "Bilinmeyen"}`
               : callStatus === "InCall"
               ? `Görüşmede: ${callerDisplayName || displayCallerNum || agentExtension} (${formatSeconds(callDuration)})`
+              : Array.isArray(wpState.groupRingingCalls) && wpState.groupRingingCalls.length > 0
+              ? `Grubunda Çağrı Var (Dahili ${wpState.groupRingingCalls[0].ringing_extension})`
               : registered
               ? `Dahili ${agentExtension}`
               : `Dahili ${agentExtension || 'X'} (Bağlı Değil)`}
@@ -620,6 +635,64 @@ export default function CallChatWidget({
                     Hat {agentExtension}
                   </span>
                 </div>
+
+                {/* Group Ringing Visual Alert (Strictly Visual, No Sound) */}
+                {Array.isArray(wpState.groupRingingCalls) && wpState.groupRingingCalls.length > 0 && (
+                  <div className="space-y-2">
+                    {wpState.groupRingingCalls.map((rc) => {
+                      const rcCallerMasked = maskPhoneLast4(rc.caller_number || "Bilinmeyen", maskPhoneNumbers);
+                      const rcCallerDisplay = rc.caller_name
+                        ? `${rc.caller_name} (${rcCallerMasked})`
+                        : rcCallerMasked || "Bilinmeyen Numara";
+                      return (
+                        <div
+                          key={`${rc.ringing_extension}_${rc.caller_number}`}
+                          className="p-3.5 rounded-2xl border-2 border-amber-400 dark:border-amber-600 bg-amber-50/80 dark:bg-amber-950/40 shadow-md space-y-2.5 animate-in fade-in duration-200"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="relative flex h-2.5 w-2.5 shrink-0">
+                                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                              </span>
+                              <span className="text-[11px] font-black uppercase tracking-wider text-amber-700 dark:text-amber-300">
+                                Grubunda Çağrı Var
+                              </span>
+                            </div>
+                            {rc.group_name && (
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-200/70 dark:bg-amber-900/60 text-amber-800 dark:text-amber-200 truncate max-w-[120px]">
+                                {rc.group_name}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="bg-white/90 dark:bg-slate-900/90 rounded-xl p-2.5 border border-amber-200/70 dark:border-amber-800/60 space-y-1 text-left">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-[10px] font-bold uppercase text-slate-400">Çalan Dahili:</span>
+                              <span className="font-extrabold text-slate-800 dark:text-white">
+                                {rc.ringing_extension} {rc.ringing_name ? `(${rc.ringing_name})` : ""}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-[10px] font-bold uppercase text-slate-400">Arayan Kişi:</span>
+                              <span className="font-extrabold font-mono text-amber-600 dark:text-amber-400 truncate max-w-[180px]">
+                                {rcCallerDisplay}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => webphoneManager.pickupGroupCall(rc)}
+                            className="w-full py-2.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl font-extrabold text-xs tracking-wide shadow-md shadow-emerald-500/20 flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <Phone size={14} /> Aç / Çağrıyı Çek ({rc.ringing_extension})
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
 
                 {/* Multi-line compact switcher if 2+ lines exist */}
                 {Array.isArray(wpState.lines) && wpState.lines.length > 1 && (

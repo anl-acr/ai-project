@@ -135,7 +135,9 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
         const data = await callsRes.json();
         const list = Array.isArray(data) ? data : [];
         loadedCalls = list.filter((c) => {
-          const matchesExt = c.caller_number === ext || c.callee_number === ext;
+          const hs = String(c.hangup_source || "");
+          const isPickedByMe = c.picked_up_by_ext === ext || hs === `pickup:${ext}`;
+          const matchesExt = c.caller_number === ext || c.callee_number === ext || isPickedByMe;
           if (!matchesExt) return false;
           if (!c.start_time) return true;
           const callDate = new Date(c.start_time + (c.start_time.endsWith("Z") ? "" : "Z"));
@@ -165,12 +167,19 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
   // Enrich calls with contact lookup and direction
   const enrichedCalls = useMemo(() => {
     return calls.map((call) => {
-      const isOutbound = call.caller_number === ext;
+      const hs = String(call.hangup_source || "");
+      const isPickedUp = Boolean(call.is_picked_up || hs.startsWith("pickup:"));
+      const pickedUpByExt = String(
+        call.picked_up_by_ext || (hs.startsWith("pickup:") ? hs.split(":", 2)[1] : "") || ""
+      ).trim();
+      const isOutbound = !isPickedUp && call.caller_number === ext;
       const contactNumber = isOutbound ? call.callee_number : call.caller_number;
       const matchedContact = findContactByPhone(contactNumber, contacts, directory);
       return {
         ...call,
         isOutbound,
+        isPickedUp,
+        pickedUpByExt,
         contactNumber: contactNumber || "",
         matchedContact,
       };
@@ -530,7 +539,7 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                 </thead>
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                   {filteredCalls.map((call, idx) => {
-                    const { isOutbound, contactNumber, matchedContact } = call;
+                    const { isOutbound, isPickedUp, pickedUpByExt, contactNumber, matchedContact } = call;
 
                     return (
                       <tr key={call.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
@@ -540,13 +549,33 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                             : "-"}
                         </td>
                         <td className="p-4">
-                          <div className={`flex items-center gap-1.5 text-[10px] font-black px-2 py-1 rounded-md w-max ${isOutbound ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"}`}>
-                            {isOutbound ? <PhoneOutgoing size={12} /> : <PhoneIncoming size={12} />}
-                            {isOutbound ? "GİDEN" : "GELEN"}
+                          <div className="flex flex-col gap-1">
+                            <div className={`flex items-center gap-1.5 text-[10px] font-black px-2 py-1 rounded-md w-max ${isOutbound ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"}`}>
+                              {isOutbound ? <PhoneOutgoing size={12} /> : <PhoneIncoming size={12} />}
+                              {isOutbound ? "GİDEN" : "GELEN"}
+                            </div>
+                            {isPickedUp && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 w-max">
+                                PICKUP ({call.callee_number} → {pickedUpByExt})
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="p-4">
-                          {matchedContact ? (
+                          {isPickedUp ? (
+                            <div className="flex flex-col gap-1">
+                              <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                <User size={13} className="text-slate-400 shrink-0" />
+                                Arayan: {matchedContact?.displayName ? `${matchedContact.displayName} (${maskPhoneLast4(contactNumber, maskPhoneNumbers)})` : maskPhoneLast4(contactNumber, maskPhoneNumbers)}
+                              </span>
+                              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                                Aranan Dahili: <strong className="text-slate-700 dark:text-slate-200">{call.callee_number} {call.original_callee_name ? `(${call.original_callee_name})` : ""}</strong>
+                              </span>
+                              <span className="inline-flex items-center gap-1 text-[11px] font-extrabold text-amber-700 dark:text-amber-300">
+                                Pickup ile Çeken: {call.picked_up_by_name ? `${call.picked_up_by_name} (${pickedUpByExt})` : `Dahili ${pickedUpByExt}`}
+                              </span>
+                            </div>
+                          ) : matchedContact ? (
                             <div className="flex flex-col">
                               <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
                                 <User size={13} className="text-slate-400 shrink-0" />
@@ -563,9 +592,9 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                           )}
                         </td>
                         <td className="p-4">
-                          <div className={`flex items-center gap-1.5 text-xs font-bold uppercase ${call.status === "completed" || call.status === "answered" || call.status === "in_progress" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-                            {call.status === "completed" || call.status === "answered" || call.status === "in_progress" ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
-                            {translateStatus(call.status)}
+                          <div className={`flex items-center gap-1.5 text-xs font-bold uppercase ${isPickedUp || call.status === "completed" || call.status === "answered" || call.status === "in_progress" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+                            {isPickedUp || call.status === "completed" || call.status === "answered" || call.status === "in_progress" ? <CheckCircle2 size={14} /> : <XCircle size={14} />}
+                            {isPickedUp ? "Tamamlandı (Pickup)" : translateStatus(call.status)}
                           </div>
                         </td>
                         <td className="p-4 text-sm font-semibold text-slate-600 dark:text-slate-400">

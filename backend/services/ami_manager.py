@@ -51,6 +51,64 @@ def get_extension_call_state(ext: str):
             return "busy"
     return None
 
+
+def get_extension_ringing_info(ext: str):
+    """Returns {'ringing_ext': ext, 'caller_number': caller, 'channel': ch} if ext is currently ringing in AMI channel_states."""
+    ext_s = str(ext or "").strip()
+    if not ext_s:
+        return None
+    pjsip_prefix = f"pjsip/{ext_s.lower()}-"
+    sip_prefix = f"sip/{ext_s.lower()}-"
+    ringing_match = None
+    for uid, info in list(channel_states.items()):
+        ch = str(info.get("channel") or "")
+        ch_lower = ch.lower()
+        caller_s = str(info.get("caller") or "").strip()
+        exten_s = str(info.get("exten") or "").strip()
+        st = info.get("state") or "ringing"
+        if ch_lower.startswith(pjsip_prefix) or ch_lower.startswith(sip_prefix) or exten_s == ext_s:
+            if st == "busy":
+                return None
+            if caller_s != ext_s:
+                ringing_match = {
+                    "ringing_ext": ext_s,
+                    "caller_number": caller_s,
+                    "channel": ch
+                }
+    return ringing_match
+
+
+async def find_ringing_channel_for_extension(target_ext: str) -> str:
+    """Finds the exact ringing PJSIP/SIP channel name for target_ext to use with Asterisk PickupChan()."""
+    ext_s = str(target_ext or "").strip()
+    if not ext_s:
+        return ""
+    pjsip_prefix = f"pjsip/{ext_s.lower()}-"
+    sip_prefix = f"sip/{ext_s.lower()}-"
+
+    for uid, info in list(channel_states.items()):
+        ch = str(info.get("channel") or "").strip()
+        if ch and (ch.lower().startswith(pjsip_prefix) or ch.lower().startswith(sip_prefix)):
+            if info.get("state") != "busy":
+                return ch
+
+    manager = await get_ami_manager()
+    if manager:
+        try:
+            res = await manager.send_action({"Action": "CoreShowChannels"})
+            for r in _iter_ami_responses(res):
+                if not hasattr(r, "get"):
+                    continue
+                ch = str(r.get("Channel") or "").strip()
+                st_desc = str(r.get("ChannelStateDesc") or "").strip().lower()
+                if ch and (ch.lower().startswith(pjsip_prefix) or ch.lower().startswith(sip_prefix)):
+                    if st_desc in ("ringing", "ring", "down", "rsrvd"):
+                        return ch
+        except Exception as e:
+            print(f"[AMI] find_ringing_channel_for_extension error: {e}")
+
+    return ""
+
 async def _check_and_hangup_blacklisted_channel(manager: Manager, channel: str, uniqueid: str, caller_num: str, exten: str):
     try:
         from backend.main import is_phone_or_value_blacklisted, add_system_log

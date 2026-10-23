@@ -369,7 +369,66 @@ export default function AgentWebphoneTab({
         </div>
 
         {/* Right Column: Active Multi-Line Call Panel & Transcripts */}
-        <div className="lg:col-span-8 xl:col-span-9 h-full flex flex-col overflow-hidden animate-in fade-in slide-in-from-right-4 duration-700 delay-100">
+        <div className="lg:col-span-8 xl:col-span-9 h-full flex flex-col gap-3 overflow-hidden animate-in fade-in slide-in-from-right-4 duration-700 delay-100">
+          {/* Group Ringing Visual Alert Banner (No Ringtone Sound) */}
+          {Array.isArray(wpState.groupRingingCalls) && wpState.groupRingingCalls.length > 0 && (
+            <div className="shrink-0 space-y-2">
+              {wpState.groupRingingCalls.map((rc) => {
+                const rcCallerMasked = maskPhoneLast4(rc.caller_number || "Bilinmeyen", maskPhoneNumbers);
+                const rcCallerDisplay = rc.caller_name
+                  ? `${rc.caller_name} (${rcCallerMasked})`
+                  : rcCallerMasked || "Bilinmeyen Numara";
+                return (
+                  <div
+                    key={`${rc.ringing_extension}_${rc.caller_number}`}
+                    className="p-4 rounded-2xl border-2 border-amber-400 dark:border-amber-500/80 bg-amber-50/90 dark:bg-amber-950/40 shadow-md flex flex-wrap items-center justify-between gap-4 animate-in fade-in duration-200"
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <div className="h-11 w-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-sm shrink-0">
+                        <PhoneIncoming size={20} className="animate-bounce" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-amber-500 text-white">
+                            Grubunda Çağrı Var
+                          </span>
+                          {rc.group_name && (
+                            <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                              • {rc.group_name}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                          <span className="text-slate-700 dark:text-slate-200">
+                            <strong className="text-slate-500 dark:text-slate-400">Çalan Dahili:</strong>{" "}
+                            <span className="font-extrabold text-slate-900 dark:text-white">
+                              {rc.ringing_extension} {rc.ringing_name ? `(${rc.ringing_name})` : ""}
+                            </span>
+                          </span>
+                          <span className="text-slate-700 dark:text-slate-200">
+                            <strong className="text-slate-500 dark:text-slate-400">Arayan:</strong>{" "}
+                            <span className="font-extrabold font-mono text-amber-700 dark:text-amber-300">
+                              {rcCallerDisplay}
+                            </span>
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => webphoneManager.pickupGroupCall(rc)}
+                      className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-extrabold text-xs tracking-wide shadow-md shadow-emerald-500/20 flex items-center gap-2 transition-all shrink-0"
+                    >
+                      <Phone size={15} />
+                      Aç / Çağrıyı Çek ({rc.ringing_extension})
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
           {callStatus !== "Idle" ? (
             <div className="flex flex-col h-full gap-4 overflow-y-auto">
               {/* Multi-Line Switcher & Action Bar */}

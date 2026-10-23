@@ -1484,8 +1484,47 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(cleanName || "Anil")}`;
   };
 
+  const getPickupMetadata = (call) => {
+    if (!call) return null;
+    const hs = String(call.hangup_source || "");
+    const isPickedUp = Boolean(call.is_picked_up || hs.startsWith("pickup:"));
+    if (!isPickedUp) return null;
+
+    const pickerExt = String(
+      call.picked_up_by_ext || (hs.startsWith("pickup:") ? hs.split(":", 2)[1] : "") || ""
+    ).trim();
+    const pickerUser = Array.isArray(users)
+      ? users.find((u) => String(u.extension || "").trim() === pickerExt)
+      : null;
+    const pickerName =
+      call.picked_up_by_name || pickerUser?.full_name || pickerUser?.name || "";
+
+    const origCallee = String(call.original_callee || call.callee_number || "").trim();
+    const origCalleeUser = Array.isArray(users)
+      ? users.find((u) => String(u.extension || "").trim() === origCallee)
+      : null;
+    const origCalleeName =
+      call.original_callee_name || origCalleeUser?.full_name || origCalleeUser?.name || "";
+
+    return {
+      isPickedUp: true,
+      pickerExt,
+      pickerName,
+      pickerDisplay: pickerName ? `${pickerName} (${pickerExt})` : `Dahili ${pickerExt}`,
+      origCallee,
+      origCalleeName,
+      origCalleeDisplay: origCalleeName ? `${origCallee} (${origCalleeName})` : origCallee
+    };
+  };
+
   const getConversant = (call) => {
     if (!call) return "";
+
+    const pickupMeta = getPickupMetadata(call);
+    if (pickupMeta) {
+      return `Pickup: ${pickupMeta.pickerDisplay}`;
+    }
+
     if (call.conversant && String(call.conversant).trim()) {
       return String(call.conversant).trim();
     }
@@ -1584,6 +1623,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
   const getCallStatus = (call) => {
     if (!call) return "Başarısız";
+    if (getPickupMetadata(call)) return "Başarılı";
     const st = call.status ? String(call.status).toLowerCase() : "";
     
     // Check actual DB status
@@ -1614,11 +1654,28 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const direction = getCallDirection(call);
     const statusLabel = getCallStatus(call);
     const conversant = getConversant(call);
+    const pickupMeta = getPickupMetadata(call);
 
     const formatOffsetTime = (secs) => {
       const t = new Date(baseTime.getTime() + secs * 1000);
       return t.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     };
+
+    if (pickupMeta) {
+      timeline.push({
+        time: formatOffsetTime(0),
+        title: "Çağrı Başlangıcı (Arayan → Aranan)",
+        description: `Arayan: ${call.caller_number} → Aranan Dahili: ${pickupMeta.origCalleeDisplay} çalmaya başladı.`,
+        status: "info"
+      });
+      timeline.push({
+        time: formatOffsetTime(3),
+        title: "Pickup ile Çağrı Çekildi",
+        description: `Aranan dahili (${pickupMeta.origCalleeDisplay}) çalarken, aynı abone grubundaki ${pickupMeta.pickerDisplay} tarafından çağrı Pickup ile çekilerek yanıtlandı.`,
+        status: "success"
+      });
+      return timeline;
+    }
 
     if (direction === "Gelen") {
       // Step 1: Call Entry
@@ -6842,6 +6899,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       const conversant = getConversant(call);
                       const direction = getCallDirection(call);
                       const statusLabel = getCallStatus(call);
+                      const pickupMeta = getPickupMetadata(call);
 
                       return (
                         <tr key={call.id} className="hover:bg-slate-50/30 dark:hover:bg-slate-850/30 transition duration-150">
@@ -6860,10 +6918,25 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           {/* Arayan Numara */}
                           {visibleColumns.callerNumber && (
                             <td className="p-4 text-xs font-bold text-slate-800 dark:text-slate-200">
-                              <div className="flex items-center gap-2">
-                                <Phone size={12} className="text-slate-400" />
-                                <span>{getCustomerNumber(call)}</span>
-                              </div>
+                              {pickupMeta ? (
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-1.5">
+                                    <Phone size={12} className="text-slate-400 shrink-0" />
+                                    <span>Arayan: {call.caller_number}</span>
+                                  </div>
+                                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                                    Aranan: <span className="font-bold text-slate-700 dark:text-slate-200">{pickupMeta.origCalleeDisplay}</span>
+                                  </div>
+                                  <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-100/80 dark:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-300/70 dark:border-amber-800/60 text-[10px] font-extrabold">
+                                    Pickup ile Çeken: {pickupMeta.pickerDisplay}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <Phone size={12} className="text-slate-400" />
+                                  <span>{getCustomerNumber(call)}</span>
+                                </div>
+                              )}
                             </td>
                           )}
                           {/* Yön */}
@@ -6885,25 +6958,43 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           {/* Çağrı Durumu */}
                           {visibleColumns.status && (
                             <td className="p-4 text-xs">
-                              <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
-                                statusLabel === "Başarılı"
-                                  ? "bg-emerald-50 dark:bg-emerald-955/20 text-primary dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30"
-                                  : "bg-rose-50 dark:bg-rose-955/20 text-primary dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
-                              }`}>
-                                {statusLabel}
-                              </span>
+                              <div className="flex flex-col items-start gap-1">
+                                <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold border ${
+                                  statusLabel === "Başarılı"
+                                    ? "bg-emerald-50 dark:bg-emerald-955/20 text-primary dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30"
+                                    : "bg-rose-50 dark:bg-rose-955/20 text-primary dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
+                                }`}>
+                                  {statusLabel}
+                                </span>
+                                {pickupMeta && (
+                                  <span className="px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
+                                    Pickup ({pickupMeta.origCallee} → {pickupMeta.pickerExt})
+                                  </span>
+                                )}
+                              </div>
                             </td>
                           )}
                           {/* Görüşen Kişi */}
                           {visibleColumns.conversant && (
                             <td className="p-4 text-xs">
-                              <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
-                                conversant === "AI Asistan" 
-                                  ? "bg-purple-50 dark:bg-purple-950/30 text-primary dark:text-purple-405 border border-purple-100 dark:border-purple-900/30"
-                                  : "bg-blue-50 dark:bg-blue-950/30 text-primary dark:text-blue-400 border border-blue-100 dark:border-blue-900/30"
-                              }`}>
-                                {conversant}
-                              </span>
+                              {pickupMeta ? (
+                                <div className="space-y-1">
+                                  <span className="inline-block px-2.5 py-0.5 rounded text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60">
+                                    Pickup: {pickupMeta.pickerDisplay}
+                                  </span>
+                                  <div className="text-[10px] text-slate-500 dark:text-slate-400">
+                                    Aranan Dahili: {pickupMeta.origCalleeDisplay}
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className={`px-2.5 py-0.5 rounded text-[10px] font-bold ${
+                                  conversant === "AI Asistan" 
+                                    ? "bg-purple-50 dark:bg-purple-950/30 text-primary dark:text-purple-405 border border-purple-100 dark:border-purple-900/30"
+                                    : "bg-blue-50 dark:bg-blue-950/30 text-primary dark:text-blue-400 border border-blue-100 dark:border-blue-900/30"
+                                }`}>
+                                  {conversant}
+                                </span>
+                              )}
                             </td>
                           )}
                           {/* Görüşme Süresi */}

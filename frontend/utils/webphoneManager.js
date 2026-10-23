@@ -12,6 +12,8 @@ class WebphoneManager {
     this.audioEl = null;
     this.durationInterval = null;
     this.registerNotifyInterval = null;
+    this.groupRingingInterval = null;
+    this.notifiedGroupCallIds = new Set();
     this.activeUserKey = null;
     this.confAudioCtx = null;
     this.confMicStream = null;
@@ -37,7 +39,9 @@ class WebphoneManager {
       lines: [],
       activeLineId: null,
       isConferenceActive: false,
-      attendedTransferPending: false
+      attendedTransferPending: false,
+      // Group ringing calls alert state (visual only, no ringtone)
+      groupRingingCalls: []
     };
 
     this.startGlobalDurationLoop();
@@ -427,6 +431,100 @@ class WebphoneManager {
     };
     sendNotify();
     this.registerNotifyInterval = setInterval(sendNotify, 8000);
+    this.startGroupRingingLoop();
+  }
+
+  startGroupRingingLoop() {
+    if (this.groupRingingInterval) clearInterval(this.groupRingingInterval);
+    const pollGroupRinging = async () => {
+      const ext = this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension;
+      const uid = this.state.currentUser?.id || "";
+      if (!ext) return;
+      try {
+        const res = await fetch(
+          `${this.getApiBase()}/api/agent/group-ringing?extension=${encodeURIComponent(ext)}&user_id=${encodeURIComponent(uid)}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const ringingList = Array.isArray(data?.ringing_calls) ? data.ringing_calls : [];
+
+        // Keep track of active keys to fire visual popup event only when a new group call starts ringing
+        const activeKeys = new Set();
+        let hasNewRinging = false;
+        for (const rc of ringingList) {
+          const key = `${rc.ringing_extension}_${rc.caller_number || rc.call_id || ""}`;
+          activeKeys.add(key);
+          if (!this.notifiedGroupCallIds.has(key)) {
+            this.notifiedGroupCallIds.add(key);
+            hasNewRinging = true;
+          }
+        }
+        // Clean up finished ringing calls from notified set
+        for (const oldKey of Array.from(this.notifiedGroupCallIds)) {
+          if (!activeKeys.has(oldKey)) {
+            this.notifiedGroupCallIds.delete(oldKey);
+          }
+        }
+
+        const prevJson = JSON.stringify(this.state.groupRingingCalls || []);
+        const nextJson = JSON.stringify(ringingList);
+        if (prevJson !== nextJson) {
+          this.setState({ groupRingingCalls: ringingList });
+        }
+
+        // Visual-only alert (DO NOT play ringtone sound!)
+        if (hasNewRinging && ringingList.length > 0 && typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("GROUP_CALL_RINGING", { detail: ringingList }));
+        }
+      } catch (e) {}
+    };
+    pollGroupRinging();
+    this.groupRingingInterval = setInterval(pollGroupRinging, 2000);
+  }
+
+  async pickupGroupCall(ringingCall) {
+    if (!ringingCall || !ringingCall.ringing_extension) return;
+    const targetExt = String(ringingCall.ringing_extension).trim();
+    const callerNum = String(ringingCall.caller_number || "").trim();
+    const callerName = String(ringingCall.caller_name || "").trim();
+    const ringingName = String(ringingCall.ringing_name || "").trim();
+    const myExt = String(this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension || "1000").trim();
+
+    // Immediately record pickup in backend CDR before dialing **ext
+    try {
+      await fetch(`${this.getApiBase()}/api/webrtc/pickup-call`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          picker_extension: myExt,
+          ringing_extension: targetExt,
+          caller_number: callerNum,
+          call_id: ringingCall.call_id || ""
+        })
+      });
+    } catch (e) {}
+
+    // Optimistically remove from groupRingingCalls UI
+    const remaining = (this.state.groupRingingCalls || []).filter(
+      (rc) => String(rc.ringing_extension) !== targetExt
+    );
+    this.setState({ groupRingingCalls: remaining });
+
+    const displayLabel = callerName
+      ? `${callerName} (Pickup: ${targetExt})`
+      : ringingName
+        ? `Pickup: ${ringingName} (${targetExt})`
+        : `Pickup: Dahili ${targetExt}`;
+
+    this.recordTimelineEvent(
+      "call_pickup",
+      `Grup Çağrı Çekme: Arayan ${callerNum || "Bilinmeyen"} -> Çalan Dahili ${targetExt} (${myExt} tarafından çekildi)`
+    );
+
+    await this.makeCall(`**${targetExt}`, {
+      displayName: displayLabel,
+      overrideRemoteNumber: callerNum && callerNum !== "Bilinmeyen" ? callerNum : `**${targetExt}`
+    });
   }
 
   attachRemoteAudioForLine(line) {
@@ -685,11 +783,13 @@ class WebphoneManager {
       }
     });
 
+    const uiRemoteNum = String(options.overrideRemoteNumber || cleanTarget).trim();
+
     const lineObj = {
       id: lineId,
       lineNumber: this.getNextLineNumber(),
       session: inviter,
-      remoteNumber: cleanTarget,
+      remoteNumber: uiRemoteNum,
       remoteDisplayName: String(options.displayName || "").trim(),
       callStatus: "Calling",
       callDuration: 0,
@@ -706,7 +806,7 @@ class WebphoneManager {
     this.linesMap.set(lineId, lineObj);
     this.syncLinesToState({
       activeLineId: lineId,
-      dialNumber: cleanTarget,
+      dialNumber: uiRemoteNum,
       callNotification: null,
       attendedTransferPending: Boolean(options.attendedTransfer) || this.state.attendedTransferPending
     });

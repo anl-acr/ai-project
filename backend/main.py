@@ -2220,6 +2220,22 @@ same => n,Hangup()
 [webrtc_agents]
 ; WebRTC istemcileri (temsilciler) bu context üzerinden görüşme yapar
 
+; Hedefli Çağrı Çekme (Directed Call Pickup: **1001 vb.) ve Grup Çağrı Çekme (*8)
+exten => _**X.,1,NoOp(Hedefli Cagri Cekme: Ceken=${{CALLERID(num)}} -> Calan=${{EXTEN:2}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(PICKUP_CHAN=${{CURL(http://{backend_host}/api/webrtc/resolve_pickup_channel?target_ext=${{EXTEN:2}}&picker_ext=${{CALLERID(num)}})}})
+same => n,GotoIf($["${{PICKUP_CHAN}}" != "" & "${{PICKUP_CHAN}}" != "NONE"]?do_pickupchan:do_std_pickup)
+same => n(do_pickupchan),NoOp(PickupChan ile cagri cekiliyor: ${{PICKUP_CHAN}})
+same => n,PickupChan(${{PICKUP_CHAN}})
+same => n(do_std_pickup),Pickup(${{EXTEN:2}}@webrtc_agents)
+same => n,Pickup(${{EXTEN:2}}@default)
+same => n,Hangup()
+
+exten => *8,1,NoOp(Grup Cagri Cekme (*8): Ceken=${{CALLERID(num)}})
+same => n,Pickup()
+same => n,Hangup()
+
 ; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
 exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
@@ -6945,8 +6961,15 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     db_call.agent_name = resolved_agent_name
                 await session.commit()
 
-            set_live_extension_call_state(caller, "ringing")
-            set_live_extension_call_state(did, "ringing")
+            if did and (str(did).startswith("*8") or str(did).startswith("**")):
+                # Directed/group pickup leg: do not overwrite or create a separate Call row for **ext
+                set_live_extension_call_state(caller, "busy")
+                target_ring_ext = str(did)[2:].strip() if str(did).startswith("**") else ""
+                if target_ring_ext:
+                    set_live_extension_call_state(target_ring_ext, None)
+            else:
+                set_live_extension_call_state(caller, "busy")
+                set_live_extension_call_state(did, "ringing", caller_number=str(caller or ""), call_id=str(call_id or ""))
 
             print(f"[Asterisk Dialplan] Call registered successfully: {call_id} (Caller: {caller}, DID: {did}, Agent: {resolved_agent_name}, Tenant: {call_tenant})")
             if did and (str(did).startswith("*8") or str(did).startswith("**")):
@@ -6969,15 +6992,18 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
 live_extension_call_state = {}
 
 
-def set_live_extension_call_state(ext_val: str, state: Optional[str]):
+def set_live_extension_call_state(ext_val: str, state: Optional[str], caller_number: str = "", call_id: str = ""):
     ext_s = str(ext_val or "").strip()
-    if not ext_s or len(ext_s) > 6 or ext_s in ("s", "h"):
+    if not ext_s or len(ext_s) > 6 or ext_s in ("s", "h") or ext_s.startswith("*"):
         return
     if not state:
         live_extension_call_state.pop(ext_s, None)
     else:
+        prev = live_extension_call_state.get(ext_s) or {}
         live_extension_call_state[ext_s] = {
             "state": state,
+            "caller_number": str(caller_number or prev.get("caller_number") or "").strip(),
+            "call_id": str(call_id or prev.get("call_id") or "").strip(),
             "updated_at": datetime.datetime.utcnow()
         }
 
@@ -7025,6 +7051,11 @@ async def end_call_endpoint(
         if db_call:
             set_live_extension_call_state(db_call.caller_number, None)
             set_live_extension_call_state(db_call.callee_number, None)
+            hangup_src_val = str(db_call.hangup_source or "").strip()
+            if hangup_src_val.startswith("pickup:"):
+                picker_ext_val = hangup_src_val.split(":", 1)[1].strip()
+                set_live_extension_call_state(picker_ext_val, None)
+
             db_call.end_time = datetime.datetime.utcnow()
             db_call.recording_path = f"/api/recordings/{call_id}.wav"
 
@@ -7066,6 +7097,8 @@ async def end_call_endpoint(
 
             if db_call.status in ("blocked", "rejected_limit"):
                 resolved_status = db_call.status
+            elif hangup_src_val.startswith("pickup:"):
+                resolved_status = "completed"
             elif db_call.status == "transferred" and resolved_status == "completed":
                 resolved_status = "transferred"
             db_call.status = resolved_status
@@ -7106,9 +7139,38 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
         if not caller or not callee:
             return {"status": "ignored", "reason": "missing_numbers"}
 
+        now_utc = datetime.datetime.utcnow()
+        recent_cutoff = now_utc - datetime.timedelta(seconds=120)
+
+        # Handle directed/group pickup (**1001 or *8) without creating a duplicate **1001 Call row
+        if callee.startswith("**") or callee.startswith("*8"):
+            target_ring_ext = callee[2:].strip() if callee.startswith("**") else ""
+            if event_type in ("start", "ringing", "answer"):
+                set_live_extension_call_state(caller, "busy")
+                if target_ring_ext:
+                    set_live_extension_call_state(target_ring_ext, None)
+            elif event_type == "end":
+                set_live_extension_call_state(caller, None)
+                async with AsyncSessionLocal() as session:
+                    stmt_pk = (
+                        select(Call)
+                        .where(
+                            Call.hangup_source == f"pickup:{caller}",
+                            Call.start_time >= now_utc - datetime.timedelta(minutes=30)
+                        )
+                        .order_by(Call.start_time.desc())
+                    )
+                    res_pk = await session.execute(stmt_pk)
+                    pk_call = res_pk.scalars().first()
+                    if pk_call:
+                        pk_call.end_time = now_utc
+                        pk_call.status = "completed"
+                        await session.commit()
+            return {"status": "pickup_handled"}
+
         if event_type in ("start", "ringing"):
-            set_live_extension_call_state(caller, "ringing")
-            set_live_extension_call_state(callee, "ringing")
+            set_live_extension_call_state(caller, "busy")
+            set_live_extension_call_state(callee, "ringing", caller_number=caller, call_id=call_id)
         elif event_type == "answer":
             set_live_extension_call_state(caller, "busy")
             set_live_extension_call_state(callee, "busy")
@@ -7118,9 +7180,6 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
 
         if not call_id:
             call_id = str(uuid.uuid4())
-
-        now_utc = datetime.datetime.utcnow()
-        recent_cutoff = now_utc - datetime.timedelta(seconds=120)
 
         async with AsyncSessionLocal() as session:
             db_call = await session.get(Call, call_id)
@@ -7168,7 +7227,9 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     db_call.status = "in_progress"
                 elif event_type == "end":
                     db_call.end_time = now_utc
-                    if duration > 0 or status == "completed":
+                    if str(db_call.hangup_source or "").startswith("pickup:"):
+                        db_call.status = "completed"
+                    elif duration > 0 or status == "completed":
                         db_call.status = "completed"
                     elif db_call.status not in ("completed", "transferred", "blocked"):
                         db_call.status = status if status not in ("in_progress", "ringing") else "no_answer"
@@ -7180,6 +7241,316 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
     except Exception as e_wlog:
         print(f"[WebRTC Call Log Error]: {e_wlog}")
         return {"status": "error", "message": str(e_wlog)}
+
+
+def _get_user_group_peers_map(user_ext: str, user_id: str, all_users: list) -> dict:
+    """
+    Returns {peer_extension: group_name} for all extensions in the same
+    subscriber_groups, call_pickup_groups, or queues as user_ext / user_id.
+    Falls back to same-tenant internal extensions if no explicit groups match.
+    """
+    ext_s = str(user_ext or "").strip()
+    uid_s = str(user_id or "").strip()
+    peer_map = {}
+
+    # Map user_id <-> extension
+    id_to_ext = {}
+    ext_to_id = {}
+    user_tenant = "tenant-default"
+    for u in all_users:
+        u_e = str(u.get("extension") or "").strip()
+        u_i = str(u.get("id") or "").strip()
+        if u_e and u_i:
+            id_to_ext[u_i] = u_e
+            ext_to_id[u_e] = u_i
+        if (ext_s and u_e == ext_s) or (uid_s and u_i == uid_s):
+            if not ext_s and u_e:
+                ext_s = u_e
+            if not uid_s and u_i:
+                uid_s = u_i
+            user_tenant = u.get("tenant_id") or "tenant-default"
+
+    def resolve_member_exts(raw_members: list) -> list:
+        expanded = _expand_subscriber_groups_in_allowed_users(raw_members or [])
+        exts = []
+        for m in expanded:
+            if isinstance(m, dict):
+                m_val = str(m.get("extension") or m.get("id") or "").strip()
+            else:
+                m_val = str(m or "").strip()
+            if not m_val:
+                continue
+            if m_val in id_to_ext:
+                exts.append(id_to_ext[m_val])
+            elif m_val in ext_to_id or (len(m_val) <= 5 and m_val.isdigit()):
+                exts.append(m_val)
+        return exts
+
+    # 1. Subscriber Groups (Abone Grupları)
+    for sg in settings_db.get("subscriber_groups", []):
+        m_exts = resolve_member_exts(sg.get("extensions") or sg.get("members") or [])
+        if ext_s in m_exts:
+            g_name = str(sg.get("name") or "Abone Grubu").strip()
+            for pe in m_exts:
+                if pe != ext_s:
+                    peer_map[pe] = g_name
+
+    # 2. Call Pickup Groups (Çağrı Toplama Grupları)
+    for pg in settings_db.get("call_pickup_groups", []):
+        m_exts = resolve_member_exts(pg.get("extensions") or pg.get("members") or [])
+        if ext_s in m_exts:
+            g_name = str(pg.get("name") or "Çağrı Toplama Grubu").strip()
+            for pe in m_exts:
+                if pe != ext_s and pe not in peer_map:
+                    peer_map[pe] = g_name
+
+    # 3. Queues (Çağrı Kuyrukları)
+    for q in settings_db.get("queues", []):
+        m_exts = resolve_member_exts(q.get("queueMembers") or q.get("members") or [])
+        if ext_s in m_exts:
+            g_name = str(q.get("name") or "Kuyruk Grubu").strip()
+            for pe in m_exts:
+                if pe != ext_s and pe not in peer_map:
+                    peer_map[pe] = g_name
+
+    # 4. Fallback: if user has no explicit group memberships, include same-tenant extensions
+    if not peer_map:
+        for u in all_users:
+            u_e = str(u.get("extension") or "").strip()
+            u_t = u.get("tenant_id") or "tenant-default"
+            if u_e and u_e != ext_s and u_t == user_tenant:
+                peer_map[u_e] = "Abone Grubu"
+
+    return peer_map
+
+
+@app.get("/api/agent/group-ringing")
+async def get_agent_group_ringing(
+    extension: Optional[str] = None,
+    user_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    ext_s = str(extension or "").strip()
+    uid_s = str(user_id or "").strip()
+    if not ext_s and not uid_s:
+        return {"ringing_calls": []}
+
+    all_users = list(settings_db.get("users", []))
+    try:
+        res_su = await db.execute(select(SystemUser))
+        for su in res_su.scalars().all():
+            su_ext = str(su.extension or "").strip()
+            if su_ext and not any(str(u.get("extension") or "").strip() == su_ext for u in all_users):
+                all_users.append({
+                    "id": su.id,
+                    "extension": su_ext,
+                    "full_name": su.full_name,
+                    "tenant_id": getattr(su, "tenant_id", "tenant-default")
+                })
+            if not ext_s and uid_s and str(su.id) == uid_s:
+                ext_s = su_ext
+    except Exception:
+        pass
+
+    peer_map = _get_user_group_peers_map(ext_s, uid_s, all_users)
+    if not peer_map:
+        return {"ringing_calls": []}
+
+    now_utc = datetime.datetime.utcnow()
+    ringing_calls = []
+
+    from backend.services.ami_manager import get_extension_ringing_info
+
+    for peer_ext, group_name in peer_map.items():
+        if peer_ext == ext_s:
+            continue
+
+        is_ringing = False
+        caller_num = ""
+        call_id_val = ""
+
+        info = live_extension_call_state.get(peer_ext)
+        if info and info.get("state") == "ringing":
+            upd = info.get("updated_at") or now_utc
+            if (now_utc - upd).total_seconds() <= 60:
+                is_ringing = True
+                caller_num = str(info.get("caller_number") or "").strip()
+                call_id_val = str(info.get("call_id") or "").strip()
+
+        if not is_ringing:
+            ami_ring = get_extension_ringing_info(peer_ext)
+            if ami_ring:
+                is_ringing = True
+                caller_num = str(ami_ring.get("caller_number") or "").strip()
+
+        if not is_ringing:
+            continue
+
+        # Look up active Call in DB if caller_num or call_id is missing
+        if not caller_num or not call_id_val:
+            try:
+                stmt_c = (
+                    select(Call)
+                    .where(
+                        Call.callee_number == peer_ext,
+                        Call.status == "in_progress",
+                        Call.start_time >= now_utc - datetime.timedelta(seconds=90)
+                    )
+                    .order_by(Call.start_time.desc())
+                )
+                res_c = await db.execute(stmt_c)
+                act_c = res_c.scalars().first()
+                if act_c:
+                    if not caller_num:
+                        caller_num = str(act_c.caller_number or "").strip()
+                    if not call_id_val:
+                        call_id_val = str(act_c.id or "").strip()
+            except Exception:
+                pass
+
+        # Do not alert the agent if the agent themselves is the caller who dialed peer_ext
+        if caller_num and caller_num == ext_s:
+            continue
+
+        ringing_name = resolve_user_name_by_ext_or_id(peer_ext) or f"Dahili {peer_ext}"
+        caller_name = ""
+        if caller_num:
+            caller_name = resolve_user_name_by_ext_or_id(caller_num) or ""
+            if not caller_name:
+                try:
+                    caller_name = await resolve_contact_name_by_phone(caller_num, db) or ""
+                except Exception:
+                    pass
+
+        ringing_calls.append({
+            "call_id": call_id_val or f"ring-{peer_ext}",
+            "ringing_extension": peer_ext,
+            "ringing_name": ringing_name,
+            "caller_number": caller_num or "Bilinmeyen",
+            "caller_name": caller_name,
+            "group_name": group_name or "Grubunda Çağrı Var"
+        })
+
+    return {"ringing_calls": ringing_calls}
+
+
+async def _record_call_pickup_in_db(picker_ext: str, ringing_ext: str, caller_num: str = "", call_id: str = ""):
+    picker_s = str(picker_ext or "").strip()
+    ringing_s = str(ringing_ext or "").strip()
+    caller_s = str(caller_num or "").strip()
+    cid_s = str(call_id or "").strip()
+
+    if not picker_s or not ringing_s:
+        return None
+
+    set_live_extension_call_state(ringing_s, None)
+    set_live_extension_call_state(picker_s, "busy")
+
+    picker_name = resolve_user_name_by_ext_or_id(picker_s) or f"Dahili {picker_s}"
+    ringing_name = resolve_user_name_by_ext_or_id(ringing_s) or f"Dahili {ringing_s}"
+    now_utc = datetime.datetime.utcnow()
+
+    async with AsyncSessionLocal() as session:
+        db_call = None
+        if cid_s and not cid_s.startswith("ring-"):
+            db_call = await session.get(Call, cid_s)
+
+        if not db_call:
+            stmt = (
+                select(Call)
+                .where(
+                    Call.callee_number == ringing_s,
+                    Call.start_time >= now_utc - datetime.timedelta(seconds=120)
+                )
+                .order_by(Call.start_time.desc())
+            )
+            res = await session.execute(stmt)
+            db_call = res.scalars().first()
+
+        if not db_call:
+            new_id = cid_s if (cid_s and not cid_s.startswith("ring-")) else str(uuid.uuid4())
+            db_call = Call(
+                id=new_id,
+                caller_number=caller_s or "Bilinmeyen",
+                callee_number=ringing_s,
+                status="completed",
+                tenant_id="tenant-default",
+                start_time=now_utc,
+                hangup_source=f"pickup:{picker_s}",
+                agent_name=f"{picker_name} ({picker_s})",
+                summary=f"Çağrı Çekme (Pickup): Arayan {caller_s or 'Bilinmeyen'} -> Aranan {ringing_s} ({ringing_name}) | Pickup ile Çeken: {picker_s} ({picker_name})"
+            )
+            session.add(db_call)
+        else:
+            if caller_s and (not db_call.caller_number or db_call.caller_number == "Bilinmeyen"):
+                db_call.caller_number = caller_s
+            else:
+                caller_s = db_call.caller_number
+            db_call.callee_number = ringing_s
+            db_call.hangup_source = f"pickup:{picker_s}"
+            db_call.status = "completed"
+            db_call.agent_name = f"{picker_name} ({picker_s})"
+            db_call.summary = f"Çağrı Çekme (Pickup): Arayan {caller_s or 'Bilinmeyen'} -> Aranan {ringing_s} ({ringing_name}) | Pickup ile Çeken: {picker_s} ({picker_name})"
+
+        session.add(AgentBreakLog(
+            user_id=picker_s,
+            extension=picker_s,
+            agent_name=picker_name,
+            break_name=f"__ACTION__:call_pickup:{caller_s or 'Bilinmeyen'}->{ringing_s}->{picker_s}:{picker_name}",
+            start_time=now_utc,
+            end_time=now_utc,
+            duration_seconds=0
+        ))
+        await session.commit()
+        return db_call.id
+
+
+@app.get("/api/webrtc/resolve_pickup_channel")
+async def webrtc_resolve_pickup_channel(target_ext: str = "", picker_ext: str = ""):
+    target_s = str(target_ext or "").strip()
+    picker_s = str(picker_ext or "").strip()
+    if not target_s:
+        return Response(content="NONE", media_type="text/plain")
+
+    info = live_extension_call_state.get(target_s) or {}
+    caller_num = str(info.get("caller_number") or "").strip()
+    call_id_val = str(info.get("call_id") or "").strip()
+
+    from backend.services.ami_manager import find_ringing_channel_for_extension
+    ch_name = await find_ringing_channel_for_extension(target_s)
+
+    if picker_s:
+        try:
+            await _record_call_pickup_in_db(picker_s, target_s, caller_num=caller_num, call_id=call_id_val)
+        except Exception as e_pk:
+            print(f"[Resolve Pickup DB Error]: {e_pk}")
+
+    return Response(content=ch_name if ch_name else "NONE", media_type="text/plain")
+
+
+@app.post("/api/webrtc/pickup-call")
+async def webrtc_pickup_call_endpoint(payload: dict = Body(...)):
+    picker_extension = str(payload.get("picker_extension") or "").strip()
+    ringing_extension = str(payload.get("ringing_extension") or "").strip()
+    caller_number = str(payload.get("caller_number") or "").strip()
+    call_id = str(payload.get("call_id") or "").strip()
+
+    if not picker_extension or not ringing_extension:
+        raise HTTPException(status_code=400, detail="Eksik çağrı çekme parametreleri.")
+
+    recorded_id = await _record_call_pickup_in_db(
+        picker_extension,
+        ringing_extension,
+        caller_num=caller_number,
+        call_id=call_id
+    )
+    picker_name = resolve_user_name_by_ext_or_id(picker_extension) or f"Dahili {picker_extension}"
+    return {
+        "status": "success",
+        "call_id": recorded_id,
+        "picked_up_by_ext": picker_extension,
+        "picked_up_by_name": picker_name
+    }
 
 
 @app.post("/api/webrtc/blind-transfer")
@@ -7194,7 +7565,7 @@ async def webrtc_blind_transfer_endpoint(payload: dict = Body(...)):
     ok = await blind_transfer_agent_call(agent_extension, target, remote_number=remote_number)
 
     set_live_extension_call_state(agent_extension, None)
-    set_live_extension_call_state(target, "ringing")
+    set_live_extension_call_state(target, "ringing", caller_number=remote_number)
 
     try:
         async with AsyncSessionLocal() as session:
@@ -7292,7 +7663,13 @@ async def list_calls(
         stmt = stmt.where(Call.caller_number.ilike(f"%{caller_number}%"))
 
     if extension:
-        stmt = stmt.where(or_(Call.caller_number == extension, Call.callee_number == extension))
+        stmt = stmt.where(
+            or_(
+                Call.caller_number == extension,
+                Call.callee_number == extension,
+                Call.hangup_source == f"pickup:{extension}"
+            )
+        )
         
     if call_id:
         stmt = stmt.where(Call.id.ilike(f"%{call_id}%"))
@@ -7333,6 +7710,12 @@ async def list_calls(
                 is_transferred = (c.status == "transferred") or hangup_src.startswith("transfer:")
                 transfer_target = hangup_src.split(":", 1)[1].strip() if hangup_src.startswith("transfer:") else ""
                 transfer_type = "ami_transfer" if is_transferred else ""
+
+                is_picked_up = hangup_src.startswith("pickup:")
+                picked_up_by_ext = hangup_src.split(":", 1)[1].strip() if is_picked_up else ""
+                picked_up_by_name = resolve_user_name_by_ext_or_id(picked_up_by_ext) if picked_up_by_ext else ""
+                original_callee_name = resolve_user_name_by_ext_or_id(callee_str) if callee_str else ""
+
                 hold_duration = 0
                 hold_count = 0
                 active_hold_start = None
@@ -7347,8 +7730,8 @@ async def list_calls(
                     log_uid = str(log.user_id or "").strip()
 
                     matched = (
-                        (log_ext and log_ext in (caller_str, callee_str))
-                        or (log_uid and log_uid in (caller_str, callee_str))
+                        (log_ext and log_ext in (caller_str, callee_str, picked_up_by_ext))
+                        or (log_uid and log_uid in (caller_str, callee_str, picked_up_by_ext))
                         or (caller_str and len(caller_str) >= 3 and caller_str in b_name)
                         or (callee_str and len(callee_str) >= 3 and callee_str in b_name)
                         or (short_id and short_id in b_name)
@@ -7371,6 +7754,10 @@ async def list_calls(
                             dur = max(1, int((log.start_time - active_hold_start).total_seconds()))
                             hold_duration += dur
                             active_hold_start = None
+                    elif act_key == "call_pickup" and not is_picked_up:
+                        is_picked_up = True
+                        picked_up_by_ext = log_ext or picked_up_by_ext
+                        picked_up_by_name = log.agent_name or resolve_user_name_by_ext_or_id(picked_up_by_ext) or ""
                     elif act_key in ("call_transfer", "call_blind_transfer", "call_attended_transfer", "call_forwarded"):
                         is_transferred = True
                         transfer_type = act_key
@@ -7392,6 +7779,11 @@ async def list_calls(
                 c.is_transferred = is_transferred
                 c.transfer_target = transfer_target
                 c.transfer_type = transfer_type
+                c.is_picked_up = is_picked_up
+                c.picked_up_by_ext = picked_up_by_ext
+                c.picked_up_by_name = picked_up_by_name
+                c.original_callee = callee_str
+                c.original_callee_name = original_callee_name
 
                 if not getattr(c, "agent_name", None):
                     resolved_ag = resolve_call_agent_name_snapshot(caller_str, callee_str, c.status, hangup_src)
