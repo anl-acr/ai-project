@@ -94,8 +94,11 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     const fetchConfig = async () => {
       try {
         const protocol = window.location.protocol;
-        const res = await fetch(`${protocol}//${backendHost}/api/webrtc/config`, {
-          headers: { "X-User-ID": currentUser.id.toString() }
+        const queryParams = new URLSearchParams();
+        if (currentUser.id) queryParams.set("user_id", currentUser.id.toString());
+        if (currentUser.extension) queryParams.set("extension", currentUser.extension.toString());
+        const res = await fetch(`${protocol}//${backendHost}/api/webrtc/config?${queryParams.toString()}`, {
+          headers: { "X-User-ID": (currentUser.id || currentUser.extension || "").toString() }
         });
         if (res.ok) {
           const data = await res.json();

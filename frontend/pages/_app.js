@@ -10,19 +10,22 @@ function MyApp({ Component, pageProps }) {
       document.documentElement.style.setProperty('--color-primary', getSafeThemeColor(savedColor));
     }
 
-    // Global fetch interceptor to append X-User-ID and X-Tenant-ID
+    // Global fetch interceptor to append X-User-ID and X-Tenant-ID without wiping Headers instances
     const originalFetch = window.fetch;
     window.fetch = async (...args) => {
       let [resource, config] = args;
       if (typeof resource === 'string' && (resource.startsWith('http://') || resource.startsWith('https://') || resource.startsWith('/'))) {
         config = config || {};
-        const userId = localStorage.getItem('current_user_id') || 'System';
+        const userId = sessionStorage.getItem('current_user_id') || localStorage.getItem('current_user_id') || 'System';
         const activeTenantId = localStorage.getItem('active_tenant_id') || 'tenant-default';
-        config.headers = {
-          ...config.headers,
-          'X-User-ID': userId,
-          'X-Tenant-ID': activeTenantId
-        };
+        const headers = new Headers(config.headers || {});
+        if (!headers.has('X-User-ID') || headers.get('X-User-ID') === 'System') {
+          headers.set('X-User-ID', userId);
+        }
+        if (!headers.has('X-Tenant-ID')) {
+          headers.set('X-Tenant-ID', activeTenantId);
+        }
+        config.headers = headers;
         args = [resource, config];
       }
       return originalFetch(...args);

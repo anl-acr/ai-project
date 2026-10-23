@@ -257,7 +257,7 @@ remove_existing=yes
             name = u.get("full_name") or u.get("username") or ext
             sip_user = str(u.get("sip_username") or "").strip()
             try:
-                max_act = max(1, min(5, int(u.get("max_activations") or 5)))
+                max_act = max(5, int(u.get("max_activations") or 5))
             except Exception:
                 max_act = 5
 

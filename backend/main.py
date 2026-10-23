@@ -1844,7 +1844,7 @@ match={host}
         name = u.get("full_name") or u.get("username") or ext
         sip_user = str(u.get("sip_username") or "").strip()
         try:
-            max_act = max(1, min(5, int(u.get("max_activations") or 5)))
+            max_act = max(5, int(u.get("max_activations") or 5))
         except Exception:
             max_act = 5
         
@@ -12525,14 +12525,27 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         except Exception:
             pass
             
-        header_user_id = request.headers.get("X-User-ID") or request.headers.get("x-user-id") or request.query_params.get("user_id")
-        user_id = header_user_id or (user_info.get("user_id") or user_info.get("id") if user_info else None)
+        query_ext = (request.query_params.get("extension") or "").strip()
+        query_uid = (request.query_params.get("user_id") or "").strip()
+        header_user_id = (request.headers.get("X-User-ID") or request.headers.get("x-user-id") or "").strip()
+        if header_user_id in ("System", "undefined", "null"):
+            header_user_id = ""
+        user_id = query_uid or query_ext or header_user_id or (user_info.get("user_id") or user_info.get("id") if user_info else None)
         if str(user_id) == "admin":
             user_id = 1
         
-        # Search user by ID, extension, username, or email
+        # Search user by extension, ID, username, or email
         current_user = None
-        if user_id:
+        if query_ext:
+            try:
+                result = await db.execute(select(SystemUser).filter(SystemUser.extension == query_ext))
+                db_user = result.scalars().first()
+                if db_user:
+                    current_user = {c.name: getattr(db_user, c.name) for c in db_user.__table__.columns}
+            except Exception as ex_ext:
+                print(f"[WebRTC Config Extension Resolution Error]: {ex_ext}")
+
+        if not current_user and user_id:
             try:
                 if str(user_id).isdigit():
                     uid = int(user_id)
@@ -12553,10 +12566,11 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
                 print(f"[WebRTC Config User Resolution Error]: {ex_usr}")
                 
         # Fallback to settings.json if DB didn't find the user
-        if not current_user and user_id:
+        if not current_user and (user_id or query_ext):
+            target_lookup = query_ext or str(user_id)
             for u in settings_db.get("users", []):
-                if str(u.get("id")) == str(user_id) or str(u.get("extension")) == str(user_id) or u.get("email") == str(user_id):
-                    current_user = u
+                if str(u.get("id")) == str(user_id) or str(u.get("extension")) == target_lookup or u.get("email") == str(user_id):
+                    current_user = dict(u)
                     break
 
         if not current_user:
@@ -12570,6 +12584,11 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
                 
         agent_ext = str(current_user.get("extension", "1000") if current_user else "1000").strip()
         raw_sip_pwd = (current_user.get("sip_password") if current_user else "") or ""
+        if not raw_sip_pwd or raw_sip_pwd == "1234":
+            for su in settings_db.get("users", []):
+                if str(su.get("extension", "")).strip() == agent_ext and su.get("sip_password"):
+                    raw_sip_pwd = su.get("sip_password")
+                    break
         sip_password = resolve_secure_sip_password(agent_ext, raw_sip_pwd)
         
         # Dynamically compute WebSocket URL and resolved viaHost IPv4

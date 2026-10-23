@@ -255,11 +255,11 @@ export default function Home() {
       
       if (typeof url === "string" && url.includes("/api/")) {
         const activeTenantId = localStorage.getItem("active_tenant_id") || "tenant-default";
-        const currentUserId = localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id") || "";
+        const currentUserId = sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") || "";
         
         const headers = new Headers(options.headers || {});
         if (!headers.has("X-Tenant-ID")) headers.set("X-Tenant-ID", activeTenantId);
-        if (!headers.has("X-User-ID")) headers.set("X-User-ID", currentUserId);
+        if (!headers.has("X-User-ID") && currentUserId) headers.set("X-User-ID", currentUserId);
         options.headers = headers;
         arguments[1] = options;
       }
@@ -681,8 +681,8 @@ export default function Home() {
     let currentUserData = providedUser || null;
     try {
       // 1. Synchronous storage check FIRST
-      const savedAuth = localStorage.getItem('is_logged_in') === 'true' || sessionStorage.getItem('is_logged_in') === 'true';
-      const savedUserId = localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
+      const savedAuth = sessionStorage.getItem('is_logged_in') === 'true' || localStorage.getItem('is_logged_in') === 'true';
+      const savedUserId = sessionStorage.getItem('current_user_id') || localStorage.getItem('current_user_id');
 
       if (savedAuth && savedUserId) {
         if (savedUserId === 'admin') {
@@ -962,12 +962,11 @@ export default function Home() {
     const validAdminPassword = adminUserFromDb?.password || SUPER_ADMIN.password || "admin";
 
     if (username === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
+      sessionStorage.setItem("is_logged_in", "true");
+      sessionStorage.setItem("current_user_id", "admin");
       if (rememberMe) {
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("current_user_id", "admin");
-      } else {
-        sessionStorage.setItem("is_logged_in", "true");
-        sessionStorage.setItem("current_user_id", "admin");
       }
       const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
       setCurrentUser(activeAdminUser);
@@ -985,12 +984,11 @@ export default function Home() {
         return { success: true, requires2fa: true, user_id: foundUser.id.toString(), method: foundUser.two_factor_method || 'app' };
       }
 
+      sessionStorage.setItem("is_logged_in", "true");
+      sessionStorage.setItem("current_user_id", foundUser.id.toString());
       if (rememberMe) {
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("current_user_id", foundUser.id.toString());
-      } else {
-        sessionStorage.setItem("is_logged_in", "true");
-        sessionStorage.setItem("current_user_id", foundUser.id.toString());
       }
       setCurrentUser(foundUser);
       setIsLoggedIn(true);
@@ -1005,12 +1003,11 @@ export default function Home() {
   const complete2FALogin = (userId, rememberMe) => {
     const foundUser = systemUsers.find(u => u.id.toString() === userId);
     if (foundUser) {
+      sessionStorage.setItem("is_logged_in", "true");
+      sessionStorage.setItem("current_user_id", foundUser.id.toString());
       if (rememberMe) {
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("current_user_id", foundUser.id.toString());
-      } else {
-        sessionStorage.setItem("is_logged_in", "true");
-        sessionStorage.setItem("current_user_id", foundUser.id.toString());
       }
       setCurrentUser(foundUser);
       setIsLoggedIn(true);
@@ -2321,7 +2318,7 @@ export default function Home() {
             {activeCallId ? (
               <span className="flex items-center gap-1.5 text-xs text-primary dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 px-3 py-1 rounded-full border border-amber-200/50 dark:border-amber-800/40">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary dark:bg-amber-400 animate-ping"></span>
-                Görüşme Aktif (ID: {activeCallId})
+                Görüşme Aktif
               </span>
             ) : (
               <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/60 px-3 py-1 rounded-full border border-slate-200/60 dark:border-slate-800/40">

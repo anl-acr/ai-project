@@ -10,6 +10,7 @@ export default function CallChatWidget({
   currentUser
 }) {
   const [contacts, setContacts] = useState([]);
+  const [directory, setDirectory] = useState([]);
 
   // Expanded/Collapsed State
   const [isOpen, setIsOpen] = useState(false);
@@ -46,10 +47,14 @@ export default function CallChatWidget({
   useEffect(() => {
     const fetchContacts = async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/contacts`);
-        if (res.ok) setContacts(await res.json());
+        const [contactsRes, dirRes] = await Promise.all([
+          fetch(`${API_BASE}/api/contacts`),
+          fetch(`${API_BASE}/api/agent/directory`)
+        ]);
+        if (contactsRes.ok) setContacts(await contactsRes.json());
+        if (dirRes.ok) setDirectory(await dirRes.json());
       } catch (err) {
-        console.error("Contacts fetch error in widget:", err);
+        console.error("Contacts/directory fetch error in widget:", err);
       }
     };
     fetchContacts();
@@ -75,22 +80,31 @@ export default function CallChatWidget({
   useEffect(() => {
     let isMounted = true;
     const fetchConfig = async () => {
-      const savedUserId = typeof window !== "undefined" ? (localStorage.getItem("current_user_id") || sessionStorage.getItem("current_user_id")) : "";
-      const isSuperAdmin = currentUser?.username === "admin" || currentUser?.id === "admin" || savedUserId === "admin";
+      const savedUserId = typeof window !== "undefined" ? (sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id")) : "";
+      const isSuperAdmin = (currentUser?.username === "admin" || currentUser?.id === "admin" || (!currentUser && savedUserId === "admin")) && !currentUser?.extension;
       
       if (isSuperAdmin) {
         if (isMounted) setIsLoadingConfig(false);
         return;
       }
+
+      const targetUserId = currentUser?.id || currentUser?.extension || savedUserId;
+      if (!targetUserId) {
+        return;
+      }
+
       setIsLoadingConfig(true);
       try {
         let headers = { "Content-Type": "application/json" };
-        const targetUserId = currentUser?.id || currentUser?.extension;
-        if (targetUserId) {
-          headers["X-User-ID"] = targetUserId.toString();
+        headers["X-User-ID"] = targetUserId.toString();
+
+        const queryParams = new URLSearchParams();
+        queryParams.set("user_id", targetUserId.toString());
+        if (currentUser?.extension) {
+          queryParams.set("extension", currentUser.extension.toString());
         }
 
-        const res = await fetch(`${API_BASE}/api/webrtc/config`, { headers });
+        const res = await fetch(`${API_BASE}/api/webrtc/config?${queryParams.toString()}`, { headers });
         if (res.ok) {
           const config = await res.json();
           if (isMounted) setWebrtcConfig(config);
@@ -647,6 +661,12 @@ export default function CallChatWidget({
     ? chatSessions.find(c => c.id === activeChatId)
     : internalChatSessions.find(c => c.id === activeChatId);
 
+  const callerNum = session?.remoteIdentity?.uri?.user || "";
+  const rawSipName = (session?.remoteIdentity?.displayName || "").replace(/^"|"$/g, "").trim();
+  const matchedCaller = callerNum ? findContactByPhone(callerNum, contacts, directory) : null;
+  const callerDisplayName = matchedCaller?.displayName || (rawSipName && rawSipName !== callerNum ? rawSipName : "");
+  const callerAvatar = matchedCaller?.avatar_url || matchedCaller?.avatar || null;
+
   return (
     <div className="fixed bottom-6 right-6 z-[100] font-sans antialiased">
       
@@ -663,6 +683,11 @@ export default function CallChatWidget({
           <span className="relative flex h-2.5 w-2.5">
             {isLoadingConfig ? (
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-300 dark:bg-slate-600 animate-pulse"></span>
+            ) : callStatus === "Ringing" ? (
+              <>
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </>
             ) : registered ? (
               <>
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -675,7 +700,15 @@ export default function CallChatWidget({
           
           {/* Label */}
           <span className="tracking-wide">
-            {isLoadingConfig ? "Bağlanıyor..." : registered ? `Dahili ${agentExtension}` : `Dahili ${agentExtension || 'X'} (Bağlı Değil)`}
+            {isLoadingConfig
+              ? "Bağlanıyor..."
+              : callStatus === "Ringing"
+              ? `Gelen Çağrı: ${callerDisplayName || callerNum || "Bilinmeyen"}`
+              : callStatus === "InCall"
+              ? `Görüşmede: ${callerDisplayName || callerNum || agentExtension} (${formatSeconds(callDuration)})`
+              : registered
+              ? `Dahili ${agentExtension}`
+              : `Dahili ${agentExtension || 'X'} (Bağlı Değil)`}
           </span>
         </div>
       )}
@@ -799,12 +832,33 @@ export default function CallChatWidget({
 
                   {callStatus === "Ringing" && (
                     <div className="py-2 space-y-3">
-                      <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-sm animate-bounce">
-                        <PhoneCall size={20} className="animate-pulse" />
-                      </div>
+                      {callerAvatar ? (
+                        <img
+                          src={callerAvatar}
+                          alt={callerDisplayName || callerNum}
+                          className="h-14 w-14 rounded-full object-cover mx-auto border-2 border-amber-400 shadow-md animate-bounce"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-sm animate-bounce">
+                          <PhoneCall size={20} className="animate-pulse" />
+                        </div>
+                      )}
                       <div>
-                        <p className="text-amber-600 dark:text-amber-400 font-extrabold text-xs uppercase tracking-widest">GELEN ÇAĞRI</p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">Çağrı kuyruğunuz çalıyor...</p>
+                        <p className="text-amber-600 dark:text-amber-400 font-extrabold text-[10px] uppercase tracking-widest">GELEN ÇAĞRI</p>
+                        {callerDisplayName ? (
+                          <>
+                            <p className="text-sm font-black text-slate-800 dark:text-white mt-1 truncate">
+                              {callerDisplayName}
+                            </p>
+                            <p className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                              {callerNum}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-sm font-black font-mono text-slate-800 dark:text-white mt-1">
+                            {callerNum || "Bilinmeyen Numara"}
+                          </p>
+                        )}
                       </div>
 
                       {/* Ringing Accept / Reject Controls */}
@@ -828,12 +882,25 @@ export default function CallChatWidget({
                   {callStatus === "InCall" && (
                     <div className="py-2 space-y-4">
                       <div className="flex justify-between items-center gap-4">
-                        <div className="flex items-center gap-3">
-                          <div className="h-11 w-11 rounded-full bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center animate-pulse shrink-0 shadow-sm">
-                            <Phone size={18} />
-                          </div>
-                          <div className="text-left">
+                        <div className="flex items-center gap-3 min-w-0">
+                          {callerAvatar ? (
+                            <img
+                              src={callerAvatar}
+                              alt={callerDisplayName || callerNum}
+                              className="h-11 w-11 rounded-full object-cover border-2 border-emerald-400 shrink-0 shadow-sm"
+                            />
+                          ) : (
+                            <div className="h-11 w-11 rounded-full bg-emerald-100 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center animate-pulse shrink-0 shadow-sm">
+                              <Phone size={18} />
+                            </div>
+                          )}
+                          <div className="text-left min-w-0">
                             <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] uppercase tracking-wider mb-0.5">Görüşme Aktif</p>
+                            {(callerDisplayName || callerNum) && (
+                              <p className="text-xs font-extrabold text-slate-700 dark:text-slate-200 truncate mb-0.5">
+                                {callerDisplayName ? `${callerDisplayName} (${callerNum})` : callerNum}
+                              </p>
+                            )}
                             <p className="text-xl font-black font-mono text-slate-800 dark:text-white leading-none">
                               {formatSeconds(callDuration)}
                             </p>
@@ -843,7 +910,7 @@ export default function CallChatWidget({
                         {/* InCall Hangup Button */}
                         <button
                           onClick={hangupCall}
-                          className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-[11px] tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors"
+                          className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-[11px] tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors shrink-0"
                         >
                           <PhoneOff size={12} /> Kapat
                         </button>
