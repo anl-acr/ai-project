@@ -6463,6 +6463,64 @@ async def get_indexed_sources(user_info: dict = Depends(get_user_info), db: Asyn
     sources = result.scalars().all()
     return [{"name": name} for name in sources]
 
+def resolve_user_name_by_ext_or_id(ext_or_id: str, users_override=None) -> str:
+    val = str(ext_or_id or "").strip()
+    if not val:
+        return ""
+    users_list = users_override if users_override is not None else settings_db.get("users", [])
+    for u in users_list:
+        u_ext = str((u.get("extension") if isinstance(u, dict) else getattr(u, "extension", "")) or "").strip()
+        u_id = str((u.get("id") if isinstance(u, dict) else getattr(u, "id", "")) or "").strip()
+        u_email = str((u.get("email") if isinstance(u, dict) else getattr(u, "email", "")) or "").strip()
+        u_full = str((u.get("full_name") if isinstance(u, dict) else getattr(u, "full_name", "")) or (u.get("name") if isinstance(u, dict) else getattr(u, "name", "")) or "").strip()
+        if val in (u_ext, u_id, u_email) and val != "":
+            return u_full or f"Dahili {u_ext}"
+    return ""
+
+
+def resolve_call_agent_name_snapshot(caller: str, callee: str, status: str = "", hangup_source: str = "", users_override=None) -> str:
+    c_caller = str(caller or "").strip()
+    c_callee = str(callee or "").strip()
+    h_src = str(hangup_source or "").strip()
+
+    if h_src.startswith("transfer:"):
+        tgt_ext = h_src.split("transfer:", 1)[1].strip()
+        t_name = resolve_user_name_by_ext_or_id(tgt_ext, users_override=users_override)
+        if t_name:
+            return t_name
+
+    u_caller = resolve_user_name_by_ext_or_id(c_caller, users_override=users_override)
+    if u_caller:
+        return u_caller
+    u_callee = resolve_user_name_by_ext_or_id(c_callee, users_override=users_override)
+    if u_callee:
+        return u_callee
+
+    ai_list = settings_db.get("ai_agents", [])
+    for a in ai_list:
+        a_ext = str(a.get("extension") or "").strip()
+        a_id = str(a.get("id") or "").strip()
+        a_name = str(a.get("name") or "").strip()
+        if (a_ext and a_ext in (c_caller, c_callee)) or (a_id and a_id in (c_caller, c_callee)) or (a_name and a_name in (c_caller, c_callee)):
+            return a_name
+
+    if len(c_caller) >= 10 or c_caller.startswith("+") or c_caller.lower() == "ai":
+        try:
+            from backend.audiosocket_server import evaluate_call_flow_action
+            cf_eval = evaluate_call_flow_action(c_callee)
+            if cf_eval.get("action") == "extension" and cf_eval.get("target"):
+                cf_u_name = resolve_user_name_by_ext_or_id(cf_eval.get("target"), users_override=users_override)
+                if cf_u_name:
+                    return cf_u_name
+        except Exception:
+            pass
+        if ai_list and ai_list[0].get("name"):
+            return str(ai_list[0].get("name")).strip()
+        return "AI Asistan"
+
+    return ""
+
+
 @app.get("/api/calls/register")
 async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_id: Optional[str] = None):
     from fastapi import Response
@@ -6484,12 +6542,16 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
 
         async with AsyncSessionLocal() as session:
             call_tenant = "tenant-default"
+            resolved_agent_name = resolve_call_agent_name_snapshot(caller, did)
             try:
                 if caller:
                     res_u = await session.execute(select(SystemUser).where(or_(SystemUser.extension == str(caller), SystemUser.email == str(caller))))
                     user_found = res_u.scalars().first()
-                    if user_found and getattr(user_found, "tenant_id", None):
-                        call_tenant = user_found.tenant_id
+                    if user_found:
+                        if getattr(user_found, "tenant_id", None):
+                            call_tenant = user_found.tenant_id
+                        if getattr(user_found, "full_name", None):
+                            resolved_agent_name = user_found.full_name
                 if call_tenant == "tenant-default" and did and did != "s":
                     res_t = await session.execute(select(Trunk).where(Trunk.did_number == str(did)))
                     trunk_found = res_t.scalars().first()
@@ -6515,6 +6577,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                         existing_bl_call.tenant_id = call_tenant
                         existing_bl_call.end_time = datetime.datetime.utcnow()
                         existing_bl_call.hangup_source = f"blacklist:{bl_reason}"
+                        if resolved_agent_name and not existing_bl_call.agent_name:
+                            existing_bl_call.agent_name = resolved_agent_name
                     else:
                         new_call = Call(
                             id=call_id,
@@ -6524,7 +6588,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                             tenant_id=call_tenant,
                             start_time=datetime.datetime.utcnow(),
                             end_time=datetime.datetime.utcnow(),
-                            hangup_source=f"blacklist:{bl_reason}"
+                            hangup_source=f"blacklist:{bl_reason}",
+                            agent_name=resolved_agent_name or None
                         )
                         session.add(new_call)
                     await session.commit()
@@ -6564,6 +6629,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     if existing_lim_call:
                         existing_lim_call.status = "rejected_limit"
                         existing_lim_call.end_time = datetime.datetime.utcnow()
+                        if resolved_agent_name and not existing_lim_call.agent_name:
+                            existing_lim_call.agent_name = resolved_agent_name
                     else:
                         new_call = Call(
                             id=call_id,
@@ -6572,7 +6639,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                             status="rejected_limit",
                             tenant_id=call_tenant,
                             start_time=datetime.datetime.utcnow(),
-                            end_time=datetime.datetime.utcnow()
+                            end_time=datetime.datetime.utcnow(),
+                            agent_name=resolved_agent_name or None
                         )
                         session.add(new_call)
                     await session.commit()
@@ -6605,7 +6673,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     callee_number=did or "s",
                     status="in_progress",
                     tenant_id=call_tenant,
-                    start_time=datetime.datetime.utcnow()
+                    start_time=datetime.datetime.utcnow(),
+                    agent_name=resolved_agent_name or None
                 )
                 session.add(new_call)
                 await session.commit()
@@ -6616,14 +6685,17 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     db_call.callee_number = did
                 if call_tenant and call_tenant != "tenant-default":
                     db_call.tenant_id = call_tenant
+                if resolved_agent_name and not db_call.agent_name:
+                    db_call.agent_name = resolved_agent_name
                 await session.commit()
 
-            print(f"[Asterisk Dialplan] Call registered successfully: {call_id} (Caller: {caller}, DID: {did}, Tenant: {call_tenant})")
+            print(f"[Asterisk Dialplan] Call registered successfully: {call_id} (Caller: {caller}, DID: {did}, Agent: {resolved_agent_name}, Tenant: {call_tenant})")
             if did and (str(did).startswith("*8") or str(did).startswith("**")):
                 pickup_target = "Grup Çağrı Toplama (*8)" if str(did).startswith("*8") else f"Hedefli Çağrı Toplama ({did})"
                 session.add(AgentBreakLog(
                     user_id=str(caller or ""),
                     extension=str(caller or ""),
+                    agent_name=resolve_user_name_by_ext_or_id(caller) or None,
                     break_name=f"__ACTION__:call_pickup:{pickup_target}",
                     start_time=datetime.datetime.utcnow(),
                     end_time=datetime.datetime.utcnow(),
@@ -6855,6 +6927,18 @@ async def list_calls(
                 c.is_transferred = is_transferred
                 c.transfer_target = transfer_target
                 c.transfer_type = transfer_type
+
+                if not getattr(c, "agent_name", None):
+                    resolved_ag = resolve_call_agent_name_snapshot(caller_str, callee_str, c.status, hangup_src)
+                    if resolved_ag:
+                        c.agent_name = resolved_ag
+                        any_agent_backfilled = True
+
+            if locals().get("any_agent_backfilled"):
+                try:
+                    await db.commit()
+                except Exception:
+                    pass
         except Exception as enrich_err:
             print(f"[List Calls Enrich Warning]: {enrich_err}")
 
@@ -9296,6 +9380,64 @@ async def get_agent_timeline_report(
     res_breaks = await db.execute(stmt_breaks)
     window_breaks = res_breaks.scalars().all()
 
+    # Discover historical agent names on extensions (e.g. when extension 1000 was renamed from 'Anıl' to 'Mehmet')
+    existing_ext_names = {(str(a.get("extension") or "").strip(), str(a.get("name") or "").strip().lower()) for a in agents_list}
+    ext_to_base_agent = {str(a.get("extension") or "").strip(): a for a in agents_list if not a.get("is_ai") and a.get("extension")}
+    uid_to_base_agent = {str(a.get("id") or "").strip(): a for a in agents_list if not a.get("is_ai") and a.get("id")}
+
+    for call in window_calls:
+        c_ag_name = str(getattr(call, "agent_name", "") or "").strip()
+        if not c_ag_name:
+            continue
+        c_caller = str(call.caller_number or "").strip()
+        c_callee = str(call.callee_number or "").strip()
+        matched_ext = None
+        if c_caller in ext_to_base_agent:
+            matched_ext = c_caller
+        elif c_callee in ext_to_base_agent:
+            matched_ext = c_callee
+        elif str(call.hangup_source or "").startswith("transfer:"):
+            t_ext = str(call.hangup_source).split("transfer:", 1)[1].strip()
+            if t_ext in ext_to_base_agent:
+                matched_ext = t_ext
+        if matched_ext and (matched_ext, c_ag_name.lower()) not in existing_ext_names:
+            existing_ext_names.add((matched_ext, c_ag_name.lower()))
+            base_ag = ext_to_base_agent[matched_ext]
+            agents_list.append({
+                "id": f"hist-{matched_ext}-{c_ag_name}",
+                "orig_user_id": str(base_ag["id"]),
+                "name": c_ag_name,
+                "extension": matched_ext,
+                "role": base_ag.get("role") or "agent",
+                "avatar": "",
+                "is_online": False,
+                "is_ai": False,
+                "is_historical": True
+            })
+
+    for b_log in window_breaks:
+        b_ag_name = str(getattr(b_log, "agent_name", "") or "").strip()
+        if not b_ag_name:
+            continue
+        b_ext = str(b_log.extension or "").strip()
+        b_uid = str(b_log.user_id or "").strip()
+        base_ag = ext_to_base_agent.get(b_ext) or uid_to_base_agent.get(b_uid)
+        if base_ag:
+            m_ext = str(base_ag.get("extension") or "").strip()
+            if m_ext and (m_ext, b_ag_name.lower()) not in existing_ext_names:
+                existing_ext_names.add((m_ext, b_ag_name.lower()))
+                agents_list.append({
+                    "id": f"hist-{m_ext}-{b_ag_name}",
+                    "orig_user_id": str(base_ag["id"]),
+                    "name": b_ag_name,
+                    "extension": m_ext,
+                    "role": base_ag.get("role") or "agent",
+                    "avatar": "",
+                    "is_online": False,
+                    "is_ai": False,
+                    "is_historical": True
+                })
+
     def fmt_tr_time(dt_utc):
         if not dt_utc:
             return ""
@@ -9343,8 +9485,10 @@ async def get_agent_timeline_report(
 
     for ag in agents_list:
         ag_id = str(ag["id"])
+        ag_orig_id = str(ag.get("orig_user_id") or ag_id)
         ag_ext = str(ag["extension"])
-        ag_name = ag["name"]
+        ag_name = str(ag["name"] or "").strip()
+        is_hist = bool(ag.get("is_historical"))
 
         if agent and agent not in ("All", "all", "") and agent not in (ag_id, ag_ext, ag_name):
             continue
@@ -9367,7 +9511,14 @@ async def get_agent_timeline_report(
         for b_log in window_breaks:
             b_uid = str(b_log.user_id or "").strip()
             b_ext = str(b_log.extension or "").strip()
-            if b_uid not in (ag_id, ag_ext) and b_ext not in (ag_id, ag_ext):
+            if b_uid not in (ag_id, ag_orig_id, ag_ext) and b_ext not in (ag_id, ag_orig_id, ag_ext):
+                continue
+
+            b_ag_name = str(getattr(b_log, "agent_name", "") or "").strip()
+            if b_ag_name:
+                if b_ag_name.lower() != ag_name.lower():
+                    continue
+            elif is_hist:
                 continue
 
             b_name = str(b_log.break_name or "Mola")
@@ -9469,13 +9620,24 @@ async def get_agent_timeline_report(
                     or (ag.get("is_primary_ai") and callee not in seen_exts and caller not in seen_exts)
                 )
             else:
-                is_caller = (caller == ag_ext or caller == ag_id or (len(ag_ext) >= 3 and caller.endswith(ag_ext)))
-                is_callee = (callee == ag_ext or callee == ag_id or (len(ag_ext) >= 3 and callee.endswith(ag_ext)))
+                is_caller = (caller == ag_ext or caller == ag_orig_id or (len(ag_ext) >= 3 and caller.endswith(ag_ext)))
+                is_callee = (callee == ag_ext or callee == ag_orig_id or (len(ag_ext) >= 3 and callee.endswith(ag_ext)))
 
             if not is_caller and not is_callee:
-                if not ag.get("is_ai") and st == "transferred" and len([x for x in agents_list if not x.get("is_ai")]) == 1:
+                if not ag.get("is_ai") and st == "transferred" and len([x for x in agents_list if not x.get("is_ai") and not x.get("is_historical")]) == 1:
                     is_callee = True
                 else:
+                    continue
+
+            if not ag.get("is_ai"):
+                c_ag_name = str(getattr(call, "agent_name", "") or "").strip()
+                if c_ag_name:
+                    if c_ag_name.lower() != ag_name.lower() and any(
+                        str(a.get("extension") or "").strip() == ag_ext and str(a.get("name") or "").strip().lower() == c_ag_name.lower()
+                        for a in agents_list
+                    ):
+                        continue
+                elif is_hist:
                     continue
 
             c_start = call.start_time
@@ -10522,7 +10684,9 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;",
-                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;"
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
+                "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;"
             ]
             for stmt_sql in ddl_statements:
                 try:
@@ -10569,6 +10733,27 @@ async def startup_event():
                     print(f"[SIP Security Shield] {res_del.rowcount} adet sahte SIP scanner CDR kaydı veritabanından temizlendi.")
             except Exception as e_clean_fraud:
                 print(f"[SIP Security Shield Cleanup Warning]: {e_clean_fraud}")
+
+            # Backfill missing agent_name snapshots on existing Call and AgentBreakLog rows
+            try:
+                res_null_calls = await session.execute(select(Call).where(or_(Call.agent_name.is_(None), Call.agent_name == "")))
+                for c_row in res_null_calls.scalars().all():
+                    resolved_c_ag = resolve_call_agent_name_snapshot(
+                        c_row.caller_number,
+                        c_row.callee_number,
+                        c_row.status,
+                        c_row.hangup_source
+                    )
+                    if resolved_c_ag:
+                        c_row.agent_name = resolved_c_ag
+
+                res_null_breaks = await session.execute(select(AgentBreakLog).where(or_(AgentBreakLog.agent_name.is_(None), AgentBreakLog.agent_name == "")))
+                for b_row in res_null_breaks.scalars().all():
+                    resolved_b_ag = resolve_user_name_by_ext_or_id(b_row.extension or b_row.user_id)
+                    if resolved_b_ag:
+                        b_row.agent_name = resolved_b_ag
+            except Exception as e_bf:
+                print(f"[Startup Agent Name Backfill Warning]: {e_bf}")
 
             await session.commit()
 
@@ -11063,6 +11248,44 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
             if target_user:
+                old_name = str(getattr(target_user, "full_name", "") or "").strip()
+                if not old_name and ext_str in existing_disk_by_ext:
+                    old_name = str(existing_disk_by_ext[ext_str].get("full_name") or existing_disk_by_ext[ext_str].get("name") or "").strip()
+                old_ext = str(getattr(target_user, "extension", "") or ext_str or "").strip()
+                new_name = str(data.get("full_name") or "").strip()
+
+                if old_name and old_ext:
+                    try:
+                        stmt_preserve_calls = (
+                            update(Call)
+                            .where(
+                                or_(Call.agent_name.is_(None), Call.agent_name == ""),
+                                or_(
+                                    Call.caller_number == old_ext,
+                                    Call.callee_number == old_ext,
+                                    Call.hangup_source == f"transfer:{old_ext}"
+                                )
+                            )
+                            .values(agent_name=old_name)
+                        )
+                        await db.execute(stmt_preserve_calls)
+
+                        stmt_preserve_breaks = (
+                            update(AgentBreakLog)
+                            .where(
+                                or_(AgentBreakLog.agent_name.is_(None), AgentBreakLog.agent_name == ""),
+                                or_(
+                                    AgentBreakLog.extension == old_ext,
+                                    AgentBreakLog.user_id == str(target_user.id),
+                                    AgentBreakLog.user_id == old_ext
+                                )
+                            )
+                            .values(agent_name=old_name)
+                        )
+                        await db.execute(stmt_preserve_breaks)
+                    except Exception as e_pres:
+                        print(f"[Preserve Historical Agent Name Warning]: {e_pres}")
+
                 for k, v in filtered_data.items():
                     setattr(target_user, k, v)
                     if k in json_cols:

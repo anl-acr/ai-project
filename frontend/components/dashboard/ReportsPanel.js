@@ -1430,12 +1430,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const uFull = normalizeAgentName(u.full_name || u.name || "");
         const uUser = String(u.username || "").trim();
         const uId = String(u.id || "").trim();
-        return (
-          (extStr && uExt && uExt === extStr) ||
-          (cleanLower && uFull.toLowerCase() === cleanLower) ||
-          (cleanLower && uUser.toLowerCase() === cleanLower) ||
-          (cleanLower && uId.toLowerCase() === cleanLower)
-        );
+        if (cleanLower && !cleanLower.startsWith("dahili ")) {
+          return (
+            uFull.toLowerCase() === cleanLower ||
+            uUser.toLowerCase() === cleanLower ||
+            uId.toLowerCase() === cleanLower
+          );
+        }
+        return extStr && uExt && uExt === extStr;
       });
       if (matchedUser && matchedUser.avatar && String(matchedUser.avatar).trim()) {
         return String(matchedUser.avatar).trim();

@@ -197,11 +197,15 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
             try:
                 from backend.database.config import AsyncSessionLocal
                 from backend.database.models import Call
+                from backend.main import resolve_user_name_by_ext_or_id
                 async with AsyncSessionLocal() as session:
                     db_call = await session.get(Call, call_id)
                     if db_call:
                         db_call.status = "transferred"
                         db_call.hangup_source = f"transfer:{extension}"
+                        resolved_u_name = resolve_user_name_by_ext_or_id(extension)
+                        if resolved_u_name:
+                            db_call.agent_name = resolved_u_name
                         await session.commit()
             except Exception as db_err:
                 print(f"[AMI] Transfer DB update error: {db_err}")

@@ -60,6 +60,7 @@ class Call(Base):
     qa_score = Column(Integer, nullable=True)
     qa_report = Column(Text, nullable=True)
     hangup_source = Column(String, nullable=True)
+    agent_name = Column(String, nullable=True)
 
     transcripts = relationship("Transcript", back_populates="call", cascade="all, delete-orphan")
     appointments = relationship("Appointment", back_populates="call")
@@ -348,6 +349,7 @@ class AgentBreakLog(Base):
     tenant_id = Column(String, default="tenant-default", index=True)
     user_id = Column(String, nullable=True, index=True)
     extension = Column(String, nullable=True, index=True)
+    agent_name = Column(String, nullable=True)
     break_name = Column(String, nullable=False)
     start_time = Column(DateTime, default=datetime.datetime.utcnow, nullable=False)
     end_time = Column(DateTime, nullable=True)
