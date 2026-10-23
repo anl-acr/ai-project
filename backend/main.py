@@ -4111,11 +4111,35 @@ async def get_outbound_rules(user_info: dict = Depends(get_user_info)):
         return all_rules
     return [r for r in all_rules if r.get("tenant_id") == target_tenant or (not r.get("tenant_id") and target_tenant == "tenant-default")]
 
+def _expand_subscriber_groups_in_allowed_users(allowed_list: list) -> list:
+    if not isinstance(allowed_list, list):
+        return []
+    result = list(allowed_list)
+    all_groups = settings_db.get("subscriber_groups", [])
+    all_users = settings_db.get("users", [])
+    for item in list(allowed_list):
+        s_item = str(item or "")
+        if s_item.startswith("group_"):
+            gid = s_item.replace("group_", "", 1)
+            grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+            if grp:
+                for ext_or_id in (grp.get("extensions") or grp.get("members") or []):
+                    matched_user = next(
+                        (u for u in all_users if str(u.get("id")) == str(ext_or_id) or str(u.get("extension")) == str(ext_or_id)),
+                        None
+                    )
+                    uid_to_add = matched_user.get("id") if matched_user else ext_or_id
+                    if uid_to_add is not None and not any(str(x) == str(uid_to_add) for x in result):
+                        result.append(uid_to_add)
+    return result
+
 @app.post("/api/settings/outbound_rules")
 async def save_outbound_rule(request: Request, user_info: dict = Depends(get_user_info)):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     payload = await request.json()
     payload["tenant_id"] = target_tenant
+    if "allowed_users" in payload:
+        payload["allowed_users"] = _expand_subscriber_groups_in_allowed_users(payload.get("allowed_users", []))
     if "outbound_rules" not in settings_db:
         settings_db["outbound_rules"] = []
     
@@ -4158,6 +4182,8 @@ async def save_inbound_rule(request: Request, user_info: dict = Depends(get_user
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     payload = await request.json()
     payload["tenant_id"] = target_tenant
+    if "allowed_users" in payload:
+        payload["allowed_users"] = _expand_subscriber_groups_in_allowed_users(payload.get("allowed_users", []))
     if "inbound_rules" not in settings_db:
         settings_db["inbound_rules"] = []
     

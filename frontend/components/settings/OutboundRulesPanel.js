@@ -20,8 +20,8 @@ const DualListBox = ({
   const [checkedAvailable, setCheckedAvailable] = useState([]);
   const [checkedSelected, setCheckedSelected] = useState([]);
 
-  const unselectedItems = availableItems.filter(i => !selectedIds.includes(i.id));
-  const selectedItems = selectedIds.map(id => availableItems.find(i => i.id === id)).filter(Boolean);
+  const unselectedItems = availableItems.filter(i => !selectedIds.some(sid => String(sid) === String(i.id)));
+  const selectedItems = selectedIds.map(id => availableItems.find(i => String(i.id) === String(id))).filter(Boolean);
 
   const filteredAvailable = unselectedItems.filter(i => 
     Object.values(i).some(v => String(v).toLowerCase().includes(availableSearch.toLowerCase()))
@@ -228,6 +228,7 @@ export default function OutboundRulesPanel({ backendHost }) {
   const [rules, setRules] = useState([]);
   const [trunks, setTrunks] = useState([]);
   const [users, setUsers] = useState([]);
+  const [subscriberGroups, setSubscriberGroups] = useState([]);
   
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
@@ -253,15 +254,17 @@ export default function OutboundRulesPanel({ backendHost }) {
   const fetchData = async () => {
     try {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-      const [resRules, resTrunks, resUsers] = await Promise.all([
+      const [resRules, resTrunks, resUsers, resGroups] = await Promise.all([
         fetch(`${protocol}//${apiHost}/api/settings/outbound_rules`),
         fetch(`${protocol}//${apiHost}/api/settings/trunks`),
-        fetch(`${protocol}//${apiHost}/api/settings/users`)
+        fetch(`${protocol}//${apiHost}/api/settings/users`),
+        fetch(`${protocol}//${apiHost}/api/settings/subscriber_groups`)
       ]);
 
       if (resRules.ok) setRules(await resRules.json());
       if (resTrunks.ok) setTrunks(await resTrunks.json());
       if (resUsers.ok) setUsers(await resUsers.json());
+      if (resGroups.ok) setSubscriberGroups(await resGroups.json());
 
       setLoading(false);
     } catch (err) {
@@ -270,15 +273,108 @@ export default function OutboundRulesPanel({ backendHost }) {
     }
   };
 
+  const getGroupMemberUserIds = (group, usersList = users) => {
+    const rawExts = group?.extensions || group?.members || [];
+    const matchedIds = [];
+    rawExts.forEach(val => {
+      const u = (usersList || []).find(
+        usr => usr.id === val || String(usr.id) === String(val) || String(usr.extension) === String(val)
+      );
+      if (u && !matchedIds.includes(u.id)) {
+        matchedIds.push(u.id);
+      }
+    });
+    return matchedIds;
+  };
+
+  const userAndGroupItems = [
+    ...(subscriberGroups || []).map(g => {
+      const memberUserIds = getGroupMemberUserIds(g, users);
+      return {
+        id: `group_${g.id}`,
+        groupId: g.id,
+        isSubscriberGroup: true,
+        extension: `Abone Grubu (${memberUserIds.length})`,
+        full_name: g.name,
+        memberUserIds
+      };
+    }),
+    ...(users || []).map(u => ({
+      ...u,
+      isSubscriberGroup: false
+    }))
+  ];
+
+  const handleAllowedUsersChange = (newSelectedIds) => {
+    const prevIds = formData.allowed_users || [];
+    const addedIds = newSelectedIds.filter(id => !prevIds.some(pid => String(pid) === String(id)));
+    const removedIds = prevIds.filter(id => !newSelectedIds.some(nid => String(nid) === String(id)));
+
+    if (addedIds.length === 0 && removedIds.length === 0) {
+      setFormData(prev => ({ ...prev, allowed_users: newSelectedIds }));
+      return;
+    }
+
+    let updatedIds = [...newSelectedIds];
+
+    // Eklenen abone grubu varsa içindeki kullanıcıları da seçili listesine ekle
+    addedIds.forEach(addedId => {
+      if (String(addedId).startsWith("group_")) {
+        const grpItem = userAndGroupItems.find(item => String(item.id) === String(addedId));
+        if (grpItem && Array.isArray(grpItem.memberUserIds)) {
+          grpItem.memberUserIds.forEach(uid => {
+            if (!updatedIds.some(x => String(x) === String(uid))) {
+              updatedIds.push(uid);
+            }
+          });
+        }
+      }
+    });
+
+    // Çıkarılan abone grubu varsa içindeki kullanıcıları da seçili listesinden çıkar
+    removedIds.forEach(removedId => {
+      if (String(removedId).startsWith("group_")) {
+        const grpItem = userAndGroupItems.find(item => String(item.id) === String(removedId));
+        if (grpItem && Array.isArray(grpItem.memberUserIds)) {
+          const remainingGroupIds = updatedIds.filter(id => String(id).startsWith("group_"));
+          const protectedUserIds = new Set();
+          remainingGroupIds.forEach(gid => {
+            const otherGrp = userAndGroupItems.find(item => String(item.id) === String(gid));
+            (otherGrp?.memberUserIds || []).forEach(uid => protectedUserIds.add(String(uid)));
+          });
+          updatedIds = updatedIds.filter(
+            id => !grpItem.memberUserIds.some(uid => String(uid) === String(id)) || protectedUserIds.has(String(id))
+          );
+        }
+      }
+    });
+
+    setFormData(prev => ({ ...prev, allowed_users: updatedIds }));
+  };
+
   const handleOpenModal = (rule = null) => {
     if (rule) {
       setSelectedRule(rule);
+      let initialAllowed = [...(rule.allowed_users || [])];
+      initialAllowed.forEach(id => {
+        if (String(id).startsWith("group_")) {
+          const grpId = String(id).replace("group_", "");
+          const grp = (subscriberGroups || []).find(g => String(g.id) === grpId);
+          if (grp) {
+            getGroupMemberUserIds(grp, users).forEach(uid => {
+              if (!initialAllowed.some(x => String(x) === String(uid))) {
+                initialAllowed.push(uid);
+              }
+            });
+          }
+        }
+      });
       setFormData({
         name: rule.name || "",
         caller_id: rule.caller_id || "",
         patterns: rule.patterns && rule.patterns.length > 0 ? rule.patterns : [{ pattern: rule.pattern || "", strip: "", prepend: "" }],
         trunk_ids: rule.trunk_ids || (rule.trunk_id ? [rule.trunk_id] : []),
-        allowed_users: rule.allowed_users || []
+        allowed_users: initialAllowed
       });
     } else {
       setSelectedRule(null);
@@ -369,7 +465,12 @@ export default function OutboundRulesPanel({ backendHost }) {
         return t ? (t.trunk_name || t.host) : id;
       }).join(", ");
       const userNames = (rule.allowed_users || []).map(uid => {
-        const u = users.find(x => x.id === uid);
+        if (String(uid).startsWith("group_")) {
+          const gid = String(uid).replace("group_", "");
+          const grp = subscriberGroups.find(g => String(g.id) === gid);
+          return grp ? `[Abone Grubu: ${grp.name}]` : uid;
+        }
+        const u = users.find(x => x.id === uid || String(x.id) === String(uid));
         return u ? u.full_name : uid;
       }).join(", ");
 
@@ -423,14 +524,27 @@ export default function OutboundRulesPanel({ backendHost }) {
           }).filter(Boolean);
 
           const usersRaw = String(row["İzin Verilen Aboneler"] || "").split(",").map(s => s.trim()).filter(Boolean);
-          const allowed_users = usersRaw.map(uName => {
+          const allowed_users = [];
+          usersRaw.forEach(uName => {
+            const cleanGrpName = uName.replace(/^\[Abone Grubu:\s*/i, "").replace(/\]$/, "").trim();
+            const foundGroup = subscriberGroups.find(g => g.name && g.name.toLowerCase() === cleanGrpName.toLowerCase());
+            if (foundGroup) {
+              const gid = `group_${foundGroup.id}`;
+              if (!allowed_users.includes(gid)) allowed_users.push(gid);
+              getGroupMemberUserIds(foundGroup, users).forEach(uid => {
+                if (!allowed_users.includes(uid)) allowed_users.push(uid);
+              });
+              return;
+            }
             const found = users.find(u =>
               (u.full_name && u.full_name.toLowerCase() === uName.toLowerCase()) ||
               String(u.extension) === uName ||
               String(u.id) === uName
             );
-            return found ? found.id : null;
-          }).filter(Boolean);
+            if (found && !allowed_users.includes(found.id)) {
+              allowed_users.push(found.id);
+            }
+          });
 
           const existing = rules.find(r => r.name && r.name.toLowerCase() === name.toLowerCase());
 
@@ -583,27 +697,49 @@ export default function OutboundRulesPanel({ backendHost }) {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        <div className="flex -space-x-2 overflow-hidden">
-                          {rule.allowed_users && rule.allowed_users.length > 0 ? (
-                            rule.allowed_users.slice(0, 5).map((uid) => {
-                              const u = users.find(x => x.id === uid);
-                              return (
-                                <div key={uid} className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={u ? u.full_name : uid}>
-                                  {u?.avatar ? (
-                                    <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
-                                  ) : (
-                                    <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{u ? u.full_name.charAt(0) : '?'}</span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {rule.allowed_users && rule.allowed_users.length > 0 ? (() => {
+                            const groupIds = rule.allowed_users.filter(uid => String(uid).startsWith("group_"));
+                            const userIds = rule.allowed_users.filter(uid => !String(uid).startsWith("group_"));
+                            return (
+                              <>
+                                {groupIds.map(gid => {
+                                  const rawId = String(gid).replace("group_", "");
+                                  const grp = subscriberGroups.find(g => String(g.id) === rawId);
+                                  return (
+                                    <span
+                                      key={gid}
+                                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}
+                                      title={grp ? `Abone Grubu: ${grp.name}` : gid}
+                                    >
+                                      <Users size={11} />
+                                      {grp ? grp.name : gid}
+                                    </span>
+                                  );
+                                })}
+                                <div className="flex -space-x-2 overflow-hidden">
+                                  {userIds.slice(0, 5).map((uid) => {
+                                    const u = users.find(x => String(x.id) === String(uid));
+                                    return (
+                                      <div key={uid} className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-200 dark:bg-slate-700 flex items-center justify-center shrink-0" title={u ? `${u.full_name} (${u.extension})` : uid}>
+                                        {u?.avatar ? (
+                                          <img src={u.avatar} alt={u.full_name} className="w-full h-full rounded-full object-cover" />
+                                        ) : (
+                                          <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">{u ? u.full_name.charAt(0) : '?'}</span>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                  {userIds.length > 5 && (
+                                    <div className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                                      <span className="text-[10px] font-bold text-slate-500">+{userIds.length - 5}</span>
+                                    </div>
                                   )}
                                 </div>
-                              );
-                            })
-                          ) : (
+                              </>
+                            );
+                          })() : (
                             <span className="text-xs text-slate-400 italic">Tümü veya Yok</span>
-                          )}
-                          {rule.allowed_users && rule.allowed_users.length > 5 && (
-                            <div className="inline-block h-7 w-7 rounded-full ring-2 ring-white dark:ring-slate-900 bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
-                              <span className="text-[10px] font-bold text-slate-500">+{rule.allowed_users.length - 5}</span>
-                            </div>
                           )}
                         </div>
                       </td>
@@ -772,16 +908,33 @@ export default function OutboundRulesPanel({ backendHost }) {
               <div className="space-y-4">
                 <DualListBox 
                   title="İç Hat / İç Hat Grubu"
-                  availableItems={users}
+                  availableItems={userAndGroupItems}
                   selectedIds={formData.allowed_users}
-                  onChangeSelectedIds={(newIds) => setFormData(prev => ({...prev, allowed_users: newIds}))}
-                  columns={["İç Hat No", "Görünen İsim"]}
+                  onChangeSelectedIds={handleAllowedUsersChange}
+                  columns={["İç Hat No / Grup", "Görünen İsim"]}
                   bg={bg} hover={hover} text={text} border={border} lightBg={lightBg}
                   renderRow={(item) => (
-                    <>
-                      <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.extension || "-"}</td>
-                      <td className="p-2 text-slate-500">{item.full_name}</td>
-                    </>
+                    item.isSubscriberGroup ? (
+                      <>
+                        <td className="p-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}>
+                            <Users size={11} />
+                            Abone Grubu
+                          </span>
+                        </td>
+                        <td className="p-2 text-slate-800 dark:text-slate-200 font-bold">
+                          {item.full_name}
+                          <span className="ml-1.5 text-[10px] font-medium text-slate-400">
+                            ({(item.memberUserIds || []).length} Abone)
+                          </span>
+                        </td>
+                      </>
+                    ) : (
+                      <>
+                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.extension || "-"}</td>
+                        <td className="p-2 text-slate-500">{item.full_name}</td>
+                      </>
+                    )
                   )}
                 />
               </div>

@@ -347,8 +347,38 @@ def evaluate_call_flow_action(did: str) -> dict:
     dest_id = matched_rule.get("destination_id")
 
     # 2. Direct destination types
-    if dest_type in ["extension", "user", "agent", "human"]:
-        return {"action": "transfer", "target": str(dest_id or "1000"), "context": "webrtc_agents"}
+    if dest_type in ["extension", "user", "agent", "human", "subscriber_group"]:
+        all_users = settings.get("users", [])
+        all_groups = settings.get("subscriber_groups", [])
+        candidate_ids = []
+        if dest_id:
+            candidate_ids.append(dest_id)
+        for au in (matched_rule.get("allowed_users") or []):
+            if au not in candidate_ids:
+                candidate_ids.append(au)
+
+        resolved_ext = None
+        for cid in candidate_ids:
+            s_cid = str(cid or "")
+            if s_cid.startswith("group_"):
+                gid = s_cid.replace("group_", "", 1)
+                grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+                if grp:
+                    for m in (grp.get("extensions") or grp.get("members") or []):
+                        u_match = next((u for u in all_users if str(u.get("id")) == str(m) or str(u.get("extension")) == str(m)), None)
+                        if u_match and u_match.get("extension"):
+                            resolved_ext = str(u_match.get("extension"))
+                            break
+            else:
+                u_match = next((u for u in all_users if str(u.get("id")) == s_cid or str(u.get("extension")) == s_cid), None)
+                if u_match and u_match.get("extension"):
+                    resolved_ext = str(u_match.get("extension"))
+                elif s_cid.isdigit():
+                    resolved_ext = s_cid
+            if resolved_ext:
+                break
+
+        return {"action": "transfer", "target": str(resolved_ext or dest_id or "1000"), "context": "webrtc_agents"}
     elif dest_type == "queue":
         return {"action": "transfer", "target": str(dest_id or "2000"), "context": "webrtc_agents"}
     elif dest_type == "hangup":
