@@ -2116,7 +2116,7 @@ same => n,Set(UUID_VAL=${{UUID()}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
 same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
-same => n,GotoIf($["${{REGEX("blocked" ${{CURL_RESULT}})}}" = "1"]?hangup_blocked_x)
+same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?hangup_blocked_x)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
@@ -2131,7 +2131,7 @@ same => n,Set(UUID_VAL=${{UUID()}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
 same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
-same => n,GotoIf($["${{REGEX("blocked" ${{CURL_RESULT}})}}" = "1"]?hangup_blocked_plus)
+same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?hangup_blocked_plus)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
@@ -2150,7 +2150,7 @@ same => n,Set(EXTEN_FROM_HEADER=${{CUT(CUT(HEADER_TO,@,1),:,2)}})
 same => n,Set(TRUNK_EXTEN=${{CUT(CUT(CHANNEL(name),/,2),-,1)}})
 same => n,Set(REAL_DID=${{IF($[${{ISNULL(${{EXTEN_FROM_HEADER}})}} | "${{EXTEN_FROM_HEADER}}"="s"]?${{TRUNK_EXTEN}}:${{EXTEN_FROM_HEADER}})}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{REAL_DID}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
-same => n,GotoIf($["${{REGEX("blocked" ${{CURL_RESULT}})}}" = "1"]?hangup_blocked_s)
+same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?hangup_blocked_s)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
@@ -2182,6 +2182,7 @@ same => n(allow_out),NoOp(Dis arama onaylandi: Arayan=${{CALLERID(num)}}, Aranan
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
 same => n,Set(CALLERID(num)=908503607390)
 same => n,Set(CALLERID(name)=908503607390)
@@ -2285,6 +2286,21 @@ same => n,Hangup()
             with open(etc_path, "w", encoding="utf-8") as f:
                 f.write(conf_content)
             print(f"[Asterisk Config] /etc/asterisk/extensions_custom.conf güncellendi: {etc_path}")
+
+            ext_main_path = os.path.join(etc_dir, "extensions.conf")
+            clean_ext_main = """; ==========================================
+; Asterisk Extensions Main Configuration
+; ==========================================
+[general]
+static=yes
+writeprotect=no
+clearglobalvars=no
+
+#include /etc/asterisk/extensions_custom.conf
+"""
+            with open(ext_main_path, "w", encoding="utf-8") as f_main:
+                f_main.write(clean_ext_main)
+            print(f"[Asterisk Config] /etc/asterisk/extensions.conf güncellendi (#include extensions_custom.conf).")
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/extensions_custom.conf yazılamadı: {e}")
 
@@ -6449,6 +6465,7 @@ async def get_indexed_sources(user_info: dict = Depends(get_user_info), db: Asyn
 
 @app.get("/api/calls/register")
 async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_id: Optional[str] = None):
+    from fastapi import Response
     try:
         if asterisk_id:
             from backend.services.ami_manager import call_id_to_asterisk_id
@@ -6460,11 +6477,10 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
         if did_str_check.startswith("0"):
             is_fraud, fraud_reason = is_suspicious_or_fraud_outbound_number(did_str_check, allow_international=False)
             if is_fraud and ("FRAUD_SCANNER" in fraud_reason or "INVALID_TR_NATIONAL_LENGTH" in fraud_reason or "INVALID_TR_AREA_CODE" in fraud_reason):
-                import asyncio
                 from backend.services.ami_manager import hangup_call
                 print(f"[SIP Security Shield] Blocked scanner call in /api/calls/register: {caller} -> {did_str_check} ({fraud_reason})")
-                asyncio.create_task(hangup_call(call_id))
-                return {"status": "blocked", "message": f"Blocked fraudulent dial: {fraud_reason}"}
+                await hangup_call(call_id, caller_number=caller)
+                return Response(content="BLOCKED", media_type="text/plain")
 
         async with AsyncSessionLocal() as session:
             call_tenant = "tenant-default"
@@ -6488,7 +6504,6 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     is_bl, bl_reason = await is_phone_or_value_blacklisted(did, session=session)
 
                 if is_bl:
-                    import asyncio
                     from backend.services.ami_manager import hangup_call
                     print(f"[Abuse Shield] Blocked call from/to blacklisted number: caller={caller}, did={did} ({bl_reason})")
                     add_system_log("ABUSE_SHIELD", "WARNING", f"Kara Liste Çağrı Engellendi: {caller} -> {did} ({bl_reason})")
@@ -6513,8 +6528,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                         )
                         session.add(new_call)
                     await session.commit()
-                    asyncio.create_task(hangup_call(call_id, caller_number=caller))
-                    return {"status": "blocked", "message": "Caller is blacklisted."}
+                    await hangup_call(call_id, caller_number=caller)
+                    return Response(content="BLOCKED", media_type="text/plain")
             except Exception as e_bl:
                 print(f"[Call Register Blacklist Error]: {e_bl}")
 
@@ -6531,7 +6546,6 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 used_now = call_info["used_concurrent_calls"]
 
                 if used_now >= eff_max:
-                    import asyncio
                     from backend.services.ami_manager import hangup_call
                     print(f"[License Concurrent Call Block] Tenant '{call_tenant}' reached total concurrent channel limit ({used_now}/{base_max}+{tol_max}). Rejecting call {call_id} ({caller} -> {did}).")
                     add_system_log("LICENSE", "WARNING", f"Eş Zamanlı Çağrı Kanalı Limiti Doldu ({used_now}/{base_max}" + (f"+{tol_max} Tolerans" if tol_max > 0 else "") + f" Kanal): Çağrı reddedildi ({caller} -> {did})")
@@ -6562,8 +6576,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                         )
                         session.add(new_call)
                     await session.commit()
-                    asyncio.create_task(hangup_call(call_id, caller_number=caller))
-                    return {"status": "blocked", "message": f"Concurrent call channel limit ({eff_max}) reached."}
+                    await hangup_call(call_id, caller_number=caller)
+                    return Response(content="BLOCKED", media_type="text/plain")
                 elif used_now >= base_max and tol_max > 0:
                     # Base concurrent channels are full, but Tolerance Channel allows the call to continue!
                     used_tol = (used_now - base_max) + 1
@@ -6618,7 +6632,7 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                 await session.commit()
     except Exception as e:
         print(f"[Register Call Endpoint Error]: {e}")
-    return {"status": "success"}
+    return Response(content="ALLOW", media_type="text/plain")
 
 @app.get("/api/calls/end")
 async def end_call_endpoint(

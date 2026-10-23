@@ -24,14 +24,57 @@ class RegisteredEndpointsDict(dict):
 registered_endpoints = RegisteredEndpointsDict()
 manager_instance = None
 
+async def _check_and_hangup_blacklisted_channel(manager: Manager, channel: str, uniqueid: str, caller_num: str, exten: str):
+    try:
+        from backend.main import is_phone_or_value_blacklisted, add_system_log
+        is_bl, bl_reason = await is_phone_or_value_blacklisted(caller_num)
+        if not is_bl and exten and exten not in ("s", "h"):
+            is_bl, bl_reason = await is_phone_or_value_blacklisted(exten)
+        if is_bl:
+            print(f"[AMI Abuse Shield] Newchannel Blacklist Match! Anında sonlandırılıyor -> Channel={channel}, Caller={caller_num}, Exten={exten} ({bl_reason})")
+            try:
+                await manager.send_action({
+                    "Action": "Hangup",
+                    "Channel": channel,
+                    "Cause": "21"
+                })
+            except Exception as e_h:
+                print(f"[AMI Newchannel Hangup Error]: {e_h}")
+            try:
+                import subprocess
+                subprocess.run(["asterisk", "-rx", f"channel request hangup {channel}"], check=False, timeout=1.5)
+            except Exception:
+                pass
+            try:
+                add_system_log("ABUSE_SHIELD", "WARNING", f"Kara Liste Çağrı Anında Reddedildi (Newchannel): {caller_num} -> {exten} ({bl_reason})")
+            except Exception:
+                pass
+    except Exception as e:
+        print(f"[AMI Blacklist Check Error]: {e}")
+
+
+def _iter_ami_responses(res):
+    if not res:
+        return []
+    if isinstance(res, list):
+        return res
+    if hasattr(res, "responses") and res.responses:
+        return list(res.responses)
+    return [res]
+
+
 def register_event_handlers(manager: Manager):
     @manager.register_event('Newchannel')
     def handle_new_channel(m, event):
         uniqueid = event.get('Uniqueid')
         channel = event.get('Channel')
+        caller_num = str(event.get('CallerIDNum') or "").strip()
+        exten = str(event.get('Exten') or "").strip()
         if uniqueid and channel:
             active_channels[uniqueid] = channel
-            print(f"[AMI] Yeni Kanal Kaydedildi: {uniqueid} -> {channel}")
+            print(f"[AMI] Yeni Kanal Kaydedildi: {uniqueid} -> {channel} (Caller: {caller_num}, Exten: {exten})")
+            if caller_num or exten:
+                asyncio.create_task(_check_and_hangup_blacklisted_channel(m, channel, uniqueid, caller_num, exten))
 
     @manager.register_event('Hangup')
     def handle_hangup(m, event):
@@ -76,17 +119,16 @@ async def get_ami_manager() -> Manager:
             # Fetch initial SIP registration states (only active registered contacts)
             try:
                 res = await manager_instance.send_action({"Action": "PJSIPShowContacts"})
-                if res and hasattr(res, 'responses'):
-                    for r in res.responses:
-                        if r.get('Event') == 'ContactList':
-                            aor = r.get('AOR') or r.get('ObjectName')
-                            status = r.get('Status')
-                            uri = r.get('URI') or r.get('ViaAddress') or ""
-                            import re
-                            ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
-                            extracted_ip = ip_match.group(0) if ip_match else ""
-                            if aor and status in ["Reachable", "Created", "Registered"]:
-                                registered_endpoints.add(aor, extracted_ip)
+                for r in _iter_ami_responses(res):
+                    if hasattr(r, "get") and r.get('Event') == 'ContactList':
+                        aor = r.get('AOR') or r.get('ObjectName')
+                        status = r.get('Status')
+                        uri = r.get('URI') or r.get('ViaAddress') or ""
+                        import re
+                        ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
+                        extracted_ip = ip_match.group(0) if ip_match else ""
+                        if aor and status in ["Reachable", "Created", "Registered"]:
+                            registered_endpoints.add(aor, extracted_ip)
             except Exception as ex:
                 print(f"[AMI] Error fetching initial contacts: {ex}")
         except Exception as e:
@@ -116,14 +158,15 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
     if not channel_name:
         try:
             res = await manager.send_action({"Action": "CoreShowChannels"})
-            if res and hasattr(res, 'responses'):
-                for r in res.responses:
-                    ch = r.get('Channel')
-                    uid = r.get('Uniqueid')
-                    if ch and uid:
-                        active_channels[uid] = ch
-                        if uid == ast_id or uid in ast_id or ast_id in uid:
-                            channel_name = ch
+            for r in _iter_ami_responses(res):
+                if not hasattr(r, "get"):
+                    continue
+                ch = r.get('Channel')
+                uid = r.get('Uniqueid')
+                if ch and uid:
+                    active_channels[uid] = ch
+                    if uid == ast_id or uid in ast_id or ast_id in uid:
+                        channel_name = ch
             if not channel_name and active_channels:
                 if len(active_channels) == 1:
                     channel_name = list(active_channels.values())[0]
@@ -216,9 +259,6 @@ async def hangup_call(call_id: str, caller_number: str = None) -> bool:
     AMI command to hang up/drop the active Asterisk call channel.
     """
     manager = await get_ami_manager()
-    if not manager:
-        print("[AMI] Hata: AMI baglantisi kurulamadigi icin hangup iptal edildi.")
-        return False
 
     ast_id = call_id_to_asterisk_id.get(call_id, call_id)
     channel_name = active_channels.get(ast_id)
@@ -229,26 +269,27 @@ async def hangup_call(call_id: str, caller_number: str = None) -> bool:
                 channel_name = v
                 break
 
-    if not channel_name:
+    if not channel_name and manager:
         try:
             import re
             caller_digits = re.sub(r"\D", "", str(caller_number or ""))
             caller_last10 = caller_digits[-10:] if len(caller_digits) >= 10 else caller_digits
             res = await manager.send_action({"Action": "CoreShowChannels"})
-            if res and hasattr(res, 'responses'):
-                for r in res.responses:
-                    ch = r.get('Channel')
-                    uid = r.get('Uniqueid')
-                    cid = re.sub(r"\D", "", str(r.get('CallerIDNum') or ""))
-                    cid_last10 = cid[-10:] if len(cid) >= 10 else cid
-                    if ch and uid:
-                        active_channels[uid] = ch
-                        if uid == ast_id or uid in ast_id or ast_id in uid:
-                            channel_name = ch
-                            break
-                        if caller_last10 and cid_last10 and caller_last10 == cid_last10:
-                            channel_name = ch
-                            break
+            for r in _iter_ami_responses(res):
+                if not hasattr(r, "get"):
+                    continue
+                ch = r.get('Channel')
+                uid = r.get('Uniqueid')
+                cid = re.sub(r"\D", "", str(r.get('CallerIDNum') or ""))
+                cid_last10 = cid[-10:] if len(cid) >= 10 else cid
+                if ch and uid:
+                    active_channels[uid] = ch
+                    if uid == ast_id or uid in ast_id or ast_id in uid:
+                        channel_name = ch
+                        break
+                    if caller_last10 and cid_last10 and caller_last10 == cid_last10:
+                        channel_name = ch
+                        break
             if not channel_name and len(active_channels) == 1:
                 channel_name = list(active_channels.values())[0]
         except Exception as ex:
@@ -259,19 +300,29 @@ async def hangup_call(call_id: str, caller_number: str = None) -> bool:
         return False
 
     print(f"[AMI] Arama sonlandiriliyor (Hangup) -> Channel: {channel_name}")
-    action = {
-        'Action': 'Hangup',
-        'Channel': channel_name,
-        'Cause': '21'
-    }
+    ok = False
+    if manager:
+        action = {
+            'Action': 'Hangup',
+            'Channel': channel_name,
+            'Cause': '21'
+        }
+        try:
+            response = await manager.send_action(action)
+            res_item = response[0] if isinstance(response, list) and len(response) > 0 else response
+            resp_val = res_item.get('Response') if hasattr(res_item, 'get') else getattr(res_item, 'Response', None)
+            ok = (resp_val == 'Success')
+        except Exception as e:
+            print(f"[AMI] Hangup sirasinda hata olustu: {e}")
+
     try:
-        response = await manager.send_action(action)
-        res_item = response[0] if isinstance(response, list) and len(response) > 0 else response
-        resp_val = res_item.get('Response') if hasattr(res_item, 'get') else getattr(res_item, 'Response', None)
-        return resp_val == 'Success'
-    except Exception as e:
-        print(f"[AMI] Hangup sirasinda hata olustu: {e}")
-        return False
+        import subprocess
+        subprocess.run(["asterisk", "-rx", f"channel request hangup {channel_name}"], check=False, timeout=1.5)
+        ok = True
+    except Exception:
+        pass
+
+    return ok
 
 # background task to keep AMI connected
 async def start_ami_listener():

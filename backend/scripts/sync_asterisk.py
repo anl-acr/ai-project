@@ -43,7 +43,11 @@ permit = 0.0.0.0/0.0.0.0
 
     # Comprehensive search for SSL certificate (Let's Encrypt / System)
     ast_keys_dir = "/etc/asterisk/keys"
-    os.makedirs(ast_keys_dir, exist_ok=True)
+    try:
+        if os.path.exists("/etc/asterisk"):
+            os.makedirs(ast_keys_dir, exist_ok=True)
+    except Exception:
+        pass
     target_cert = None
     target_key = None
 
@@ -356,7 +360,7 @@ same => n,Set(UUID_VAL=${UUID()})
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID})})
 same => n,Set(CALL_UUID=${IF($[${ISNULL(${UUID_VAL})}]?${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12}:${UUID_VAL})})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
-same => n,GotoIf($["${REGEX("blocked" ${CURL_RESULT})}" = "1"]?hangup_blocked_x)
+same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?hangup_blocked_x)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
@@ -371,7 +375,7 @@ same => n,Set(UUID_VAL=${UUID()})
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID})})
 same => n,Set(CALL_UUID=${IF($[${ISNULL(${UUID_VAL})}]?${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12}:${UUID_VAL})})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
-same => n,GotoIf($["${REGEX("blocked" ${CURL_RESULT})}" = "1"]?hangup_blocked_plus)
+same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?hangup_blocked_plus)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
@@ -390,7 +394,7 @@ same => n,Set(EXTEN_FROM_HEADER=${CUT(CUT(HEADER_TO,@,1),:,2)})
 same => n,Set(TRUNK_EXTEN=${CUT(CUT(CHANNEL(name),/,2),-,1)})
 same => n,Set(REAL_DID=${IF($[${ISNULL(${EXTEN_FROM_HEADER})} | "${EXTEN_FROM_HEADER}"="s"]?${TRUNK_EXTEN}:${EXTEN_FROM_HEADER})})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${REAL_DID}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
-same => n,GotoIf($["${REGEX("blocked" ${CURL_RESULT})}" = "1"]?hangup_blocked_s)
+same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?hangup_blocked_s)
 same => n,Progress()
 same => n,Answer()
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
@@ -413,6 +417,7 @@ same => n(allow_out),NoOp(Dis arama onaylandi: Arayan=${CALLERID(num)}, Aranan=$
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
 same => n,Set(CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
+same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
 same => n,Set(CALLERID(num)=908503607390)
 same => n,Set(CALLERID(name)=908503607390)
@@ -489,6 +494,15 @@ same => n,Hangup()
             print(f"[Sync Script] extensions_custom.conf başarıyla yazıldı -> {path}")
         except Exception as e:
             print(f"[Sync Script] Hata ({path}): {e}")
+
+    try:
+        main_ext_path = "/etc/asterisk/extensions.conf"
+        if os.path.exists("/etc/asterisk"):
+            with open(main_ext_path, "w", encoding="utf-8") as f:
+                f.write("[general]\nstatic=yes\nwriteprotect=no\nclearglobalvars=no\n\n#include /etc/asterisk/extensions_custom.conf\n")
+            print(f"[Sync Script] Ana extensions.conf #include yapilandirmasi guncellendi -> {main_ext_path}")
+    except Exception as e:
+        print(f"[Sync Script] Ana extensions.conf yazma hatasi: {e}")
 
     try:
         subprocess.run(["asterisk", "-rx", "dialplan reload"], check=True)

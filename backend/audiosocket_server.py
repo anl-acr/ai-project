@@ -781,9 +781,6 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         # 2. Wait for Asterisk connection
         
 
-        # Get dynamic Call Flow Action based on dialed DID (Wait 200ms to ensure dialplan API request is fully processed)
-        await asyncio.sleep(0.2)
-
         # Enforce Blacklist / Blocked Status before routing to Extension or AI Agent
         try:
             import re
@@ -822,6 +819,11 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
 
                 if is_blocked_call:
                     print(f"[Abuse Shield / AudioSocket] Blocked call {call_id} from blacklisted caller '{caller_num}'. Terminating immediately.")
+                    try:
+                        writer.write(b"\x00\x00\x00")
+                        await writer.drain()
+                    except Exception:
+                        pass
                     from backend.services.ami_manager import hangup_call
                     await hangup_call(call_id, caller_number=caller_num)
                     writer.close()
