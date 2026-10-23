@@ -140,26 +140,93 @@ export default function CallChatWidget({
   
   // Internal Chat States
   const [chatTab, setChatTab] = useState("customer"); // "customer" | "internal"
-  const [internalChatSessions, setInternalChatSessions] = useState([
-    {
-      id: "internal-1",
-      customerName: "Sistem Yöneticisi",
-      platform: "İç Yazışma",
-      unread: 0,
-      online: true,
-      messages: [
-        { sender: "customer", text: "Merhaba, bugünkü yoğunluk hakkında bir rapor hazırlayabilir misiniz?", time: "09:30", status: "seen" },
-        { sender: "agent", text: "Tabii ki, öğleden sonra iletiyorum.", time: "09:35", status: "seen" }
-      ]
-    }
-  ]);
-  const [systemUsers, setSystemUsers] = useState([
-    { id: "u1", name: "Sistem Yöneticisi", role: "Yönetici", online: true },
-    { id: "u2", name: "Ayşe Yılmaz", role: "Takım Lideri", online: true },
-    { id: "u3", name: "Mehmet Demir", role: "Temsilci", online: false },
-    { id: "u4", name: "Canan Şahin", role: "Teknik Destek", online: true }
-  ]);
+  const [systemUsers, setSystemUsers] = useState([]);
+  const [internalRawMessages, setInternalRawMessages] = useState([]);
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
+
+  const myWidgetExt = String(agentExtension || currentUser?.extension || "").trim();
+  const myWidgetUserId = String(currentUser?.id || "").trim();
+
+  const fetchWidgetInternalChat = () => {
+    Promise.all([
+      fetch(`${API_BASE}/api/settings/users`).then(r => r.ok ? r.json() : []),
+      fetch(`${API_BASE}/api/agent/chat?extension=${encodeURIComponent(myWidgetExt)}&user_id=${encodeURIComponent(myWidgetUserId)}`).then(r => r.ok ? r.json() : [])
+    ])
+      .then(([usersData, chatData]) => {
+        if (Array.isArray(usersData)) {
+          const mapped = usersData
+            .filter(u => {
+              if (myWidgetUserId && String(u.id) === myWidgetUserId) return false;
+              if (myWidgetExt && u.extension && String(u.extension) === myWidgetExt) return false;
+              return true;
+            })
+            .map(u => {
+              const peerKey = String(u.extension || u.id);
+              const isOnline = u.status === "online" || u.status === "available" || u.status === "busy" || u.status === "in_call";
+              const roleLabel = u.role === "admin" ? "Yönetici" : u.role === "supervisor" ? "Süpervizör" : "Temsilci";
+              return {
+                id: peerKey,
+                userId: String(u.id),
+                extension: String(u.extension || ""),
+                name: u.full_name || u.name || u.email || `Dahili ${u.extension || u.id}`,
+                role: u.extension ? `${roleLabel} (${u.extension})` : roleLabel,
+                online: isOnline
+              };
+            });
+          setSystemUsers(mapped);
+        }
+        if (Array.isArray(chatData)) {
+          setInternalRawMessages(chatData);
+        }
+      })
+      .catch(() => {});
+  };
+
+  useEffect(() => {
+    fetchWidgetInternalChat();
+    const intTimer = setInterval(fetchWidgetInternalChat, 4000);
+    return () => clearInterval(intTimer);
+  }, [myWidgetExt, myWidgetUserId, API_BASE]);
+
+  const internalChatSessions = React.useMemo(() => {
+    const myKeys = new Set([myWidgetExt, myWidgetUserId].filter(Boolean));
+    return systemUsers.map(u => {
+      const peerKeys = new Set([u.id, u.userId, u.extension].filter(Boolean));
+      const convMsgs = internalRawMessages
+        .filter(m => {
+          const s = String(m.sender_id || "");
+          const r = String(m.receiver_id || "");
+          return (myKeys.has(s) && peerKeys.has(r)) || (peerKeys.has(s) && myKeys.has(r));
+        })
+        .map(m => {
+          const isAgent = myKeys.has(String(m.sender_id || ""));
+          let timeStr = "";
+          if (m.timestamp) {
+            try {
+              let iso = String(m.timestamp);
+              if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
+              timeStr = new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+            } catch (e) {}
+          }
+          return {
+            id: m.id,
+            sender: isAgent ? "agent" : "customer",
+            text: m.text,
+            time: timeStr,
+            status: "seen"
+          };
+        });
+      return {
+        id: `internal-${u.id}`,
+        peerKey: u.id,
+        customerName: u.name,
+        platform: "İç Yazışma",
+        unread: 0,
+        online: u.online,
+        messages: convMsgs
+      };
+    });
+  }, [systemUsers, internalRawMessages, myWidgetExt, myWidgetUserId]);
 
   // ----------------------------------------------------
   // Live Voice Biyometrik Doğrulama & Deepfake Polling Hook
@@ -317,64 +384,38 @@ export default function CallChatWidget({
         );
       }, 3000);
     } else {
-      setInternalChatSessions(prev =>
-        prev.map(chat => {
-          if (chat.id === activeChatId) {
-            return { ...chat, messages: [...chat.messages, newMsg] };
-          }
-          return chat;
-        })
-      );
+      const textToSend = chatInput.trim();
+      const targetChat = internalChatSessions.find(c => String(c.id) === String(activeChatId));
+      const receiverId = targetChat?.peerKey || String(activeChatId).replace(/^internal-/, "");
+      const senderId = myWidgetExt || myWidgetUserId || "agent";
+      if (!receiverId) return;
+
+      const optimisticMsg = {
+        id: `opt-w-${Date.now()}`,
+        sender_id: senderId,
+        receiver_id: receiverId,
+        text: textToSend,
+        timestamp: new Date().toISOString()
+      };
+      setInternalRawMessages(prev => [...prev, optimisticMsg]);
       setChatInput("");
 
-      // Simulate seen status
-      setTimeout(() => {
-        setInternalChatSessions(prev =>
-          prev.map(chat => {
-            if (chat.id === activeChatId) {
-              const updatedMessages = chat.messages.map(m => m.sender === "agent" ? { ...m, status: "seen" } : m);
-              return { ...chat, messages: updatedMessages };
-            }
-            return chat;
-          })
-        );
-      }, 1500);
-
-      // Simulate reply
-      setTimeout(() => {
-        const replyTime = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
-        const autoReply = { sender: "customer", text: "Anlaşıldı, ilgileniyorum.", time: replyTime, status: "seen" };
-        setInternalChatSessions(prev =>
-          prev.map(chat => {
-            if (chat.id === activeChatId) {
-              return { ...chat, messages: [...chat.messages, autoReply] };
-            }
-            return chat;
-          })
-        );
-      }, 4000);
+      fetch(`${API_BASE}/api/agent/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sender_id: senderId,
+          receiver_id: receiverId,
+          text: textToSend
+        })
+      })
+        .then(() => fetchWidgetInternalChat())
+        .catch(() => {});
     }
   };
 
   const handleStartInternalChat = (user) => {
-    const existingChat = internalChatSessions.find(c => c.customerName === user.name);
-    if (existingChat) {
-      setActiveChatId(existingChat.id);
-    } else {
-      const newChatId = `internal-${Date.now()}`;
-      setInternalChatSessions(prev => [
-        {
-          id: newChatId,
-          customerName: user.name,
-          platform: "İç Yazışma",
-          unread: 0,
-          online: user.online,
-          messages: []
-        },
-        ...prev
-      ]);
-      setActiveChatId(newChatId);
-    }
+    setActiveChatId(`internal-${user.id}`);
     setIsNewChatModalOpen(false);
   };
 

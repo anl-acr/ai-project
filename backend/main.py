@@ -3298,9 +3298,93 @@ async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get
 
 @app.get("/api/agent/status")
 @app.get("/agent/status")
-async def get_agent_status_endpoint():
-    from backend.services.agent_presence import get_agent_state
-    return get_agent_state()
+async def get_agent_status_endpoint(
+    user_id: Optional[str] = None,
+    extension: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    from backend.services.agent_presence import get_agent_state, update_agent_state
+    from backend.database.models import AgentBreakLog
+    from sqlalchemy import select, or_
+
+    uid_str = str(user_id).strip() if user_id and str(user_id).strip() not in ("undefined", "null", "") else None
+    ext_str = str(extension).strip() if extension and str(extension).strip() not in ("undefined", "null", "") else None
+
+    if not uid_str and not ext_str:
+        return get_agent_state()
+
+    now_utc = datetime.datetime.utcnow()
+    now_tr = now_utc + datetime.timedelta(hours=3)
+    today_start_utc = (now_tr.replace(hour=0, minute=0, second=0, microsecond=0)) - datetime.timedelta(hours=3)
+
+    target_vals = {v for v in (uid_str, ext_str) if v}
+    settings = load_settings()
+    for u in settings.get("users", []):
+        u_id = str(u.get("id", "")).strip()
+        u_ext = str(u.get("extension", "")).strip()
+        if u_id in target_vals or u_ext in target_vals:
+            if u_id:
+                target_vals.add(u_id)
+                if not uid_str:
+                    uid_str = u_id
+            if u_ext:
+                target_vals.add(u_ext)
+                if not ext_str:
+                    ext_str = u_ext
+
+    try:
+        conds = []
+        for tv in target_vals:
+            conds.append(AgentBreakLog.user_id == tv)
+            conds.append(AgentBreakLog.extension == tv)
+        if conds:
+            stmt_act = select(AgentBreakLog).where(
+                AgentBreakLog.end_time.is_(None),
+                AgentBreakLog.start_time >= today_start_utc,
+                or_(*conds)
+            ).order_by(AgentBreakLog.start_time.desc())
+            res_act = await db.execute(stmt_act)
+            active_brk = next(
+                (b for b in res_act.scalars().all() if not str(b.break_name or "").startswith("__")),
+                None
+            )
+            if active_brk:
+                brk_color = "#f59e0b"
+                for b_cfg in settings.get("breaks", []):
+                    if str(b_cfg.get("name", "")).strip().lower() == str(active_brk.break_name or "").strip().lower():
+                        brk_color = b_cfg.get("color") or "#f59e0b"
+                        break
+                elapsed_sec = max(0, int((now_utc - active_brk.start_time).total_seconds()))
+                brk_obj = {
+                    "name": active_brk.break_name or "Mola",
+                    "color": brk_color,
+                    "start_time_utc": active_brk.start_time.isoformat() + "Z",
+                    "elapsed_seconds": elapsed_sec
+                }
+                st = update_agent_state(
+                    is_logged_in=True,
+                    status="break",
+                    current_break=brk_obj,
+                    user_id=uid_str,
+                    extension=ext_str
+                )
+                return {**st, "elapsed_seconds": elapsed_sec, "break_start_utc": active_brk.start_time.isoformat() + "Z"}
+    except Exception as e_st:
+        print(f"[Get Agent Status DB Check Error]: {e_st}")
+
+    mem_state = get_agent_state(user_id=uid_str, extension=ext_str)
+    if mem_state and mem_state.get("status_since_utc"):
+        return mem_state
+
+    # Auto-online when user is actively logged into the web interface
+    auto_state = update_agent_state(
+        is_logged_in=True,
+        status="online",
+        current_break=None,
+        user_id=uid_str,
+        extension=ext_str
+    )
+    return auto_state
 
 @app.post("/api/agent/status")
 @app.post("/agent/status")
@@ -3309,49 +3393,58 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
     from backend.database.models import AgentBreakLog
     from sqlalchemy import select, or_
 
+    user_id_str = str(payload.user_id).strip() if payload.user_id is not None and str(payload.user_id).strip() != "" else None
+    ext_str = str(payload.extension).strip() if getattr(payload, "extension", None) and str(payload.extension).strip() != "" else None
+
+    if user_id_str or ext_str:
+        settings = load_settings()
+        for u in settings.get("users", []):
+            u_id = str(u.get("id", "")).strip()
+            u_ext = str(u.get("extension", "")).strip()
+            if (user_id_str and (u_id == user_id_str or u_ext == user_id_str)) or (ext_str and u_ext == ext_str):
+                if u_ext and not ext_str:
+                    ext_str = u_ext
+                if u_id and (not user_id_str or user_id_str == u_ext):
+                    user_id_str = u_id
+                break
+
+        if not ext_str or not user_id_str:
+            try:
+                stmt_u = select(SystemUser)
+                res_u = await db.execute(stmt_u)
+                for su in res_u.scalars().all():
+                    su_id = str(su.id)
+                    su_ext = str(su.extension or "").strip()
+                    if (user_id_str and (su_id == user_id_str or su_ext == user_id_str)) or (ext_str and su_ext == ext_str):
+                        if su_ext and not ext_str:
+                            ext_str = su_ext
+                        if su_id and (not user_id_str or user_id_str == su_ext):
+                            user_id_str = su_id
+                        break
+            except Exception:
+                pass
+
+    if not ext_str and user_id_str and user_id_str.isdigit() and len(user_id_str) <= 5:
+        ext_str = user_id_str
+
+    now_utc = datetime.datetime.utcnow()
+    brk_payload = payload.current_break
+    if payload.status == "break" and isinstance(brk_payload, dict):
+        brk_payload = {
+            **brk_payload,
+            "start_time_utc": now_utc.isoformat() + "Z",
+            "elapsed_seconds": 0
+        }
+
     new_state = update_agent_state(
         is_logged_in=payload.is_logged_in,
         status=payload.status,
-        current_break=payload.current_break,
-        user_id=payload.user_id
+        current_break=brk_payload,
+        user_id=user_id_str or payload.user_id,
+        extension=ext_str
     )
 
     try:
-        user_id_str = str(payload.user_id).strip() if payload.user_id is not None and str(payload.user_id).strip() != "" else None
-        ext_str = str(payload.extension).strip() if getattr(payload, "extension", None) and str(payload.extension).strip() != "" else None
-
-        if user_id_str or ext_str:
-            settings = load_settings()
-            for u in settings.get("users", []):
-                u_id = str(u.get("id", "")).strip()
-                u_ext = str(u.get("extension", "")).strip()
-                if (user_id_str and (u_id == user_id_str or u_ext == user_id_str)) or (ext_str and u_ext == ext_str):
-                    if u_ext and not ext_str:
-                        ext_str = u_ext
-                    if u_id and (not user_id_str or user_id_str == u_ext):
-                        user_id_str = u_id
-                    break
-
-            if not ext_str or not user_id_str:
-                try:
-                    stmt_u = select(SystemUser)
-                    res_u = await db.execute(stmt_u)
-                    for su in res_u.scalars().all():
-                        su_id = str(su.id)
-                        su_ext = str(su.extension or "").strip()
-                        if (user_id_str and (su_id == user_id_str or su_ext == user_id_str)) or (ext_str and su_ext == ext_str):
-                            if su_ext and not ext_str:
-                                ext_str = su_ext
-                            if su_id and (not user_id_str or user_id_str == su_ext):
-                                user_id_str = su_id
-                            break
-                except Exception:
-                    pass
-
-        if not ext_str and user_id_str and user_id_str.isdigit() and len(user_id_str) <= 5:
-            ext_str = user_id_str
-
-        now_utc = datetime.datetime.utcnow()
 
         conditions = []
         if user_id_str:
@@ -9418,8 +9511,17 @@ async def get_agent_stats(extension: str = None, user_id: str = None, db: AsyncS
     today_breaks = res_breaks.scalars().all()
 
     break_dict = {}
+    break_count_dict = {}
+    break_active_set = set()
     break_logs_list = []
     total_break_seconds = 0.0
+    active_break_info = None
+
+    settings_all = load_settings()
+    break_colors = {
+        str(b.get("name", "")).strip().lower(): (b.get("color") or "#f59e0b")
+        for b in settings_all.get("breaks", [])
+    }
 
     for b_log in today_breaks:
         if str(b_log.break_name or "").startswith("__"):
@@ -9437,17 +9539,32 @@ async def get_agent_stats(extension: str = None, user_id: str = None, db: AsyncS
             sec = max(0.0, (eff_end - eff_start).total_seconds())
             b_name = b_log.break_name or "Mola"
             break_dict[b_name] = break_dict.get(b_name, 0.0) + sec
+            break_count_dict[b_name] = break_count_dict.get(b_name, 0) + 1
             total_break_seconds += sec
 
             start_tr = b_log.start_time + datetime.timedelta(hours=3)
             end_tr = (b_log.end_time + datetime.timedelta(hours=3)) if b_log.end_time else None
+            is_act = b_log.end_time is None
+            if is_act:
+                break_active_set.add(b_name)
+                if active_break_info is None:
+                    active_break_info = {
+                        "name": b_name,
+                        "color": break_colors.get(b_name.lower(), "#f59e0b"),
+                        "start_time": start_tr.strftime("%H:%M:%S"),
+                        "start_time_utc": b_log.start_time.isoformat() + "Z",
+                        "elapsed_seconds": int(round(sec))
+                    }
+
             break_logs_list.append({
                 "id": b_log.id,
                 "break_name": b_name,
-                "start_time": start_tr.strftime("%H:%M"),
-                "end_time": end_tr.strftime("%H:%M") if end_tr else None,
+                "color": break_colors.get(b_name.lower(), "#f59e0b"),
+                "start_time": start_tr.strftime("%H:%M:%S"),
+                "end_time": end_tr.strftime("%H:%M:%S") if end_tr else None,
+                "start_time_utc": b_log.start_time.isoformat() + "Z",
                 "duration_seconds": int(round(sec)),
-                "is_active": b_log.end_time is None
+                "is_active": is_act
             })
 
     break_details = []
@@ -9461,8 +9578,11 @@ async def get_agent_stats(extension: str = None, user_id: str = None, db: AsyncS
             mins = 1
         break_details.append({
             "name": b_name,
+            "color": break_colors.get(b_name.lower(), "#f59e0b"),
             "minutes": mins,
-            "seconds": int(round(sec))
+            "seconds": int(round(sec)),
+            "count": break_count_dict.get(b_name, 1),
+            "is_active": b_name in break_active_set
         })
 
     return {
@@ -9471,6 +9591,7 @@ async def get_agent_stats(extension: str = None, user_id: str = None, db: AsyncS
         "missed": missed_count,
         "break_minutes": total_break_minutes,
         "break_seconds": int(round(total_break_seconds)),
+        "active_break": active_break_info,
         "break_details": break_details,
         "break_logs": break_logs_list
     }
@@ -10144,32 +10265,479 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
     return directory
 
 @app.get("/api/agent/chat")
-async def get_internal_chat(extension: str, db: AsyncSession = Depends(get_db)):
+async def get_internal_chat(extension: str = None, user_id: str = None, db: AsyncSession = Depends(get_db)):
     from backend.database.models import InternalChatMessage
     from sqlalchemy import select, or_
-    stmt = select(InternalChatMessage).where(
-        or_(
-            InternalChatMessage.sender_id == extension,
-            InternalChatMessage.receiver_id == extension,
-            InternalChatMessage.receiver_id == "broadcast"
-        )
-    ).order_by(InternalChatMessage.timestamp.asc())
+
+    ext_val = str(extension or "").strip()
+    uid_val = str(user_id or "").strip()
+    identities = {v for v in (ext_val, uid_val) if v and v not in ("undefined", "null")}
+
+    if identities:
+        settings = load_settings()
+        for u in settings.get("users", []):
+            u_id = str(u.get("id", "")).strip()
+            u_ext = str(u.get("extension", "")).strip()
+            if u_id in identities or u_ext in identities:
+                if u_id:
+                    identities.add(u_id)
+                if u_ext:
+                    identities.add(u_ext)
+
+    conds = [InternalChatMessage.receiver_id == "broadcast"]
+    for ident in identities:
+        conds.append(InternalChatMessage.sender_id == ident)
+        conds.append(InternalChatMessage.receiver_id == ident)
+
+    stmt = select(InternalChatMessage).where(or_(*conds)).order_by(InternalChatMessage.timestamp.asc())
     res = await db.execute(stmt)
     messages = res.scalars().all()
-    return messages
+    return [
+        {
+            "id": m.id,
+            "sender_id": str(m.sender_id or ""),
+            "receiver_id": str(m.receiver_id or ""),
+            "text": m.text or "",
+            "timestamp": (m.timestamp.isoformat() + "Z") if m.timestamp else None
+        }
+        for m in messages
+    ]
 
 @app.post("/api/agent/chat")
 async def post_internal_chat(payload: dict, db: AsyncSession = Depends(get_db)):
     from backend.database.models import InternalChatMessage
+    sender_id = str(payload.get("sender_id") or "").strip()
+    receiver_id = str(payload.get("receiver_id") or "").strip()
+    text_val = str(payload.get("text") or "").strip()
+    if not sender_id or not receiver_id or not text_val:
+        raise HTTPException(status_code=400, detail="Gönderen, alıcı ve mesaj metni zorunludur.")
+
     msg = InternalChatMessage(
-        sender_id=payload.get("sender_id"),
-        receiver_id=payload.get("receiver_id"),
-        text=payload.get("text")
+        sender_id=sender_id,
+        receiver_id=receiver_id,
+        text=text_val,
+        timestamp=datetime.datetime.utcnow()
     )
     db.add(msg)
     await db.commit()
     await db.refresh(msg)
-    return msg
+    return {
+        "id": msg.id,
+        "sender_id": str(msg.sender_id or ""),
+        "receiver_id": str(msg.receiver_id or ""),
+        "text": msg.text or "",
+        "timestamp": (msg.timestamp.isoformat() + "Z") if msg.timestamp else None
+    }
+
+
+@app.get("/api/agent/queue-peers")
+async def get_agent_queue_peers(
+    extension: Optional[str] = None,
+    user_id: Optional[str] = None,
+    queue_id: Optional[str] = None,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db)
+):
+    from backend.database.models import Call, AgentBreakLog, PBXQueue, SystemUser
+    from backend.services.ami_manager import registered_endpoints, get_ami_manager
+    from backend.services.agent_presence import get_agent_state
+    from sqlalchemy import select, or_
+
+    now_utc = datetime.datetime.utcnow()
+    now_tr = now_utc + datetime.timedelta(hours=3)
+    today_tr_midnight = now_tr.replace(hour=0, minute=0, second=0, microsecond=0)
+    today_start_utc = today_tr_midnight - datetime.timedelta(hours=3)
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    settings = load_settings()
+
+    # 1. Load all users (PostgreSQL SystemUser + settings.json fallback)
+    users_map = {}  # key: canonical ext or id -> user dict
+    id_to_key = {}
+    ext_to_key = {}
+
+    try:
+        stmt_u = select(SystemUser)
+        if not is_global_tenant(target_tenant):
+            if is_default_tenant(target_tenant):
+                stmt_u = stmt_u.where(or_(SystemUser.tenant_id == "tenant-default", SystemUser.tenant_id == "default", SystemUser.tenant_id.is_(None)))
+            else:
+                stmt_u = stmt_u.where(SystemUser.tenant_id == target_tenant)
+        res_u = await db.execute(stmt_u)
+        for su in res_u.scalars().all():
+            u_id = str(su.id).strip()
+            u_ext = str(su.extension or "").strip()
+            key = u_ext or f"uid_{u_id}"
+            u_name = str(su.full_name or su.email or f"Dahili {u_ext}").strip()
+            users_map[key] = {
+                "id": u_id,
+                "extension": u_ext,
+                "name": u_name,
+                "full_name": u_name,
+                "role": su.role or "agent",
+                "avatar": getattr(su, "avatar_url", None) or getattr(su, "avatar", None) or ""
+            }
+            if u_id:
+                id_to_key[u_id] = key
+            if u_ext:
+                ext_to_key[u_ext] = key
+    except Exception as e_u:
+        print(f"[Queue Peers Users DB Error]: {e_u}")
+
+    for u in settings.get("users", []):
+        if not is_global_tenant(target_tenant):
+            u_ten = u.get("tenant_id")
+            if is_default_tenant(target_tenant):
+                if u_ten not in (None, "", "tenant-default", "default"):
+                    continue
+            elif u_ten != target_tenant:
+                continue
+        u_id = str(u.get("id") or "").strip()
+        u_ext = str(u.get("extension") or "").strip()
+        key = u_ext or f"uid_{u_id}"
+        if not key or key == "uid_":
+            continue
+        if key not in users_map:
+            u_name = str(u.get("full_name") or u.get("name") or u.get("username") or u.get("email") or f"Dahili {u_ext}").strip()
+            users_map[key] = {
+                "id": u_id or u_ext,
+                "extension": u_ext,
+                "name": u_name,
+                "full_name": u_name,
+                "role": u.get("role") or "agent",
+                "avatar": u.get("avatar_url") or u.get("avatar") or ""
+            }
+        if u_id:
+            id_to_key[u_id] = key
+        if u_ext:
+            ext_to_key[u_ext] = key
+
+    def resolve_agent_key(val):
+        s = str(val or "").strip()
+        if not s or s in ("undefined", "null", "none"):
+            return None
+        if s in users_map:
+            return s
+        if s in ext_to_key:
+            return ext_to_key[s]
+        if s in id_to_key:
+            return id_to_key[s]
+        return None
+
+    req_key = resolve_agent_key(extension) or resolve_agent_key(user_id)
+
+    # 2. Load all queues and expand members (including subscriber_groups)
+    raw_queues = []
+    try:
+        stmt_q = select(PBXQueue).order_by(PBXQueue.id)
+        if not is_global_tenant(target_tenant):
+            if is_default_tenant(target_tenant):
+                stmt_q = stmt_q.where(or_(PBXQueue.tenant_id == "tenant-default", PBXQueue.tenant_id.is_(None)))
+            else:
+                stmt_q = stmt_q.where(PBXQueue.tenant_id == target_tenant)
+        res_q = await db.execute(stmt_q)
+        for q_row in res_q.scalars().all():
+            raw_queues.append({c.name: getattr(q_row, c.name) for c in q_row.__table__.columns})
+    except Exception as e_q:
+        print(f"[Queue Peers Queues DB Error]: {e_q}")
+
+    if not raw_queues:
+        for q_cfg in settings.get("queues", []):
+            raw_queues.append(q_cfg)
+
+    all_groups = settings.get("subscriber_groups", [])
+    queues_out = []
+    agent_queues_map = {k: [] for k in users_map}
+    my_queue_ids = set()
+
+    for q in raw_queues:
+        q_id = str(q.get("id") or q.get("extension") or "")
+        q_name = str(q.get("name") or f"Kuyruk {q_id}")
+        q_ext = str(q.get("extension") or "")
+        raw_members = q.get("queueMembers") or q.get("members") or []
+        if isinstance(raw_members, str):
+            try:
+                raw_members = json.loads(raw_members)
+            except Exception:
+                raw_members = []
+        raw_sups = q.get("supervisors") or []
+        if isinstance(raw_sups, str):
+            try:
+                raw_sups = json.loads(raw_sups)
+            except Exception:
+                raw_sups = []
+
+        member_keys = []
+        for m in list(raw_members) + list(raw_sups):
+            m_val = m.get("user_id") or m.get("extension") or m.get("id") if isinstance(m, dict) else m
+            s_val = str(m_val or "").strip()
+            if not s_val:
+                continue
+            if s_val.startswith("group_"):
+                gid = s_val.replace("group_", "", 1)
+                grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+                if grp:
+                    for g_item in (grp.get("extensions") or grp.get("members") or []):
+                        gk = resolve_agent_key(g_item)
+                        if gk and gk not in member_keys:
+                            member_keys.append(gk)
+                continue
+            ak = resolve_agent_key(s_val)
+            if ak and ak not in member_keys:
+                member_keys.append(ak)
+
+        q_info = {"id": q_id, "name": q_name, "extension": q_ext, "member_keys": member_keys}
+        queues_out.append(q_info)
+
+        if req_key and req_key in member_keys:
+            my_queue_ids.add(q_id)
+
+        for mk in member_keys:
+            if mk in agent_queues_map:
+                agent_queues_map[mk].append({"id": q_id, "name": q_name, "extension": q_ext})
+
+    # Determine which agents belong to the filtered queues
+    selected_qid = str(queue_id or "").strip()
+    if selected_qid and selected_qid not in ("all", "my_queues", "undefined", "null"):
+        allowed_agent_keys = set()
+        for q_info in queues_out:
+            if q_info["id"] == selected_qid or q_info["extension"] == selected_qid:
+                allowed_agent_keys.update(q_info["member_keys"])
+    elif my_queue_ids and selected_qid != "all":
+        allowed_agent_keys = set()
+        for q_info in queues_out:
+            if q_info["id"] in my_queue_ids:
+                allowed_agent_keys.update(q_info["member_keys"])
+    else:
+        # If agent is not in a specific queue (or selected "all"), include all queue members, or all users if no queue members exist
+        allowed_agent_keys = set()
+        for q_info in queues_out:
+            allowed_agent_keys.update(q_info["member_keys"])
+        if not allowed_agent_keys:
+            allowed_agent_keys = set(users_map.keys())
+
+    # 3. Fetch today's calls and break/login/logout logs
+    stmt_calls = select(Call).where(Call.start_time >= today_start_utc).order_by(Call.start_time.asc())
+    res_calls = await db.execute(stmt_calls)
+    today_calls = res_calls.scalars().all()
+
+    stmt_breaks = select(AgentBreakLog).where(
+        or_(
+            AgentBreakLog.start_time >= today_start_utc,
+            AgentBreakLog.end_time >= today_start_utc,
+            AgentBreakLog.end_time.is_(None)
+        )
+    ).order_by(AgentBreakLog.start_time.asc())
+    res_breaks = await db.execute(stmt_breaks)
+    today_breaks = res_breaks.scalars().all()
+
+    # Check live Asterisk channels if available
+    live_busy_exts = {}
+    try:
+        ami = get_ami_manager()
+        if ami and getattr(ami, "active_channels", None):
+            for ch_id, ch_info in list(ami.active_channels.items()):
+                ch_name = str(ch_info.get("channel") or "")
+                m_ext = re.search(r"PJSIP/(\d+)-", ch_name)
+                if m_ext:
+                    live_busy_exts[m_ext.group(1)] = ch_info.get("created_at") or now_utc
+    except Exception:
+        pass
+
+    def fmt_tr_hms(dt_utc):
+        if not dt_utc:
+            return "-"
+        dt_tr = dt_utc + datetime.timedelta(hours=3)
+        return dt_tr.strftime("%H:%M:%S")
+
+    agents_result = []
+    for a_key, u_obj in users_map.items():
+        if a_key not in allowed_agent_keys:
+            continue
+
+        u_id = str(u_obj.get("id") or "").strip()
+        u_ext = str(u_obj.get("extension") or "").strip()
+        ident_set = {v for v in (u_id, u_ext, a_key) if v}
+
+        inbound_count = 0
+        outbound_count = 0
+        missed_count = 0
+        talk_seconds = 0
+        break_seconds = 0
+
+        first_login_utc = None
+        last_login_utc = None
+        last_logout_utc = None
+        last_call_end_utc = None
+        last_break_end_utc = None
+        first_activity_utc = None
+
+        active_break_log = None
+        active_call_obj = None
+
+        # Process break / login / logout logs for this agent
+        for b_log in today_breaks:
+            b_uid = str(b_log.user_id or "").strip()
+            b_ext = str(b_log.extension or "").strip()
+            if b_uid not in ident_set and b_ext not in ident_set:
+                continue
+
+            b_name = str(b_log.break_name or "Mola")
+            if first_activity_utc is None or b_log.start_time < first_activity_utc:
+                first_activity_utc = b_log.start_time
+
+            if b_name == "__LOGIN__":
+                if first_login_utc is None or b_log.start_time < first_login_utc:
+                    first_login_utc = b_log.start_time
+                if last_login_utc is None or b_log.start_time > last_login_utc:
+                    last_login_utc = b_log.start_time
+            elif b_name == "__LOGOUT__":
+                if last_logout_utc is None or b_log.start_time > last_logout_utc:
+                    last_logout_utc = b_log.start_time
+            elif not b_name.startswith("__"):
+                eff_start = max(b_log.start_time, today_start_utc)
+                eff_end = b_log.end_time if b_log.end_time else now_utc
+                if eff_end >= eff_start:
+                    break_seconds += int((eff_end - eff_start).total_seconds())
+                if b_log.end_time is None:
+                    active_break_log = b_log
+                else:
+                    if last_break_end_utc is None or b_log.end_time > last_break_end_utc:
+                        last_break_end_utc = b_log.end_time
+
+        # Process calls for this agent
+        for call in today_calls:
+            caller = str(call.caller_number or "").strip()
+            callee = str(call.callee_number or "").strip()
+            st = str(call.status or "").lower()
+
+            is_caller = bool(u_ext and (caller == u_ext or (len(u_ext) >= 3 and caller.endswith(u_ext))))
+            is_callee = bool(u_ext and (callee == u_ext or (len(u_ext) >= 3 and callee.endswith(u_ext))))
+            if not is_caller and not is_callee:
+                continue
+
+            if first_activity_utc is None or call.start_time < first_activity_utc:
+                first_activity_utc = call.start_time
+
+            if st == "in_progress" and call.end_time is None and (now_utc - call.start_time).total_seconds() < 7200:
+                active_call_obj = call
+
+            c_end = call.end_time or (now_utc if st == "in_progress" else call.start_time)
+            c_dur = max(0, int((c_end - call.start_time).total_seconds()))
+
+            if st in ("completed", "in_progress", "transferred", "answered"):
+                if is_callee:
+                    inbound_count += 1
+                elif is_caller:
+                    outbound_count += 1
+                talk_seconds += c_dur
+                if call.end_time and (last_call_end_utc is None or call.end_time > last_call_end_utc):
+                    last_call_end_utc = call.end_time
+            elif st in ("missed", "no_answer", "busy", "cancelled", "failed", "abandoned", "blocked"):
+                missed_count += 1
+
+        # Determine real-time status & status_since_utc
+        is_sip_reg = bool((u_ext and u_ext in registered_endpoints) or (u_id and u_id in registered_endpoints))
+        mem_st = get_agent_state(user_id=u_id, extension=u_ext)
+        mem_since_utc = None
+        if mem_st and mem_st.get("status_since_utc"):
+            try:
+                mem_since_utc = datetime.datetime.fromisoformat(str(mem_st["status_since_utc"]).replace("Z", ""))
+            except Exception:
+                mem_since_utc = None
+
+        has_active_login = bool(last_login_utc and (last_logout_utc is None or last_login_utc >= last_logout_utc))
+        explicitly_logged_out = bool(
+            (mem_st and mem_st.get("status_since_utc") and not mem_st.get("is_logged_in") and mem_st.get("status") == "offline")
+            or (last_logout_utc and (last_login_utc is None or last_logout_utc > last_login_utc) and not is_sip_reg)
+        )
+        is_online = bool((is_sip_reg or (mem_st and mem_st.get("is_logged_in")) or has_active_login) and not explicitly_logged_out)
+
+        status_code = "offline"
+        status_label = "Çevrimdışı"
+        break_name_val = None
+        active_call_with = None
+        status_since_utc = None
+
+        if active_call_obj is not None or (u_ext and u_ext in live_busy_exts):
+            status_code = "busy"
+            if active_call_obj is not None:
+                other_num = active_call_obj.callee_number if str(active_call_obj.caller_number) == u_ext else active_call_obj.caller_number
+                active_call_with = str(other_num or "")
+                status_since_utc = active_call_obj.start_time
+            else:
+                status_since_utc = live_busy_exts.get(u_ext) or now_utc
+            status_label = f"Meşgul ({active_call_with})" if active_call_with else "Meşgul (Çağrıda)"
+        elif active_break_log is not None or (mem_st and mem_st.get("status") == "break" and mem_st.get("current_break")):
+            status_code = "break"
+            if active_break_log is not None:
+                break_name_val = active_break_log.break_name or "Mola"
+                status_since_utc = active_break_log.start_time
+            else:
+                cb = mem_st.get("current_break") or {}
+                break_name_val = cb.get("name") or "Mola"
+                status_since_utc = mem_since_utc or now_utc
+            status_label = f"Molada ({break_name_val})"
+        elif is_online:
+            status_code = "available"
+            status_label = "Müsait"
+            candidates = [t for t in (last_call_end_utc, last_break_end_utc, last_login_utc, mem_since_utc, first_activity_utc) if t is not None]
+            status_since_utc = max(candidates) if candidates else today_start_utc
+        else:
+            status_code = "offline"
+            status_label = "Çevrimdışı"
+            status_since_utc = last_logout_utc or mem_since_utc
+
+        status_duration_seconds = max(0, int((now_utc - status_since_utc).total_seconds())) if status_since_utc else 0
+
+        eff_login_utc = first_login_utc or first_activity_utc or (mem_since_utc if is_online else None)
+        login_time_str = fmt_tr_hms(eff_login_utc) if eff_login_utc else ("Aktif" if is_online else "-")
+        if is_online and (last_logout_utc is None or (last_login_utc and last_login_utc >= last_logout_utc)):
+            logout_time_str = f"Aktif (Son: {fmt_tr_hms(last_logout_utc)})" if last_logout_utc else "Aktif"
+        else:
+            logout_time_str = fmt_tr_hms(last_logout_utc) if last_logout_utc else "-"
+
+        agents_result.append({
+            "id": u_id or a_key,
+            "name": u_obj["name"],
+            "full_name": u_obj["full_name"],
+            "extension": u_ext,
+            "role": u_obj.get("role") or "agent",
+            "avatar": u_obj.get("avatar") or "",
+            "is_me": a_key == req_key,
+            "queues": agent_queues_map.get(a_key, []),
+            "status": status_code,
+            "status_label": status_label,
+            "break_name": break_name_val,
+            "active_call_with": active_call_with,
+            "status_since_utc": (status_since_utc.isoformat() + "Z") if status_since_utc else None,
+            "status_duration_seconds": status_duration_seconds,
+            "inbound_calls": inbound_count,
+            "outbound_calls": outbound_count,
+            "missed_calls": missed_count,
+            "total_calls": inbound_count + outbound_count,
+            "talk_duration_seconds": talk_seconds,
+            "break_duration_seconds": break_seconds,
+            "login_time": login_time_str,
+            "logout_time": logout_time_str
+        })
+
+    # Sort: busy/break/available first, then by extension
+    status_order = {"busy": 0, "break": 1, "available": 2, "offline": 3}
+    agents_result.sort(key=lambda x: (status_order.get(x["status"], 9), str(x.get("extension") or "9999")))
+
+    return {
+        "status": "success",
+        "my_queues": [
+            {"id": q["id"], "name": q["name"], "extension": q["extension"]}
+            for q in queues_out if q["id"] in my_queue_ids
+        ],
+        "all_queues": [
+            {"id": q["id"], "name": q["name"], "extension": q["extension"], "member_count": len(q["member_keys"])}
+            for q in queues_out
+        ],
+        "agents": agents_result
+    }
 
 @app.get("/api/agent/speed_dials")
 async def get_agent_speed_dials(extension: str = None):

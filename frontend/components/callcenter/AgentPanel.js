@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { LayoutDashboard, PhoneCall, List, PhoneMissed, Users, History, Voicemail, MessageSquare } from "lucide-react";
+import { LayoutDashboard, PhoneCall, List, PhoneMissed, Users, History, Voicemail, MessageSquare, Headphones } from "lucide-react";
 import AgentDashboardTab from "./tabs/AgentDashboardTab";
 import dynamic from "next/dynamic";
 const AgentWebphoneTab = dynamic(() => import("./tabs/AgentWebphoneTab"), { ssr: false });
@@ -9,6 +9,7 @@ import AgentDirectoryTab from "./tabs/AgentDirectoryTab";
 import AgentHistoryTab from "./tabs/AgentHistoryTab";
 import AgentVoicemailTab from "./tabs/AgentVoicemailTab";
 import AgentChatTab from "./tabs/AgentChatTab";
+import AgentQueuePeersTab from "./tabs/AgentQueuePeersTab";
 import { useTheme } from "../../utils/theme";
 
 export default function AgentPanel({ backendHost, currentUser, activeCallId, isVisible = true }) {
@@ -39,6 +40,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   const tabs = [
     { id: "dashboard", name: "Pano", icon: LayoutDashboard },
     { id: "webphone", name: "Webphone", icon: PhoneCall },
+    { id: "agents", name: "Temsilciler", icon: Headphones },
     { id: "speeddial", name: "Hızlı Arama", icon: List },
     { id: "missed", name: "Kayıp Çağrı", icon: PhoneMissed },
     { id: "directory", name: "Rehber", icon: Users },
@@ -104,6 +106,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
           />
         </div>
         {activeTab === "dashboard" && <AgentDashboardTab backendHost={backendHost} currentUser={currentUser} />}
+        {activeTab === "agents" && <AgentQueuePeersTab backendHost={backendHost} currentUser={currentUser} />}
         {activeTab === "speeddial" && <AgentSpeedDialTab backendHost={backendHost} currentUser={currentUser} />}
         {activeTab === "missed" && <AgentMissedCallsTab backendHost={backendHost} currentUser={currentUser} />}
         {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} />}

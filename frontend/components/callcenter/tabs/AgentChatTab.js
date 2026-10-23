@@ -24,26 +24,9 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   
   // Internal Chat States
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
-  const [internalChatSessions, setInternalChatSessions] = useState([
-    {
-      id: "internal-1",
-      customerName: "Sistem Yöneticisi",
-      platform: "İç Yazışma",
-      unread: 0,
-      online: true,
-      messages: [
-        { sender: "customer", text: "Merhaba, bugünkü yoğunluk hakkında bir rapor hazırlayabilir misiniz?", time: "09:30", status: "seen" },
-        { sender: "agent", text: "Tabii ki, öğleden sonra iletiyorum.", time: "09:35", status: "seen" }
-      ]
-    }
-  ]);
-
-  const [systemUsers, setSystemUsers] = useState([
-    { id: "u1", name: "Sistem Yöneticisi", role: "Yönetici", online: true },
-    { id: "u2", name: "Ayşe Yılmaz", role: "Takım Lideri", online: true },
-    { id: "u3", name: "Mehmet Demir", role: "Temsilci", online: false },
-    { id: "u4", name: "Canan Şahin", role: "Teknik Destek", online: true }
-  ]);
+  const [systemUsers, setSystemUsers] = useState([]);
+  const [internalRawMessages, setInternalRawMessages] = useState([]);
+  const [startedInternalPeers, setStartedInternalPeers] = useState([]);
 
   const messagesEndRef = useRef(null);
   const activeChatIdRef = useRef(activeChatId);
@@ -55,6 +38,115 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
   const API_BASE = `${typeof window !== "undefined" ? window.location.protocol : "http:"}//${host}`;
   const WS_BASE = typeof window !== "undefined" && window.location.protocol === "https:" ? `wss://${host}` : `ws://${host}`;
+
+  const myExt = String(currentUser?.extension || "").trim();
+  const myId = String(currentUser?.id || "").trim();
+  const mySenderKey = myExt || myId || "agent";
+
+  // Fetch Real System Users & Internal Chat Messages
+  const fetchInternalChatData = async () => {
+    try {
+      const [usersRes, chatRes] = await Promise.all([
+        fetch(`${API_BASE}/api/settings/users`),
+        fetch(`${API_BASE}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myId)}`)
+      ]);
+
+      if (usersRes.ok) {
+        const usersData = await usersRes.json();
+        if (Array.isArray(usersData)) {
+          const mappedUsers = usersData
+            .filter(u => {
+              if (myId && String(u.id) === myId) return false;
+              if (myExt && u.extension && String(u.extension) === myExt) return false;
+              return true;
+            })
+            .map(u => {
+              const peerKey = String(u.extension || u.id);
+              const isOnline = u.status === "online" || u.status === "available" || u.status === "busy" || u.status === "in_call";
+              const roleLabel = u.role === "admin" ? "Yönetici" : u.role === "supervisor" ? "Süpervizör" : "Temsilci";
+              return {
+                id: peerKey,
+                userId: String(u.id),
+                extension: String(u.extension || ""),
+                name: u.full_name || u.name || u.email || `Dahili ${u.extension || u.id}`,
+                role: u.extension ? `${roleLabel} (${u.extension})` : roleLabel,
+                online: isOnline,
+                status: u.status || "offline"
+              };
+            });
+          setSystemUsers(mappedUsers);
+        }
+      }
+
+      if (chatRes.ok) {
+        const chatData = await chatRes.json();
+        if (Array.isArray(chatData)) {
+          setInternalRawMessages(chatData);
+        }
+      }
+    } catch (err) {
+      console.error("[AgentChatTab] Error fetching internal chat data:", err);
+    }
+  };
+
+  // Build Internal Chat Sessions dynamically from real system users & messages
+  const internalChatSessions = React.useMemo(() => {
+    const myKeys = new Set([myExt, myId].filter(Boolean));
+    return systemUsers
+      .map(u => {
+        const peerKeys = new Set([u.id, u.userId, u.extension].filter(Boolean));
+        const convMsgs = internalRawMessages
+          .filter(m => {
+            const s = String(m.sender_id || "");
+            const r = String(m.receiver_id || "");
+            return (myKeys.has(s) && peerKeys.has(r)) || (peerKeys.has(s) && myKeys.has(r));
+          })
+          .map(m => {
+            const isAgent = myKeys.has(String(m.sender_id || ""));
+            let timeStr = "";
+            if (m.timestamp) {
+              try {
+                let iso = String(m.timestamp);
+                if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
+                timeStr = new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+              } catch (e) {}
+            }
+            return {
+              id: m.id,
+              sender: isAgent ? "agent" : "customer",
+              text: m.text,
+              time: timeStr,
+              timestamp: m.timestamp,
+              status: "seen"
+            };
+          });
+
+        const lastMsg = convMsgs.length > 0 ? convMsgs[convMsgs.length - 1] : null;
+        return {
+          id: `internal-${u.id}`,
+          peerKey: u.id,
+          userId: u.userId,
+          extension: u.extension,
+          customerName: u.name,
+          role: u.role,
+          platform: "İç Yazışma",
+          unread: 0,
+          online: u.online,
+          messages: convMsgs,
+          lastTimestamp: lastMsg?.timestamp || null,
+          isStarted: startedInternalPeers.includes(u.id) || convMsgs.length > 0
+        };
+      })
+      .sort((a, b) => {
+        if (a.lastTimestamp && b.lastTimestamp) {
+          return new Date(b.lastTimestamp) - new Date(a.lastTimestamp);
+        }
+        if (a.lastTimestamp) return -1;
+        if (b.lastTimestamp) return 1;
+        if (a.online !== b.online) return a.online ? -1 : 1;
+        return a.customerName.localeCompare(b.customerName, "tr");
+      });
+  }, [systemUsers, internalRawMessages, myExt, myId, startedInternalPeers]);
 
   // Fetch Omnichannel Customer Sessions from Backend
   const fetchCustomerSessions = async (showSpinner = false) => {
@@ -92,9 +184,11 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   // Polling & Real-time WebSocket Hybrid Listener
   useEffect(() => {
     fetchCustomerSessions(true);
+    fetchInternalChatData();
 
     const interval = setInterval(() => {
       fetchCustomerSessions(false);
+      fetchInternalChatData();
       if (activeChatIdRef.current && chatTab === "customer") {
         fetchCustomerMessages(activeChatIdRef.current, false);
       }
@@ -159,12 +253,12 @@ export default function AgentChatTab({ backendHost, currentUser }) {
       clearInterval(interval);
       if (ws) ws.close();
     };
-  }, [host, chatTab]);
+  }, [host, chatTab, myExt, myId]);
 
   // Scroll to bottom when messages update
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [customerMessages, activeChatId]);
+  }, [customerMessages, internalRawMessages, activeChatId]);
 
   // Filter Customer Sessions assigned to logged-in Representative or All
   const filteredCustomerSessions = apiCustomerSessions.filter(session => {
@@ -303,53 +397,51 @@ export default function AgentChatTab({ backendHost, currentUser }) {
         setCustomerMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
       }
     } else {
-      // Internal Chat Send Logic
-      const timeString = new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
-      const newMsg = { sender: "agent", text: chatInput.trim(), time: timeString, status: "sent" };
+      // Internal Chat Send Logic via Backend API
+      const textToSend = chatInput.trim();
+      const targetChat = internalChatSessions.find(c => String(c.id) === String(activeChatId));
+      const receiverId = targetChat?.peerKey || String(activeChatId).replace(/^internal-/, "");
+      if (!receiverId) return;
 
-      setInternalChatSessions(prev =>
-        prev.map(chat => {
-          if (chat.id === activeChatId) {
-            return { ...chat, messages: [...chat.messages, newMsg] };
-          }
-          return chat;
-        })
-      );
+      setSendError("");
+      const optimisticMsg = {
+        id: `opt-int-${Date.now()}`,
+        sender_id: mySenderKey,
+        receiver_id: receiverId,
+        text: textToSend,
+        timestamp: new Date().toISOString()
+      };
+      setInternalRawMessages(prev => [...prev, optimisticMsg]);
       setChatInput("");
 
-      setTimeout(() => {
-        setInternalChatSessions(prev =>
-          prev.map(chat => {
-            if (chat.id === activeChatId) {
-              const updatedMessages = chat.messages.map(m => m.sender === "agent" ? { ...m, status: "seen" } : m);
-              return { ...chat, messages: updatedMessages };
-            }
-            return chat;
+      try {
+        const res = await fetch(`${API_BASE}/api/agent/chat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sender_id: mySenderKey,
+            receiver_id: receiverId,
+            text: textToSend
           })
-        );
-      }, 1500);
+        });
+        if (res.ok) {
+          fetchInternalChatData();
+        } else {
+          setSendError("İç yazışma mesajı gönderilemedi.");
+          setInternalRawMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+        }
+      } catch (err) {
+        console.error("[AgentChatTab] Error sending internal chat message:", err);
+        setSendError("Sunucu bağlantı hatası: Mesaj iletilemedi.");
+        setInternalRawMessages(prev => prev.filter(m => m.id !== optimisticMsg.id));
+      }
     }
   };
 
   const handleStartInternalChat = (user) => {
-    const existingChat = internalChatSessions.find(c => c.customerName === user.name);
-    if (existingChat) {
-      setActiveChatId(existingChat.id);
-    } else {
-      const newChatId = `internal-${Date.now()}`;
-      setInternalChatSessions(prev => [
-        {
-          id: newChatId,
-          customerName: user.name,
-          platform: "İç Yazışma",
-          unread: 0,
-          online: user.online,
-          messages: []
-        },
-        ...prev
-      ]);
-      setActiveChatId(newChatId);
-    }
+    const peerKey = String(user.id);
+    setStartedInternalPeers(prev => (prev.includes(peerKey) ? prev : [peerKey, ...prev]));
+    setActiveChatId(`internal-${peerKey}`);
     setIsNewChatModalOpen(false);
   };
 

@@ -15,13 +15,58 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [liveBreakSeconds, setLiveBreakSeconds] = useState(0);
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
   useEffect(() => {
     fetchAgentStatus();
     fetchUsersAndRolesAndBreaks();
+    const interval = setInterval(fetchAgentStatus, 5000);
+    const onStatusUpdated = () => fetchAgentStatus();
+    window.addEventListener("AGENT_STATUS_UPDATED", onStatusUpdated);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("AGENT_STATUS_UPDATED", onStatusUpdated);
+    };
   }, [currentUser]);
+
+  // 1-second live timer when in break
+  useEffect(() => {
+    if (agentState?.status !== "break") {
+      setLiveBreakSeconds(0);
+      return;
+    }
+    const calcElapsed = () => {
+      const startIso = agentState?.break_start_utc || agentState?.current_break?.start_time_utc || agentState?.status_since_utc;
+      if (startIso) {
+        const ms = Date.now() - new Date(startIso).getTime();
+        if (!isNaN(ms) && ms >= 0) {
+          return Math.floor(ms / 1000);
+        }
+      }
+      return typeof agentState?.elapsed_seconds === "number" ? agentState.elapsed_seconds : 0;
+    };
+    setLiveBreakSeconds(calcElapsed());
+    const timer = setInterval(() => {
+      setLiveBreakSeconds((prev) => {
+        const fromIso = calcElapsed();
+        return fromIso > 0 ? fromIso : prev + 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [agentState]);
+
+  const formatTimer = (sec) => {
+    const s = Math.max(0, Number(sec) || 0);
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const rem = s % 60;
+    if (hrs > 0) {
+      return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(rem).padStart(2, "0")}`;
+    }
+    return `${String(mins).padStart(2, "0")}:${String(rem).padStart(2, "0")}`;
+  };
 
   const fetchAgentStatus = () => {
     const params = new URLSearchParams();
@@ -141,9 +186,10 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const loggedInUser = safeUsers.find(u => String(u.id) === String(effectiveUserId) || (currentUser?.extension && String(u.extension) === String(currentUser.extension))) || currentUser;
   const loggedInUserRoleObj = loggedInUser ? safeRoles.find(r => r.role_code === loggedInUser.role) : null;
 
-  // Filter breaks allowed for this user's role
+  // Filter breaks allowed for this user's role (fallback to all breaks if role has no restriction or is admin)
   const allowedBreakIds = loggedInUserRoleObj ? loggedInUserRoleObj.allowed_breaks || [] : [];
-  const filteredBreaks = safeBreaks.filter(b => allowedBreakIds.includes(b.id));
+  const roleFiltered = safeBreaks.filter(b => allowedBreakIds.includes(b.id));
+  const filteredBreaks = roleFiltered.length > 0 ? roleFiltered : safeBreaks;
 
   // Status style helper
   const getStatusDisplay = () => {
@@ -163,7 +209,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     }
     if (agentState?.status === "break" && agentState?.current_break) {
       return {
-        text: `Molada (${agentState.current_break.name})`,
+        text: `Molada (${agentState.current_break.name}) • ${formatTimer(liveBreakSeconds)}`,
         badgeClass: "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-200/50 dark:border-amber-900/30",
         indicatorClass: "bg-primary animate-pulse",
         customColor: agentState.current_break.color
@@ -242,7 +288,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
                   className="w-full flex items-center justify-center gap-2 py-3 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-emerald-500/10"
                 >
                   <Play size={15} />
-                  <span>Molayı Bitir (Çağrı Almaya Başla)</span>
+                  <span>Molayı Bitir ({formatTimer(liveBreakSeconds)})</span>
                 </button>
               ) : (
                 /* ONLINE: Break Options Toggle */
