@@ -11,7 +11,7 @@ import AgentVoicemailTab from "./tabs/AgentVoicemailTab";
 import AgentChatTab from "./tabs/AgentChatTab";
 import { useTheme } from "../../utils/theme";
 
-export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
+export default function AgentPanel({ backendHost, currentUser, activeCallId, isVisible = true }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard");
   const [pendingDial, setPendingDial] = useState(null);
@@ -24,7 +24,9 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
       }
     };
     const handleIncomingCall = () => {
-      setActiveTab("webphone");
+      if (isVisible) {
+        setActiveTab("webphone");
+      }
     };
     window.addEventListener('TRIGGER_CALL', handleTriggerCall);
     window.addEventListener('INCOMING_WEBPHONE_CALL', handleIncomingCall);
@@ -32,7 +34,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
       window.removeEventListener('TRIGGER_CALL', handleTriggerCall);
       window.removeEventListener('INCOMING_WEBPHONE_CALL', handleIncomingCall);
     };
-  }, []);
+  }, [isVisible]);
 
   const tabs = [
     { id: "dashboard", name: "Pano", icon: LayoutDashboard },
@@ -44,6 +46,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
     { id: "voicemail", name: "Sesli Posta", icon: Voicemail },
     { id: "chat", name: "Sohbet", icon: MessageSquare },
   ];
+
+  const isWebphoneScreenActive = Boolean(isVisible && activeTab === "webphone");
 
   return (
     <div className="flex h-full w-full max-w-[1600px] gap-5 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
@@ -90,7 +94,14 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId }) {
       {/* Tab Content Area */}
       <div className={`flex-1 h-full overflow-hidden relative rounded-3xl bg-white dark:bg-slate-900 shadow-sm border ${borderLight}`}>
         <div className={activeTab === "webphone" ? "w-full h-full" : "hidden"}>
-          <AgentWebphoneTab backendHost={backendHost} currentUser={currentUser} activeCallId={activeCallId} pendingDial={pendingDial} setPendingDial={setPendingDial} />
+          <AgentWebphoneTab
+            backendHost={backendHost}
+            currentUser={currentUser}
+            activeCallId={activeCallId}
+            pendingDial={pendingDial}
+            setPendingDial={setPendingDial}
+            isWebphoneScreenActive={isWebphoneScreenActive}
+          />
         </div>
         {activeTab === "dashboard" && <AgentDashboardTab backendHost={backendHost} currentUser={currentUser} />}
         {activeTab === "speeddial" && <AgentSpeedDialTab backendHost={backendHost} currentUser={currentUser} />}

@@ -1,22 +1,21 @@
 import React, { useState, useEffect, useRef } from "react";
 import TranscriptPanel from "../../dashboard/TranscriptPanel";
 import AgentSessionCard from "../../phone/AgentSessionCard";
-import { Phone, PhoneOff, Mic, MicOff, Pause, Play, Volume2, UserPlus, UserCheck, User, X } from "lucide-react";
+import { Phone, PhoneOff, Mic, MicOff, Pause, Play, UserPlus, UserCheck, X } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
-import * as SIP from "sip.js";
 import { findContactByPhone } from "../../../utils/contactUtils";
+import { webphoneManager } from "../../../utils/webphoneManager";
 
-export default function AgentWebphoneTab({ backendHost, currentUser, activeCallId, pendingDial, setPendingDial }) {
+export default function AgentWebphoneTab({
+  backendHost,
+  currentUser,
+  activeCallId,
+  pendingDial,
+  setPendingDial,
+  isWebphoneScreenActive = true
+}) {
   const { borderLight } = useTheme();
-  const [dialNumber, setDialNumber] = useState("");
-  const [callStatus, setCallStatus] = useState("Idle"); // Idle, Calling, InCall
-  const [webrtcConfig, setWebrtcConfig] = useState(null);
-  const [isRegistered, setIsRegistered] = useState(false);
-  
-  const [callDuration, setCallDuration] = useState(0);
-  const [isMuted, setIsMuted] = useState(false);
-  const [isOnHold, setIsOnHold] = useState(false);
-  const [callNotification, setCallNotification] = useState(null);
+  const [wpState, setWpState] = useState(() => webphoneManager.getState());
 
   // Contacts & Add Contact Modal State
   const [contacts, setContacts] = useState([]);
@@ -26,40 +25,27 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
   const [savingContact, setSavingContact] = useState(false);
   const [contactError, setContactError] = useState("");
 
-  const userAgentRef = useRef(null);
-  const sessionRef = useRef(null);
-  const audioElRef = useRef(null);
   const inputRef = useRef(null);
 
   useEffect(() => {
-    if (!callNotification) return;
-    const t = setTimeout(() => setCallNotification(null), 5000);
-    return () => clearTimeout(t);
-  }, [callNotification]);
+    const unsub = webphoneManager.subscribe((state) => {
+      setWpState({ ...state });
+    });
+    return () => unsub();
+  }, []);
 
-  const attachRemoteAudio = (sessionObj) => {
-    const peerConnection = sessionObj?.sessionDescriptionHandler?.peerConnection;
-    if (!peerConnection) return;
-    const selectedSpeaker = typeof window !== "undefined" ? localStorage.getItem("selected_speaker") : null;
+  useEffect(() => {
+    if (backendHost || currentUser) {
+      webphoneManager.init({ backendHost, currentUser });
+    }
+  }, [backendHost, currentUser]);
 
-    const bindTrack = (track) => {
-      if (track && track.kind === "audio" && audioElRef.current) {
-        const remoteStream = new MediaStream([track]);
-        if (selectedSpeaker && typeof audioElRef.current.setSinkId === "function") {
-          audioElRef.current.setSinkId(selectedSpeaker).catch(() => {});
-        }
-        audioElRef.current.srcObject = remoteStream;
-        audioElRef.current.play().catch((e) => console.error(e));
-      }
+  useEffect(() => {
+    webphoneManager.setWebphoneScreenActive(Boolean(isWebphoneScreenActive));
+    return () => {
+      webphoneManager.setWebphoneScreenActive(false);
     };
-
-    peerConnection.addEventListener("track", (event) => {
-      bindTrack(event.track);
-    });
-    peerConnection.getReceivers().forEach((receiver) => {
-      bindTrack(receiver.track);
-    });
-  };
+  }, [isWebphoneScreenActive]);
 
   // Fetch system contacts & directory
   const fetchContactsAndDirectory = async () => {
@@ -71,11 +57,11 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
       ]);
       if (contactsRes.ok) {
         const cData = await contactsRes.json();
-        setContacts(cData);
+        setContacts(Array.isArray(cData) ? cData : []);
       }
       if (dirRes.ok) {
         const dData = await dirRes.json();
-        setDirectory(dData);
+        setDirectory(Array.isArray(dData) ? dData : []);
       }
     } catch (err) {
       console.error("Rehber verileri alınamadı:", err);
@@ -89,278 +75,60 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     return () => window.removeEventListener("CONTACTS_UPDATED", handleContactsUpdated);
   }, [backendHost]);
 
-  useEffect(() => {
-    if (!currentUser) return;
-    const fetchConfig = async () => {
-      try {
-        const protocol = window.location.protocol;
-        const queryParams = new URLSearchParams();
-        if (currentUser.id) queryParams.set("user_id", currentUser.id.toString());
-        if (currentUser.extension) queryParams.set("extension", currentUser.extension.toString());
-        const res = await fetch(`${protocol}//${backendHost}/api/webrtc/config?${queryParams.toString()}`, {
-          headers: { "X-User-ID": (currentUser.id || currentUser.extension || "").toString() }
-        });
-        if (res.ok) {
-          const data = await res.json();
-          setWebrtcConfig(data);
-        }
-      } catch (err) {
-        console.error("WebRTC Config alınamadı:", err);
-      }
-    };
-    fetchConfig();
-  }, [currentUser, backendHost]);
+  const {
+    dialNumber,
+    remoteNumber,
+    remoteDisplayName,
+    callStatus,
+    registered: isRegistered,
+    callDuration,
+    isMuted,
+    isOnHold,
+    callNotification
+  } = wpState;
 
-  useEffect(() => {
-    if (!webrtcConfig) return;
-    const { asteriskWssUrl, agentExtension, password } = webrtcConfig;
-    if (!asteriskWssUrl || !agentExtension) return;
-
-    const hostOnly = asteriskWssUrl.split('/')[2].split(':')[0];
-    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
-    
-    const resolvedViaHost = webrtcConfig.viaHost || hostOnly;
-    const userAgentOptions = {
-      uri,
-      contactURI: uri,
-      transportOptions: { server: asteriskWssUrl, traceSip: false },
-      viaHost: resolvedViaHost,
-      contactName: agentExtension,
-      authorizationUsername: agentExtension,
-      authorizationPassword: password,
-      displayName: `Temsilci ${agentExtension}`,
-      hackIpInContact: true,
-      delegate: {
-        onInvite: (invite) => {
-          const callerNum = invite?.remoteIdentity?.uri?.user || "Bilinmeyen";
-          sessionRef.current = invite;
-          setDialNumber(callerNum);
-          setCallStatus("Ringing");
-          setCallNotification(null);
-          window.dispatchEvent(new CustomEvent("INCOMING_WEBPHONE_CALL", { detail: callerNum }));
-
-          invite.stateChange.addListener((state) => {
-            if (state === SIP.SessionState.Established) {
-              setCallStatus("InCall");
-              attachRemoteAudio(invite);
-            } else if (state === SIP.SessionState.Terminated) {
-              setCallStatus("Idle");
-              sessionRef.current = null;
-            }
-          });
-        }
-      }
-    };
-
-    const ua = new SIP.UserAgent(userAgentOptions);
-    userAgentRef.current = ua;
-
-    if (ua.transport) {
-      const originalOnMessage = ua.transport.onMessage;
-      ua.transport.onMessage = (message) => {
-        if (typeof message === "string" && message.includes("SIP/2.0 200 OK") && message.includes("REGISTER")) {
-          console.log("[WebRTC] Asterisk REGISTER 200 OK alındı! Hat Müsait / Online!");
-          setIsRegistered(true);
-        }
-        if (originalOnMessage) {
-          originalOnMessage.call(ua.transport, message);
-        }
-      };
-    }
-
-    ua.start()
-      .then(() => {
-        setIsRegistered(true);
-        const registerer = new SIP.Registerer(ua);
-        return registerer.register();
-      })
-      .then(() => {
-        setIsRegistered(true);
-      })
-      .catch((err) => console.error("WebRTC Başlatma/Register hatası:", err));
-
-    return () => {
-      if (userAgentRef.current) userAgentRef.current.stop();
-    };
-  }, [webrtcConfig]);
-
-  useEffect(() => {
-    let interval;
-    if (callStatus === "InCall") {
-      interval = setInterval(() => setCallDuration(p => p + 1), 1000);
+  const setDialNumber = (val) => {
+    if (typeof val === "function") {
+      const next = val(webphoneManager.getState().dialNumber);
+      webphoneManager.setDialNumber(next);
     } else {
-      setCallDuration(0);
-      setIsMuted(false);
-      setIsOnHold(false);
+      webphoneManager.setDialNumber(val);
     }
-    return () => clearInterval(interval);
-  }, [callStatus]);
+  };
+
+  const setCallNotification = (notif) => {
+    webphoneManager.setCallNotification(notif);
+  };
 
   const formatDuration = (secs) => {
-    const m = Math.floor(secs / 60).toString().padStart(2, '0');
-    const s = (secs % 60).toString().padStart(2, '0');
+    const m = Math.floor(secs / 60).toString().padStart(2, "0");
+    const s = (secs % 60).toString().padStart(2, "0");
     return `${m}:${s}`;
   };
 
-  const recordWebphoneTimelineEvent = (actionType, detail) => {
-    try {
-      const protocol = window.location.protocol;
-      const ext = webrtcConfig?.agentExtension || currentUser?.extension || "1000";
-      const uid = currentUser?.id || ext;
-      fetch(`${protocol}//${backendHost}/api/agent/timeline-event`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: uid,
-          extension: ext,
-          action_type: actionType,
-          detail: detail || ""
-        })
-      }).catch(() => {});
-    } catch (e) {}
+  const handleDial = (num) => {
+    webphoneManager.setDialNumber((webphoneManager.getState().dialNumber || "") + String(num));
   };
 
-  const handleDial = (num) => setDialNumber(prev => prev + num);
-  
-  const handleAnswerCall = async () => {
-    if (!sessionRef.current || callStatus !== "Ringing") return;
-    try {
-      await sessionRef.current.accept({
-        sessionDescriptionHandlerOptions: {
-          constraints: { audio: true, video: false }
-        }
-      });
-      attachRemoteAudio(sessionRef.current);
-      setCallStatus("InCall");
-    } catch (err) {
-      console.error("Arama cevaplanamadı:", err);
-      setCallNotification({
-        type: "error",
-        message: "Çağrı yanıtlanamadı. Lütfen mikrofon izinlerinizi kontrol edin."
-      });
-    }
+  const handleAnswerCall = () => {
+    webphoneManager.answerCall();
   };
 
-  const handleCall = async (targetNum = dialNumber) => {
-    const cleanTarget = String(targetNum || "").replace(/[^0-9*#+]/g, "");
-    if (!cleanTarget) return;
-    if (!userAgentRef.current || !webrtcConfig) {
-      setCallNotification({
-        type: "error",
-        message: "WebPhone bağlantısı hazırlanıyor, lütfen birkaç saniye sonra tekrar deneyin."
-      });
-      return;
-    }
-    setCallNotification(null);
-    setDialNumber(cleanTarget);
-    setCallStatus("Calling");
-    if (String(cleanTarget).startsWith("*8") || String(cleanTarget).startsWith("**")) {
-      const pickupLbl = String(cleanTarget).startsWith("*8") ? "Grup Çağrı Toplama (*8)" : `Hedefli Çağrı Toplama (${cleanTarget})`;
-      recordWebphoneTimelineEvent("call_pickup", pickupLbl);
-    }
-
-    const hostOnly = webrtcConfig.asteriskWssUrl.split('/')[2].split(':')[0];
-    const targetURI = SIP.UserAgent.makeURI(`sip:${cleanTarget}@${hostOnly}`);
-    const inviter = new SIP.Inviter(userAgentRef.current, targetURI, {
-      sessionDescriptionHandlerOptions: {
-        constraints: { audio: true, video: false }
-      }
-    });
-
-    sessionRef.current = inviter;
-
-    inviter.stateChange.addListener((state) => {
-      if (state === SIP.SessionState.Established) {
-        setCallStatus("InCall");
-        attachRemoteAudio(inviter);
-      } else if (state === SIP.SessionState.Terminated) {
-        setCallStatus("Idle");
-        sessionRef.current = null;
-      }
-    });
-
-    try {
-      await inviter.invite({
-        requestDelegate: {
-          onReject: (response) => {
-            const code = response?.message?.statusCode;
-            if (code === 486 || code === 600) {
-              setCallNotification({
-                type: "error",
-                message: `Aranan numara (${cleanTarget}) şu anda meşgul.`
-              });
-            } else if (code === 480 || code === 503 || code === 404) {
-              setCallNotification({
-                type: "error",
-                message: `Aranan dahili veya numara (${cleanTarget}) şu anda çevrimdışı veya ulaşılamıyor.`
-              });
-            } else if (code === 403 || code === 603) {
-              setCallNotification({
-                type: "error",
-                message: `Arama reddedildi veya bu numarayı (${cleanTarget}) arama yetkiniz bulunmuyor.`
-              });
-            }
-          }
-        }
-      });
-    } catch (err) {
-      console.error("Arama başlatılamadı:", err);
-      setCallStatus("Idle");
-      setCallNotification({
-        type: "error",
-        message: "Arama başlatılamadı. Lütfen mikrofon izninizi ve bağlantınızı kontrol edin."
-      });
-    }
+  const handleCall = (targetNum = dialNumber) => {
+    webphoneManager.makeCall(targetNum);
   };
 
   const handleHangup = () => {
-    if (sessionRef.current) {
-      try {
-        if (callStatus === "Calling") {
-          sessionRef.current.cancel();
-        } else if (callStatus === "Ringing") {
-          sessionRef.current.reject();
-        } else {
-          sessionRef.current.bye();
-        }
-      } catch (e) {}
-    }
-    setCallStatus("Idle");
-    setDialNumber("");
+    webphoneManager.hangupCall();
+    webphoneManager.setDialNumber("");
   };
 
   const toggleMute = () => {
-    if (!sessionRef.current) return;
-    const pc = sessionRef.current.sessionDescriptionHandler?.peerConnection;
-    if (pc) {
-      pc.getSenders().forEach(sender => {
-        if (sender.track && sender.track.kind === 'audio') {
-          sender.track.enabled = isMuted;
-        }
-      });
-      if (!isMuted) {
-        recordWebphoneTimelineEvent("call_mute", dialNumber ? `${dialNumber} görüşmesinde mikrofon kapatıldı` : "Görüşmede mikrofon kapatıldı");
-      }
-      setIsMuted(!isMuted);
-    }
+    webphoneManager.toggleMute();
   };
 
   const toggleHold = () => {
-    if (!sessionRef.current) return;
-    const pc = sessionRef.current.sessionDescriptionHandler?.peerConnection;
-    if (pc) {
-      pc.getSenders().forEach(sender => {
-        if (sender.track && sender.track.kind === 'audio') {
-          sender.track.enabled = isOnHold;
-        }
-      });
-      if (!isOnHold) {
-        recordWebphoneTimelineEvent("call_hold", dialNumber ? `${dialNumber} beklemeye alındı` : "Görüşme beklemeye alındı");
-      } else {
-        recordWebphoneTimelineEvent("call_unhold", dialNumber ? `${dialNumber} beklemeden alındı` : "Beklemeden geri dönüldü");
-      }
-      setIsOnHold(!isOnHold);
-    }
+    webphoneManager.toggleHold();
   };
 
   const handleSaveContact = async () => {
@@ -370,6 +138,7 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
     }
     setSavingContact(true);
     setContactError("");
+    const phoneToSave = (remoteNumber || dialNumber || "").trim();
     try {
       const protocol = window.location.protocol;
       const res = await fetch(`${protocol}//${backendHost}/api/contacts`, {
@@ -378,13 +147,13 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
         body: JSON.stringify({
           first_name: newContact.firstName.trim(),
           last_name: newContact.lastName.trim(),
-          phone_number: dialNumber.trim(),
+          phone_number: phoneToSave,
           email: newContact.email.trim() || null
         })
       });
       if (res.ok) {
         await fetchContactsAndDirectory();
-        window.dispatchEvent(new CustomEvent('CONTACTS_UPDATED'));
+        window.dispatchEvent(new CustomEvent("CONTACTS_UPDATED"));
         setIsAddContactOpen(false);
       } else {
         const errData = await res.json();
@@ -400,20 +169,22 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
 
   useEffect(() => {
     if (pendingDial) {
-      setDialNumber(String(pendingDial));
+      const numToDial = String(pendingDial);
+      webphoneManager.setDialNumber(numToDial);
       if (isRegistered && callStatus === "Idle") {
-        const numToDial = String(pendingDial);
         setPendingDial(null);
-        setTimeout(() => handleCall(numToDial), 100);
+        setTimeout(() => webphoneManager.makeCall(numToDial), 80);
       }
     }
   }, [pendingDial, isRegistered, callStatus]);
 
-  const matchedContact = findContactByPhone(dialNumber, contacts, directory);
+  const activePhoneNum = callStatus !== "Idle" ? (remoteNumber || dialNumber) : dialNumber;
+  const matchedContact = findContactByPhone(activePhoneNum, contacts, directory);
+  const resolvedDisplayName = matchedContact?.displayName || (remoteDisplayName && remoteDisplayName !== activePhoneNum ? remoteDisplayName : "");
+  const resolvedIsInternal = Boolean(matchedContact?.isInternal || (activePhoneNum && String(activePhoneNum).length <= 5 && resolvedDisplayName));
 
   return (
     <div className="w-full h-full p-4 lg:p-6 overflow-hidden flex flex-col relative">
-      <audio ref={audioElRef} autoPlay style={{ display: "none" }} />
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
         
         {/* Left Column: Phone Controls & Session */}
@@ -455,10 +226,10 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
                   className="w-full text-center text-2xl font-mono font-bold tracking-widest text-slate-800 dark:text-white bg-transparent border-none outline-none focus:ring-0 placeholder:text-slate-300 dark:placeholder:text-slate-700 h-10 disabled:opacity-80"
                   autoFocus
                 />
-                {matchedContact && (
+                {resolvedDisplayName && (
                   <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center justify-center gap-1.5 animate-in fade-in">
                     <UserCheck size={14} />
-                    {matchedContact.displayName}
+                    {resolvedDisplayName}
                   </p>
                 )}
               </div>
@@ -524,23 +295,23 @@ export default function AgentWebphoneTab({ backendHost, currentUser, activeCallI
                      {isOnHold ? <Pause size={32} /> : <Phone size={32} className={callStatus === 'Calling' || callStatus === 'Ringing' ? 'animate-bounce' : ''} />}
                    </div>
                    
-                   {matchedContact ? (
+                   {resolvedDisplayName ? (
                      <div className="flex flex-col items-center text-center">
                        <div className="flex items-center gap-1.5 mb-1.5 px-3 py-1 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-full text-xs font-extrabold tracking-wide shadow-sm">
                          <UserCheck size={14} />
-                         <span>Rehberde Kayıtlı</span>
+                         <span>{resolvedIsInternal ? "Dahili Abone" : "Rehberde Kayıtlı"}</span>
                        </div>
                        <h2 className="text-3xl md:text-4xl font-extrabold text-slate-800 dark:text-white tracking-wide mb-1">
-                         {matchedContact.displayName}
+                         {resolvedDisplayName}
                        </h2>
                        <p className="text-xl font-mono font-semibold text-slate-500 dark:text-slate-400 tracking-widest mb-3">
-                         {dialNumber}
+                         {activePhoneNum}
                        </p>
                      </div>
                    ) : (
                      <div className="flex flex-col items-center text-center">
                        <h2 className="text-4xl md:text-5xl font-extrabold text-slate-800 dark:text-white tracking-widest mb-2 font-mono drop-shadow-sm dark:drop-shadow-lg">
-                         {dialNumber}
+                         {activePhoneNum}
                        </h2>
                        <button
                          onClick={() => {

@@ -313,18 +313,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [isColumnSelectOpen, setIsColumnSelectOpen] = useState(false);
   const [filterStartDate, setFilterStartDate] = useState(() => {
+    const today = getTodayDateString();
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("reports_filter_start_date");
-      if (saved) return saved;
+      const savedStart = localStorage.getItem("reports_filter_start_date");
+      const savedEnd = localStorage.getItem("reports_filter_end_date");
+      if (savedStart && savedEnd && savedEnd >= today) return savedStart;
     }
-    return getTodayDateString();
+    return today;
   });
   const [filterEndDate, setFilterEndDate] = useState(() => {
+    const today = getTodayDateString();
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("reports_filter_end_date");
-      if (saved) return saved;
+      const savedEnd = localStorage.getItem("reports_filter_end_date");
+      if (savedEnd && savedEnd >= today) return savedEnd;
     }
-    return getTodayDateString();
+    return today;
   });
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterDirection, setFilterDirection] = useState("All");
@@ -1546,6 +1549,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
   const getCustomerNumber = (call) => {
     if (!call) return "";
+    const caller = String(call.caller_number || "").trim();
+    const callee = String(call.callee_number || "").trim();
+    if (caller && callee && caller.length <= 5 && callee.length <= 5 && caller.toLowerCase() !== "ai") {
+      const calleeUser = Array.isArray(users)
+        ? users.find((u) => String(u.extension) === callee)
+        : null;
+      const calleeName = calleeUser?.full_name || calleeUser?.name || "";
+      return calleeName ? `${caller} → ${callee} (${calleeName})` : `${caller} → ${callee}`;
+    }
     const dir = getCallDirection(call);
     return dir.includes("Giden") ? call.callee_number : call.caller_number;
   };
@@ -1560,7 +1572,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return "Gelen";
     }
     
-    // If caller is an internal extension (e.g. 1000, 1001) and callee is external, it's outbound.
+    // If caller is an internal extension (e.g. 1000, 1001) and callee is external or another extension, it's outbound/internal.
     if (callee.length >= 10 || callee.startsWith("+") || callee.length >= 3) {
       if (caller.toLowerCase() === "ai") return "Giden (AI)";
       return "Giden (Temsilci)";
@@ -1575,17 +1587,19 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const st = call.status ? String(call.status).toLowerCase() : "";
     
     // Check actual DB status
-    if (st === "blocked" || st === "failed" || st === "no answer" || st === "no_answer" || st === "busy" || st === "canceled" || st === "missed") {
+    if (st === "blocked" || st === "failed" || st === "no answer" || st === "no_answer" || st === "busy" || st === "canceled" || st === "cancelled" || st === "missed") {
       return "Başarısız";
     }
     
-    // Also if the call is "completed" but there's no recording and it's extremely short (e.g. less than 5 seconds),
-    // it likely dropped before connection was established, so consider it failed.
+    const caller = String(call.caller_number || "").trim();
+    const callee = String(call.callee_number || "").trim();
+    const isInternalCall = caller.length > 0 && caller.length <= 5 && callee.length > 0 && callee.length <= 5;
+
     const end = call.end_time ? new Date(call.end_time) : new Date();
     const start = new Date(call.start_time);
     const totalSeconds = Math.max(0, Math.floor((end - start) / 1000));
     
-    if (totalSeconds <= 5 && !call.recording_path && (st === "completed" || st === "in_progress")) {
+    if (!isInternalCall && totalSeconds <= 5 && !call.recording_path && (st === "completed" || st === "in_progress")) {
       return "Başarısız";
     }
 

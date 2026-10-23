@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from "react";
+import { Coffee, Clock } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 
 export default function AgentDashboardTab({ backendHost, currentUser }) {
-  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const { text, borderLight } = useTheme();
   const [stats, setStats] = useState({
     inbound: 0,
     outbound: 0,
     missed: 0,
     break_minutes: 0,
-    break_details: []
+    break_seconds: 0,
+    break_details: [],
+    break_logs: []
   });
 
   useEffect(() => {
@@ -16,7 +19,10 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
     const fetchStats = async () => {
       try {
         const protocol = window.location.protocol;
-        const res = await fetch(`${protocol}//${backendHost}/api/agent/stats?extension=${currentUser.extension || currentUser.id}`);
+        const params = new URLSearchParams();
+        if (currentUser.extension) params.set("extension", String(currentUser.extension));
+        if (currentUser.id) params.set("user_id", String(currentUser.id));
+        const res = await fetch(`${protocol}//${backendHost}/api/agent/stats?${params.toString()}`);
         if (res.ok) {
           const data = await res.json();
           setStats(data);
@@ -26,17 +32,31 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
       }
     };
     fetchStats();
-    // Poll every 10 seconds for MVP
-    const interval = setInterval(fetchStats, 10000);
-    return () => clearInterval(interval);
+    const interval = setInterval(fetchStats, 5000);
+    window.addEventListener("AGENT_STATUS_UPDATED", fetchStats);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("AGENT_STATUS_UPDATED", fetchStats);
+    };
   }, [backendHost, currentUser]);
 
-  const totalCalls = stats.inbound + stats.outbound + stats.missed;
+  const totalCalls = (stats.inbound || 0) + (stats.outbound || 0) + (stats.missed || 0);
   const inboundPct = totalCalls > 0 ? (stats.inbound / totalCalls) * 100 : 0;
   const outboundPct = totalCalls > 0 ? (stats.outbound / totalCalls) * 100 : 0;
   const missedPct = totalCalls > 0 ? (stats.missed / totalCalls) * 100 : 0;
 
-  const totalBreak = stats.break_details ? stats.break_details.reduce((acc, b) => acc + b.minutes, 0) : 0;
+  const breakDetails = Array.isArray(stats.break_details) ? stats.break_details : [];
+  const breakLogs = Array.isArray(stats.break_logs) ? stats.break_logs : [];
+  const totalBreakWeight = breakDetails.reduce((acc, b) => acc + Math.max(1, b.seconds || (b.minutes || 0) * 60 || 1), 0);
+
+  const formatBreakDuration = (sec, minFallback = 0) => {
+    const s = typeof sec === "number" ? sec : minFallback * 60;
+    if (s > 0 && s < 60) return `${s} sn`;
+    const m = Math.floor(s / 60);
+    const rem = s % 60;
+    if (rem > 0 && m < 10) return `${m} dk ${rem} sn`;
+    return `${m || minFallback || 0} dk`;
+  };
 
   return (
     <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-6 overflow-y-auto">
@@ -96,25 +116,33 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
           {/* Mola Dağılımı Grafiği */}
           <div className={`p-6 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex flex-col justify-center space-y-6`}>
             <h3 className="font-semibold text-slate-700 dark:text-slate-300">Mola Dağılımı</h3>
-            {stats.break_details && stats.break_details.length > 0 && totalBreak > 0 ? (
+            {breakDetails.length > 0 ? (
               <>
                 <div className="w-full h-6 rounded-full overflow-hidden flex bg-slate-100 dark:bg-slate-800">
-                  {stats.break_details.map((b, idx) => {
-                    const pct = totalBreak > 0 ? (b.minutes / totalBreak) * 100 : 0;
+                  {breakDetails.map((b, idx) => {
+                    const weight = Math.max(1, b.seconds || (b.minutes || 0) * 60 || 1);
+                    const pct = totalBreakWeight > 0 ? (weight / totalBreakWeight) * 100 : 100 / breakDetails.length;
                     const colors = ["bg-amber-400", "bg-purple-500", "bg-cyan-500", "bg-pink-500", "bg-indigo-500"];
                     const color = colors[idx % colors.length];
-                    return <div key={idx} style={{width: `${pct}%`}} className={`${color} transition-all duration-500`} title={`${b.name}: ${b.minutes} dk`}></div>
+                    return (
+                      <div
+                        key={idx}
+                        style={{ width: `${pct}%` }}
+                        className={`${color} transition-all duration-500`}
+                        title={`${b.name}: ${formatBreakDuration(b.seconds, b.minutes)}`}
+                      ></div>
+                    );
                   })}
                 </div>
                 <div className="flex flex-wrap items-center justify-center gap-3 text-sm font-medium">
-                  {stats.break_details.map((b, idx) => {
+                  {breakDetails.map((b, idx) => {
                     const colors = ["bg-amber-400", "bg-purple-500", "bg-cyan-500", "bg-pink-500", "bg-indigo-500"];
                     const color = colors[idx % colors.length];
                     return (
                       <div key={idx} className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400">
-                        <div className={`w-3 h-3 rounded-full ${color}`}></div> {b.name} ({b.minutes} dk)
+                        <div className={`w-3 h-3 rounded-full ${color}`}></div> {b.name} ({formatBreakDuration(b.seconds, b.minutes)})
                       </div>
-                    )
+                    );
                   })}
                 </div>
               </>
@@ -124,7 +152,54 @@ export default function AgentDashboardTab({ backendHost, currentUser }) {
           </div>
 
         </div>
+
+        {/* Bugünkü Mola Hareketleri */}
+        <div className={`p-6 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm space-y-4`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Coffee size={18} className="text-amber-500" />
+              <h3 className="font-semibold text-slate-700 dark:text-slate-300">Bugünkü Mola Hareketleri</h3>
+            </div>
+            <span className="text-xs font-bold text-slate-500 dark:text-slate-400">
+              Toplam: {formatBreakDuration(stats.break_seconds, stats.break_minutes)}
+            </span>
+          </div>
+
+          {breakLogs.length > 0 ? (
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
+              {breakLogs.map((item, i) => (
+                <div key={item.id || i} className="py-3 flex items-center justify-between gap-4 text-sm">
+                  <div className="flex items-center gap-3">
+                    <span className={`w-2.5 h-2.5 rounded-full ${item.is_active ? "bg-amber-500 animate-pulse" : "bg-slate-400"}`} />
+                    <div>
+                      <p className="font-bold text-slate-800 dark:text-white">{item.break_name}</p>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+                        <Clock size={12} />
+                        <span>Başlangıç: {item.start_time || "-"}</span>
+                        {item.end_time ? <span>• Bitiş: {item.end_time}</span> : null}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {item.is_active && (
+                      <span className="px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase bg-amber-100 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400">
+                        Devam Ediyor
+                      </span>
+                    )}
+                    <span className="font-mono font-bold text-xs px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                      {formatBreakDuration(item.duration_seconds)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-4 text-center text-slate-500 text-sm">Bugün kayıtlı mola hareketi bulunmuyor.</div>
+          )}
+        </div>
+
       </div>
     </div>
   );
 }
+

@@ -21,10 +21,14 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   useEffect(() => {
     fetchAgentStatus();
     fetchUsersAndRolesAndBreaks();
-  }, []);
+  }, [currentUser]);
 
   const fetchAgentStatus = () => {
-    fetch(`${API_BASE}/api/agent/status`)
+    const params = new URLSearchParams();
+    if (currentUser?.id) params.set("user_id", String(currentUser.id));
+    if (currentUser?.extension) params.set("extension", String(currentUser.extension));
+    const qs = params.toString() ? `?${params.toString()}` : "";
+    fetch(`${API_BASE}/api/agent/status${qs}`)
       .then((res) => res.json())
       .then((data) => {
         if (data) {
@@ -55,15 +59,23 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const updateStateOnBackend = async (newState) => {
     setLoading(true);
     try {
+      const payload = {
+        ...newState,
+        user_id: newState.user_id !== undefined ? newState.user_id : (currentUser?.id || agentState?.user_id),
+        extension: currentUser?.extension || newState.extension || ""
+      };
       const res = await fetch(`${API_BASE}/api/agent/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newState)
+        body: JSON.stringify(payload)
       });
       const data = await res.json();
       if (res.ok && data.status === "success") {
-        const updated = data.agent_state || data.state || newState;
+        const updated = data.agent_state || data.state || payload;
         setAgentState(updated);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("AGENT_STATUS_UPDATED", { detail: updated }));
+        }
       }
     } catch (err) {
       console.error("Agent durumu güncellenemedi:", err);
@@ -76,7 +88,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const safeRoles = Array.isArray(roles) ? roles : [];
   const safeBreaks = Array.isArray(breaks) ? breaks : [];
 
-  const effectiveUserId = agentState?.user_id || currentUser?.id;
+  const effectiveUserId = currentUser?.id || agentState?.user_id;
 
   const handleLogin = () => {
     if (!currentUser) return;
@@ -84,7 +96,8 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       is_logged_in: true,
       status: "online",
       current_break: null,
-      user_id: currentUser.id
+      user_id: currentUser.id,
+      extension: currentUser.extension
     };
     updateStateOnBackend(newState);
   };
@@ -94,7 +107,8 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       is_logged_in: false,
       status: "offline",
       current_break: null,
-      user_id: null
+      user_id: effectiveUserId,
+      extension: currentUser?.extension
     };
     updateStateOnBackend(newState);
     setShowDropdown(false);
@@ -105,7 +119,8 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       is_logged_in: true,
       status: "break",
       current_break: breakItem,
-      user_id: effectiveUserId
+      user_id: effectiveUserId,
+      extension: currentUser?.extension
     };
     updateStateOnBackend(newState);
     setShowDropdown(false);
@@ -116,13 +131,14 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       is_logged_in: true,
       status: "online",
       current_break: null,
-      user_id: effectiveUserId
+      user_id: effectiveUserId,
+      extension: currentUser?.extension
     };
     updateStateOnBackend(newState);
   };
 
   // Find currently logged in user profile
-  const loggedInUser = safeUsers.find(u => u.id === effectiveUserId);
+  const loggedInUser = safeUsers.find(u => String(u.id) === String(effectiveUserId) || (currentUser?.extension && String(u.extension) === String(currentUser.extension))) || currentUser;
   const loggedInUserRoleObj = loggedInUser ? safeRoles.find(r => r.role_code === loggedInUser.role) : null;
 
   // Filter breaks allowed for this user's role

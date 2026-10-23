@@ -2533,13 +2533,14 @@ export default function Home() {
 
         {/* Dynamic View Panel */}
         <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
-          {activeTab === "call-center" && (
+          <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
               currentUser={currentUser} 
               activeCallId={activeCallId} 
+              isVisible={activeTab === "call-center"}
             />
-          )}
+          </div>
 
           {activeTab === "settings" && (
             <SettingsPanel backendHost={backendHost} />

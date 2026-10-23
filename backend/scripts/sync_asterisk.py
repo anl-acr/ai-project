@@ -407,15 +407,27 @@ same => n,Hangup(21)
 exten => h,1,NoOp(Cagri sonlandi: ${EXTEN})
 same => n,Hangup()
 
+; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
+exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${UNIQUEID})
+same => n,Playback(/var/spool/asterisk/monitor/tr_aktariliyor)
+same => n,Queue(temsilci_kuyrugu)
+same => n,Hangup()
+
 [webrtc_agents]
+; WebRTC istemcileri (temsilciler) bu context üzerinden görüşme yapar
+
+; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
 exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${CURL(http://127.0.0.1:8000/api/acl/check_outbound_call?caller=${CALLERID(num)}&callee=${EXTEN}&channel=${URIENCODE(${CHANNEL(name)})}&via=${URIENCODE(${PJSIP_HEADER(read,Via)})})})
 same => n,GotoIf($["${OUT_ACL}" = "ALLOW"]?allow_out:deny_out)
 same => n(deny_out),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${CALLERID(num)}, Aranan=${EXTEN}, Sebep=${OUT_ACL})
+same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
 same => n,Hangup(21)
 same => n(allow_out),NoOp(Dis arama onaylandi: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
-same => n,Set(CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
+same => n,Set(__CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
 same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
@@ -425,34 +437,40 @@ same => n,Set(DIAL_NUM=${IF($["${EXTEN:0:1}"="0"]?90${EXTEN:1}:${EXTEN})})
 same => n,Dial(PJSIP/Operator_Trunk/sip:${DIAL_NUM}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
-exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${CALL_UUID}, Status: ${DIALSTATUS}, Cause: ${HANGUPCAUSE})
+exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${CALL_UUID}, Status: ${DIALSTATUS}, Cause: ${HANGUPCAUSE})
 same => n,GotoIf($["${CALL_UUID}" = ""]?done_h)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE})})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer) aramaları için (1000, 1001, 200 vb.)
-exten => _[1-9]X.,1,NoOp(ACL kontrol ediliyor: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
-same => n,Set(ACL_RESULT=${CURL(http://127.0.0.1:8000/api/acl/check_subscriber_call?caller=${CALLERID(num)}&callee=${EXTEN})})
-same => n,GotoIf($["${ACL_RESULT}" = "ALLOW"]?allow:deny)
-same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
-same => n,Playback(ss-noservice)
-same => n,Hangup()
-same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
+exten => _[1-9]X.,1,NoOp(Dahili arama basladi: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID}${EPOCH})})
-same => n,Set(CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
+same => n,Set(__CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12})
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
 same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?deny)
+same => n,Set(ACL_RESULT=${CURL(http://127.0.0.1:8000/api/acl/check_subscriber_call?caller=${CALLERID(num)}&callee=${EXTEN})})
+same => n,GotoIf($["${ACL_RESULT}" = "DENY"]?deny:allow)
+same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
+same => n,Set(DIALSTATUS=FAILED)
+same => n,Answer()
+same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
+same => n,Hangup()
+same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
 
-; 1. Ön Yönlendirme Kontrolü (Offline / Koşulsuz Yönlendirme)
+; 1. Ön Yönlendirme ve Aktif Profil Kontrolü (Offline / Koşulsuz Yönlendirme / Cihaz Seçimi)
 same => n,Set(FWD_PRE=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_forwarding?extension=${EXTEN}&dialstatus=BEFORE_DIAL)})
 same => n,Set(FWD_STATUS=${CUT(FWD_PRE,:,1)})
 same => n,Set(FWD_TARGET=${CUT(FWD_PRE,:,2)})
 same => n,Set(FWD_TIMEOUT=${CUT(FWD_PRE,:,3)})
-same => n,Set(DIAL_TIMEOUT=${IF($["${FWD_TIMEOUT}"=""]?30:${FWD_TIMEOUT})})
+same => n,Set(DIAL_TIMEOUT=${IF($[${ISNULL(${FWD_TIMEOUT})} | "${FWD_TIMEOUT}"=""]?30:${FWD_TIMEOUT})})
 same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:dial_pjsip)
 
-; 2. PJSIP Dahili Arama (Dinamik timeout veya varsayılan 30 saniye)
+; 2. PJSIP Dahili Arama (Profil veya Yönlendirme Zaman Aşımı Süresi)
 same => n(dial_pjsip),Set(TARGET_CONTACTS=${PJSIP_DIAL_CONTACTS(${EXTEN})})
 same => n,Set(DIAL_STR=${IF($["${TARGET_CONTACTS}"=""]?PJSIP/${EXTEN}:${TARGET_CONTACTS})})
 same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor: ${DIAL_STR} Timeout=${DIAL_TIMEOUT}s)
@@ -460,18 +478,18 @@ same => n,Dial(${DIAL_STR},${DIAL_TIMEOUT},tT)
 same => n,NoOp(PJSIP Arama Sonucu: ${DIALSTATUS})
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call)
 
-; 3. Sonrası Yönlendirme Kontrolü (Meşgul / Cevapsız / Ulaşılamıyor Yönlendirmesi)
+; 3. Sonrası Yönlendirme / Beni Takip Et (1. Adım) ve Profil Zaman Aşımı Kontrolü
 same => n,Set(ORIG_EXTEN=${EXTEN})
 same => n,Set(FWD_STEP=1)
 same => n,Set(FWD_POST=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_forwarding?extension=${ORIG_EXTEN}&dialstatus=${DIALSTATUS}&step=1)})
 same => n,Set(FWD_STATUS=${CUT(FWD_POST,:,1)})
 same => n,Set(FWD_TARGET=${CUT(FWD_POST,:,2)})
 same => n,Set(FWD_TIMEOUT=${CUT(FWD_POST,:,3)})
-same => n,Set(STEP_TIMEOUT=${IF($["${FWD_TIMEOUT}"=""]?25:${FWD_TIMEOUT})})
+same => n,Set(STEP_TIMEOUT=${IF($[${ISNULL(${FWD_TIMEOUT})} | "${FWD_TIMEOUT}"=""]?25:${FWD_TIMEOUT})})
 same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:end_call)
 
-; 4. Yönlendirme Uygulama Bağlamı
-same => n(forward_call),NoOp(Yonlendirme Aktif! Hedef: ${FWD_TARGET})
+; 4. Yönlendirme ve Beni Takip Et Uygulama Bağlamı
+same => n(forward_call),NoOp(Yonlendirme Aktif [Adim=${FWD_STEP}]! Hedef: ${FWD_TARGET} Timeout: ${STEP_TIMEOUT}s)
 same => n,GotoIf($["${FWD_TARGET}"="HANGUP" | "${FWD_TARGET}"="NONE"]?end_call)
 same => n,GotoIf($["${FWD_TARGET}"="VOICEMAIL"]?voicemail_fwd)
 same => n,Set(CALLERID(num)=908503607390)
@@ -481,19 +499,36 @@ same => n,Set(CLEAN_TARGET=${IF($["${RAW_NUM:0:2}"="90"]?${RAW_NUM}:90${RAW_NUM}
 same => n,GotoIf($[${LEN(${FWD_TARGET})} < 6]?dial_internal_fwd:dial_external_fwd)
 
 same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Aktarimi: ${EXTEN})
-same => n,Playback(vm-intro)
+same => n,Answer()
+same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Hangup()
 
-same => n(dial_internal_fwd),NoOp(Ic Dahili Yonlendirme: PJSIP/${FWD_TARGET})
-same => n,Dial(PJSIP/${FWD_TARGET},30,tT)
-same => n,Hangup()
+same => n(dial_internal_fwd),NoOp(Ic Dahili / Mobil Uygulama Yonlendirme: PJSIP/${FWD_TARGET} Timeout=${STEP_TIMEOUT}s)
+same => n,Dial(PJSIP/${FWD_TARGET},${STEP_TIMEOUT},tT)
+same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call:check_step2)
 
-same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Yonlendirme: PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060)
-same => n,Dial(PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060,60,r)
-same => n,Hangup()
+same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060 Timeout=${STEP_TIMEOUT}s)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060,${STEP_TIMEOUT},r)
+same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call:check_step2)
+
+; 5. Beni Takip Et (2. Adım) Kontrolü
+same => n(check_step2),GotoIf($["${FWD_STEP}"="1"]?resolve_step2:end_call)
+same => n(resolve_step2),Set(FWD_STEP=2)
+same => n,Set(FWD_POST2=${CURL(http://127.0.0.1:8000/api/subscriber/resolve_forwarding?extension=${ORIG_EXTEN}&dialstatus=${DIALSTATUS}&step=2)})
+same => n,Set(FWD_STATUS=${CUT(FWD_POST2,:,1)})
+same => n,Set(FWD_TARGET=${CUT(FWD_POST2,:,2)})
+same => n,Set(FWD_TIMEOUT=${CUT(FWD_POST2,:,3)})
+same => n,Set(STEP_TIMEOUT=${IF($[${ISNULL(${FWD_TIMEOUT})} | "${FWD_TIMEOUT}"=""]?30:${FWD_TIMEOUT})})
+same => n,GotoIf($["${FWD_STATUS}"="ALLOW"]?forward_call:end_call)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${DIALSTATUS})
-same => n,Hangup()
+same => n,GotoIf($["${DIALSTATUS}"="ANSWER" | "${DIALSTATUS}"="CANCEL"]?final_hangup)
+same => n,Answer()
+same => n,GotoIf($["${DIALSTATUS}"="BUSY"]?play_busy:play_unavail)
+same => n(play_busy),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul)
+same => n,Goto(final_hangup)
+same => n(play_unavail),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor)
+same => n(final_hangup),Hangup()
 
 [mobile_transfer_context]
 exten => s,1,NoOp(Mobil aktarim arandi ve cevaplandi. Arayan=${CALLERID(num)})
@@ -503,6 +538,23 @@ same => n,Playback(/var/spool/asterisk/monitor/summary_${CALL_UUID})
 same => n,Bridge(${CUSTOMER_CHANNEL})
 same => n,Hangup()
 """
+
+    # Copy Turkish announcement WAV files to /var/spool/asterisk/monitor/
+    try:
+        import shutil
+        sounds_tr_dir = os.path.join(PROJECT_ROOT, "asterisk_config", "sounds_tr")
+        monitor_dir = "/var/spool/asterisk/monitor"
+        if os.path.isdir(sounds_tr_dir) and (os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk")):
+            os.makedirs(monitor_dir, exist_ok=True)
+            for fname in os.listdir(sounds_tr_dir):
+                if fname.endswith(".wav"):
+                    src_wav = os.path.join(sounds_tr_dir, fname)
+                    dst_wav = os.path.join(monitor_dir, fname)
+                    shutil.copy2(src_wav, dst_wav)
+                    os.chmod(dst_wav, 0o644)
+            print(f"[Sync Script] Türkçe anons ses dosyaları kopyalandı -> {monitor_dir}")
+    except Exception as e_snd:
+        print(f"[Sync Script] Türkçe ses kopyalama uyarısı: {e_snd}")
 
     for path in ["/etc/asterisk/extensions_custom.conf", os.path.join(PROJECT_ROOT, "asterisk_config", "extensions_custom.conf")]:
         try:

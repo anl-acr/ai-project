@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
-import * as SIP from "sip.js";
-import { Phone, PhoneOff, ShieldAlert, Wifi, WifiOff, MessageSquare, Send, X, Clock, ArrowRight, PhoneCall, Radio, Shield, Fingerprint, CheckCircle, AlertTriangle } from "lucide-react";
-import { playRingtoneSound, stopRingtoneSound } from "../../utils/audioHelper";
+import { Phone, PhoneOff, ShieldAlert, Wifi, WifiOff, MessageSquare, Send, X, Clock, ArrowRight, PhoneCall, Radio, Shield, Fingerprint, CheckCircle, AlertTriangle, Mic, MicOff, Pause, Play } from "lucide-react";
 import { findContactByPhone } from "../../utils/contactUtils";
+import { webphoneManager } from "../../utils/webphoneManager";
 
 export default function CallChatWidget({
   onActiveCall = () => {},
@@ -16,33 +15,77 @@ export default function CallChatWidget({
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState("phone"); // phone, traffic, chat
 
-  // Dynamic WebRTC Config
-  const [webrtcConfig, setWebrtcConfig] = useState(null);
-  const agentExtension = webrtcConfig?.agentExtension || "";
-  const password = webrtcConfig?.password || "";
-  const asteriskWssUrl = webrtcConfig?.asteriskWssUrl || "";
+  // Shared WebPhone Manager State
+  const [wpState, setWpState] = useState(() => webphoneManager.getState());
+  const {
+    isLoadingConfig,
+    webrtcConfig,
+    registered,
+    callStatus,
+    dialNumber,
+    remoteNumber,
+    remoteDisplayName,
+    callDuration,
+    isMuted,
+    isOnHold,
+    error,
+    activeSipCallId,
+    isWebphoneScreenActive
+  } = wpState;
+
+  const agentExtension = webrtcConfig?.agentExtension || currentUser?.extension || "";
   const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : `http://${backendHost}`;
-
-  const [isLoadingConfig, setIsLoadingConfig] = useState(true);
-
-  // Softphone States & References (Must be initialized before useEffect hooks!)
-  const [registered, setRegistered] = useState(false);
-  const [session, setSession] = useState(null);
-  const [callStatus, setCallStatus] = useState("Idle"); // Idle, Ringing, InCall
-  const [error, setError] = useState("");
-  const [callDuration, setCallDuration] = useState(0);
 
   // Voice Biometric States
   const [biometricStatus, setBiometricStatus] = useState(null);
   const [savingVoiceprint, setSavingVoiceprint] = useState(false);
 
-  const userAgentRef = useRef(null);
-  const audioElRef = useRef(null);
-  const currentUserRef = useRef(currentUser);
+  const prevCallStatusRef = useRef(callStatus);
+  const prevWebphoneScreenRef = useRef(isWebphoneScreenActive);
 
   useEffect(() => {
-    currentUserRef.current = currentUser;
-  }, [currentUser]);
+    const unsub = webphoneManager.subscribe((state) => {
+      setWpState({ ...state });
+    });
+    return () => unsub();
+  }, []);
+
+  useEffect(() => {
+    if (backendHost || currentUser) {
+      webphoneManager.init({ backendHost, currentUser });
+    }
+  }, [backendHost, currentUser]);
+
+  // Notify parent when activeSipCallId changes
+  useEffect(() => {
+    onActiveCall(activeSipCallId || null);
+  }, [activeSipCallId]);
+
+  // Seamless transition between WebPhone screen and Floating Popup during active calls
+  useEffect(() => {
+    const wasIdle = prevCallStatusRef.current === "Idle";
+    const isNowActive = callStatus !== "Idle";
+    const wasOnWebphone = prevWebphoneScreenRef.current;
+    const isNowOnWebphone = isWebphoneScreenActive;
+
+    // 1. If a call starts/arrives while NOT on the WebPhone screen -> open popup on phone tab
+    if (wasIdle && isNowActive && !isNowOnWebphone) {
+      setIsOpen(true);
+      setActiveTab("phone");
+    }
+    // 2. If user switches AWAY from WebPhone screen while a call is active -> open popup on phone tab
+    else if (isNowActive && wasOnWebphone && !isNowOnWebphone) {
+      setIsOpen(true);
+      setActiveTab("phone");
+    }
+    // 3. If user switches BACK to WebPhone screen while a call is active -> collapse popup back to pill
+    else if (isNowActive && !wasOnWebphone && isNowOnWebphone) {
+      setIsOpen(false);
+    }
+
+    prevCallStatusRef.current = callStatus;
+    prevWebphoneScreenRef.current = isWebphoneScreenActive;
+  }, [callStatus, isWebphoneScreenActive]);
 
   useEffect(() => {
     const fetchContacts = async () => {
@@ -51,8 +94,14 @@ export default function CallChatWidget({
           fetch(`${API_BASE}/api/contacts`),
           fetch(`${API_BASE}/api/agent/directory`)
         ]);
-        if (contactsRes.ok) setContacts(await contactsRes.json());
-        if (dirRes.ok) setDirectory(await dirRes.json());
+        if (contactsRes.ok) {
+          const cData = await contactsRes.json();
+          setContacts(Array.isArray(cData) ? cData : []);
+        }
+        if (dirRes.ok) {
+          const dData = await dirRes.json();
+          setDirectory(Array.isArray(dData) ? dData : []);
+        }
       } catch (err) {
         console.error("Contacts/directory fetch error in widget:", err);
       }
@@ -61,77 +110,6 @@ export default function CallChatWidget({
     window.addEventListener("CONTACTS_UPDATED", fetchContacts);
     return () => window.removeEventListener("CONTACTS_UPDATED", fetchContacts);
   }, [API_BASE]);
-
-  useEffect(() => {
-    if (registered && agentExtension) {
-      const notifyBackendOnline = () => {
-        fetch(`${API_BASE}/api/webrtc/register_notify`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ extension: agentExtension, user_id: currentUser?.id })
-        }).catch(err => console.error("WebRTC register notify error:", err));
-      };
-      notifyBackendOnline();
-      const interval = setInterval(notifyBackendOnline, 8000);
-      return () => clearInterval(interval);
-    }
-  }, [registered, agentExtension, currentUser, API_BASE]);
-
-  useEffect(() => {
-    let isMounted = true;
-    const fetchConfig = async () => {
-      const savedUserId = typeof window !== "undefined" ? (sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id")) : "";
-      const isSuperAdmin = (currentUser?.username === "admin" || currentUser?.id === "admin" || (!currentUser && savedUserId === "admin")) && !currentUser?.extension;
-      
-      if (isSuperAdmin) {
-        if (isMounted) setIsLoadingConfig(false);
-        return;
-      }
-
-      const targetUserId = currentUser?.id || currentUser?.extension || savedUserId;
-      if (!targetUserId) {
-        return;
-      }
-
-      setIsLoadingConfig(true);
-      try {
-        let headers = { "Content-Type": "application/json" };
-        headers["X-User-ID"] = targetUserId.toString();
-
-        const queryParams = new URLSearchParams();
-        queryParams.set("user_id", targetUserId.toString());
-        if (currentUser?.extension) {
-          queryParams.set("extension", currentUser.extension.toString());
-        }
-
-        const res = await fetch(`${API_BASE}/api/webrtc/config?${queryParams.toString()}`, { headers });
-        if (res.ok) {
-          const config = await res.json();
-          if (isMounted) setWebrtcConfig(config);
-        } else {
-          console.error("Failed to fetch WebRTC config");
-        }
-      } catch (err) {
-        console.error("Error fetching WebRTC config:", err);
-      } finally {
-        if (isMounted) setIsLoadingConfig(false);
-      }
-    };
-    fetchConfig();
-    return () => { isMounted = false; };
-  }, [API_BASE, currentUser]);
-
-  // Ringtone playback side-effect
-  useEffect(() => {
-    if (callStatus === "Ringing") {
-      const selectedRingtone = typeof window !== "undefined" ? localStorage.getItem("ringtone") || "classic" : "classic";
-      const ringtoneSpeaker = typeof window !== "undefined" ? localStorage.getItem("selected_ringtone_speaker") || null : null;
-      playRingtoneSound(selectedRingtone, ringtoneSpeaker);
-    } else {
-      stopRingtoneSound();
-    }
-    return () => stopRingtoneSound();
-  }, [callStatus]);
 
   // ----------------------------------------------------
   // 2. Active Call & Chat Traffic States
@@ -184,38 +162,18 @@ export default function CallChatWidget({
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
 
   // ----------------------------------------------------
-  // WebRTC Softphone Call Duration Hook
-  // ----------------------------------------------------
-  useEffect(() => {
-    let interval = null;
-    if (callStatus === "InCall") {
-      setCallDuration(0);
-      interval = setInterval(() => {
-        setCallDuration((prev) => prev + 1);
-      }, 1000);
-    } else {
-      setCallDuration(0);
-    }
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [callStatus]);
-
-  // ----------------------------------------------------
   // Live Voice Biyometrik Doğrulama & Deepfake Polling Hook
   // ----------------------------------------------------
   useEffect(() => {
     let bioInterval = null;
     
-    if (callStatus === "InCall" && session) {
+    if (callStatus === "InCall") {
       const fetchBiometrics = async () => {
         try {
-          // Get current active calls to resolve call ID
           const activeCallRes = await fetch(`${API_BASE}/api/calls/active`);
           if (!activeCallRes.ok) return;
           const activeCallData = await activeCallRes.json();
           
-          // Match call involving our agent extension
           const currentCall = activeCallData.find(c => 
             c.caller_number === agentExtension || 
             c.callee_number === agentExtension ||
@@ -243,7 +201,7 @@ export default function CallChatWidget({
     return () => {
       if (bioInterval) clearInterval(bioInterval);
     };
-  }, [callStatus, session, activeCalls, agentExtension]);
+  }, [callStatus, activeCalls, agentExtension, API_BASE]);
 
   const handleSaveVoiceprint = async () => {
     if (!biometricStatus || !biometricStatus.caller_number) return;
@@ -254,24 +212,6 @@ export default function CallChatWidget({
       });
       if (res.ok) {
         alert("Ses izi şifrelenip başarıyla kaydedildi!");
-        // Instantly trigger re-check
-        if (session) {
-          const activeCallRes = await fetch(`${API_BASE}/api/calls/active`);
-          if (activeCallRes.ok) {
-            const activeCallData = await activeCallRes.json();
-            const currentCall = activeCallData.find(c => 
-              c.caller_number === agentExtension || 
-              c.callee_number === agentExtension
-            ) || activeCallData[0];
-            if (currentCall) {
-              const bioRes = await fetch(`${API_BASE}/api/calls/active/biometrics/${currentCall.id}`);
-              if (bioRes.ok) {
-                const bioData = await bioRes.json();
-                setBiometricStatus(bioData);
-              }
-            }
-          }
-        }
       } else {
         const errData = await res.json();
         alert(errData.detail || "Ses izi kaydedilemedi.");
@@ -283,254 +223,46 @@ export default function CallChatWidget({
     }
   };
 
-  // ----------------------------------------------------
-  // SIP.js WebRTC Registration Hook
-  // ----------------------------------------------------
-  useEffect(() => {
-    if (!webrtcConfig) return;
-    const { asteriskWssUrl, agentExtension, password } = webrtcConfig;
-    if (!asteriskWssUrl || !agentExtension) return;
-
-    setError("");
-    const wssServer = asteriskWssUrl;
-    const hostOnly = wssServer.split('/')[2].split(':')[0];
-    const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
-    
-    const transportOptions = {
-      server: wssServer,
-      traceSip: true
-    };
-
-    const resolvedViaHost = webrtcConfig.viaHost || hostOnly;
-    const userAgentOptions = {
-      uri: uri,
-      contactURI: uri,
-      transportOptions: transportOptions,
-      viaHost: resolvedViaHost,
-      contactName: agentExtension,
-      authorizationUsername: agentExtension,
-      authorizationPassword: password,
-      displayName: `Temsilci ${agentExtension}`,
-      hackIpInContact: true,
-      delegate: {
-        onInvite: (invite) => {
-          const curU = currentUserRef.current;
-          if (curU && Array.isArray(curU.profiles) && curU.profiles.length > 0) {
-            const actProfId = curU.active_profile || "available";
-            const actProf = curU.profiles.find(p => p.id === actProfId);
-            if (actProf && Array.isArray(actProf.devices) && !actProf.devices.includes("web_phone")) {
-              console.log(`[WebRTC] Aktif profil (${actProf.name}) icinde Web Telefon secili olmadigi icin caldirilmiyor.`);
-              if (actProf.devices.length === 0) {
-                try { invite.reject(); } catch (e) {}
-              }
-              return;
-            }
-          }
-          console.log("[WebRTC] Gelen arama alindi!");
-          setSession(invite);
-          setCallStatus("Ringing");
-          
-          // Auto-expand widget and switch to phone tab when call arrives
-          setIsOpen(true);
-          setActiveTab("phone");
-          
-          const sipCallId = invite.request.callId; 
-          onActiveCall(sipCallId);
-
-          invite.stateChange.addListener((state) => {
-            console.log(`[WebRTC] Arama Durumu degisti: ${state}`);
-            if (state === SIP.SessionState.Established) {
-              setCallStatus("InCall");
-            } else if (state === SIP.SessionState.Terminated) {
-              setCallStatus("Idle");
-              setSession(null);
-              onActiveCall(null);
-            }
-          });
-        }
-      }
-    };
-
-    const ua = new SIP.UserAgent(userAgentOptions);
-    userAgentRef.current = ua;
-
-    if (ua.transport) {
-      const originalOnMessage = ua.transport.onMessage;
-      ua.transport.onMessage = (message) => {
-        if (typeof message === "string" && message.includes("SIP/2.0 200 OK") && message.includes("REGISTER")) {
-          console.log("[WebRTC] Asterisk REGISTER 200 OK alındı! Hat Müsait / Online!");
-          setRegistered(true);
-          setError("");
-        }
-        if (originalOnMessage) {
-          originalOnMessage.call(ua.transport, message);
-        }
-      };
-    }
-
-    ua.transport.onDisconnect = (error) => {
-      console.error("[WebRTC] Transport Disconnect:", error);
-      if (error) {
-        setError(`Asterisk 8088 Portuna Erişilemiyor (${error.message || 'Erişim Engellendi'})`);
-      }
-    };
-
-    ua.start()
-      .then(() => {
-        const registererOptions = {};
-        const registerer = new SIP.Registerer(ua, registererOptions);
-        
-        registerer.stateChange.addListener((state) => {
-          console.log(`[WebRTC] SIP Registerer durumu: ${state}`);
-          if (state === SIP.RegistererState.Registered) {
-            setRegistered(true);
-            setError("");
-          }
-        });
-
-        return registerer.register();
-      })
-      .catch((err) => {
-        console.error("[WebRTC] Baglanti/Register hatasi:", err);
-        setError(`WebRTC Bağlantı Hatası: ${err.message || 'Sunucu Yanıt Vermedi'}`);
-        setRegistered(false);
-      });
-
-    return () => {
-      if (userAgentRef.current) {
-        userAgentRef.current.stop();
-      }
-    };
-  }, [webrtcConfig]);
-
   // softphone action callbacks
-  const answerCall = async () => {
-    if (!session) return;
-    try {
-      const selectedMic = typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null;
-      const constraints = { 
-        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true, 
-        video: false 
-      };
-      await session.accept({
-        sessionDescriptionHandlerOptions: {
-          constraints: constraints
-        }
-      });
-      
-      const peerConnection = session.sessionDescriptionHandler.peerConnection;
-      if (peerConnection) {
-        const selectedSpeaker = typeof window !== "undefined" ? localStorage.getItem("selected_speaker") : null;
-        
-        const receivers = peerConnection.getReceivers();
-        receivers.forEach((receiver) => {
-          if (receiver.track && receiver.track.kind === "audio") {
-            const remoteStream = new MediaStream([receiver.track]);
-            if (audioElRef.current) {
-              if (selectedSpeaker && typeof audioElRef.current.setSinkId === "function") {
-                audioElRef.current.setSinkId(selectedSpeaker).catch(e => console.warn("[WebRTC] setSinkId error:", e));
-              }
-              audioElRef.current.srcObject = remoteStream;
-              audioElRef.current.play().catch(e => console.error("[WebRTC] Ses oynatılamadı:", e));
-            }
-          }
-        });
-
-        peerConnection.addEventListener("track", (event) => {
-          if (event.track.kind === "audio" && audioElRef.current) {
-            const remoteStream = new MediaStream([event.track]);
-            if (selectedSpeaker && typeof audioElRef.current.setSinkId === "function") {
-              audioElRef.current.setSinkId(selectedSpeaker).catch(e => console.warn("[WebRTC] setSinkId track error:", e));
-            }
-            audioElRef.current.srcObject = remoteStream;
-            audioElRef.current.play().catch(e => console.error("[WebRTC] Ses oynatılamadı:", e));
-          }
-        });
-      }
-      setCallStatus("InCall");
-    } catch (err) {
-      console.error("[WebRTC] Arama cevaplama hatasi:", err);
-      setError(`Arama cevaplanırken hata oluştu: ${err.message}`);
-    }
-  };
-
-  const recordTimelineEvent = (actionType, detail) => {
-    try {
-      const ext = agentExtension || currentUserRef.current?.extension || "1000";
-      const uid = currentUserRef.current?.id || ext;
-      fetch(`${API_BASE}/api/agent/timeline-event`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: uid,
-          extension: ext,
-          action_type: actionType,
-          detail: detail || ""
-        })
-      }).catch(() => {});
-    } catch (e) {}
+  const answerCall = () => {
+    webphoneManager.answerCall();
   };
 
   const hangupCall = () => {
-    if (!session) return;
-    const remoteNum = session?.remoteIdentity?.uri?.user || "Bilinmeyen";
-    if (callStatus === "Ringing") {
-      recordTimelineEvent("call_rejected", `${remoteNum} gelen çağrısı meşgule/redde atıldı`);
-      session.reject();
-    } else {
-      session.bye();
-    }
-    setCallStatus("Idle");
-    setSession(null);
+    webphoneManager.hangupCall();
     onActiveCall(null);
+  };
+
+  const toggleMute = () => {
+    webphoneManager.toggleMute();
+  };
+
+  const toggleHold = () => {
+    webphoneManager.toggleHold();
   };
 
   // Handle action triggers from CRM panel
   useEffect(() => {
     const handleSoftphoneAction = (e) => {
-      const { type, target, mode, active } = e.detail;
-      console.log(`[Softphone] Arayüz aksiyonu alındı:`, type, target, mode, active);
-      const remoteNum = session?.remoteIdentity?.uri?.user || "";
-      
+      const { type, target, mode } = e.detail;
       if (type === "hangup") {
         hangupCall();
       } else if (type === "hold") {
-        if (!session) return;
-        if (active) {
-          recordTimelineEvent("call_hold", remoteNum ? `${remoteNum} beklemeye alındı` : "Görüşme beklemeye alındı");
-          session.hold().catch(err => console.error("[WebRTC] Bekletme hatası:", err));
-        } else {
-          recordTimelineEvent("call_unhold", remoteNum ? `${remoteNum} beklemeden alındı` : "Beklemeden geri dönüldü");
-          session.unhold().catch(err => console.error("[WebRTC] Beklemeden çıkarma hatası:", err));
-        }
+        webphoneManager.toggleHold();
       } else if (type === "transfer") {
-        if (!session) return;
         if (mode === "blind") {
-          try {
-            recordTimelineEvent("call_blind_transfer", `${remoteNum || "Çağrı"} -> Hedef ${target}`);
-            const domain = asteriskWssUrl.split('/')[2].split(':')[0];
-            const targetURI = SIP.UserAgent.makeURI(`sip:${target}@${domain}`);
-            session.refer(targetURI);
-            console.log(`[WebRTC] Kontrolsüz transfer tetiklendi: ${target}`);
-          } catch (err) {
-            console.error("[WebRTC] Transfer hatası:", err);
-          }
+          webphoneManager.blindTransfer(target);
         } else {
-          // Attended transfer simulation
-          recordTimelineEvent("call_attended_transfer", `${remoteNum || "Çağrı"} -> Hedef ${target} (Ön Görüşmeli)`);
-          session.hold().then(() => {
-            console.log(`[WebRTC] Görüşerek transfer başlatıldı. Orijinal çağrı bekletmede. Yeni çağrı yapılıyor: ${target}`);
-          }).catch(err => console.error("[WebRTC] Bekletme hatası:", err));
+          webphoneManager.toggleHold();
         }
       } else if (type === "conference") {
-        recordTimelineEvent("call_conference", `${target} konferansa eklendi`);
-        console.log(`[WebRTC] Konferans odasına ${target} ekleniyor...`);
+        webphoneManager.recordTimelineEvent("call_conference", `${target} konferansa eklendi`);
       }
     };
 
     window.addEventListener("softphone-action", handleSoftphoneAction);
     return () => window.removeEventListener("softphone-action", handleSoftphoneAction);
-  }, [session, callStatus]);
+  }, []);
 
   // ----------------------------------------------------
   // Active Calls Polling
@@ -661,17 +393,14 @@ export default function CallChatWidget({
     ? chatSessions.find(c => c.id === activeChatId)
     : internalChatSessions.find(c => c.id === activeChatId);
 
-  const callerNum = session?.remoteIdentity?.uri?.user || "";
-  const rawSipName = (session?.remoteIdentity?.displayName || "").replace(/^"|"$/g, "").trim();
+  const callerNum = remoteNumber || dialNumber || "";
+  const rawSipName = (remoteDisplayName || "").replace(/^"|"$/g, "").trim();
   const matchedCaller = callerNum ? findContactByPhone(callerNum, contacts, directory) : null;
   const callerDisplayName = matchedCaller?.displayName || (rawSipName && rawSipName !== callerNum ? rawSipName : "");
   const callerAvatar = matchedCaller?.avatar_url || matchedCaller?.avatar || null;
 
   return (
     <div className="fixed bottom-6 right-6 z-[100] font-sans antialiased">
-      
-      {/* Hidden audio element to play remote call voice */}
-      <audio ref={audioElRef} autoPlay style={{ display: "none" }} />
 
       {/* Unified Collapsed Pill Button */}
       {!isOpen && (
@@ -683,7 +412,7 @@ export default function CallChatWidget({
           <span className="relative flex h-2.5 w-2.5">
             {isLoadingConfig ? (
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-300 dark:bg-slate-600 animate-pulse"></span>
-            ) : callStatus === "Ringing" ? (
+            ) : callStatus === "Ringing" || callStatus === "Calling" ? (
               <>
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
@@ -704,6 +433,8 @@ export default function CallChatWidget({
               ? "Bağlanıyor..."
               : callStatus === "Ringing"
               ? `Gelen Çağrı: ${callerDisplayName || callerNum || "Bilinmeyen"}`
+              : callStatus === "Calling"
+              ? `Aranıyor: ${callerDisplayName || callerNum || "Bilinmeyen"}`
               : callStatus === "InCall"
               ? `Görüşmede: ${callerDisplayName || callerNum || agentExtension} (${formatSeconds(callDuration)})`
               : registered
@@ -830,6 +561,48 @@ export default function CallChatWidget({
                     </div>
                   )}
 
+                  {callStatus === "Calling" && (
+                    <div className="py-2 space-y-3">
+                      {callerAvatar ? (
+                        <img
+                          src={callerAvatar}
+                          alt={callerDisplayName || callerNum}
+                          className="h-14 w-14 rounded-full object-cover mx-auto border-2 border-amber-400 shadow-md animate-pulse"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 rounded-full bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-600 dark:text-amber-400 flex items-center justify-center mx-auto shadow-sm animate-pulse">
+                          <PhoneCall size={20} />
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-amber-600 dark:text-amber-400 font-extrabold text-[10px] uppercase tracking-widest">ARANIYOR...</p>
+                        {callerDisplayName ? (
+                          <>
+                            <p className="text-sm font-black text-slate-800 dark:text-white mt-1 truncate">
+                              {callerDisplayName}
+                            </p>
+                            <p className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                              {callerNum}
+                            </p>
+                          </>
+                        ) : (
+                          <p className="text-sm font-black font-mono text-slate-800 dark:text-white mt-1">
+                            {callerNum || "Bilinmeyen Numara"}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="flex justify-center pt-2">
+                        <button
+                          onClick={hangupCall}
+                          className="w-full py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-xs tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <PhoneOff size={13} /> Aramayı İptal Et
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {callStatus === "Ringing" && (
                     <div className="py-2 space-y-3">
                       {callerAvatar ? (
@@ -881,7 +654,7 @@ export default function CallChatWidget({
 
                   {callStatus === "InCall" && (
                     <div className="py-2 space-y-4">
-                      <div className="flex justify-between items-center gap-4">
+                      <div className="flex justify-between items-center gap-3">
                         <div className="flex items-center gap-3 min-w-0">
                           {callerAvatar ? (
                             <img
@@ -895,7 +668,9 @@ export default function CallChatWidget({
                             </div>
                           )}
                           <div className="text-left min-w-0">
-                            <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] uppercase tracking-wider mb-0.5">Görüşme Aktif</p>
+                            <p className="text-emerald-600 dark:text-emerald-400 font-extrabold text-[10px] uppercase tracking-wider mb-0.5">
+                              {isOnHold ? "Beklemede" : "Görüşme Aktif"}
+                            </p>
                             {(callerDisplayName || callerNum) && (
                               <p className="text-xs font-extrabold text-slate-700 dark:text-slate-200 truncate mb-0.5">
                                 {callerDisplayName ? `${callerDisplayName} (${callerNum})` : callerNum}
@@ -907,13 +682,37 @@ export default function CallChatWidget({
                           </div>
                         </div>
 
-                        {/* InCall Hangup Button */}
-                        <button
-                          onClick={hangupCall}
-                          className="px-4 py-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-[11px] tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5 transition-colors shrink-0"
-                        >
-                          <PhoneOff size={12} /> Kapat
-                        </button>
+                        {/* InCall Controls: Mute, Hold, Hangup */}
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={toggleMute}
+                            title={isMuted ? "Sesi Aç" : "Mikrofonu Kapat"}
+                            className={`p-2 rounded-xl border transition-colors ${
+                              isMuted
+                                ? "bg-rose-100 dark:bg-rose-900/40 border-rose-300 dark:border-rose-700 text-rose-600 dark:text-rose-400"
+                                : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                            }`}
+                          >
+                            {isMuted ? <MicOff size={14} /> : <Mic size={14} />}
+                          </button>
+                          <button
+                            onClick={toggleHold}
+                            title={isOnHold ? "Devam Et" : "Beklemeye Al"}
+                            className={`p-2 rounded-xl border transition-colors ${
+                              isOnHold
+                                ? "bg-amber-100 dark:bg-amber-900/40 border-amber-300 dark:border-amber-700 text-amber-600 dark:text-amber-400"
+                                : "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700"
+                            }`}
+                          >
+                            {isOnHold ? <Play size={14} /> : <Pause size={14} />}
+                          </button>
+                          <button
+                            onClick={hangupCall}
+                            className="px-3 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl font-bold text-[11px] tracking-wide shadow-md shadow-rose-600/20 flex items-center justify-center gap-1 transition-colors shrink-0"
+                          >
+                            <PhoneOff size={13} /> Kapat
+                          </button>
+                        </div>
                       </div>
 
                       {/* Canlı Biyometrik Doğrulama & Deepfake Göstergeleri */}

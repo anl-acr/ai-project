@@ -217,7 +217,8 @@ class AgentStateSchema(BaseModel):
     is_logged_in: bool
     status: str
     current_break: Optional[dict] = None
-    user_id: Optional[int] = None
+    user_id: Optional[Union[int, str]] = None
+    extension: Optional[str] = None
 
 class UserSessionSchema(BaseModel):
     device_type: str
@@ -230,7 +231,7 @@ DEFAULT_USER_PROFILES = [
         "name": "Müsait",
         "devices": ["desk_phone", "mobile_app", "web_phone", "pc_app"],
         "timeout": 30,
-        "timeout_action": "voicemail",
+        "timeout_action": "none",
         "timeout_target": ""
     },
     {
@@ -2179,7 +2180,7 @@ same => n,Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
 exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UNIQUEID}})
-same => n,Playback(transfer-please-wait)
+same => n,Playback(/var/spool/asterisk/monitor/tr_aktariliyor)
 same => n,Queue(temsilci_kuyrugu)
 same => n,Hangup()
 
@@ -2188,13 +2189,16 @@ same => n,Hangup()
 
 ; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
 exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
 same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out:deny_out)
 same => n(deny_out),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, Sebep=${{OUT_ACL}})
+same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
 same => n,Hangup(21)
 same => n(allow_out),NoOp(Dis arama onaylandi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
-same => n,Set(CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
@@ -2204,23 +2208,29 @@ same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}
 same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
-exten => h,1,NoOp(Temsilci dis aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, Cause: ${{HANGUPCAUSE}})
+exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, Cause: ${{HANGUPCAUSE}})
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_h)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer) aramaları için (1000, 1001, 200 vb.)
-exten => _[1-9]X.,1,NoOp(ACL kontrol ediliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
-same => n,Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
-same => n,GotoIf($["${{ACL_RESULT}}" = "ALLOW"]?allow:deny)
-same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
-same => n,Playback(ss-noservice)
-same => n,Hangup()
-same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
+exten => _[1-9]X.,1,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
-same => n,Set(CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
+same => n,Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
+same => n,GotoIf($["${{ACL_RESULT}}" = "DENY"]?deny:allow)
+same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
+same => n,Set(DIALSTATUS=FAILED)
+same => n,Answer()
+same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
+same => n,Hangup()
+same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
 
 ; 1. Ön Yönlendirme ve Aktif Profil Kontrolü (Offline / Koşulsuz Yönlendirme / Cihaz Seçimi)
@@ -2260,7 +2270,8 @@ same => n,Set(CLEAN_TARGET=${{IF($["${{RAW_NUM:0:2}}"="90"]?${{RAW_NUM}}:90${{RA
 same => n,GotoIf($[${{LEN(${{FWD_TARGET}})}} < 6]?dial_internal_fwd:dial_external_fwd)
 
 same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Aktarimi: ${{EXTEN}})
-same => n,Playback(vm-intro)
+same => n,Answer()
+same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Hangup()
 
 same => n(dial_internal_fwd),NoOp(Ic Dahili / Mobil Uygulama Yonlendirme: PJSIP/${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
@@ -2282,7 +2293,13 @@ same => n,Set(STEP_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEO
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${{DIALSTATUS}})
-same => n,Hangup()
+same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER" | "${{DIALSTATUS}}"="CANCEL"]?final_hangup)
+same => n,Answer()
+same => n,GotoIf($["${{DIALSTATUS}}"="BUSY"]?play_busy:play_unavail)
+same => n(play_busy),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul)
+same => n,Goto(final_hangup)
+same => n(play_unavail),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor)
+same => n(final_hangup),Hangup()
 
 [mobile_transfer_context]
 exten => s,1,NoOp(Mobil aktarim arandi ve cevaplandi. Arayan=${{CALLERID(num)}})
@@ -2299,6 +2316,22 @@ same => n,Hangup()
     with open(config_path, "w", encoding="utf-8") as f:
         f.write(conf_content)
     print(f"[Asterisk Config] extensions_custom.conf yeniden uretildi: {config_path}")
+
+    # Copy Turkish announcement WAV files to /var/spool/asterisk/monitor/
+    try:
+        import shutil
+        sounds_tr_dir = os.path.join(config_dir, "sounds_tr")
+        monitor_dir = "/var/spool/asterisk/monitor"
+        if os.path.isdir(sounds_tr_dir) and (os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk")):
+            os.makedirs(monitor_dir, exist_ok=True)
+            for fname in os.listdir(sounds_tr_dir):
+                if fname.endswith(".wav"):
+                    src_wav = os.path.join(sounds_tr_dir, fname)
+                    dst_wav = os.path.join(monitor_dir, fname)
+                    shutil.copy2(src_wav, dst_wav)
+                    os.chmod(dst_wav, 0o644)
+    except Exception as e_snd:
+        print(f"[Asterisk Config] Turkce ses dosyalari kopyalanamadi: {e_snd}")
 
     etc_dir = "/etc/asterisk"
     if os.path.exists(etc_dir):
@@ -3284,15 +3317,39 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
     )
 
     try:
-        user_id_str = str(payload.user_id) if payload.user_id is not None else None
-        ext_str = None
+        user_id_str = str(payload.user_id).strip() if payload.user_id is not None and str(payload.user_id).strip() != "" else None
+        ext_str = str(payload.extension).strip() if getattr(payload, "extension", None) and str(payload.extension).strip() != "" else None
 
-        if user_id_str:
+        if user_id_str or ext_str:
             settings = load_settings()
             for u in settings.get("users", []):
-                if str(u.get("id")) == user_id_str or str(u.get("extension")) == user_id_str:
-                    ext_str = str(u.get("extension", ""))
+                u_id = str(u.get("id", "")).strip()
+                u_ext = str(u.get("extension", "")).strip()
+                if (user_id_str and (u_id == user_id_str or u_ext == user_id_str)) or (ext_str and u_ext == ext_str):
+                    if u_ext and not ext_str:
+                        ext_str = u_ext
+                    if u_id and (not user_id_str or user_id_str == u_ext):
+                        user_id_str = u_id
                     break
+
+            if not ext_str or not user_id_str:
+                try:
+                    stmt_u = select(SystemUser)
+                    res_u = await db.execute(stmt_u)
+                    for su in res_u.scalars().all():
+                        su_id = str(su.id)
+                        su_ext = str(su.extension or "").strip()
+                        if (user_id_str and (su_id == user_id_str or su_ext == user_id_str)) or (ext_str and su_ext == ext_str):
+                            if su_ext and not ext_str:
+                                ext_str = su_ext
+                            if su_id and (not user_id_str or user_id_str == su_ext):
+                                user_id_str = su_id
+                            break
+                except Exception:
+                    pass
+
+        if not ext_str and user_id_str and user_id_str.isdigit() and len(user_id_str) <= 5:
+            ext_str = user_id_str
 
         now_utc = datetime.datetime.utcnow()
 
@@ -4629,7 +4686,8 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             elif prof_action == "external":
                 prof_target = raw_prof_target or str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or "").strip()
             elif prof_action == "voicemail":
-                prof_target = raw_prof_target or "VOICEMAIL"
+                if bool(user_dict.get("voicemail_active", False)) or (active_prof_id != "available" and raw_prof_target):
+                    prof_target = raw_prof_target or "VOICEMAIL"
 
         # If Follow Me (Beni Takip Et) is enabled, use Follow Me timeout for initial desk phone ring
         if fm_enabled:
@@ -6854,6 +6912,85 @@ async def end_call_endpoint(
                     from backend.services.whatsapp_service import send_whatsapp_missed_call_autoresponder
                     asyncio.create_task(send_whatsapp_missed_call_autoresponder(caller_num))
     return {"status": "success", "call_status": resolved_status}
+
+
+@app.post("/api/calls/webrtc-log")
+async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = Depends(get_user_info)):
+    try:
+        call_id = str(payload.get("call_id") or "").strip()
+        caller = str(payload.get("caller") or "").strip()
+        callee = str(payload.get("callee") or "").strip()
+        status = str(payload.get("status") or "in_progress").strip().lower()
+        event_type = str(payload.get("event") or "start").strip().lower()
+        duration = int(payload.get("duration") or 0)
+
+        if not caller or not callee:
+            return {"status": "ignored", "reason": "missing_numbers"}
+
+        if not call_id:
+            call_id = str(uuid.uuid4())
+
+        now_utc = datetime.datetime.utcnow()
+        recent_cutoff = now_utc - datetime.timedelta(seconds=120)
+
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, call_id)
+            if not db_call:
+                stmt_recent = select(Call).where(
+                    Call.caller_number == caller,
+                    Call.callee_number == callee,
+                    Call.start_time >= recent_cutoff
+                ).order_by(Call.start_time.desc())
+                res_recent = await session.execute(stmt_recent)
+                db_call = res_recent.scalars().first()
+
+            call_tenant = user_info.get("tenant_id") or "tenant-default"
+            if call_tenant in ("all", "global"):
+                call_tenant = "tenant-default"
+            resolved_agent_name = resolve_call_agent_name_snapshot(caller, callee)
+            try:
+                res_u = await session.execute(select(SystemUser).where(SystemUser.extension == caller))
+                u_found = res_u.scalars().first()
+                if u_found:
+                    if getattr(u_found, "tenant_id", None):
+                        call_tenant = u_found.tenant_id
+                    if getattr(u_found, "full_name", None):
+                        resolved_agent_name = u_found.full_name
+            except Exception:
+                pass
+
+            if not db_call:
+                db_call = Call(
+                    id=call_id,
+                    caller_number=caller,
+                    callee_number=callee,
+                    status="completed" if (event_type == "end" and duration > 0) else status,
+                    tenant_id=call_tenant,
+                    start_time=now_utc - datetime.timedelta(seconds=max(0, duration)) if event_type == "end" else now_utc,
+                    end_time=now_utc if event_type == "end" else None,
+                    agent_name=resolved_agent_name or None,
+                    summary="Dahili Görüşme" if (len(caller) <= 5 and len(callee) <= 5) else None
+                )
+                session.add(db_call)
+            else:
+                if resolved_agent_name and not db_call.agent_name:
+                    db_call.agent_name = resolved_agent_name
+                if event_type == "answer":
+                    db_call.status = "in_progress"
+                elif event_type == "end":
+                    db_call.end_time = now_utc
+                    if duration > 0 or status == "completed":
+                        db_call.status = "completed"
+                    elif db_call.status not in ("completed", "transferred", "blocked"):
+                        db_call.status = status if status != "in_progress" else "no_answer"
+                    if not db_call.summary and len(caller) <= 5 and len(callee) <= 5:
+                        db_call.summary = "Dahili Görüşme"
+
+            await session.commit()
+            return {"status": "success", "call_id": db_call.id, "call_status": db_call.status}
+    except Exception as e_wlog:
+        print(f"[WebRTC Call Log Error]: {e_wlog}")
+        return {"status": "error", "message": str(e_wlog)}
 
 
 # ----------------------------------------------------
@@ -9191,7 +9328,7 @@ async def update_call_qa(call_id: str, payload: dict, db: AsyncSession = Depends
     return {"status": "success", "qa_score": db_call.qa_score}
 # --- Agent Dashboard Endpoints ---
 @app.get("/api/agent/stats")
-async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_db)):
+async def get_agent_stats(extension: str = None, user_id: str = None, db: AsyncSession = Depends(get_db)):
     from backend.database.models import Call, AgentBreakLog
     from sqlalchemy import select, or_
 
@@ -9203,22 +9340,39 @@ async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_
     today_start_utc = today_tr_midnight - datetime.timedelta(hours=3)
 
     ext_str = str(extension).strip() if extension else None
+    uid_str = str(user_id).strip() if user_id else None
     target_exts = set()
     target_user_ids = set()
 
-    if ext_str and ext_str not in ("undefined", "null", "none", "0", ""):
-        target_exts.add(ext_str)
-        target_user_ids.add(ext_str)
+    for val in (ext_str, uid_str):
+        if val and val not in ("undefined", "null", "none", "0", ""):
+            target_exts.add(val)
+            target_user_ids.add(val)
 
+    if target_exts or target_user_ids:
         settings = load_settings()
         for u in settings.get("users", []):
-            u_id = str(u.get("id"))
-            u_ext = str(u.get("extension", ""))
-            if ext_str == u_id or ext_str == u_ext:
+            u_id = str(u.get("id", "")).strip()
+            u_ext = str(u.get("extension", "")).strip()
+            if u_id in target_user_ids or u_ext in target_exts or u_id in target_exts or u_ext in target_user_ids:
                 if u_ext:
                     target_exts.add(u_ext)
                 if u_id:
                     target_user_ids.add(u_id)
+
+        try:
+            stmt_u = select(SystemUser)
+            res_u = await db.execute(stmt_u)
+            for su in res_u.scalars().all():
+                su_id = str(su.id)
+                su_ext = str(su.extension or "").strip()
+                if su_id in target_user_ids or su_ext in target_exts or su_id in target_exts or su_ext in target_user_ids:
+                    if su_ext:
+                        target_exts.add(su_ext)
+                    if su_id:
+                        target_user_ids.add(su_id)
+        except Exception:
+            pass
 
     # 1. Fetch calls starting today
     stmt_calls = select(Call).where(Call.start_time >= today_start_utc)
@@ -9259,43 +9413,66 @@ async def get_agent_stats(extension: str = None, db: AsyncSession = Depends(get_
             AgentBreakLog.end_time >= today_start_utc,
             AgentBreakLog.end_time.is_(None)
         )
-    )
+    ).order_by(AgentBreakLog.start_time.desc())
     res_breaks = await db.execute(stmt_breaks)
     today_breaks = res_breaks.scalars().all()
 
     break_dict = {}
+    break_logs_list = []
+    total_break_seconds = 0.0
 
     for b_log in today_breaks:
         if str(b_log.break_name or "").startswith("__"):
             continue
         if target_user_ids or target_exts:
-            b_uid = str(b_log.user_id or "")
-            b_ext = str(b_log.extension or "")
-            if b_uid not in target_user_ids and b_ext not in target_exts:
+            b_uid = str(b_log.user_id or "").strip()
+            b_ext = str(b_log.extension or "").strip()
+            if (b_uid or b_ext) and (b_uid not in target_user_ids and b_ext not in target_exts and b_uid not in target_exts and b_ext not in target_user_ids):
                 continue
 
         eff_start = max(b_log.start_time, today_start_utc)
         eff_end = b_log.end_time if b_log.end_time else now_utc
 
-        if eff_end > eff_start:
-            sec = (eff_end - eff_start).total_seconds()
+        if eff_end >= eff_start:
+            sec = max(0.0, (eff_end - eff_start).total_seconds())
             b_name = b_log.break_name or "Mola"
             break_dict[b_name] = break_dict.get(b_name, 0.0) + sec
+            total_break_seconds += sec
+
+            start_tr = b_log.start_time + datetime.timedelta(hours=3)
+            end_tr = (b_log.end_time + datetime.timedelta(hours=3)) if b_log.end_time else None
+            break_logs_list.append({
+                "id": b_log.id,
+                "break_name": b_name,
+                "start_time": start_tr.strftime("%H:%M"),
+                "end_time": end_tr.strftime("%H:%M") if end_tr else None,
+                "duration_seconds": int(round(sec)),
+                "is_active": b_log.end_time is None
+            })
 
     break_details = []
-    total_break_minutes = 0
+    total_break_minutes = int(round(total_break_seconds / 60.0))
+    if total_break_seconds > 0 and total_break_minutes == 0:
+        total_break_minutes = 1
 
     for b_name, sec in break_dict.items():
         mins = int(round(sec / 60.0))
-        break_details.append({"name": b_name, "minutes": mins})
-        total_break_minutes += mins
+        if sec > 0 and mins == 0:
+            mins = 1
+        break_details.append({
+            "name": b_name,
+            "minutes": mins,
+            "seconds": int(round(sec))
+        })
 
     return {
         "inbound": inbound_count,
         "outbound": outbound_count,
         "missed": missed_count,
         "break_minutes": total_break_minutes,
-        "break_details": break_details
+        "break_seconds": int(round(total_break_seconds)),
+        "break_details": break_details,
+        "break_logs": break_logs_list
     }
 
 
@@ -9910,18 +10087,49 @@ async def get_agent_timeline_report(
 
 
 @app.get("/api/agent/directory")
-async def get_agent_directory():
+async def get_agent_directory(db: AsyncSession = Depends(get_db)):
     settings = load_settings()
     users = settings.get("users", [])
     queues = settings.get("queues", [])
-    
+
     directory = []
+    seen_exts = set()
+
+    try:
+        res_u = await db.execute(select(SystemUser))
+        for su in res_u.scalars().all():
+            ext_val = str(su.extension or "").strip()
+            if not ext_val or ext_val in seen_exts:
+                continue
+            seen_exts.add(ext_val)
+            u_name = str(su.full_name or su.email or f"Dahili {ext_val}").strip()
+            directory.append({
+                "type": "user",
+                "id": su.id,
+                "name": u_name,
+                "full_name": u_name,
+                "number": ext_val,
+                "extension": ext_val,
+                "avatar": getattr(su, "avatar_url", None),
+                "status": "available"
+            })
+    except Exception:
+        pass
+
     for u in users:
+        ext_val = str(u.get("extension") or "").strip()
+        if not ext_val or ext_val in seen_exts:
+            continue
+        seen_exts.add(ext_val)
+        u_name = str(u.get("full_name") or u.get("name") or u.get("username") or u.get("email") or f"Dahili {ext_val}").strip()
         directory.append({
             "type": "user",
             "id": u.get("id"),
-            "name": u.get("name"),
-            "number": u.get("extension"),
+            "name": u_name,
+            "full_name": u_name,
+            "number": ext_val,
+            "extension": ext_val,
+            "avatar": u.get("avatar_url") or u.get("avatar"),
             "status": "available"
         })
     for q in queues:
@@ -9930,6 +10138,7 @@ async def get_agent_directory():
             "id": q.get("id"),
             "name": q.get("name"),
             "number": q.get("extension"),
+            "extension": q.get("extension"),
             "status": "active"
         })
     return directory
@@ -12610,9 +12819,15 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
             if client_ip and re.match(r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$", client_ip):
                 via_ip = client_ip
 
+        agent_name = str(
+            (current_user.get("full_name") or current_user.get("name") or current_user.get("username") or f"Temsilci {agent_ext}")
+            if current_user else f"Temsilci {agent_ext}"
+        ).strip()
+
         return {
             "asteriskWssUrl": wss_url,
             "agentExtension": agent_ext,
+            "agentName": agent_name,
             "password": sip_password,
             "viaHost": via_ip
         }
@@ -12624,6 +12839,7 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         return {
             "asteriskWssUrl": wss_url,
             "agentExtension": "1000",
+            "agentName": "Temsilci 1000",
             "password": resolve_secure_sip_password("1000", ""),
             "viaHost": "78.189.210.15"
         }
