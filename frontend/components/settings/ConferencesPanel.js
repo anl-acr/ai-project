@@ -601,18 +601,21 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
                   </label>
                   <button
                     type="button"
-                    onClick={() => setShowContactPicker(prev => !prev)}
+                    onClick={() => {
+                      setShowContactPicker(prev => {
+                        const next = !prev;
+                        if (!next) setContactSearchQuery("");
+                        return next;
+                      });
+                    }}
                     className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all border ${
                       showContactPicker
                         ? `${lightBg} ${text} ${borderLight}`
                         : "bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
                     }`}
                   >
-                    <BookOpen size={13} />
-                    <span>Rehberden Seç</span>
-                    <span className="px-1.5 py-0.2 rounded-md text-[10px] bg-slate-200/70 dark:bg-slate-700/80 text-slate-700 dark:text-slate-200">
-                      {(contacts || []).filter(c => c.phone_number).length}
-                    </span>
+                    <Search size={13} />
+                    <span>Rehberde Ara</span>
                     <ChevronDown size={13} className={`transition-transform duration-200 ${showContactPicker ? "rotate-180" : ""}`} />
                   </button>
                 </div>
@@ -620,7 +623,7 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
                 <div className="flex gap-2 mb-2">
                   <input
                     type="text"
-                    placeholder="Numara yazıp Ekle'ye basın veya Rehberden seçin"
+                    placeholder="Harici telefon numarası yazıp Ekle'ye basın..."
                     value={currentExternal}
                     onChange={(e) => setCurrentExternal(e.target.value.replace(/\D/g, ''))}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addExternal(e); } }}
@@ -635,90 +638,120 @@ export default function ConferencesPanel({ backendHost = "localhost:8000" }) {
                   </button>
                 </div>
 
-                {/* Searchable Directory Contact Picker */}
+                {/* Search-on-type Directory Contact Picker */}
                 {showContactPicker && (
                   <div className="mb-3 p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 space-y-2.5 animate-in fade-in duration-150">
                     <div className="flex items-center justify-between gap-2">
                       <div className="relative flex-1">
                         <input
                           type="text"
-                          placeholder="Rehberde isim veya telefon numarası ara..."
+                          autoFocus
+                          placeholder="Rehberde kişi adı, soyadı veya numara yazın..."
                           value={contactSearchQuery}
                           onChange={(e) => setContactSearchQuery(e.target.value)}
-                          className={`w-full text-xs pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
+                          className={`w-full text-xs pl-8 pr-8 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
                         />
                         <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                        {contactSearchQuery && (
+                          <button
+                            type="button"
+                            onClick={() => setContactSearchQuery("")}
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                            title="Aramayı Temizle"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
                       </div>
                       <button
                         type="button"
-                        onClick={() => setShowContactPicker(false)}
+                        onClick={() => {
+                          setShowContactPicker(false);
+                          setContactSearchQuery("");
+                        }}
                         className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
-                        title="Rehberi Kapat"
+                        title="Arama Alanını Kapat"
                       >
                         <X size={14} />
                       </button>
                     </div>
 
                     {(() => {
-                      const q = contactSearchQuery.trim().toLowerCase();
+                      const q = contactSearchQuery.trim().toLocaleLowerCase("tr-TR");
+                      if (!q) {
+                        return (
+                          <div className="py-2.5 px-3 text-center text-[11px] text-slate-400 dark:text-slate-500 font-medium">
+                            Rehberden kişi seçmek için yukarıdaki alana isim, harf veya telefon numarası yazın.
+                          </div>
+                        );
+                      }
+
+                      const qDigits = normalizeDigits(q);
                       const validContacts = (contacts || []).filter(c => c.phone_number && normalizeDigits(c.phone_number));
-                      const filteredContacts = validContacts.filter(c => {
-                        if (!q) return true;
-                        const fullName = `${c.first_name || ""} ${c.last_name || ""}`.toLowerCase();
+                      const matchedContacts = validContacts.filter(c => {
+                        const fullName = `${c.first_name || ""} ${c.last_name || ""}`.toLocaleLowerCase("tr-TR");
                         const phoneStr = String(c.phone_number || "").toLowerCase();
-                        const emailStr = String(c.email || "").toLowerCase();
-                        return fullName.includes(q) || phoneStr.includes(q) || emailStr.includes(q);
+                        const phoneDigits = normalizeDigits(c.phone_number);
+                        const emailStr = String(c.email || "").toLocaleLowerCase("tr-TR");
+                        return (
+                          fullName.includes(q) ||
+                          phoneStr.includes(q) ||
+                          (qDigits && phoneDigits.includes(qDigits)) ||
+                          emailStr.includes(q)
+                        );
                       });
 
-                      if (validContacts.length === 0) {
+                      if (matchedContacts.length === 0) {
                         return (
-                          <div className="py-4 text-center text-xs text-slate-400 font-medium">
-                            Rehberde kayıtlı telefon numarası bulunamadı.
+                          <div className="py-3 text-center text-xs text-slate-400 font-medium">
+                            "{contactSearchQuery}" ile eşleşen rehber kaydı bulunamadı.
                           </div>
                         );
                       }
 
-                      if (filteredContacts.length === 0) {
-                        return (
-                          <div className="py-4 text-center text-xs text-slate-400 font-medium">
-                            Aramanızla eşleşen rehber kaydı bulunamadı.
-                          </div>
-                        );
-                      }
+                      const visibleMatches = matchedContacts.slice(0, 30);
 
                       return (
-                        <div className="max-h-44 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
-                          {filteredContacts.map((c) => {
-                            const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "İsimsiz Kişi";
-                            const selected = isContactSelected(c.phone_number);
-                            return (
-                              <button
-                                key={c.id || c.phone_number}
-                                type="button"
-                                onClick={() => toggleContactExternal(c.phone_number)}
-                                className={`flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-all border ${
-                                  selected
-                                    ? `${lightBg} ${text} ${borderLight} font-bold shadow-xs`
-                                    : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200/70 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
-                                }`}
-                              >
-                                <div className="min-w-0 pr-2">
-                                  <div className="font-bold truncate">{fullName}</div>
-                                  <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
-                                    <Phone size={10} />
-                                    <span className="font-mono">{c.phone_number}</span>
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between px-1 text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                            <span>Eşleşen Kişiler ({matchedContacts.length})</span>
+                            {matchedContacts.length > 30 && (
+                              <span>İlk 30 sonuç gösteriliyor</span>
+                            )}
+                          </div>
+                          <div className="max-h-48 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-1.5 pr-1">
+                            {visibleMatches.map((c) => {
+                              const fullName = `${c.first_name || ""} ${c.last_name || ""}`.trim() || "İsimsiz Kişi";
+                              const selected = isContactSelected(c.phone_number);
+                              return (
+                                <button
+                                  key={c.id || c.phone_number}
+                                  type="button"
+                                  onClick={() => toggleContactExternal(c.phone_number)}
+                                  className={`flex items-center justify-between px-3 py-2 rounded-lg text-left text-xs transition-all border ${
+                                    selected
+                                      ? `${lightBg} ${text} ${borderLight} font-bold shadow-xs`
+                                      : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200/70 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                                  }`}
+                                >
+                                  <div className="min-w-0 pr-2">
+                                    <div className="font-bold truncate">{fullName}</div>
+                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 mt-0.5">
+                                      <Phone size={10} />
+                                      <span className="font-mono">{c.phone_number}</span>
+                                    </div>
                                   </div>
-                                </div>
-                                <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all ${
-                                  selected
-                                    ? `${bg} text-white`
-                                    : "border border-slate-300 dark:border-slate-700 text-transparent"
-                                }`}>
-                                  <Check size={12} />
-                                </div>
-                              </button>
-                            );
-                          })}
+                                  <div className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 transition-all ${
+                                    selected
+                                      ? `${bg} text-white`
+                                      : "border border-slate-300 dark:border-slate-700 text-transparent"
+                                  }`}>
+                                    <Check size={12} />
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
                       );
                     })()}
