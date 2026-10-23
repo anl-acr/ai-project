@@ -7931,6 +7931,93 @@ async def add_to_blacklist(payload: BlacklistItemSchema):
     add_system_log("ABUSE_SHIELD", "WARNING", f"Kara Listeye Eklendi: {val} ({new_item['reason']})")
     return new_item
 
+@app.put("/api/blacklist/{item_id}")
+async def update_blacklist_item(item_id: int, payload: BlacklistItemSchema):
+    val = payload.value.strip()
+    if not val:
+        raise HTTPException(status_code=400, detail="Değer boş olamaz.")
+
+    label = "Telefon numarası" if payload.type == "phone" else "E-posta adresi"
+    val_digits = re.sub(r"\D", "", val)
+    val_last10 = val_digits[-10:] if (payload.type == "phone" and len(val_digits) >= 10) else None
+    new_reason = payload.reason.strip() if payload.reason else "Manuel Engelleme"
+
+    current_list = settings_db.setdefault("blacklist", [])
+    old_val = None
+    for b in current_list:
+        b_id = b.get("id") if isinstance(b, dict) else getattr(b, "id", None)
+        b_val = (b.get("value") if isinstance(b, dict) else getattr(b, "value", "")).strip()
+        if str(b_id) == str(item_id):
+            old_val = b_val
+            continue
+        if b_val.lower() == val.lower():
+            raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut.")
+        if val_last10:
+            b_digits = re.sub(r"\D", "", b_val)
+            if len(b_digits) >= 10 and b_digits[-10:] == val_last10:
+                raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut ({b_val}).")
+
+    updated_item = {
+        "id": item_id,
+        "type": payload.type,
+        "value": val,
+        "reason": new_reason,
+        "timestamp": datetime.datetime.utcnow().isoformat()
+    }
+
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(BlacklistItem)
+            res = await session.execute(stmt)
+            existing_items = res.scalars().all()
+            target_db_item = None
+            for ex in existing_items:
+                if str(ex.id) == str(item_id):
+                    target_db_item = ex
+                    if not old_val and ex.value:
+                        old_val = ex.value.strip()
+                    continue
+                ex_val = (ex.value or "").strip()
+                if ex_val.lower() == val.lower():
+                    raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut.")
+                if val_last10:
+                    ex_digits = re.sub(r"\D", "", ex_val)
+                    if len(ex_digits) >= 10 and ex_digits[-10:] == val_last10:
+                        raise HTTPException(status_code=400, detail=f"Bu {label.lower()} ({val}) zaten kara listede mevcut ({ex_val}).")
+
+            if target_db_item:
+                target_db_item.type = payload.type
+                target_db_item.value = val
+                target_db_item.reason = new_reason
+                await session.commit()
+                await session.refresh(target_db_item)
+                updated_item["id"] = target_db_item.id
+                if target_db_item.timestamp:
+                    updated_item["timestamp"] = target_db_item.timestamp.isoformat()
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Update Blacklist DB Warning]: {e}")
+
+    found_in_mem = False
+    new_mem_list = []
+    for b in current_list:
+        b_id = b.get("id") if isinstance(b, dict) else getattr(b, "id", None)
+        b_val = (b.get("value") if isinstance(b, dict) else getattr(b, "value", "")).strip()
+        if str(b_id) == str(item_id) or (old_val and b_val.lower() == old_val.lower()):
+            if not found_in_mem:
+                new_mem_list.append(updated_item)
+                found_in_mem = True
+        else:
+            new_mem_list.append(b)
+    if not found_in_mem:
+        new_mem_list.insert(0, updated_item)
+
+    settings_db["blacklist"] = new_mem_list
+    save_settings(settings_db)
+    add_system_log("ABUSE_SHIELD", "INFO", f"Kara Liste Kaydı Güncellendi: {old_val or item_id} -> {val} ({new_reason})")
+    return updated_item
+
 @app.delete("/api/blacklist/{item_id}")
 async def remove_from_blacklist(item_id: int):
     removed_values = set()
@@ -8035,6 +8122,48 @@ async def add_block_word(payload: BlockWordSchema):
     save_settings(settings_db)
     add_system_log("ABUSE_SHIELD", "INFO", f"Yasaklı Kelime Eklendi: '{word_val}'")
     return new_word
+
+@app.put("/api/block-words/{word_id}")
+async def update_block_word(word_id: int, payload: BlockWordSchema):
+    word_val = payload.word.strip().lower()
+    if not word_val:
+        raise HTTPException(status_code=400, detail="Kelime boş olamaz.")
+
+    current_words = settings_db.setdefault("block_words", [])
+    for w in current_words:
+        w_id = w.get("id") if isinstance(w, dict) else getattr(w, "id", None)
+        if str(w_id) != str(word_id) and (w.get("word") if isinstance(w, dict) else getattr(w, "word", "")).lower() == word_val:
+            raise HTTPException(status_code=400, detail="Bu kelime zaten yasaklı listesinde.")
+
+    try:
+        async with AsyncSessionLocal() as session:
+            stmt = select(BlockWord).where(BlockWord.word == word_val)
+            res = await session.execute(stmt)
+            existing = res.scalar_one_or_none()
+            if existing and str(existing.id) != str(word_id):
+                raise HTTPException(status_code=400, detail="Bu kelime zaten yasaklı listesinde.")
+
+            item = await session.get(BlockWord, word_id)
+            if item:
+                item.word = word_val
+                await session.commit()
+                await session.refresh(item)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[Update Block Word DB Warning]: {e}")
+
+    for w in current_words:
+        w_id = w.get("id") if isinstance(w, dict) else getattr(w, "id", None)
+        if str(w_id) == str(word_id):
+            if isinstance(w, dict):
+                w["word"] = word_val
+            else:
+                setattr(w, "word", word_val)
+    settings_db["block_words"] = current_words
+    save_settings(settings_db)
+    add_system_log("ABUSE_SHIELD", "INFO", f"Yasaklı Kelime Güncellendi: ID {word_id} -> '{word_val}'")
+    return {"id": word_id, "word": word_val}
 
 @app.delete("/api/block-words/{word_id}")
 async def remove_block_word(word_id: int):

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Shield, Plus, Trash2, Search, X, Check, AlertCircle, AlertTriangle, FileText, Type, Download, Upload } from "lucide-react";
+import { Shield, Plus, Trash2, Edit2, Search, X, Check, AlertCircle, AlertTriangle, FileText, Type, Download, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -19,6 +19,8 @@ export default function BlacklistSettings({ backendHost }) {
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddWordModal, setShowAddWordModal] = useState(false);
+  const [editingItem, setEditingItem] = useState(null); // { id, type, value, reason }
+  const [editingWord, setEditingWord] = useState(null); // { id, word }
   const [deleteTarget, setDeleteTarget] = useState(null); // { id, type: 'blacklist' | 'word', value }
 
   // Form Fields
@@ -108,6 +110,38 @@ export default function BlacklistSettings({ backendHost }) {
     }
   };
 
+  const handleOpenAddModal = () => {
+    setEditingItem(null);
+    setFormType("phone");
+    setFormValue("");
+    setFormReason("");
+    setError("");
+    setShowAddModal(true);
+  };
+
+  const handleOpenEditModal = (item) => {
+    setEditingItem(item);
+    setFormType(item.type || "phone");
+    setFormValue(item.value || "");
+    setFormReason(item.reason || "");
+    setError("");
+    setShowAddModal(true);
+  };
+
+  const handleOpenAddWordModal = () => {
+    setEditingWord(null);
+    setFormWord("");
+    setError("");
+    setShowAddWordModal(true);
+  };
+
+  const handleOpenEditWordModal = (item) => {
+    setEditingWord(item);
+    setFormWord(item.word || "");
+    setError("");
+    setShowAddWordModal(true);
+  };
+
   const handleAddBlacklist = async (e) => {
     e.preventDefault();
     setError("");
@@ -121,9 +155,11 @@ export default function BlacklistSettings({ backendHost }) {
     const val = formValue.trim();
     const label = formType === "phone" ? "Telefon numarası" : "E-posta adresi";
 
-    // Client-side duplicate check
+    // Client-side duplicate check (excluding current item when editing)
     const dupItem = (blacklist || []).find(
-      b => String(b.value || "").trim().toLowerCase() === val.toLowerCase()
+      b =>
+        (!editingItem || String(b.id) !== String(editingItem.id)) &&
+        String(b.value || "").trim().toLowerCase() === val.toLowerCase()
     );
     if (dupItem) {
       setError(`Bu ${label.toLowerCase()} (${val}) zaten kara listede mevcut.`);
@@ -131,8 +167,13 @@ export default function BlacklistSettings({ backendHost }) {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/blacklist`, {
-        method: "POST",
+      const url = editingItem
+        ? `${API_BASE}/api/blacklist/${editingItem.id}`
+        : `${API_BASE}/api/blacklist`;
+      const method = editingItem ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: formType,
@@ -141,14 +182,15 @@ export default function BlacklistSettings({ backendHost }) {
         })
       });
       if (res.ok) {
-        setSuccess("Kayıt başarıyla kara listeye eklendi.");
+        setSuccess(editingItem ? "Kara liste kaydı başarıyla güncellendi." : "Kayıt başarıyla kara listeye eklendi.");
         setFormValue("");
         setFormReason("");
+        setEditingItem(null);
         setShowAddModal(false);
         fetchData();
       } else {
         const errData = await res.json().catch(() => ({}));
-        setError(errData.detail || "Ekleme hatası oluştu.");
+        setError(errData.detail || (editingItem ? "Güncelleme hatası oluştu." : "Ekleme hatası oluştu."));
       }
     } catch (err) {
       setError("Bağlantı hatası oluştu.");
@@ -167,7 +209,9 @@ export default function BlacklistSettings({ backendHost }) {
 
     const w = formWord.trim();
     const dupWord = (blockWords || []).find(
-      bw => String(bw.word || bw || "").trim().toLowerCase() === w.toLowerCase()
+      bw =>
+        (!editingWord || String(bw.id) !== String(editingWord.id)) &&
+        String(bw.word || bw || "").trim().toLowerCase() === w.toLowerCase()
     );
     if (dupWord) {
       setError(`'${w}' kelimesi/cümlesi zaten yasaklı kelimeler listesinde mevcut.`);
@@ -175,19 +219,25 @@ export default function BlacklistSettings({ backendHost }) {
     }
 
     try {
-      const res = await fetch(`${API_BASE}/api/block-words`, {
-        method: "POST",
+      const url = editingWord
+        ? `${API_BASE}/api/block-words/${editingWord.id}`
+        : `${API_BASE}/api/block-words`;
+      const method = editingWord ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ word: w })
       });
       if (res.ok) {
-        setSuccess("Yasaklı kelime/cümle başarıyla eklendi.");
+        setSuccess(editingWord ? "Yasaklı kelime/cümle başarıyla güncellendi." : "Yasaklı kelime/cümle başarıyla eklendi.");
         setFormWord("");
+        setEditingWord(null);
         setShowAddWordModal(false);
         fetchData();
       } else {
         const errData = await res.json().catch(() => ({}));
-        setError(errData.detail || "Ekleme hatası oluştu.");
+        setError(errData.detail || (editingWord ? "Güncelleme hatası oluştu." : "Ekleme hatası oluştu."));
       }
     } catch (err) {
       setError("Bağlantı hatası oluştu.");
@@ -396,8 +446,8 @@ export default function BlacklistSettings({ backendHost }) {
 
             {permissions.write && (
               <button
-                onClick={() => activeTab === "list" ? setShowAddModal(true) : setShowAddWordModal(true)}
-                className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+                onClick={() => activeTab === "list" ? handleOpenAddModal() : handleOpenAddWordModal()}
+                className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0"
                 title={activeTab === "list" ? "Yeni Engelleme Ekle" : "Yasaklı Kelime Ekle"}
               >
                 <Plus size={16} />
@@ -434,7 +484,7 @@ export default function BlacklistSettings({ backendHost }) {
                 <th className="px-4 py-3">Engellenen Değer</th>
                 <th className="px-4 py-3">Engelleme Nedeni</th>
                 <th className="px-4 py-3">Tarih</th>
-                {permissions.delete && <th className="px-4 py-3 text-right">İşlem</th>}
+                {(permissions.write || permissions.delete) && <th className="px-4 py-3 text-right">İşlem</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-850 text-xs">
@@ -465,15 +515,28 @@ export default function BlacklistSettings({ backendHost }) {
                     <td className="px-4 py-3.5 text-slate-400 dark:text-slate-550 font-bold">
                       {new Date(item.timestamp).toLocaleString()}
                     </td>
-                    {permissions.delete && (
+                    {(permissions.write || permissions.delete) && (
                       <td className="px-4 py-3.5 text-right">
-                        <button
-                          onClick={() => setDeleteTarget({ id: item.id, type: "blacklist", value: item.value })}
-                          className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-primary rounded-lg transition"
-                          title="Engeli Kaldır"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          {permissions.write && (
+                            <button
+                              onClick={() => handleOpenEditModal(item)}
+                              className={`p-1.5 ${lightBg} ${text} hover:opacity-80 rounded-lg transition`}
+                              title="Kaydı Düzenle"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                          )}
+                          {permissions.delete && (
+                            <button
+                              onClick={() => setDeleteTarget({ id: item.id, type: "blacklist", value: item.value })}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-primary rounded-lg transition"
+                              title="Engeli Kaldır"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -490,7 +553,7 @@ export default function BlacklistSettings({ backendHost }) {
               <tr className="bg-slate-50/50 dark:bg-slate-950/40 text-[10px] text-slate-500 uppercase tracking-wider font-bold border-b border-slate-100 dark:border-slate-850">
                 <th className="px-4 py-3">Yasaklı Kelime / Cümle</th>
                 <th className="px-4 py-3">Eklenme Tarihi</th>
-                {permissions.delete && <th className="px-4 py-3 text-right">İşlem</th>}
+                {(permissions.write || permissions.delete) && <th className="px-4 py-3 text-right">İşlem</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-850 text-xs">
@@ -507,17 +570,30 @@ export default function BlacklistSettings({ backendHost }) {
                       "{item.word}"
                     </td>
                     <td className="px-4 py-3.5 text-slate-400 dark:text-slate-550 font-bold">
-                      {new Date(item.timestamp).toLocaleString()}
+                      {item.timestamp ? new Date(item.timestamp).toLocaleString() : "-"}
                     </td>
-                    {permissions.delete && (
+                    {(permissions.write || permissions.delete) && (
                       <td className="px-4 py-3.5 text-right">
-                        <button
-                          onClick={() => setDeleteTarget({ id: item.id, type: "word", value: `"${item.word}"` })}
-                          className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-primary rounded-lg transition"
-                          title="Yasaklı Kelimeyi Sil"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                        <div className="inline-flex items-center justify-end gap-1.5">
+                          {permissions.write && (
+                            <button
+                              onClick={() => handleOpenEditWordModal(item)}
+                              className={`p-1.5 ${lightBg} ${text} hover:opacity-80 rounded-lg transition`}
+                              title="Yasaklı Kelimeyi Düzenle"
+                            >
+                              <Edit2 size={13} />
+                            </button>
+                          )}
+                          {permissions.delete && (
+                            <button
+                              onClick={() => setDeleteTarget({ id: item.id, type: "word", value: `"${item.word}"` })}
+                              className="p-1.5 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/20 dark:hover:bg-rose-900/30 text-primary rounded-lg transition"
+                              title="Yasaklı Kelimeyi Sil"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -528,17 +604,17 @@ export default function BlacklistSettings({ backendHost }) {
         </div>
       )}
 
-      {/* Add Blacklist Person Modal */}
+      {/* Add / Edit Blacklist Person Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-scale-up">
             <div className="p-5 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between">
               <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <Shield size={16} className="text-primary" />
-                Yeni Kişi Engelle
+                {editingItem ? "Engellenen Kaydı Düzenle" : "Yeni Kişi Engelle"}
               </h4>
               <button
-                onClick={() => { setShowAddModal(false); setFormValue(""); setFormReason(""); }}
+                onClick={() => { setShowAddModal(false); setEditingItem(null); setFormValue(""); setFormReason(""); }}
                 className="text-slate-400 hover:text-slate-655 dark:hover:text-slate-250 transition"
               >
                 <X size={16} />
@@ -567,7 +643,7 @@ export default function BlacklistSettings({ backendHost }) {
                 <select
                   value={formType}
                   onChange={(e) => setFormType(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-rose-500 dark:text-white"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-primary dark:text-white"
                 >
                   <option value="phone">Telefon Numarası</option>
                   <option value="email">E-posta Adresi</option>
@@ -584,7 +660,7 @@ export default function BlacklistSettings({ backendHost }) {
                   placeholder={formType === "phone" ? "+905554443322" : "ornek@domain.com"}
                   value={formValue}
                   onChange={(e) => setFormValue(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-rose-500 dark:text-white font-medium"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-primary dark:text-white font-medium"
                 />
               </div>
 
@@ -595,21 +671,21 @@ export default function BlacklistSettings({ backendHost }) {
                   placeholder="Küfür ve hakaret, dolandırıcılık teşebbüsü vb."
                   value={formReason}
                   onChange={(e) => setFormReason(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-rose-500 dark:text-white font-medium"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-primary dark:text-white font-medium"
                 />
               </div>
 
               <div className="flex gap-3 justify-end pt-2">
                 <button
                   type="button"
-                  onClick={() => { setShowAddModal(false); setFormValue(""); setFormReason(""); }}
-                  className="px-4 py-2 border dark: hover: dark:hover: rounded-xl font-bold dark: transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                  onClick={() => { setShowAddModal(false); setEditingItem(null); setFormValue(""); setFormReason(""); }}
+                  className="px-4 py-2 border dark: hover: dark:hover: rounded-xl text-xs font-bold dark: transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
                 >Vazgeç</button>
                 <button
                   type="submit"
                   className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition`}
                 >
-                  Engelle
+                  {editingItem ? "Güncelle" : "Engelle"}
                 </button>
               </div>
             </form>
@@ -617,17 +693,17 @@ export default function BlacklistSettings({ backendHost }) {
         </div>
       )}
 
-      {/* Add Block Word Modal */}
+      {/* Add / Edit Block Word Modal */}
       {showAddWordModal && (
         <div className="fixed inset-0 bg-slate-955/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fade-in">
           <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-scale-up">
             <div className="p-5 border-b border-slate-100 dark:border-slate-850 flex items-center justify-between">
               <h4 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
                 <Type size={16} className="text-primary" />
-                Yasaklı Kelime/Cümle Ekle
+                {editingWord ? "Yasaklı Kelime/Cümle Düzenle" : "Yasaklı Kelime/Cümle Ekle"}
               </h4>
               <button
-                onClick={() => { setShowAddWordModal(false); setFormWord(""); }}
+                onClick={() => { setShowAddWordModal(false); setEditingWord(null); setFormWord(""); }}
                 className="text-slate-400 hover:text-slate-655 dark:hover:text-slate-250 transition"
               >
                 <X size={16} />
@@ -659,7 +735,7 @@ export default function BlacklistSettings({ backendHost }) {
                   placeholder="Engellenecek kelime veya cümle yazın..."
                   value={formWord}
                   onChange={(e) => setFormWord(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-rose-500 dark:text-white font-medium"
+                  className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-955 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-primary dark:text-white font-medium"
                 />
                 <p className="text-[10px] text-slate-400 leading-normal">
                   * Sistem, müşteriden gelen mesajlarda veya ses dökümlerinde bu ifadeyi tespit ederse numarayı/sohbeti anında engeller.
@@ -669,14 +745,14 @@ export default function BlacklistSettings({ backendHost }) {
               <div className="flex gap-3 justify-end pt-2">
                 <button
                   type="button"
-                  onClick={() => { setShowAddWordModal(false); setFormWord(""); }}
-                  className="px-4 py-2 border dark: hover: dark:hover: rounded-xl font-bold dark: transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                  onClick={() => { setShowAddWordModal(false); setEditingWord(null); setFormWord(""); }}
+                  className="px-4 py-2 border dark: hover: dark:hover: rounded-xl text-xs font-bold dark: transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
                 >Vazgeç</button>
                 <button
                   type="submit"
                   className={`px-4 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition`}
                 >
-                  Kelimeyi Ekle
+                  {editingWord ? "Güncelle" : "Kelimeyi Ekle"}
                 </button>
               </div>
             </form>
