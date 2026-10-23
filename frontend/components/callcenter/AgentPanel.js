@@ -104,6 +104,16 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   }, [currentUser]);
 
   useEffect(() => {
+    const handleSwitchSubTab = (e) => {
+      if (e?.detail?.subTab) {
+        setActiveSubTab(e.detail.subTab);
+      }
+    };
+    window.addEventListener("SWITCH_AGENT_PANEL_SUBTAB", handleSwitchSubTab);
+    return () => window.removeEventListener("SWITCH_AGENT_PANEL_SUBTAB", handleSwitchSubTab);
+  }, []);
+
+  useEffect(() => {
     let mounted = true;
     const fetchRolePerms = async () => {
       try {

@@ -113,6 +113,7 @@ import SipDebuggerPanel from "../components/dashboard/SipDebuggerPanel";
 import Login from "../components/auth/Login";
 import TenantSwitcher from "../components/TenantSwitcher";
 import LicenseModal from "../components/modals/LicenseModal";
+import GlobalSearchBar from "../components/common/GlobalSearchBar";
 
 const SUPER_ADMIN = {
   id: 9999,
@@ -2325,19 +2326,42 @@ export default function Home() {
             <span className="text-slate-400 dark:text-slate-500 font-bold text-xs tracking-wider">AKTİF İŞLEMLER</span>
             <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
             {activeCallId ? (
-              <span className="flex items-center gap-1.5 text-xs text-primary dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 px-3 py-1 rounded-full border border-amber-200/50 dark:border-amber-800/40">
+              <span className="flex items-center gap-1.5 text-xs text-primary dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 px-3 py-1 rounded-full border border-amber-200/50 dark:border-amber-800/40 shrink-0">
                 <span className="h-1.5 w-1.5 rounded-full bg-primary dark:bg-amber-400 animate-ping"></span>
                 Görüşme Aktif
               </span>
             ) : (
-              <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/60 px-3 py-1 rounded-full border border-slate-200/60 dark:border-slate-800/40">
+              <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/60 px-3 py-1 rounded-full border border-slate-200/60 dark:border-slate-800/40 shrink-0">
                 <span className="h-1.5 w-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
                 Arama Bekleniyor
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400">
+          {/* Global Search & Action Center Bar */}
+          <GlobalSearchBar
+            backendHost={backendHost}
+            currentUser={currentUser}
+            activeTab={activeTab}
+            setActiveTab={setActiveTab}
+            onOpenProfileModal={(modalTab) => {
+              setActiveModalTab(modalTab || "profile");
+              setSettingsModalOpen(true);
+            }}
+            onQuickProfileSwitch={handleQuickProfileSwitch}
+            onToggleTheme={toggleTheme}
+            isDarkMode={isDarkMode}
+            onApplyChanges={handleApplyChanges}
+            hasPendingChanges={hasPendingChanges}
+            onLogout={handleLogout}
+            onUpdateCallPanelPrefs={(patch) => {
+              const current = loadCallPanelPrefs(currentUser);
+              const next = saveCallPanelPrefs(currentUser, { ...current, ...patch });
+              setCallPanelPrefs(next);
+            }}
+          />
+
+          <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
             {currentUser?.role === 'admin' && hasPendingChanges && (
               <div className="flex items-center gap-2 relative">
                 <button

@@ -44,6 +44,14 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setActiveSubTab(resolvedSubtab);
       }
     }
+
+    const handleSwitchSettingsSubTab = (e) => {
+      if (e?.detail?.subTab) {
+        setActiveSubTab(e.detail.subTab);
+      }
+    };
+    window.addEventListener("SWITCH_SETTINGS_SUBTAB", handleSwitchSettingsSubTab);
+    return () => window.removeEventListener("SWITCH_SETTINGS_SUBTAB", handleSwitchSettingsSubTab);
   }, []);
 
   // Sync activeSubTab state changes to URL query string with Turkish Slugs (?subtab=...)
