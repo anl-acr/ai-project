@@ -11782,12 +11782,14 @@ async def get_security_whitelist(request: Request, user_info: dict = Depends(get
 class WhitelistIpSchema(BaseModel):
     ip: str
     description: Optional[str] = "Güvenli IP / Blok"
+    old_ip: Optional[str] = None
 
 
 @app.post("/api/security/whitelist")
 async def add_security_whitelist_ip(request: Request, payload: WhitelistIpSchema, user_info: dict = Depends(get_user_info)):
     import ipaddress, datetime, subprocess
     ip_str = (payload.ip or "").strip()
+    old_ip_str = (payload.old_ip or "").strip()
     if not ip_str:
         raise HTTPException(status_code=400, detail="Lütfen geçerli bir IP adresi veya CIDR bloğu giriniz (Örn: 78.189.210.15 veya 78.189.210.0/24).")
     try:
@@ -11800,16 +11802,50 @@ async def add_security_whitelist_ip(request: Request, payload: WhitelistIpSchema
     _execute_firewall_unban(clean_ip, add_to_whitelist=False)
 
     wl = _normalize_whitelist_entries()
-    existing = next((w for w in wl if w.get("ip") == clean_ip), None)
     now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    if existing:
-        existing["description"] = (payload.description or existing.get("description") or "Güvenli IP / Blok").strip()
+    new_desc = (payload.description or "Güvenli IP / Blok").strip()
+
+    if old_ip_str:
+        # Editing an existing whitelist entry
+        if old_ip_str != clean_ip:
+            try:
+                subprocess.run(["ufw", "delete", "allow", "from", old_ip_str, "to", "any"], check=False, capture_output=True, timeout=2.0)
+            except Exception:
+                pass
+        updated = False
+        new_wl = []
+        for w in wl:
+            if w.get("ip") == old_ip_str:
+                if not updated:
+                    new_wl.append({
+                        "ip": clean_ip,
+                        "description": new_desc,
+                        "added_at": w.get("added_at") or now_str
+                    })
+                    updated = True
+            elif w.get("ip") == clean_ip and old_ip_str != clean_ip:
+                # Avoid duplicate if user edited old_ip into another existing IP
+                continue
+            else:
+                new_wl.append(w)
+        if not updated:
+            new_wl.insert(0, {
+                "ip": clean_ip,
+                "description": new_desc,
+                "added_at": now_str
+            })
+        wl = new_wl
     else:
-        wl.insert(0, {
-            "ip": clean_ip,
-            "description": (payload.description or "Güvenli IP / Blok").strip(),
-            "added_at": now_str
-        })
+        existing = next((w for w in wl if w.get("ip") == clean_ip), None)
+        if existing:
+            existing["description"] = new_desc
+        else:
+            wl.insert(0, {
+                "ip": clean_ip,
+                "description": new_desc,
+                "added_at": now_str
+            })
+
     settings_db["security_whitelisted_ips"] = wl
     save_settings(settings_db)
 
@@ -11822,7 +11858,11 @@ async def add_security_whitelist_ip(request: Request, payload: WhitelistIpSchema
 
     return {
         "status": "success",
-        "message": f"{clean_ip} güvenli listeye (Fail2Ban ignoreip & UFW Allow) eklendi.",
+        "message": (
+            f"Güvenli IP kaydı ({clean_ip}) başarıyla güncellendi."
+            if old_ip_str
+            else f"{clean_ip} güvenli listeye (Fail2Ban ignoreip & UFW Allow) eklendi."
+        ),
         **get_live_fail2ban_and_ufw_status(client_ip=_extract_request_client_ip(request))
     }
 

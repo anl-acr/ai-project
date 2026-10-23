@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Shield, ShieldAlert, ShieldCheck, Globe, Trash2, CheckCircle, Search, Save, AlertTriangle, Check, Plus, RefreshCw, Zap, X, Lock } from "lucide-react";
+import { Shield, ShieldAlert, ShieldCheck, Globe, Trash2, Edit2, CheckCircle, Search, Save, AlertTriangle, Check, Plus, RefreshCw, Zap, X, Lock } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
@@ -43,6 +43,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
 
   // Whitelist (IgnoreIP) Modal States
   const [isWhitelistModalOpen, setIsWhitelistModalOpen] = useState(false);
+  const [editingWhitelistOldIp, setEditingWhitelistOldIp] = useState(null);
   const [whitelistIpInput, setWhitelistIpInput] = useState("");
   const [whitelistDescInput, setWhitelistDescInput] = useState("Ofis / Güvenli Sabit IP");
 
@@ -203,13 +204,17 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
     setLoading(true);
     setError("");
     try {
+      const payloadBody = {
+        ip: targetIp,
+        description: descToUse || whitelistDescInput || "Güvenli IP / Blok"
+      };
+      if (!ipToTrust && editingWhitelistOldIp) {
+        payloadBody.old_ip = editingWhitelistOldIp;
+      }
       const res = await fetch(`${API_BASE}/api/security/whitelist`, {
         method: "POST",
         headers: getHeaders(),
-        body: JSON.stringify({
-          ip: targetIp,
-          description: descToUse || whitelistDescInput || "Güvenli IP / Blok"
-        })
+        body: JSON.stringify(payloadBody)
       });
       const data = await res.json();
       if (res.ok) {
@@ -217,9 +222,10 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
         setTimeout(() => setSuccess(""), 4000);
         applySecurityPayload(data);
         setIsWhitelistModalOpen(false);
+        setEditingWhitelistOldIp(null);
         setWhitelistIpInput("");
       } else {
-        setError(data.detail || "Güvenli IP eklenemedi.");
+        setError(data.detail || "Güvenli IP kaydedilemedi.");
       }
     } catch (err) {
       setError("Sunucu bağlantı hatası.");
@@ -436,6 +442,9 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
               <button
                 onClick={() => {
                   if (activeTab === "whitelist") {
+                    setEditingWhitelistOldIp(null);
+                    setWhitelistIpInput("");
+                    setWhitelistDescInput("Ofis / Güvenli Sabit IP");
                     setIsWhitelistModalOpen(true);
                   } else {
                     setIsBanModalOpen(true);
@@ -713,13 +722,27 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                         </td>
                         {hasWritePermission && (
                           <td className="py-3 px-4 text-right">
-                            <button
-                              onClick={() => setDeleteWhitelistIp(w.ip)}
-                              className="text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition-colors p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg"
-                              title="Güvenli Listeden Kaldır"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            <div className="inline-flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => {
+                                  setEditingWhitelistOldIp(w.ip);
+                                  setWhitelistIpInput(w.ip || "");
+                                  setWhitelistDescInput(w.description || "Güvenli IP / Blok");
+                                  setIsWhitelistModalOpen(true);
+                                }}
+                                className="text-slate-400 hover:text-indigo-600 dark:text-slate-500 dark:hover:text-indigo-400 transition-colors p-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/30 rounded-lg"
+                                title="Güvenli IP Kaydını Düzenle"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                                onClick={() => setDeleteWhitelistIp(w.ip)}
+                                className="text-slate-400 hover:text-rose-500 dark:text-slate-500 dark:hover:text-rose-400 transition-colors p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-lg"
+                                title="Güvenli Listeden Kaldır"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -915,17 +938,22 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
         </div>
       )}
 
-      {/* Whitelist (IgnoreIP) Add Modal */}
+      {/* Whitelist (IgnoreIP) Add / Edit Modal */}
       {isWhitelistModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-sm p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4 animate-in zoom-in-95 duration-200">
             <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
               <div className="flex items-center gap-2">
                 <ShieldCheck size={18} className="text-emerald-500" />
-                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">Güvenli IP / IP Bloğu (IgnoreIP) Ekle</h3>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100">
+                  {editingWhitelistOldIp ? "Güvenli IP / IP Bloğu Kaydını Düzenle" : "Güvenli IP / IP Bloğu (IgnoreIP) Ekle"}
+                </h3>
               </div>
               <button
-                onClick={() => setIsWhitelistModalOpen(false)}
+                onClick={() => {
+                  setIsWhitelistModalOpen(false);
+                  setEditingWhitelistOldIp(null);
+                }}
                 className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
               >
                 <X size={16} />
@@ -973,7 +1001,10 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
 
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
               <button
-                onClick={() => setIsWhitelistModalOpen(false)}
+                onClick={() => {
+                  setIsWhitelistModalOpen(false);
+                  setEditingWhitelistOldIp(null);
+                }}
                 className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 Vazgeç
@@ -983,7 +1014,7 @@ export default function SecurityPanel({ backendHost = "localhost:8000" }) {
                 disabled={loading}
                 className={`px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm disabled:opacity-50 ${bg} ${hover}`}
               >
-                {loading ? "Kaydediliyor..." : "Güvenli Listeye Ekle"}
+                {loading ? "Kaydediliyor..." : editingWhitelistOldIp ? "Değişiklikleri Kaydet" : "Güvenli Listeye Ekle"}
               </button>
             </div>
           </div>
