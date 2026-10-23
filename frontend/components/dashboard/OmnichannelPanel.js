@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { MessageSquare, Send, Bot, User, Shield, HelpCircle, RefreshCw, AlertCircle, FileText, X, Award, ChevronDown, ChevronUp, Megaphone, CheckCircle, Upload, Search, Paperclip, Image, Video, Mic, Download } from "lucide-react";
 import AddContactModal from "./AddContactModal";
+import DictationButton from "../common/DictationButton";
 
 export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
   const [sessions, setSessions] = useState([]);
@@ -1082,10 +1083,25 @@ export default function OmnichannelPanel({ backendHost = "localhost:8000" }) {
                   placeholder={
                     activeSession.assigned_agent === "ai"
                       ? "Canlı sohbet yapay zekada. Mesaj göndermek için 'Sohbeti Devral' butonuna basın..."
-                      : "Müşteriye yanıt yazın veya dosya sürükleyip bırakın... (Şablonlar için / yazın)"
+                      : "Müşteriye yanıt yazın, mikrofonla dikte edin veya dosya sürükleyip bırakın... (Şablonlar için / yazın)"
                   }
                   disabled={activeSession.assigned_agent === "ai" || actionLoading}
                   className="flex-1 px-3 py-2 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs focus:outline-none focus:border-purple-500 disabled:opacity-55 disabled:cursor-not-allowed text-slate-800 dark:text-slate-200 placeholder:text-slate-400 dark:placeholder:text-slate-500"
+                />
+
+                <DictationButton
+                  value={inputText}
+                  onChange={(val) => {
+                    setInputText(val);
+                    if (val.startsWith("/")) {
+                      setShowSuggestions(true);
+                    } else {
+                      setShowSuggestions(false);
+                    }
+                  }}
+                  disabled={activeSession.assigned_agent === "ai" || actionLoading}
+                  size="md"
+                  onError={(errMsg) => setSendError(errMsg)}
                 />
 
                 <div className="relative flex items-center shrink-0">

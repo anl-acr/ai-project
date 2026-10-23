@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { Phone, PhoneOff, ShieldAlert, Wifi, WifiOff, MessageSquare, Send, X, Clock, ArrowRight, PhoneCall, Radio, Shield, Fingerprint, CheckCircle, AlertTriangle, Mic, MicOff, Pause, Play } from "lucide-react";
 import { findContactByPhone, maskPhoneLast4 } from "../../utils/contactUtils";
 import { webphoneManager } from "../../utils/webphoneManager";
+import DictationButton from "../common/DictationButton";
 
 export default function CallChatWidget({
   onActiveCall = () => {},
@@ -1251,7 +1252,7 @@ export default function CallChatWidget({
                       <div className="flex-1 relative">
                         <input
                           type="text"
-                          placeholder="Mesajınızı yazın..."
+                          placeholder="Mesajınızı yazın veya dikte edin..."
                           value={chatInput}
                           onChange={(e) => setChatInput(e.target.value)}
                           className="w-full text-[10px] px-3 py-2 pr-8 rounded-xl border border-slate-205 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-850 dark:text-slate-100 focus:outline-none"
@@ -1260,6 +1261,11 @@ export default function CallChatWidget({
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" x2="9.01" y1="9" y2="9"/><line x1="15" x2="15.01" y1="9" y2="9"/></svg>
                         </button>
                       </div>
+                      <DictationButton
+                        value={chatInput}
+                        onChange={setChatInput}
+                        size="sm"
+                      />
                       <button
                         type="submit"
                         disabled={!chatInput.trim()}

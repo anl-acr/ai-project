@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
+import DictationButton from "../../common/DictationButton";
 
 export default function AgentChatTab({ backendHost, currentUser }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -887,16 +888,22 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                       </button>
                     </div>
                   )}
-                  <form onSubmit={handleSendChatMessage} className="flex items-center gap-3">
+                  <form onSubmit={handleSendChatMessage} className="flex items-center gap-2.5">
                     <div className="flex-1 relative">
                       <input
                         type="text"
-                        placeholder="Mesajınızı yazın..."
+                        placeholder="Mesajınızı yazın veya mikrofon ile dikte edin..."
                         value={chatInput}
                         onChange={(e) => setChatInput(e.target.value)}
                         className="w-full text-xs px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-rose-500/50"
                       />
                     </div>
+                    <DictationButton
+                      value={chatInput}
+                      onChange={setChatInput}
+                      size="lg"
+                      onError={(errMsg) => setSendError(errMsg)}
+                    />
                     <button
                       type="submit"
                       disabled={!chatInput.trim()}
