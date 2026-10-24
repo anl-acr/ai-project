@@ -275,6 +275,78 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const [activeModalTab, setActiveModalTab] = useState("operations");
+
+  const ROLE_MODAL_CATEGORIES = [
+    {
+      id: "operations",
+      name: "Operasyon & Canlı İzleme",
+      icon: Activity,
+      items: ["dashboard", "wallboard", "call_panel", "omnichannel"]
+    },
+    {
+      id: "ai",
+      name: "Yapay Zeka & Otomasyon",
+      icon: Bot,
+      items: ["ai_agents", "ai_agent_scenarios", "rag_kb", "rule_editor", "ai_whisper", "voice_biometrics", "qa", "lang_detect", "emotion_management", "ai_providers"]
+    },
+    {
+      id: "pbx",
+      name: "Santral (PBX) & Çağrı Yönlendirme",
+      icon: Server,
+      items: ["pbx", "users", "announcements", "acd_queues", "autoprovision", "autoprovision_templates", "outbound_rules", "inbound_rules", "call_pickup_groups", "subscriber_groups", "contacts", "trunks", "conferences", "speed_dials", "blacklist", "call_flow", "dialer", "calendar", "follow_me", "mobile_transfer", "smart_callback", "numbering_plan"]
+    },
+    {
+      id: "reports",
+      name: "Raporlar & Performans Analitiği",
+      icon: FileText,
+      items: ["reports", "agent_timeline", "transcripts", "roi_settings"]
+    },
+    {
+      id: "omnichannel",
+      name: "İletişim Kanalları & Şablonlar",
+      icon: MessageSquare,
+      items: ["channels", "canned_responses"]
+    },
+    {
+      id: "system",
+      name: "Yönetim, Güvenlik & Sistem Ayarları",
+      icon: Shield,
+      items: ["roles", "breaks", "locations", "nat", "universal_api", "ssl", "backup_restore", "recording_retention", "storage", "api_budgets", "tenant_license", "email_notifications", "restore_points", "system_status", "logs", "sip_debugger", "security", "system_version"]
+    },
+    {
+      id: "breaks",
+      name: "İzin Verilen Mola Tipleri",
+      icon: Coffee,
+      items: []
+    }
+  ];
+
+  const getCategoryPermissionCodes = (cat) => {
+    if (!cat || cat.id === "breaks") return [];
+    const codes = [];
+    SYSTEM_FEATURES.filter((f) => cat.items.includes(f.id)).forEach((feat) => {
+      if (feat.type === "crud") {
+        codes.push(`${feat.id}:read`, `${feat.id}:write`, `${feat.id}:delete`);
+      } else if (feat.type === "crud_partial") {
+        codes.push(`${feat.id}:read`, `${feat.id}:write`);
+      } else {
+        const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
+        codes.push(accessKey);
+      }
+      if (feat.id === "call_panel") {
+        CALL_PANEL_SUB_GROUPS.forEach((sg) => {
+          sg.items.forEach((subItem) => {
+            if (!codes.includes(subItem.id) && !subItem.isRestriction) {
+              codes.push(subItem.id);
+            }
+          });
+        });
+      }
+    });
+    return codes;
+  };
+
   const openAddModal = () => {
     setError("");
     setEditingRole(null);
@@ -282,6 +354,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     setRoleName("");
     setSelectedPermissions([]);
     setSelectedBreaks(breaks.map(b => b.id)); // Default allow all breaks
+    setActiveModalTab("operations");
     setShowModal(true);
   };
 
@@ -298,6 +371,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     }
     setSelectedPermissions(initialPerms);
     setSelectedBreaks(r.allowed_breaks || []);
+    setActiveModalTab("operations");
     setShowModal(true);
   };
 
@@ -608,17 +682,17 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         </div>
       )}
 
-      {/* POPUP MODAL (Add / Edit Form) */}
+      {/* POPUP MODAL (Add / Edit Form with Left Sidebar Tabs) */}
       {showModal && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 transition-all duration-300">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-3xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+          <div className="w-full max-w-5xl max-h-[90vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
             
             {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4.5 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
               <div className="flex items-center gap-2">
                 <Shield size={16} className="text-primary" />
                 <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">
-                  {editingRole ? "Rolü Düzenle" : "Yeni Rol Tanımla"}
+                  {editingRole ? `Rolü Düzenle: ${editingRole.name}` : "Yeni Rol Tanımla"}
                 </h3>
               </div>
               <button
@@ -629,326 +703,408 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
               </button>
             </div>
 
-            {/* Modal Body Form */}
-            <form onSubmit={handleFormSubmit} className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
-              {error && (
-                <div className="p-3.5 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-2xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5">
-                  <span>{error}</span>
-                  <button type="button" onClick={() => setError("")} className="text-slate-400 hover:text-slate-600">
-                    <X size={14} />
-                  </button>
-                </div>
-              )}
-              <div className="grid grid-cols-2 gap-4">
-                {/* Role Code */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                    Rol Kodu
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Örn: agent, admin, supervisor"
-                    value={roleCode}
-                    onChange={(e) => setRoleCode(e.target.value)}
-                    disabled={!!editingRole && ["admin", "agent", "supervisor"].includes(editingRole.role_code)}
-                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
-                  />
-                </div>
-                {/* Role Name */}
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">
-                    Rol İsmi
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Örn: Müşteri Temsilcisi"
-                    value={roleName}
-                    onChange={(e) => setRoleName(e.target.value)}
-                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* Granular Permissions Card Stack */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-455 uppercase tracking-wider mb-3">
-                  Rol Yetki Detayları (Granüler İzinler)
-                </label>
-                <div className="space-y-6">
-                  {[
-                    {
-                      id: "operations",
-                      name: "Operasyon & Canlı İzleme",
-                      items: ["dashboard", "wallboard", "call_panel", "omnichannel"]
-                    },
-                    {
-                      id: "ai",
-                      name: "Yapay Zeka & Otomasyon",
-                      items: ["ai_agents", "ai_agent_scenarios", "rag_kb", "rule_editor", "ai_whisper", "voice_biometrics", "qa", "lang_detect", "emotion_management", "ai_providers"]
-                    },
-                    {
-                      id: "pbx",
-                      name: "Santral (PBX) & Çağrı Yönlendirme",
-                      items: ["pbx", "users", "announcements", "acd_queues", "autoprovision", "autoprovision_templates", "outbound_rules", "inbound_rules", "call_pickup_groups", "subscriber_groups", "contacts", "trunks", "conferences", "speed_dials", "blacklist", "call_flow", "dialer", "calendar", "follow_me", "mobile_transfer", "smart_callback", "numbering_plan"]
-                    },
-                    {
-                      id: "reports",
-                      name: "Raporlar & Performans Analitiği",
-                      items: ["reports", "agent_timeline", "transcripts", "roi_settings"]
-                    },
-                    {
-                      id: "omnichannel",
-                      name: "İletişim Kanalları & Şablonlar",
-                      items: ["channels", "canned_responses"]
-                    },
-                    {
-                      id: "system",
-                      name: "Yönetim, Güvenlik & Sistem Ayarları",
-                      items: ["roles", "breaks", "locations", "nat", "universal_api", "ssl", "backup_restore", "recording_retention", "storage", "api_budgets", "tenant_license", "email_notifications", "restore_points", "system_status", "logs", "sip_debugger", "security", "system_version"]
-                    }
-                  ].map(category => (
-                    <div key={category.id} className="space-y-3">
-                      <h4 className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 uppercase tracking-widest border-b border-slate-100 dark:border-slate-800/60 pb-2">
-                        {category.name}
-                      </h4>
-                      <div className="space-y-3">
-                        {SYSTEM_FEATURES.filter(f => category.items.includes(f.id)).map((feat) => {
-                          const Icon = feat.icon;
-                          const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
-                          const hasAccessSelected = selectedPermissions.includes(accessKey) || selectedPermissions.includes(`${feat.id}:access`);
-                          return (
-                            <div
-                              key={feat.id}
-                              className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl flex flex-col gap-4"
-                            >
-                              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                {/* Title & Icon Header */}
-                                <div className="flex items-center gap-3 md:w-1/3 shrink-0">
-                                  <div className="p-2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-slate-500 dark:text-slate-400">
-                                    <Icon size={14} />
-                                  </div>
-                                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                                    {feat.name}
-                                  </span>
-                                </div>
-
-                                {/* Granular Action Switches */}
-                                <div className="flex flex-wrap gap-3 flex-1 md:justify-end">
-                                  {feat.type === "crud" && (
-                                    <>
-                                      {/* Read */}
-                                      <button
-                                        type="button"
-                                        onClick={() => togglePermission(`${feat.id}:read`)}
-                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                          selectedPermissions.includes(`${feat.id}:read`)
-                                            ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
-                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                        }`}
-                                      >
-                                        <Eye size={10} />
-                                        <span>Görüntüleme</span>
-                                      </button>
-
-                                      {/* Write */}
-                                      <button
-                                        type="button"
-                                        onClick={() => togglePermission(`${feat.id}:write`)}
-                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                          selectedPermissions.includes(`${feat.id}:write`)
-                                            ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
-                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                        }`}
-                                      >
-                                        <Edit3 size={10} />
-                                        <span>Düzenleme</span>
-                                      </button>
-
-                                      {/* Delete */}
-                                      <button
-                                        type="button"
-                                        onClick={() => togglePermission(`${feat.id}:delete`)}
-                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                          selectedPermissions.includes(`${feat.id}:delete`)
-                                            ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-200 dark:border-rose-900/40"
-                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                        }`}
-                                      >
-                                        <Trash size={10} />
-                                        <span>Silme</span>
-                                      </button>
-                                    </>
-                                  )}
-
-                                  {feat.type === "crud_partial" && (
-                                    <>
-                                      {/* Read */}
-                                      <button
-                                        type="button"
-                                        onClick={() => togglePermission(`${feat.id}:read`)}
-                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                          selectedPermissions.includes(`${feat.id}:read`)
-                                            ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
-                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                        }`}
-                                      >
-                                        <Eye size={10} />
-                                        <span>Görüntüleme</span>
-                                      </button>
-
-                                      {/* Write */}
-                                      <button
-                                        type="button"
-                                        onClick={() => togglePermission(`${feat.id}:write`)}
-                                        className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                          selectedPermissions.includes(`${feat.id}:write`)
-                                            ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
-                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                        }`}
-                                      >
-                                        <Edit3 size={10} />
-                                        <span>Güncelleme</span>
-                                      </button>
-                                    </>
-                                  )}
-
-                                  {feat.type === "access" && (
-                                    <button
-                                      type="button"
-                                      onClick={() => togglePermission(accessKey)}
-                                      className={`px-3 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
-                                        hasAccessSelected
-                                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/40"
-                                          : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
-                                      }`}
-                                    >
-                                      <Unlock size={10} />
-                                      <span>Erişim İzni</span>
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Nested Sub-Options for Temsilci Çağrı Paneli (call_panel) */}
-                              {feat.id === "call_panel" && hasAccessSelected && (
-                                <div className="mt-1 pt-3.5 border-t border-slate-200/70 dark:border-slate-800/80 space-y-4">
-                                  {CALL_PANEL_SUB_GROUPS.map((subGroup) => (
-                                    <div key={subGroup.id} className="space-y-2">
-                                      <div className="flex items-center justify-between">
-                                        <span className="text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
-                                          {subGroup.title}
-                                        </span>
-                                      </div>
-                                      <div className="flex flex-wrap gap-2">
-                                        {subGroup.items.map((subItem) => {
-                                          const isSubSelected = selectedPermissions.includes(subItem.id);
-                                          return (
-                                            <button
-                                              key={subItem.id}
-                                              type="button"
-                                              onClick={() => togglePermission(subItem.id)}
-                                              className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all flex items-center gap-1.5 text-left ${
-                                                isSubSelected
-                                                  ? subItem.isRestriction
-                                                    ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800/60"
-                                                    : `${lightBg} ${text} ${border}`
-                                                  : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
-                                              }`}
-                                            >
-                                              <div
-                                                className={`w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 ${
-                                                  isSubSelected
-                                                    ? subItem.isRestriction
-                                                      ? "bg-amber-500 border-amber-500 text-white"
-                                                      : `${bg} border-transparent text-white`
-                                                    : "border-slate-300 dark:border-slate-700"
-                                                }`}
-                                              >
-                                                {isSubSelected && <Check size={9} strokeWidth={3} />}
-                                              </div>
-                                              <span>{subItem.name}</span>
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
+            <form onSubmit={handleFormSubmit} className="flex flex-col flex-1 overflow-hidden">
+              {/* Top Bar: Rol Kodu & Rol İsmi */}
+              <div className="px-6 py-4 bg-slate-50/40 dark:bg-slate-950/20 border-b border-slate-100 dark:border-slate-800/60 shrink-0">
+                {error && (
+                  <div className="mb-3 p-3 bg-rose-50 dark:bg-rose-955/15 border border-rose-200/50 dark:border-rose-900/30 rounded-xl text-primary dark:text-rose-400 text-xs font-bold flex items-center justify-between gap-2.5">
+                    <span>{error}</span>
+                    <button type="button" onClick={() => setError("")} className="text-slate-400 hover:text-slate-600">
+                      <X size={14} />
+                    </button>
+                  </div>
+                )}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Role Code */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1">
+                      Rol Kodu
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Örn: agent, admin, supervisor"
+                      value={roleCode}
+                      onChange={(e) => setRoleCode(e.target.value)}
+                      disabled={!!editingRole && ["admin", "agent", "supervisor"].includes(editingRole.role_code)}
+                      className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none disabled:opacity-50"
+                    />
+                  </div>
+                  {/* Role Name */}
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1">
+                      Rol İsmi
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Örn: Müşteri Temsilcisi"
+                      value={roleName}
+                      onChange={(e) => setRoleName(e.target.value)}
+                      className="w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 
-              {/* Allowed Break Definitions */}
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-455 uppercase tracking-wider mb-2.5">
-                  İzin Verilen Mola Tipleri
-                </label>
-                {breaks.length === 0 ? (
-                  <p className="text-[10px] text-slate-455 italic text-slate-400">Sistemde tanımlı mola bulunmamaktadır. Lütfen önce Mola Tanımları yapın.</p>
-                ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                    {breaks.map((b) => {
-                      const isSelected = selectedBreaks.includes(b.id);
+              {/* Split Content: Left Sidebar Tabs + Right Permission Panel */}
+              <div className="flex flex-1 overflow-hidden min-h-[380px]">
+                {/* Left Sidebar Tabs */}
+                <div className="w-64 sm:w-72 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-3.5 shrink-0 overflow-y-auto">
+                  <div className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest px-2.5 mb-2">
+                    Yetki Başlıkları
+                  </div>
+                  <nav className="space-y-1">
+                    {ROLE_MODAL_CATEGORIES.map((cat) => {
+                      const TabIcon = cat.icon;
+                      const isActive = activeModalTab === cat.id;
+                      let grantedInCat = 0;
+                      let totalInCat = 0;
+                      if (cat.id === "breaks") {
+                        totalInCat = breaks.length;
+                        grantedInCat = breaks.filter((b) => selectedBreaks.includes(b.id)).length;
+                      } else {
+                        const codes = getCategoryPermissionCodes(cat);
+                        totalInCat = codes.length;
+                        grantedInCat = codes.filter((c) => selectedPermissions.includes(c)).length;
+                      }
+
                       return (
                         <button
-                          key={b.id}
+                          key={cat.id}
                           type="button"
-                          onClick={() => toggleBreak(b.id)}
-                          style={{
-                            borderColor: isSelected ? b.color : "transparent",
-                            backgroundColor: isSelected ? `${b.color}15` : ""
-                          }}
-                          className={`p-2.5 rounded-2xl border flex items-center justify-between text-left transition-all ${
-                            isSelected
-                              ? "text-slate-800 dark:text-white"
-                              : "bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400 border-slate-200/60 dark:border-slate-800/80 hover:bg-slate-50"
-                          }`}
+                          onClick={() => setActiveModalTab(cat.id)}
+                          className={
+                            "w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all text-left " +
+                            (isActive
+                              ? "bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700"
+                              : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")
+                          }
                         >
-                          <div className="flex items-center gap-2">
-                            <span
-                              style={{ backgroundColor: b.color }}
-                              className="w-2 h-2 rounded-full shrink-0"
-                            />
-                            <span className="text-[11px] font-bold truncate max-w-[80px]">{b.name}</span>
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <TabIcon size={15} className="shrink-0" />
+                            <span className="truncate">{cat.name}</span>
                           </div>
-                          <div className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all ${
-                            isSelected
-                              ? "text-white"
-                              : "border-slate-300 dark:border-slate-700 bg-transparent"
-                          }`}
-                          style={{
-                            backgroundColor: isSelected ? b.color : "",
-                            borderColor: isSelected ? b.color : ""
-                          }}
+                          <span
+                            className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded-md shrink-0 ${
+                              grantedInCat > 0
+                                ? `${lightBg} ${text}`
+                                : "bg-slate-200/70 dark:bg-slate-800 text-slate-400 dark:text-slate-500"
+                            }`}
                           >
-                            {isSelected && <Check size={10} strokeWidth={3} />}
-                          </div>
+                            {grantedInCat}/{totalInCat}
+                          </span>
                         </button>
                       );
                     })}
-                  </div>
-                )}
+                  </nav>
+                </div>
+
+                {/* Right Active Category Content */}
+                <div className="flex-1 overflow-y-auto p-6">
+                  {(() => {
+                    const activeCat = ROLE_MODAL_CATEGORIES.find((c) => c.id === activeModalTab) || ROLE_MODAL_CATEGORIES[0];
+
+                    if (activeCat.id === "breaks") {
+                      const allBreaksSelected = breaks.length > 0 && breaks.every((b) => selectedBreaks.includes(b.id));
+                      return (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
+                            <div>
+                              <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                                {activeCat.name}
+                              </h4>
+                              <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                Bu role sahip temsilcilerin kullanabileceği mola tiplerini seçin.
+                              </p>
+                            </div>
+                            {breaks.length > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (allBreaksSelected) {
+                                    setSelectedBreaks([]);
+                                  } else {
+                                    setSelectedBreaks(breaks.map((b) => b.id));
+                                  }
+                                }}
+                                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all"
+                              >
+                                {allBreaksSelected ? "Tümünü Kaldır" : "Tümünü Seç"}
+                              </button>
+                            )}
+                          </div>
+
+                          {breaks.length === 0 ? (
+                            <p className="text-xs italic text-slate-400">
+                              Sistemde tanımlı mola bulunmamaktadır. Lütfen önce Mola Tanımları yapın.
+                            </p>
+                          ) : (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                              {breaks.map((b) => {
+                                const isSelected = selectedBreaks.includes(b.id);
+                                return (
+                                  <button
+                                    key={b.id}
+                                    type="button"
+                                    onClick={() => toggleBreak(b.id)}
+                                    style={{
+                                      borderColor: isSelected ? b.color : "transparent",
+                                      backgroundColor: isSelected ? `${b.color}15` : ""
+                                    }}
+                                    className={`p-3 rounded-2xl border flex items-center justify-between text-left transition-all ${
+                                      isSelected
+                                        ? "text-slate-800 dark:text-white"
+                                        : "bg-slate-50/50 dark:bg-slate-950/20 text-slate-600 dark:text-slate-400 border-slate-200/60 dark:border-slate-800/80 hover:bg-slate-50"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <span
+                                        style={{ backgroundColor: b.color }}
+                                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                                      />
+                                      <span className="text-xs font-bold truncate">{b.name}</span>
+                                    </div>
+                                    <div
+                                      className={`w-4 h-4 rounded-md border flex items-center justify-center transition-all shrink-0 ${
+                                        isSelected
+                                          ? "text-white"
+                                          : "border-slate-300 dark:border-slate-700 bg-transparent"
+                                      }`}
+                                      style={{
+                                        backgroundColor: isSelected ? b.color : "",
+                                        borderColor: isSelected ? b.color : ""
+                                      }}
+                                    >
+                                      {isSelected && <Check size={10} strokeWidth={3} />}
+                                    </div>
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const catCodes = getCategoryPermissionCodes(activeCat);
+                    const allCatSelected = catCodes.length > 0 && catCodes.every((c) => selectedPermissions.includes(c));
+
+                    return (
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
+                          <div>
+                            <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                              {activeCat.name}
+                            </h4>
+                            <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-0.5">
+                              Bu başlık altındaki modül ve işlem yetkilerini yapılandırın.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (allCatSelected) {
+                                setSelectedPermissions(selectedPermissions.filter((p) => !catCodes.includes(p)));
+                              } else {
+                                setSelectedPermissions(Array.from(new Set([...selectedPermissions, ...catCodes])));
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 transition-all shrink-0"
+                          >
+                            {allCatSelected ? "Tümünü Kaldır" : "Tümünü Seç"}
+                          </button>
+                        </div>
+
+                        <div className="space-y-3">
+                          {SYSTEM_FEATURES.filter((f) => activeCat.items.includes(f.id)).map((feat) => {
+                            const Icon = feat.icon;
+                            const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
+                            const hasAccessSelected =
+                              selectedPermissions.includes(accessKey) || selectedPermissions.includes(`${feat.id}:access`);
+
+                            return (
+                              <div
+                                key={feat.id}
+                                className="p-4 bg-slate-50/50 dark:bg-slate-950/20 border border-slate-200/60 dark:border-slate-800/80 rounded-2xl flex flex-col gap-4"
+                              >
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                                  {/* Title & Icon Header */}
+                                  <div className="flex items-center gap-3 md:w-2/5 shrink-0">
+                                    <div className="p-2 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-xl text-slate-500 dark:text-slate-400">
+                                      <Icon size={14} />
+                                    </div>
+                                    <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                                      {feat.name}
+                                    </span>
+                                  </div>
+
+                                  {/* Granular Action Switches */}
+                                  <div className="flex flex-wrap gap-2.5 flex-1 md:justify-end">
+                                    {feat.type === "crud" && (
+                                      <>
+                                        {/* Read */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission(`${feat.id}:read`)}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes(`${feat.id}:read`)
+                                              ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Eye size={10} />
+                                          <span>Görüntüleme</span>
+                                        </button>
+
+                                        {/* Write */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission(`${feat.id}:write`)}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes(`${feat.id}:write`)
+                                              ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Edit3 size={10} />
+                                          <span>Düzenleme</span>
+                                        </button>
+
+                                        {/* Delete */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission(`${feat.id}:delete`)}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes(`${feat.id}:delete`)
+                                              ? "bg-rose-50 dark:bg-rose-950/20 text-primary dark:text-rose-455 border-rose-200 dark:border-rose-900/40"
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Trash size={10} />
+                                          <span>Silme</span>
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {feat.type === "crud_partial" && (
+                                      <>
+                                        {/* Read */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission(`${feat.id}:read`)}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes(`${feat.id}:read`)
+                                              ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-200 dark:border-indigo-900/40"
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Eye size={10} />
+                                          <span>Görüntüleme</span>
+                                        </button>
+
+                                        {/* Write */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission(`${feat.id}:write`)}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes(`${feat.id}:write`)
+                                              ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-200 dark:border-blue-900/40"
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Edit3 size={10} />
+                                          <span>Güncelleme</span>
+                                        </button>
+                                      </>
+                                    )}
+
+                                    {feat.type === "access" && (
+                                      <button
+                                        type="button"
+                                        onClick={() => togglePermission(accessKey)}
+                                        className={`px-3 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                          hasAccessSelected
+                                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-450 border-emerald-200 dark:border-emerald-900/40"
+                                            : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                        }`}
+                                      >
+                                        <Unlock size={10} />
+                                        <span>Erişim İzni</span>
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Nested Sub-Options for Temsilci Çağrı Paneli (call_panel) */}
+                                {feat.id === "call_panel" && hasAccessSelected && (
+                                  <div className="mt-1 pt-3.5 border-t border-slate-200/70 dark:border-slate-800/80 space-y-4">
+                                    {CALL_PANEL_SUB_GROUPS.map((subGroup) => (
+                                      <div key={subGroup.id} className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider">
+                                            {subGroup.title}
+                                          </span>
+                                        </div>
+                                        <div className="flex flex-wrap gap-2">
+                                          {subGroup.items.map((subItem) => {
+                                            const isSubSelected = selectedPermissions.includes(subItem.id);
+                                            return (
+                                              <button
+                                                key={subItem.id}
+                                                type="button"
+                                                onClick={() => togglePermission(subItem.id)}
+                                                className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all flex items-center gap-1.5 text-left ${
+                                                  isSubSelected
+                                                    ? subItem.isRestriction
+                                                      ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400 border-amber-300 dark:border-amber-800/60"
+                                                      : `${lightBg} ${text} ${border}`
+                                                    : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                                }`}
+                                              >
+                                                <div
+                                                  className={`w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 ${
+                                                    isSubSelected
+                                                      ? subItem.isRestriction
+                                                        ? "bg-amber-500 border-amber-500 text-white"
+                                                        : `${bg} border-transparent text-white`
+                                                      : "border-slate-300 dark:border-slate-700"
+                                                  }`}
+                                                >
+                                                  {isSubSelected && <Check size={9} strokeWidth={3} />}
+                                                </div>
+                                                <span>{subItem.name}</span>
+                                              </button>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               </div>
 
-              {/* Action Buttons */}
-              <div className="flex gap-3 pt-4 border-t border-slate-100 dark:border-slate-800/60">
+              {/* Modal Footer Action Buttons */}
+              <div className="flex gap-3 px-6 py-4 border-t border-slate-100 dark:border-slate-800/60 bg-slate-50/40 dark:bg-slate-950/20 shrink-0">
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 py-3 rounded-2xl font-bold border dark: dark: dark: hover: dark:hover: transition-all animate-none bg-slate-500 hover:bg-slate-600 text-white border-transparent"
-                >Vazgeç</button>
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-500 hover:bg-slate-600 text-white transition-all"
+                >
+                  Vazgeç
+                </button>
                 <button
                   type="submit"
                   disabled={submitting}
-                  className={`flex-1 py-3 rounded-2xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-md disabled:opacity-50`}
+                  className={`flex-1 py-2.5 rounded-xl text-xs font-bold ${bg} ${hover} text-white transition-all shadow-md disabled:opacity-50`}
                 >
                   {submitting ? "Kaydediliyor..." : "Kaydet"}
                 </button>
