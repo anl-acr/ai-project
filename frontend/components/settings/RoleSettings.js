@@ -130,6 +130,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [roles, setRoles] = useState([]);
   const [breaks, setBreaks] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
@@ -159,19 +160,79 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const resRoles = await safeFetch(`/api/settings/roles`);
+      const [resRoles, resBreaks, resUsers] = await Promise.all([
+        safeFetch(`/api/settings/roles`),
+        safeFetch(`/api/settings/breaks`),
+        safeFetch(`/api/settings/users`).catch(() => null)
+      ]);
+
       const dataRoles = await resRoles.json();
       setRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
 
-      const resBreaks = await safeFetch(`/api/settings/breaks`);
       const dataBreaks = await resBreaks.json();
       setBreaks(Array.isArray(dataBreaks) ? dataBreaks : (dataBreaks?.breaks || []));
+
+      if (resUsers && resUsers.ok) {
+        const dataUsers = await resUsers.json();
+        setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
+      }
     } catch (err) {
       console.error("Roller/Molalar yüklenemedi:", err);
       setError("Rol ve mola tanımları sunucudan alınamadı.");
     } finally {
       setLoading(false);
     }
+  };
+
+  const getRolePermissionStats = (role) => {
+    const perms = Array.isArray(role?.permissions) ? role.permissions : [];
+    let total = 0;
+    let granted = 0;
+
+    SYSTEM_FEATURES.forEach((feat) => {
+      if (feat.type === "crud") {
+        total += 3;
+        const hasRead =
+          perms.includes(`${feat.id}:read`) ||
+          (feat.id === "ai_whisper" && perms.includes("ai_whisper:access")) ||
+          (feat.id === "call_flow" && perms.includes("call_flow:access")) ||
+          (feat.id === "dialer" && perms.includes("dialer:access"));
+        const hasWrite = perms.includes(`${feat.id}:write`);
+        const hasDelete = perms.includes(`${feat.id}:delete`);
+        if (hasRead) granted += 1;
+        if (hasWrite) granted += 1;
+        if (hasDelete) granted += 1;
+      } else if (feat.type === "crud_partial") {
+        total += 2;
+        const hasRead =
+          perms.includes(`${feat.id}:read`) ||
+          (feat.id === "ai_whisper" && perms.includes("ai_whisper:access"));
+        const hasWrite = perms.includes(`${feat.id}:write`);
+        if (hasRead) granted += 1;
+        if (hasWrite) granted += 1;
+      } else {
+        total += 1;
+        const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
+        const hasAccess = perms.includes(accessKey) || perms.includes(feat.id);
+        if (hasAccess) granted += 1;
+      }
+    });
+
+    const hasCallPanelAccess = perms.includes("call_panel:access") || perms.includes("call_panel");
+    const hasAnyTabPerm = perms.some((p) => p.startsWith("call_panel:tab_"));
+
+    CALL_PANEL_SUB_GROUPS.forEach((group) => {
+      group.items.forEach((subItem) => {
+        if (SYSTEM_FEATURES.some((f) => f.id === subItem.id)) return;
+        total += 1;
+        const isGranted =
+          perms.includes(subItem.id) ||
+          (hasCallPanelAccess && !hasAnyTabPerm && !subItem.isRestriction);
+        if (isGranted) granted += 1;
+      });
+    });
+
+    return { total, granted };
   };
 
   const [submitting, setSubmitting] = useState(false);
@@ -420,7 +481,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         </div>
       )}
 
-      {/* Roles Dashboard Grid */}
+      {/* Roles Compact List */}
       {loading ? (
         <div className="text-center py-12 text-xs text-slate-500">Rol verileri yükleniyor...</div>
       ) : filteredRoles.length === 0 ? (
@@ -428,122 +489,117 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
           Arama kriterine uygun veya kayıtlı sistem rolü bulunmuyor.
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-5">
+        <div className="grid grid-cols-1 gap-3.5">
           {filteredRoles.map((r) => {
             const styles = getRoleCardStyles(r.role_code);
+            const permStats = getRolePermissionStats(r);
+            const permPercent = permStats.total > 0 ? Math.round((permStats.granted / permStats.total) * 100) : 0;
+            const roleUsers = users.filter(
+              (u) => u.username !== "admin" && String(u.role || "agent").toLowerCase() === String(r.role_code || "").toLowerCase()
+            );
+            const visibleRoleUsers = roleUsers.slice(0, 5);
+            const extraUserCount = Math.max(0, roleUsers.length - visibleRoleUsers.length);
+
             return (
               <div
                 key={r.id}
-                className={`p-6 bg-gradient-to-r ${styles.bgClass} bg-white dark:bg-slate-900 border rounded-3xl shadow-sm flex flex-col xl:flex-row justify-between gap-6 transition-all duration-300 hover:shadow-md hover:scale-[1.002] ${styles.borderClass}`}
+                className={`px-6 py-4 bg-gradient-to-r ${styles.bgClass} bg-white dark:bg-slate-900 border rounded-2xl shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-200 hover:shadow-md ${styles.borderClass}`}
               >
-                {/* Info & Matrix Group */}
-                <div className="flex-1 space-y-4">
-                  {/* Card Title Header */}
-                  <div className="flex items-center gap-3">
-                    <div className={`p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/30 dark:border-slate-800/40 ${styles.iconColor}`}>
-                      <Shield size={16} />
-                    </div>
-                    <div>
-                      <h4 className="font-extrabold text-xs text-slate-800 dark:text-white uppercase tracking-wider">{r.name}</h4>
-                      <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 font-mono mt-0.5">{r.role_code}</p>
-                    </div>
+                {/* 1. Role Name & Icon */}
+                <div className="flex items-center gap-3.5 min-w-[220px] md:w-1/3">
+                  <div className={`p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/40 dark:border-slate-800/50 shrink-0 ${styles.iconColor}`}>
+                    <Shield size={18} />
                   </div>
-
-                  {/* Dynamic Granular Matrix Renderer */}
-                  <div className="pt-2">
-                    <h5 className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest mb-2.5">Erişim & Eylem Matrisi</h5>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                      {SYSTEM_FEATURES.map((feat) => {
-                        const Icon = feat.icon;
-                        const hasRead = r.permissions.includes(`${feat.id}:read`) || (feat.id === "ai_whisper" && r.permissions.includes("ai_whisper:access")) || (feat.id === "call_flow" && r.permissions.includes("call_flow:access")) || (feat.id === "dialer" && r.permissions.includes("dialer:access"));
-                        const hasWrite = r.permissions.includes(`${feat.id}:write`);
-                        const hasDelete = r.permissions.includes(`${feat.id}:delete`);
-                        const hasAccess = r.permissions.includes(`${feat.id}:access`) || r.permissions.includes(feat.id);
-                        
-                        const activeCount = [hasRead, hasWrite, hasDelete, hasAccess].filter(Boolean).length;
-                        
-                        return (
-                          <div
-                            key={feat.id}
-                            title={feat.name}
-                            className={`p-2.5 rounded-2xl border flex items-center justify-between gap-2 bg-slate-50/50 dark:bg-slate-950/30 ${
-                              activeCount > 0 
-                                ? "border-slate-200 dark:border-slate-800/80" 
-                                : "border-slate-200/40 dark:border-slate-800/20 opacity-40"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <Icon size={12} className={`shrink-0 ${activeCount > 0 ? "text-slate-600 dark:text-slate-400" : "text-slate-400"}`} />
-                              <span className="text-[10px] font-bold text-slate-700 dark:text-slate-350 truncate">{feat.name}</span>
-                            </div>
-                            
-                            {/* Action Matrix Dots */}
-                            <div className="flex gap-1 shrink-0">
-                              {feat.type === "crud" ? (
-                                <>
-                                  <span title="Görüntüleme (Oku)" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasRead ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>G</span>
-                                  <span title="Düzenleme (Yaz)" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasWrite ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>D</span>
-                                  <span title="Silme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasDelete ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>S</span>
-                                </>
-                              ) : feat.type === "crud_partial" ? (
-                                <>
-                                  <span title="Görüntüleme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasRead ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>G</span>
-                                  <span title="Güncelleme" className={`w-3.5 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasWrite ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>D</span>
-                                </>
-                              ) : (
-                                <span title="Modül Erişimi" className={`w-6 h-3.5 rounded-full flex items-center justify-center text-[7px] font-extrabold ${hasAccess ? "bg-primary text-white" : "bg-slate-200 dark:bg-slate-800 text-slate-400"}`}>Erişim</span>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Allowed breaks badges list */}
-                  <div className="pt-1.5 flex flex-wrap gap-2 items-center">
-                    <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest mr-1.5">Yetkili Molalar:</span>
-                    {(r.allowed_breaks || []).length === 0 ? (
-                      <span className="text-[9px] text-slate-450 italic">Molalara izin verilmiyor</span>
-                    ) : (
-                      r.allowed_breaks.map((breakId) => {
-                        const b = breaks.find(br => br.id === breakId);
-                        if (!b) return null;
-                        return (
-                          <div
-                            key={breakId}
-                            style={{
-                              borderColor: `${b.color}25`
-                            }}
-                            className="px-2.5 py-1 rounded-xl border bg-white dark:bg-slate-950 flex items-center gap-1.5 shadow-sm text-[9px] font-bold text-slate-700 dark:text-slate-350"
-                          >
-                            <span
-                              style={{ backgroundColor: b.color }}
-                              className="w-1.5 h-1.5 rounded-full shrink-0"
-                            />
-                            {b.name}
-                          </div>
-                        );
-                      })
-                    )}
+                  <div className="min-w-0">
+                    <h4 className="font-extrabold text-sm text-slate-800 dark:text-white tracking-wide truncate">
+                      {r.name}
+                    </h4>
+                    <span className="inline-block text-[10px] font-bold text-slate-400 dark:text-slate-500 font-mono">
+                      {r.role_code}
+                    </span>
                   </div>
                 </div>
 
-                {/* Edit & Delete Buttons */}
-                <div className="flex xl:flex-col items-center justify-end gap-2.5 border-t xl:border-t-0 pt-4 xl:pt-0 border-slate-100 dark:border-slate-800/40 shrink-0">
+                {/* 2. Permission Summary (Total vs Granted) */}
+                <div className="flex flex-col gap-1.5 min-w-[210px] md:w-1/3">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                      İzin Verilen Yetki
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <span className={`px-2 py-0.5 rounded-lg text-[11px] font-extrabold border ${styles.badgeClass}`}>
+                        {permStats.granted} / {permStats.total}
+                      </span>
+                      <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">
+                        (Toplam {permStats.total} Yetki)
+                      </span>
+                    </div>
+                  </div>
+                  <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full ${bg} rounded-full transition-all duration-300`}
+                      style={{ width: `${permPercent}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 3. Subscribers Avatar Stack */}
+                <div className="flex items-center justify-start md:justify-center min-w-[160px] md:w-1/4">
+                  {roleUsers.length === 0 ? (
+                    <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 italic">
+                      Bu rolde abone yok
+                    </span>
+                  ) : (
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex items-center -space-x-2.5">
+                        {visibleRoleUsers.map((u) => {
+                          const avatarSrc =
+                            u.avatar ||
+                            `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(
+                              u.full_name || u.extension || u.id
+                            )}`;
+                          return (
+                            <img
+                              key={u.id || u.extension}
+                              src={avatarSrc}
+                              alt={u.full_name || "Abone"}
+                              title={`${u.full_name || "Abone"}${u.extension ? ` (${u.extension})` : ""}`}
+                              className="w-9 h-9 rounded-full border-2 border-white dark:border-slate-900 bg-slate-50 dark:bg-slate-800 object-cover shadow-sm transition-transform hover:scale-110 hover:z-10 cursor-pointer"
+                            />
+                          );
+                        })}
+                        {extraUserCount > 0 && (
+                          <div
+                            title={`${extraUserCount} abone daha`}
+                            className="w-9 h-9 rounded-full border-2 border-white dark:border-slate-900 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[10px] font-extrabold flex items-center justify-center shadow-sm z-10"
+                          >
+                            +{extraUserCount}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                        {roleUsers.length} Abone
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* 4. Edit & Delete Buttons */}
+                <div className="flex items-center justify-end gap-2 border-t md:border-t-0 pt-3 md:pt-0 border-slate-100 dark:border-slate-800/40 shrink-0">
                   <button
                     onClick={() => openEditModal(r)}
-                    className="flex-1 xl:flex-none p-2.5 text-slate-450 hover:text-slate-700 dark:hover:text-white rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-950 flex items-center gap-2 text-xs font-bold transition-all"
+                    title="Rolü Düzenle"
+                    className="px-3 py-2 text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-white rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-950 flex items-center gap-1.5 text-xs font-bold transition-all"
                   >
                     <Edit2 size={13} />
-                    <span className="xl:hidden">Rolü Düzenle</span>
+                    <span>Düzenle</span>
                   </button>
                   <button
                     onClick={() => handleDeleteRole(r.id)}
-                    className="flex-1 xl:flex-none p-2.5 text-slate-450 hover:text-primary dark:hover:text-primary rounded-xl border border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-rose-50/20 dark:hover:bg-rose-950/20 flex items-center gap-2 text-xs font-bold transition-all"
+                    title="Rolü Sil"
+                    className="p-2 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-rose-200 dark:hover:border-rose-900/50 hover:bg-rose-50/40 dark:hover:bg-rose-950/30 flex items-center justify-center text-xs font-bold transition-all"
                   >
-                    <Trash2 size={13} />
-                    <span className="xl:hidden">Rolü Sil</span>
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
