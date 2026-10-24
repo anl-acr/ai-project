@@ -232,59 +232,29 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   }, [isVisible, tabs]);
 
   const isWebphoneScreenActive = Boolean(isVisible && activeTab === "webphone");
-  const isBoxView = panelPrefs?.viewMode === "box";
-  const isSmallBox = panelPrefs?.boxSize === "small";
 
   return (
     <div className="flex h-full w-full max-w-[1600px] gap-5 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
       {/* Sidebar & Tabs */}
       <div
-        className={`${
-          isBoxView ? (isSmallBox ? "w-56" : "w-64") : "w-52"
-        } shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:block transition-all duration-200`}
+        className={`w-52 shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:block transition-all duration-200`}
       >
-        {isBoxView ? (
-          <div className={`grid grid-cols-2 ${isSmallBox ? "gap-1.5" : "gap-2.5"}`}>
-            {tabs.map((tab) => {
-              const isAct = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={`flex flex-col items-center justify-center text-center rounded-2xl font-bold transition-all border ${
-                    isSmallBox ? "p-2.5 gap-1.5 min-h-[68px]" : "p-4 gap-2 min-h-[96px]"
-                  } ${
-                    isAct
-                      ? `${bg} text-white border-transparent shadow-md`
-                      : `bg-slate-50/70 dark:bg-slate-800/50 ${borderLight} text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800`
-                  }`}
-                >
-                  <tab.icon size={isSmallBox ? 17 : 22} />
-                  <span className={`${isSmallBox ? "text-[11px]" : "text-xs"} leading-tight line-clamp-2`}>
-                    {tab.name}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="flex flex-col space-y-1.5">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
-                  activeTab === tab.id
-                    ? `${bg} text-white shadow-md`
-                    : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
-                }`}
-              >
-                <tab.icon size={18} />
-                <span className="text-sm">{tab.name}</span>
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="flex flex-col space-y-1.5">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
+                activeTab === tab.id
+                  ? `${bg} text-white shadow-md`
+                  : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
+              }`}
+            >
+              <tab.icon size={18} />
+              <span className="text-sm">{tab.name}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Mobile Tabs (Horizontal) - Just in case on small screens */}
