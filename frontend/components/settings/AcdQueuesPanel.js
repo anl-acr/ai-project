@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload } from "lucide-react";
+import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload, Shuffle } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import QueueEditModal from "./QueueEditModal";
@@ -444,7 +444,7 @@ export default function AcdQueuesPanel({ backendHost }) {
                 </div>
                 
                 {visibleColumns.extension && (
-                  <div className="min-w-0" style={{ flex: '4 4 0%' }}>
+                  <div className="min-w-0 flex items-center gap-2" style={{ flex: '4 4 0%' }}>
                     <h4 
                       onClick={() => { setSelectedQueue(q); setShowModal(true); }}
                       className="font-bold text-xs text-slate-800 dark:text-white truncate cursor-pointer hover:text-primary dark:hover:text-blue-400 transition-colors"
@@ -452,6 +452,14 @@ export default function AcdQueuesPanel({ backendHost }) {
                     >
                       {q.name}
                     </h4>
+                    {q.smart_callback_enabled && (
+                      <span
+                        className={`px-2 py-0.5 rounded-lg text-[9px] font-bold flex items-center gap-1 shrink-0 ${lightBg} ${text} border ${borderLight}`}
+                        title={`Otomatik Geri Arama Aktif (Eşik: ${q.smart_callback_max_wait_seconds || 60}sn, Deneme: ${q.smart_callback_max_retries || 3})`}
+                      >
+                        <Shuffle size={10} /> Geri Arama
+                      </span>
+                    )}
                   </div>
                 )}
                   

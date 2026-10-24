@@ -322,6 +322,16 @@ class PBXQueue(Base):
     max_wait_destination_type = Column(String, default="")
     max_wait_destination_target = Column(String, default="")
 
+    # Per-Queue Smart Callback (Otomatik Geri Arama)
+    smart_callback_enabled = Column(Boolean, default=False)
+    smart_callback_max_wait_seconds = Column(Integer, default=60)
+    smart_callback_queue_threshold = Column(Integer, default=3)
+    smart_callback_max_retries = Column(Integer, default=3)
+    smart_callback_retry_interval = Column(Integer, default=60)
+    smart_callback_priority_level = Column(String, default="high")
+    smart_callback_outbound_trunk_id = Column(Integer, default=1)
+    smart_callback_missed_call_auto = Column(Boolean, default=True)
+
 class AIAgent(Base):
     __tablename__ = "ai_agents"
     id = Column(String, primary_key=True, index=True) # UUID or string ID

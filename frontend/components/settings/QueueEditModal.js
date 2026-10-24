@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock } from "lucide-react";
+import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock, Shuffle, Repeat, BarChart2, HelpCircle } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../../utils/theme";
 import { tenantFetch } from "../../utils/apiHost";
@@ -37,6 +37,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   const [announcementsList, setAnnouncementsList] = useState([]);
   const [aiAgentsList, setAiAgentsList] = useState([]);
   const [callFlowsList, setCallFlowsList] = useState([]);
+  const [trunksList, setTrunksList] = useState([]);
   const [searchTargetQuery, setSearchTargetQuery] = useState("");
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
 
@@ -87,7 +88,17 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     all_busy_destination_type: "",
     all_busy_destination_target: "",
 
-    notify_missed_calls: false
+    notify_missed_calls: false,
+
+    // Per-Queue Smart Callback (Otomatik Geri Arama)
+    smart_callback_enabled: false,
+    smart_callback_max_wait_seconds: 60,
+    smart_callback_queue_threshold: 3,
+    smart_callback_max_retries: 3,
+    smart_callback_retry_interval: 60,
+    smart_callback_priority_level: "high",
+    smart_callback_outbound_trunk_id: 1,
+    smart_callback_missed_call_auto: true
   });
 
   // State for Members & Supervisors
@@ -181,8 +192,34 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       };
       fetchAnnouncements();
 
+      // Fetch Trunks for Outbound Smart Callback
+      const fetchTrunks = async () => {
+        try {
+          const res = await tenantFetch(`${API_BASE}/api/settings/trunks`);
+          if (res.ok) {
+            const data = await res.json();
+            const list = Array.isArray(data) ? data : (data?.trunks || []);
+            setTrunksList(list);
+          }
+        } catch (err) {
+          console.error("Trunks fetch error:", err);
+        }
+      };
+      fetchTrunks();
+
       if (queueData) {
-        setFormData(prev => ({ ...prev, ...queueData }));
+        setFormData(prev => ({
+          ...prev,
+          smart_callback_enabled: false,
+          smart_callback_max_wait_seconds: 60,
+          smart_callback_queue_threshold: 3,
+          smart_callback_max_retries: 3,
+          smart_callback_retry_interval: 60,
+          smart_callback_priority_level: "high",
+          smart_callback_outbound_trunk_id: 1,
+          smart_callback_missed_call_auto: true,
+          ...queueData
+        }));
         
         // Ensure queueMembers have priority attribute
         const normalizedMembers = (queueData.queueMembers || []).map(qm => ({
@@ -201,6 +238,8 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           hold_music_class: "default",
           position_announcement_enabled: false, position_announcement_interval: 60,
           estimated_hold_time_enabled: false, estimated_hold_time_interval: 60,
+          max_wait_time_enabled: false, max_wait_time: 120,
+          max_wait_destination_type: "", max_wait_destination_target: "",
           ivr_routes: {
             "1": { type: "", target: "" }, "2": { type: "", target: "" }, "3": { type: "", target: "" },
             "4": { type: "", target: "" }, "5": { type: "", target: "" }, "6": { type: "", target: "" },
@@ -210,7 +249,15 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           all_busy_routing_enabled: false,
           all_busy_destination_type: "",
           all_busy_destination_target: "",
-          notify_missed_calls: false
+          notify_missed_calls: false,
+          smart_callback_enabled: false,
+          smart_callback_max_wait_seconds: 60,
+          smart_callback_queue_threshold: 3,
+          smart_callback_max_retries: 3,
+          smart_callback_retry_interval: 60,
+          smart_callback_priority_level: "high",
+          smart_callback_outbound_trunk_id: 1,
+          smart_callback_missed_call_auto: true
         });
         setQueueMembers([]);
         setSupervisors([]);
@@ -222,7 +269,10 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : (type === 'number' && value !== '' ? parseInt(value) || 0 : value)
+    }));
   };
 
   const handleSave = () => {
@@ -360,6 +410,18 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'busy_routing' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <Bot size={16} /> Tüm Agent'lar Meşgul
+        </button>
+        <button 
+          type="button"
+          onClick={() => setActiveTab("smart_callback")}
+          className={"w-full flex items-center justify-between gap-2 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'smart_callback' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <span className="flex items-center gap-3">
+            <Shuffle size={16} /> Otomatik Geri Arama
+          </span>
+          {formData.smart_callback_enabled && (
+            <span className={"w-2 h-2 rounded-full " + bg + " shrink-0"} title="Otomatik Geri Arama Aktif" />
+          )}
         </button>
       </nav>
     </div>
@@ -1294,6 +1356,208 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     );
   };
 
+  const renderSmartCallbackTab = () => {
+    const isEnabled = !!formData.smart_callback_enabled;
+    return (
+      <div className="p-6 space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[60vh]">
+        {/* Ana Aç/Kapat Başlığı */}
+        <div className="p-4 bg-slate-50/50 dark:bg-slate-800/20 rounded-2xl border border-slate-100 dark:border-slate-800/60 flex items-center justify-between">
+          <div>
+            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <Shuffle size={16} className={text} />
+              Kuyruk Bazlı Otomatik Geri Arama (Smart Callback)
+            </h4>
+            <p className="text-[10px] text-slate-500 mt-0.5">
+              Bu kuyruğa ait kayıp çağrıları ve bekleyen müşterileri, kuyruk temsilcileri müsait olduğunda otomatik olarak geri arayın.
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              name="smart_callback_enabled"
+              checked={isEnabled}
+              onChange={handleChange}
+              className="sr-only peer"
+            />
+            <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+          </label>
+        </div>
+
+        {/* Geri Arama Kuralları ve Kayıp Çağrı Yönetimi */}
+        <div className={`space-y-5 transition-all duration-200 ${!isEnabled ? "opacity-50 pointer-events-none" : ""}`}>
+          {/* Kayıp Çağrı Otomatik Geri Arama Anahtarı */}
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm flex items-center justify-between">
+            <div>
+              <h5 className="text-xs font-bold text-slate-800 dark:text-white">
+                Kuyruktaki Kayıp / Cevapsız Çağrıları Otomatik Geri Ara
+              </h5>
+              <p className="text-[10px] text-slate-500 mt-0.5">
+                Müşteri bu kuyrukta beklerken telefonu kapattığında (kayıp çağrı) veya maksimum bekleme süresini aştığında otomatik geri arama listesine alınır.
+              </p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0">
+              <input
+                type="checkbox"
+                name="smart_callback_missed_call_auto"
+                checked={formData.smart_callback_missed_call_auto !== false}
+                onChange={handleChange}
+                disabled={!isEnabled}
+                className="sr-only peer"
+              />
+              <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+            </label>
+          </div>
+
+          {/* Parametreler Grid */}
+          <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <Clock size={12} className={text} />
+                  Eşik Bekleme Süresi (Saniye)
+                </label>
+                <input
+                  type="number"
+                  name="smart_callback_max_wait_seconds"
+                  value={formData.smart_callback_max_wait_seconds ?? 60}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  min="5"
+                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono`}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Bu kuyrukta bekleme süresi belirtilen saniyeyi aşarsa geri arama devreye girer.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <BarChart2 size={12} className={text} />
+                  Eşik Kuyruk Boyutu (Kişi)
+                </label>
+                <input
+                  type="number"
+                  name="smart_callback_queue_threshold"
+                  value={formData.smart_callback_queue_threshold ?? 3}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  min="1"
+                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono`}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Kuyrukta bekleyen aktif kişi sayısı bu sınıra ulaştığında geri arama teklif edilir.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <Repeat size={12} className={text} />
+                  Maksimum Deneme Sayısı
+                </label>
+                <input
+                  type="number"
+                  name="smart_callback_max_retries"
+                  value={formData.smart_callback_max_retries ?? 3}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  min="1"
+                  max="10"
+                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono`}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Geri aramada müşteri yanıt vermezse sistemin en fazla kaç kez tekrar arayacağını belirler.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <Clock size={12} className={text} />
+                  Tekrar Arama Aralığı (Saniye)
+                </label>
+                <input
+                  type="number"
+                  name="smart_callback_retry_interval"
+                  value={formData.smart_callback_retry_interval ?? 60}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  min="15"
+                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring} font-mono`}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Başarısız geri arama denemeleri arasında beklenecek süre (sn).
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  Kuyruk Öncelik Derecesi
+                </label>
+                <select
+                  name="smart_callback_priority_level"
+                  value={formData.smart_callback_priority_level || "high"}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                >
+                  <option value="high">Yüksek (Temsilciye ilk sırada iletilir)</option>
+                  <option value="medium">Orta</option>
+                  <option value="low">Düşük</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Bu kuyruğun kayıp çağrılarının temsilcilere hangi öncelikle dağıtılacağını belirler.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  Geri Arama İçin Kullanılacak Dış Hat
+                </label>
+                <select
+                  name="smart_callback_outbound_trunk_id"
+                  value={formData.smart_callback_outbound_trunk_id || 1}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  className={`w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                >
+                  {trunksList.length === 0 ? (
+                    <option value={1}>Varsayılan Dış Hat (Operator Trunk)</option>
+                  ) : (
+                    trunksList.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.trunk_name || t.name || `Trunk #${t.id}`} {t.did_number ? `(${t.did_number})` : ""}
+                      </option>
+                    ))
+                  )}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Bu kuyruğa ait geri aramaların başlatılacağı operatör dış hattı (Trunk).
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Bilgi Kutusu */}
+          <div className="p-4 bg-slate-50/70 dark:bg-slate-800/30 border border-slate-200/70 dark:border-slate-800 rounded-2xl space-y-2.5">
+            <h5 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+              <HelpCircle size={14} className={text} />
+              Bu Kuyruk İçin Otomatik Geri Arama Nasıl Çalışır?
+            </h5>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+              <div className="flex gap-2">
+                <span className={`font-extrabold ${text}`}>1.</span>
+                <p>Müşteri bu kuyruğu aradığında kayıp çağrı oluşursa veya bekleme eşiği aşılırsa çağrı bu kuyruğun geri arama listesine kaydedilir.</p>
+              </div>
+              <div className="flex gap-2">
+                <span className={`font-extrabold ${text}`}>2.</span>
+                <p>Yalnızca bu kuyruğa atanmış olan temsilcilerden biri <strong>Müsait (Available)</strong> durumuna geçtiğinde sistem önce temsilciyi arar ve yanıtladığında müşteriyi dış hattan arayarak köprüler.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return createPortal(
     <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-all duration-300">
       <div className="w-full max-w-4xl h-[85vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -1305,7 +1569,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
               <PhoneCall size={18} className={text} />
               {queueData ? "Kuyruk Düzenle" : "Yeni Kuyruk Ekle"}
             </h2>
-            <p className="text-xs text-slate-500 font-medium">ACD kuyruk konfigürasyonu, üye atamaları ve meşgule düşüş kuralları</p>
+            <p className="text-xs text-slate-500 font-medium">ACD kuyruk konfigürasyonu, üye atamaları, meşgule düşüş ve otomatik geri arama kuralları</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
             <X size={18} />
@@ -1342,6 +1606,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             {activeTab === "ivr" && renderIvrTab()}
             {activeTab === "members" && renderMembersTab()}
             {activeTab === "busy_routing" && renderBusyRoutingTab()}
+            {activeTab === "smart_callback" && renderSmartCallbackTab()}
           </div>
         </div>
 

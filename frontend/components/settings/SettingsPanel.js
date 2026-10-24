@@ -7,7 +7,6 @@ import ChannelSettings from "./ChannelSettings";
 import BreakDefinitions from "./BreakDefinitions";
 import UserSettings from "./UserSettings";
 import RoleSettings from "./RoleSettings";
-import SmartCallbackSettings from "./SmartCallbackSettings";
 import LanguageDetectionSettings from "./LanguageDetectionSettings";
 import EmotionManagementSettings from "./EmotionManagementSettings";
 import WhisperSettings from "./WhisperSettings";
@@ -246,17 +245,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           >
             <Hash size={14} className={activeSubTab === "numbering-plan" ? "text-slate-800 dark:text-white" : ""} />
             <span>Numara Planı</span>
-          </button>
-          <button
-            onClick={() => setActiveSubTab("smart-callback")}
-            className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-              activeSubTab === "smart-callback"
-                ? "bg-indigo-50/50 dark:bg-indigo-950/20 text-primary dark:text-primary border-indigo-100/50 dark:border-indigo-900/30 shadow-sm"
-                : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-            }`}
-          >
-            <Shuffle size={14} className={activeSubTab === "smart-callback" ? "text-primary" : ""} />
-            <span>Akıllı Geri Arama</span>
           </button>
 
           <button
@@ -518,7 +506,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           {activeSubTab === "pbx" && <PBXSettings backendHost={backendHost} />}
           {activeSubTab === "nat" && <NATSettings backendHost={backendHost} />}
           {activeSubTab === "numbering-plan" && <NumberingPlanPanel backendHost={backendHost} />}
-          {activeSubTab === "smart-callback" && <SmartCallbackSettings backendHost={backendHost} />}
           {activeSubTab === "lang-detect" && <LanguageDetectionSettings backendHost={backendHost} />}
           {activeSubTab === "emotion-management" && <EmotionManagementSettings backendHost={backendHost} />}
           {activeSubTab === "whisper-management" && <WhisperSettings backendHost={backendHost} />}

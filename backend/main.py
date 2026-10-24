@@ -6887,7 +6887,15 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
                     estimated_hold_time_enabled=q.estimated_hold_time_enabled,
                     estimated_hold_time_interval=q.estimated_hold_time_interval,
                     ivr_routes=q.ivr_routes,
-                    notify_missed_calls=q.notify_missed_calls
+                    notify_missed_calls=q.notify_missed_calls,
+                    smart_callback_enabled=getattr(q, "smart_callback_enabled", False),
+                    smart_callback_max_wait_seconds=getattr(q, "smart_callback_max_wait_seconds", 60),
+                    smart_callback_queue_threshold=getattr(q, "smart_callback_queue_threshold", 3),
+                    smart_callback_max_retries=getattr(q, "smart_callback_max_retries", 3),
+                    smart_callback_retry_interval=getattr(q, "smart_callback_retry_interval", 60),
+                    smart_callback_priority_level=getattr(q, "smart_callback_priority_level", "high"),
+                    smart_callback_outbound_trunk_id=getattr(q, "smart_callback_outbound_trunk_id", 1),
+                    smart_callback_missed_call_auto=getattr(q, "smart_callback_missed_call_auto", True)
                 )
                 db.add(new_q)
 
@@ -13179,6 +13187,14 @@ async def startup_event():
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_wait_destination_type VARCHAR DEFAULT '';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_wait_destination_target VARCHAR DEFAULT '';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS notify_missed_calls BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_max_wait_seconds INTEGER DEFAULT 60;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_queue_threshold INTEGER DEFAULT 3;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_max_retries INTEGER DEFAULT 3;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_retry_interval INTEGER DEFAULT 60;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_priority_level VARCHAR DEFAULT 'high';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_outbound_trunk_id INTEGER DEFAULT 1;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_missed_call_auto BOOLEAN DEFAULT TRUE;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';",
