@@ -158,6 +158,12 @@ class CallPickupPrefixSchema(BaseModel):
     group: str = "*8"
     directed: str = "**"
 
+class CallForwardingPrefixSchema(BaseModel):
+    always: str = "*21*"
+    busy: str = "*67*"
+    no_answer: str = "*61*"
+    cancel: str = "#21#"
+
 class NumberingPlanSchema(BaseModel):
     extension_range: NumberingPlanRangeSchema
     queue_range: NumberingPlanRangeSchema
@@ -165,6 +171,7 @@ class NumberingPlanSchema(BaseModel):
     speed_dial_range: NumberingPlanRangeSchema
     call_flow_range: NumberingPlanRangeSchema
     call_pickup: Optional[CallPickupPrefixSchema] = None
+    call_forwarding: Optional[CallForwardingPrefixSchema] = None
 
 class PBXSettingsSchema(BaseModel):
     ami_host: str
@@ -650,7 +657,21 @@ DEFAULT_SETTINGS = {
         "nas_mount_path": "/mnt/nas/ai-recordings",
         "auto_language_detection": False,
         "auto_emotion_management": False,
-        "auto_whisper_enabled": True
+        "auto_whisper_enabled": True,
+        "numbering_plan": {
+            "extension_range": {"start": 1000, "end": 1999},
+            "queue_range": {"start": 2000, "end": 2999},
+            "conference_range": {"start": 3000, "end": 3999},
+            "speed_dial_range": {"start": 4000, "end": 4999},
+            "call_flow_range": {"start": 5000, "end": 5999},
+            "call_pickup": {"group": "*8", "directed": "**"},
+            "call_forwarding": {
+                "always": "*21*",
+                "busy": "*67*",
+                "no_answer": "*61*",
+                "cancel": "#21#"
+            }
+        }
     },
     "channels": {
         "whatsapp_token": "",
@@ -2159,6 +2180,70 @@ def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks
     backend_host = os.getenv("BACKEND_HOST", default_backend_host)
     audiosocket_host = os.getenv("AUDIOSOCKET_HOST", default_audiosocket_host)
 
+    pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
+    num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
+    pickup_cfg = num_plan.get("call_pickup", {}) if isinstance(num_plan.get("call_pickup"), dict) else {}
+    fwd_cfg = num_plan.get("call_forwarding", {}) if isinstance(num_plan.get("call_forwarding"), dict) else {}
+
+    pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
+    pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
+    pickup_dir_len = len(pickup_directed)
+
+    fwd_always_pfx = str(fwd_cfg.get("always") or "*21*").strip() or "*21*"
+    fwd_busy_pfx = str(fwd_cfg.get("busy") or "*67*").strip() or "*67*"
+    fwd_noans_pfx = str(fwd_cfg.get("no_answer") or "*61*").strip() or "*61*"
+    fwd_cancel_pfx = str(fwd_cfg.get("cancel") or "#21#").strip() or "#21#"
+
+    def _build_feat_exten(pat_str: str, comment_str: str) -> str:
+        return f"""; {comment_str} ({pat_str})
+exten => {pat_str},1,NoOp(Masa Telefonu Yonlendirme Kodu: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(FEAT_RES=${{CURL(http://{backend_host}/api/subscriber/resolve_feature_code?caller=${{URIENCODE(${{CALLERID(num)}})}}&exten=${{URIENCODE(${{EXTEN}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,GotoIf($["${{FEAT_RES}}"="ACTIVATED"]?play_act)
+same => n,GotoIf($["${{FEAT_RES}}"="CANCELLED"]?play_canc)
+same => n,Playback(beeperr)
+same => n,Hangup()
+same => n(play_act),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_aktif)
+same => n,Hangup()
+same => n(play_canc),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_iptal)
+same => n,Hangup()
+"""
+
+    reserved_pats = {pickup_group, f"_{pickup_directed}X."}
+    feat_blocks = []
+    seen_pats = set(reserved_pats)
+
+    def _add_feat(pat: str, label: str):
+        if not pat or pat in seen_pats:
+            return
+        seen_pats.add(pat)
+        feat_blocks.append(_build_feat_exten(pat, label))
+
+    for pfx, lbl in [
+        (fwd_always_pfx, "Her Zaman Yonlendirme"),
+        (fwd_busy_pfx, "Mesgulde Yonlendirme"),
+        (fwd_noans_pfx, "Zaman Asiminda Yonlendirme"),
+    ]:
+        _add_feat(f"_{pfx}.", f"{lbl} Aktiflestirme")
+        if pfx.endswith("*") and len(pfx.rstrip("*")) >= 2:
+            _add_feat(f"_{pfx.rstrip('*')}X.", f"{lbl} Alternatif Aktiflestirme")
+        _add_feat(pfx, f"{lbl} Dogrudan Iptal")
+
+    _add_feat(fwd_cancel_pfx, "Yonlendirme Iptal Kodu")
+    if fwd_cancel_pfx.endswith("#") and len(fwd_cancel_pfx.rstrip("#")) >= 2:
+        _add_feat(fwd_cancel_pfx.rstrip("#"), "Yonlendirme Iptal Kodu (# Send Fallback)")
+    _add_feat(f"_{fwd_cancel_pfx}.", "Yonlendirme Iptal Kodu + Hedef")
+
+    # Generic catch-all feature code patterns for * and # (and URL-encoded %23)
+    _add_feat("_*.", "Genel Yildiz (*) Ozellik Kodu Yakalayici")
+    _add_feat("_#.", "Genel Kare (#) Ozellik Kodu Yakalayici")
+    _add_feat("_%23.", "Genel URL-Encoded Kare (%23) Ozellik Kodu Yakalayici")
+
+    dynamic_feature_dialplan = "\n".join(feat_blocks)
+
     conf_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
 ; ==========================================
@@ -2233,23 +2318,26 @@ same => n,Queue(temsilci_kuyrugu)
 same => n,Hangup()
 
 [webrtc_agents]
-; WebRTC istemcileri (temsilciler) bu context üzerinden görüşme yapar
+; WebRTC istemcileri ve Masa Telefonları (temsilciler) bu context üzerinden görüşme yapar
 
-; Hedefli Çağrı Çekme (Directed Call Pickup: **1001 vb.) ve Grup Çağrı Çekme (*8)
-exten => _**X.,1,NoOp(Hedefli Cagri Cekme: Ceken=${{CALLERID(num)}} -> Calan=${{EXTEN:2}})
+; Hedefli Çağrı Çekme (Directed Call Pickup: {pickup_directed}1001 vb.) ve Grup Çağrı Çekme ({pickup_group})
+exten => _{pickup_directed}X.,1,NoOp(Hedefli Cagri Cekme: Ceken=${{CALLERID(num)}} -> Calan=${{EXTEN:{pickup_dir_len}}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(PICKUP_CHAN=${{CURL(http://{backend_host}/api/webrtc/resolve_pickup_channel?target_ext=${{EXTEN:2}}&picker_ext=${{CALLERID(num)}})}})
+same => n,Set(PICKUP_CHAN=${{CURL(http://{backend_host}/api/webrtc/resolve_pickup_channel?target_ext=${{EXTEN:{pickup_dir_len}}}&picker_ext=${{CALLERID(num)}})}})
 same => n,GotoIf($["${{PICKUP_CHAN}}" != "" & "${{PICKUP_CHAN}}" != "NONE"]?do_pickupchan:do_std_pickup)
 same => n(do_pickupchan),NoOp(PickupChan ile cagri cekiliyor: ${{PICKUP_CHAN}})
 same => n,PickupChan(${{PICKUP_CHAN}})
-same => n(do_std_pickup),Pickup(${{EXTEN:2}}@webrtc_agents)
-same => n,Pickup(${{EXTEN:2}}@default)
+same => n(do_std_pickup),Pickup(${{EXTEN:{pickup_dir_len}}}@webrtc_agents)
+same => n,Pickup(${{EXTEN:{pickup_dir_len}}}@default)
 same => n,Hangup()
 
-exten => *8,1,NoOp(Grup Cagri Cekme (*8): Ceken=${{CALLERID(num)}})
+exten => {pickup_group},1,NoOp(Grup Cagri Cekme ({pickup_group}): Ceken=${{CALLERID(num)}})
 same => n,Pickup()
 same => n,Hangup()
+
+; Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında, İptal Kodu) Prefix'leri
+{dynamic_feature_dialplan}
 
 ; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
 exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
@@ -3725,18 +3813,36 @@ def check_name_uniqueness(name: str, list_key: str, entity_id: Any = None, label
 
 
 @app.get("/api/settings/numbering-plan")
-
 async def get_numbering_plan():
     pbx_settings = settings_db.get("pbx", {})
-    return pbx_settings.get("numbering_plan", {})
+    default_plan = DEFAULT_SETTINGS["pbx"]["numbering_plan"]
+    saved_plan = pbx_settings.get("numbering_plan") or {}
+    merged = dict(default_plan)
+    for k, v in saved_plan.items():
+        if v is not None:
+            merged[k] = v
+    if not isinstance(merged.get("call_pickup"), dict):
+        merged["call_pickup"] = dict(default_plan["call_pickup"])
+    if not isinstance(merged.get("call_forwarding"), dict):
+        merged["call_forwarding"] = dict(default_plan["call_forwarding"])
+    else:
+        for fk, fv in default_plan["call_forwarding"].items():
+            if not merged["call_forwarding"].get(fk):
+                merged["call_forwarding"][fk] = fv
+    return merged
 
 @app.post("/api/settings/numbering-plan")
-async def save_numbering_plan(payload: NumberingPlanSchema):
+async def save_numbering_plan(payload: NumberingPlanSchema, background_tasks: BackgroundTasks):
     if "pbx" not in settings_db:
         settings_db["pbx"] = {}
     settings_db["pbx"]["numbering_plan"] = payload.model_dump()
     save_settings(settings_db)
-    return {"status": "success", "message": "Numara planı başarıyla kaydedildi."}
+    try:
+        regenerate_extensions_custom_conf(background_tasks)
+    except Exception as e_ext:
+        print(f"[Numbering Plan] Dialplan reload warning: {e_ext}")
+    add_system_log("PBX", "INFO", "Numara planı ve çağrı yönlendirme prefix kodları güncellendi.")
+    return {"status": "success", "message": "Numara planı ve yönlendirme kodları başarıyla kaydedildi."}
 
 @app.get("/api/v1_old/settings/users")
 async def get_users_endpoint():
@@ -4974,6 +5080,280 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         print(f"[Resolve Forwarding Error]: {e}")
 
     return Response(content="DENY:NONE:30", media_type="text/plain")
+
+
+class CancelForwardingSchema(BaseModel):
+    extension: str
+    rule_type: Optional[str] = "all"  # "all", "always", "busy", "no_answer"
+
+
+async def _sync_user_forwarding_state(
+    ext_str: str,
+    updates: Dict[str, Any],
+    db: AsyncSession,
+    source_label: str = "Masa Telefonu"
+) -> bool:
+    """
+    Updates forwarding_always, forwarding_busy, forwarding_no_answer in BOTH
+    PostgreSQL (SystemUser) and settings_db['users'] (settings.json) so Desk Phone
+    feature codes and Web UI are 100% identical and bidirectional.
+    """
+    from sqlalchemy.orm.attributes import flag_modified
+    ext_clean = str(ext_str or "").strip()
+    if not ext_clean:
+        return False
+
+    found_any = False
+
+    # 1. Update in PostgreSQL SystemUser
+    try:
+        stmt = select(SystemUser).where(SystemUser.extension == ext_clean)
+        res = await db.execute(stmt)
+        db_user = res.scalars().first()
+        if db_user:
+            for col_key, col_val in updates.items():
+                if hasattr(db_user, col_key):
+                    setattr(db_user, col_key, col_val)
+                    try:
+                        flag_modified(db_user, col_key)
+                    except Exception:
+                        pass
+            await db.commit()
+            found_any = True
+    except Exception as e_db:
+        print(f"[Sync Forwarding DB Warning]: {e_db}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+
+    # 2. Update in settings_db["users"] (memory + disk settings.json)
+    all_users = settings_db.get("users", [])
+    for u in all_users:
+        if str(u.get("extension") or "").strip() == ext_clean:
+            for col_key, col_val in updates.items():
+                u[col_key] = col_val
+            found_any = True
+    if found_any:
+        save_settings(settings_db)
+
+    return found_any
+
+
+@app.get("/api/subscriber/resolve_feature_code")
+@app.get("/api/subscriber/dial_feature_code")
+async def resolve_subscriber_feature_code(
+    caller: str = "",
+    exten: str = "",
+    channel: str = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Handles Call Forwarding activation and cancellation codes dialed from a registered
+    SIP/PJSIP desk phone or softphone. Updates the user's forwarding settings identically
+    to the Web UI so changes immediately appear in Kullanıcılar & Profil Ayarları.
+    Returns 'ACTIVATED', 'CANCELLED', or 'INVALID'.
+    """
+    try:
+        import urllib.parse
+        raw_caller = urllib.parse.unquote(caller or "").strip()
+        raw_exten = urllib.parse.unquote(exten or "").strip().replace("%23", "#")
+        raw_channel = urllib.parse.unquote(channel or "").strip()
+
+        # Extract extension from channel (e.g. PJSIP/1000-0000001a -> 1000) as reliable fallback
+        chan_ext = ""
+        if "/" in raw_channel:
+            after_slash = raw_channel.split("/", 1)[1]
+            chan_ext = after_slash.split("-", 1)[0].split("@", 1)[0].strip()
+
+        # Gather all known extensions from DB and settings_db
+        known_exts = set()
+        for u in settings_db.get("users", []):
+            if u.get("extension"):
+                known_exts.add(str(u.get("extension")).strip())
+        try:
+            res_all = await db.execute(select(SystemUser.extension))
+            for r_ext in res_all.scalars().all():
+                if r_ext:
+                    known_exts.add(str(r_ext).strip())
+        except Exception:
+            pass
+
+        caller_ext = raw_caller if raw_caller in known_exts else (chan_ext if chan_ext in known_exts else (raw_caller or chan_ext))
+        if not caller_ext:
+            print(f"[Feature Code] Caller extension could not be resolved: caller={raw_caller}, chan={raw_channel}")
+            return Response(content="INVALID", media_type="text/plain")
+
+        # Read configured prefixes from Numbering Plan
+        pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
+        num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
+        fwd_cfg = num_plan.get("call_forwarding", {}) if isinstance(num_plan.get("call_forwarding"), dict) else {}
+
+        p_always = str(fwd_cfg.get("always") or "*21*").strip() or "*21*"
+        p_busy = str(fwd_cfg.get("busy") or "*67*").strip() or "*67*"
+        p_noans = str(fwd_cfg.get("no_answer") or "*61*").strip() or "*61*"
+        p_cancel = str(fwd_cfg.get("cancel") or "#21#").strip() or "#21#"
+
+        print(f"[Feature Code] Desk Phone Dialed: caller_ext={caller_ext}, dialed={raw_exten} (Plan: always={p_always}, busy={p_busy}, no_answer={p_noans}, cancel={p_cancel})")
+
+        # Fetch existing user forwarding settings to preserve timeout/targets when appropriate
+        existing_noans_timeout = 30
+        for u in settings_db.get("users", []):
+            if str(u.get("extension") or "").strip() == caller_ext:
+                na = u.get("forwarding_no_answer")
+                if isinstance(na, dict) and na.get("timeout"):
+                    try:
+                        existing_noans_timeout = int(na.get("timeout"))
+                    except Exception:
+                        pass
+                break
+
+        # Helper to build deactivated rule object
+        def _deactivated_rule(is_noans: bool = False):
+            base = {"active": False, "type": "internal", "target": ""}
+            if is_noans:
+                base["timeout"] = existing_noans_timeout
+            return base
+
+        # 1. Check if dialed string matches Cancel Code (e.g. #21#, #21, *73, etc.)
+        cancel_variants = {
+            p_cancel,
+            p_cancel.rstrip("#") if len(p_cancel.rstrip("#")) >= 2 else p_cancel,
+            "#21#", "#21", "*73", "#002#", "#002"
+        }
+        if raw_exten in cancel_variants or (p_cancel and raw_exten.startswith(p_cancel)):
+            updates = {
+                "forwarding_always": _deactivated_rule(False),
+                "forwarding_busy": _deactivated_rule(False),
+                "forwarding_no_answer": _deactivated_rule(True),
+            }
+            await _sync_user_forwarding_state(caller_ext, updates, db, source_label="Masa Telefonu")
+            add_system_log("CALL_FORWARD", "INFO", f"Dahili {caller_ext} masa telefonundan ({raw_exten}) tüm çağrı yönlendirmelerini iptal etti.")
+            print(f"[Feature Code] Extension {caller_ext} -> ALL FORWARDING CANCELLED via {raw_exten}")
+            return Response(content="CANCELLED", media_type="text/plain")
+
+        # Also check rule-specific cancel codes (e.g. dialing just *21* without target, or #67#, #61#)
+        for pfx, col_name, rule_label, is_na in [
+            (p_always, "forwarding_always", "Her Zaman Yönlendirme", False),
+            (p_busy, "forwarding_busy", "Meşgulde Yönlendirme", False),
+            (p_noans, "forwarding_no_answer", "Zaman Aşımında Yönlendirme", True),
+        ]:
+            core_digits = pfx.strip("*#")
+            rule_cancel_variants = {pfx, pfx.rstrip("*#")}
+            if core_digits:
+                rule_cancel_variants.update({f"#{core_digits}#", f"#{core_digits}", f"*{core_digits}#"})
+            if raw_exten in rule_cancel_variants:
+                updates = {col_name: _deactivated_rule(is_na)}
+                await _sync_user_forwarding_state(caller_ext, updates, db, source_label="Masa Telefonu")
+                add_system_log("CALL_FORWARD", "INFO", f"Dahili {caller_ext} masa telefonundan ({raw_exten}) {rule_label} kuralını iptal etti.")
+                print(f"[Feature Code] Extension {caller_ext} -> {col_name} CANCELLED via {raw_exten}")
+                return Response(content="CANCELLED", media_type="text/plain")
+
+        # 2. Check Activation Prefixes (Always, Busy, No Answer)
+        prefix_rules = [
+            (p_always, "forwarding_always", "Her Zaman", False),
+            (p_busy, "forwarding_busy", "Meşgul Durumda", False),
+            (p_noans, "forwarding_no_answer", "Zaman Aşımında (Cevapsız)", True),
+        ]
+        # Sort by prefix length descending so longer prefix matches first
+        prefix_rules.sort(key=lambda x: len(x[0]), reverse=True)
+
+        matched_col = None
+        matched_label = ""
+        matched_is_na = False
+        remainder = ""
+
+        for pfx, col_name, lbl, is_na in prefix_rules:
+            if raw_exten.startswith(pfx):
+                matched_col = col_name
+                matched_label = lbl
+                matched_is_na = is_na
+                remainder = raw_exten[len(pfx):]
+                break
+            stripped_pfx = pfx.rstrip("*")
+            if stripped_pfx and len(stripped_pfx) >= 2 and raw_exten.startswith(stripped_pfx):
+                matched_col = col_name
+                matched_label = lbl
+                matched_is_na = is_na
+                remainder = raw_exten[len(stripped_pfx):]
+                break
+
+        if not matched_col:
+            print(f"[Feature Code] Unrecognized feature code dialed by {caller_ext}: {raw_exten}")
+            return Response(content="INVALID", media_type="text/plain")
+
+        # Clean target number from remainder (strip leading * and trailing #/*)
+        clean_rem = remainder.lstrip("*").rstrip("#*").strip()
+        if not clean_rem:
+            # Dialed prefix with no target -> treat as cancel for that rule
+            updates = {matched_col: _deactivated_rule(matched_is_na)}
+            await _sync_user_forwarding_state(caller_ext, updates, db, source_label="Masa Telefonu")
+            return Response(content="CANCELLED", media_type="text/plain")
+
+        custom_timeout = existing_noans_timeout
+        if matched_is_na and "*" in clean_rem:
+            parts = clean_rem.split("*", 1)
+            target_raw = parts[0].strip()
+            if parts[1].strip().isdigit():
+                custom_timeout = max(5, min(120, int(parts[1].strip())))
+        else:
+            target_raw = clean_rem
+
+        target_num = re.sub(r"[^\d+]", "", target_raw)
+        if len(target_num) < 2:
+            return Response(content="INVALID", media_type="text/plain")
+
+        target_type = "internal" if (target_num in known_exts or len(target_num) < 6) else "external"
+        rule_obj = {
+            "active": True,
+            "type": target_type,
+            "target": target_num
+        }
+        if matched_is_na:
+            rule_obj["timeout"] = custom_timeout
+
+        await _sync_user_forwarding_state(caller_ext, {matched_col: rule_obj}, db, source_label="Masa Telefonu")
+        add_system_log(
+            "CALL_FORWARD",
+            "INFO",
+            f"Dahili {caller_ext} masa telefonundan ({raw_exten}) '{matched_label}' yönlendirmesini '{target_num}' ({'Dahili' if target_type == 'internal' else 'Dış Numara'}) hedefine aktif etti."
+        )
+        print(f"[Feature Code] Extension {caller_ext} -> {matched_col} ACTIVATED to {target_num} ({target_type})")
+        return Response(content="ACTIVATED", media_type="text/plain")
+
+    except Exception as e_feat:
+        print(f"[Feature Code Error]: {e_feat}")
+        return Response(content="INVALID", media_type="text/plain")
+
+
+@app.post("/api/subscriber/cancel_forwarding")
+async def cancel_subscriber_forwarding_endpoint(
+    payload: CancelForwardingSchema,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Allows cancelling one or all forwarding rules for an extension directly from the Web UI.
+    """
+    ext_str = str(payload.extension or "").strip()
+    if not ext_str:
+        raise HTTPException(status_code=400, detail="Dahili numarası belirtilmedi.")
+
+    rule_type = (payload.rule_type or "all").strip().lower()
+    updates = {}
+    if rule_type in ("all", "always", "forwarding_always"):
+        updates["forwarding_always"] = {"active": False, "type": "internal", "target": ""}
+    if rule_type in ("all", "busy", "forwarding_busy"):
+        updates["forwarding_busy"] = {"active": False, "type": "internal", "target": ""}
+    if rule_type in ("all", "no_answer", "forwarding_no_answer"):
+        updates["forwarding_no_answer"] = {"active": False, "type": "internal", "target": "", "timeout": 30}
+
+    ok = await _sync_user_forwarding_state(ext_str, updates, db, source_label="Web Arayüzü")
+    if not ok:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    add_system_log("CALL_FORWARD", "INFO", f"Dahili {ext_str} için yönlendirme kuralı ({rule_type}) web arayüzünden iptal edildi.")
+    return {"status": "success", "extension": ext_str, "cancelled": rule_type, "updates": updates}
+
 
 # --- Speed Dials ---
 @app.get("/api/settings/speed_dials")
@@ -13288,10 +13668,20 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["profiles"] = disk_u.get("profiles")
             if disk_u.get("follow_me"):
                 u["follow_me"] = disk_u.get("follow_me")
+            for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
+                if u.get(fk) is None and disk_u.get(fk) is not None:
+                    u[fk] = disk_u.get(fk)
             if (not u.get("sip_password") or u.get("sip_password") == "1234") and disk_u.get("sip_password"):
                 u["sip_password"] = disk_u.get("sip_password")
             if not u.get("sip_username") and disk_u.get("sip_username"):
                 u["sip_username"] = disk_u.get("sip_username")
+        for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
+            fval = u.get(fk)
+            if isinstance(fval, str) and fval.strip().startswith("{"):
+                try:
+                    u[fk] = json.loads(fval)
+                except Exception:
+                    pass
         u["sip_password"] = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         ensure_user_profiles(u)
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)

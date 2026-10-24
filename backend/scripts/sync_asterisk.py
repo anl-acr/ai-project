@@ -339,7 +339,89 @@ password={pwd}
     except Exception as e_pjsip:
         print(f"[Sync Script] PJSIP oluşturma hatası: {e_pjsip}")
 
-    # 2. Generate clean extensions_custom.conf without discouragged _.-pattern
+    # 2. Generate clean extensions_custom.conf with dynamic Call Pickup & Call Forwarding Feature Codes
+    pbx_cfg = settings.get("pbx", {}) if isinstance(settings.get("pbx"), dict) else {}
+    num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
+    pickup_cfg = num_plan.get("call_pickup", {}) if isinstance(num_plan.get("call_pickup"), dict) else {}
+    fwd_cfg = num_plan.get("call_forwarding", {}) if isinstance(num_plan.get("call_forwarding"), dict) else {}
+
+    pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
+    pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
+    pickup_dir_len = len(pickup_directed)
+
+    fwd_always_pfx = str(fwd_cfg.get("always") or "*21*").strip() or "*21*"
+    fwd_busy_pfx = str(fwd_cfg.get("busy") or "*67*").strip() or "*67*"
+    fwd_noans_pfx = str(fwd_cfg.get("no_answer") or "*61*").strip() or "*61*"
+    fwd_cancel_pfx = str(fwd_cfg.get("cancel") or "#21#").strip() or "#21#"
+
+    def _build_feat_exten(pat_str: str, comment_str: str) -> str:
+        return f"""; {comment_str} ({pat_str})
+exten => {pat_str},1,NoOp(Masa Telefonu Yonlendirme Kodu: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(FEAT_RES=${{CURL(http://127.0.0.1:8000/api/subscriber/resolve_feature_code?caller=${{URIENCODE(${{CALLERID(num)}})}}&exten=${{URIENCODE(${{EXTEN}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Answer()
+same => n,Wait(0.3)
+same => n,GotoIf($["${{FEAT_RES}}"="ACTIVATED"]?play_act)
+same => n,GotoIf($["${{FEAT_RES}}"="CANCELLED"]?play_canc)
+same => n,Playback(beeperr)
+same => n,Hangup()
+same => n(play_act),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_aktif)
+same => n,Hangup()
+same => n(play_canc),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_iptal)
+same => n,Hangup()
+"""
+
+    reserved_pats = {pickup_group, f"_{pickup_directed}X."}
+    feat_blocks = []
+    seen_pats = set(reserved_pats)
+
+    def _add_feat(pat: str, label: str):
+        if not pat or pat in seen_pats:
+            return
+        seen_pats.add(pat)
+        feat_blocks.append(_build_feat_exten(pat, label))
+
+    for pfx, lbl in [
+        (fwd_always_pfx, "Her Zaman Yonlendirme"),
+        (fwd_busy_pfx, "Mesgulde Yonlendirme"),
+        (fwd_noans_pfx, "Zaman Asiminda Yonlendirme"),
+    ]:
+        _add_feat(f"_{pfx}.", f"{lbl} Aktiflestirme")
+        if pfx.endswith("*") and len(pfx.rstrip("*")) >= 2:
+            _add_feat(f"_{pfx.rstrip('*')}X.", f"{lbl} Alternatif Aktiflestirme")
+        _add_feat(pfx, f"{lbl} Dogrudan Iptal")
+
+    _add_feat(fwd_cancel_pfx, "Yonlendirme Iptal Kodu")
+    if fwd_cancel_pfx.endswith("#") and len(fwd_cancel_pfx.rstrip("#")) >= 2:
+        _add_feat(fwd_cancel_pfx.rstrip("#"), "Yonlendirme Iptal Kodu (# Send Fallback)")
+    _add_feat(f"_{fwd_cancel_pfx}.", "Yonlendirme Iptal Kodu + Hedef")
+
+    _add_feat("_*.", "Genel Yildiz (*) Ozellik Kodu Yakalayici")
+    _add_feat("_#.", "Genel Kare (#) Ozellik Kodu Yakalayici")
+    _add_feat("_%23.", "Genel URL-Encoded Kare (%23) Ozellik Kodu Yakalayici")
+
+    dynamic_feature_dialplan = "\n".join(feat_blocks)
+
+    webrtc_header_and_features = f"""; Hedefli Çağrı Çekme (Directed Call Pickup: {pickup_directed}1001 vb.) ve Grup Çağrı Çekme ({pickup_group})
+exten => _{pickup_directed}X.,1,NoOp(Hedefli Cagri Cekme: Ceken=${{CALLERID(num)}} -> Calan=${{EXTEN:{pickup_dir_len}}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(PICKUP_CHAN=${{CURL(http://127.0.0.1:8000/api/webrtc/resolve_pickup_channel?target_ext=${{EXTEN:{pickup_dir_len}}}&picker_ext=${{CALLERID(num)}})}})
+same => n,GotoIf($["${{PICKUP_CHAN}}" != "" & "${{PICKUP_CHAN}}" != "NONE"]?do_pickupchan:do_std_pickup)
+same => n(do_pickupchan),NoOp(PickupChan ile cagri cekiliyor: ${{PICKUP_CHAN}})
+same => n,PickupChan(${{PICKUP_CHAN}})
+same => n(do_std_pickup),Pickup(${{EXTEN:{pickup_dir_len}}}@webrtc_agents)
+same => n,Pickup(${{EXTEN:{pickup_dir_len}}}@default)
+same => n,Hangup()
+
+exten => {pickup_group},1,NoOp(Grup Cagri Cekme ({pickup_group}): Ceken=${{CALLERID(num)}})
+same => n,Pickup()
+same => n,Hangup()
+
+; Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında, İptal Kodu) Prefix'leri
+{dynamic_feature_dialplan}"""
+
     ext_content = """; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
 ; ==========================================
@@ -414,10 +496,13 @@ same => n,Queue(temsilci_kuyrugu)
 same => n,Hangup()
 
 [webrtc_agents]
-; WebRTC istemcileri (temsilciler) bu context üzerinden görüşme yapar
+; WebRTC istemcileri ve Masa Telefonları (temsilciler) bu context üzerinden görüşme yapar
+
+__WEBRTC_FEATURES_BLOCK__
 
 ; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
-exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${CALLERID(num)}, Aranan=${EXTEN})
+exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${CALLERID(num)}, Aranan=${EXTEN})"""
+    ext_content = ext_content.replace("__WEBRTC_FEATURES_BLOCK__", webrtc_header_and_features) + """
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${CURL(http://127.0.0.1:8000/api/acl/check_outbound_call?caller=${CALLERID(num)}&callee=${EXTEN}&channel=${URIENCODE(${CHANNEL(name)})}&via=${URIENCODE(${PJSIP_HEADER(read,Via)})})})

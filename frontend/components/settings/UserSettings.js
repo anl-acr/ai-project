@@ -821,9 +821,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       max_activations: Number(maxActivations) || 1,
       outbound_caller_id: outboundCallerId.trim(),
       gsm_number: cleanFmMobile || (editingUser?.gsm_number || null),
-      forwarding_always: fwdAlwaysTarget ? { active: fwdAlwaysActive, type: fwdAlwaysType, target: fwdAlwaysTarget } : null,
-      forwarding_busy: fwdBusyTarget ? { active: fwdBusyActive, type: fwdBusyType, target: fwdBusyTarget } : null,
-      forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null,
+      forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
+      forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
+      forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 30 },
       voicemail_active: voicemailActive,
       voicemail_announcement: voicemailAnnouncement,
       voicemail_pin: voicemailPin,
@@ -878,6 +878,41 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
   };
 
+  const handleQuickCancelForwarding = async (extStr, ruleType = "all") => {
+    if (!extStr) return;
+    try {
+      const res = await safeFetch("/api/subscriber/cancel_forwarding", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extension: String(extStr), rule_type: ruleType })
+      });
+      if (res && res.ok) {
+        const data = await res.json();
+        const updates = data.updates || {};
+        setUsers((prev) =>
+          prev.map((u) => (String(u.extension) === String(extStr) ? { ...u, ...updates } : u))
+        );
+        if (editingUser && String(editingUser.extension) === String(extStr)) {
+          if (ruleType === "all" || ruleType === "always") {
+            setFwdAlwaysActive(false);
+            setFwdAlwaysTarget("");
+          }
+          if (ruleType === "all" || ruleType === "busy") {
+            setFwdBusyActive(false);
+            setFwdBusyTarget("");
+          }
+          if (ruleType === "all" || ruleType === "no_answer") {
+            setFwdNoAnswerActive(false);
+            setFwdNoAnswerTarget("");
+          }
+        }
+        setSuccess(true);
+        setTimeout(() => setSuccess(false), 3000);
+      }
+    } catch (e) {
+      console.error("Cancel forwarding error:", e);
+    }
+  };
 
   const handleDeleteUser = (id) => {
     setDeleteTargetId(id);
@@ -1257,18 +1292,44 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         </span>
                       </div>
                       {(() => {
-                        let fwdType = "";
-                        let fwdTarget = "";
-                        if (u.forwarding_always?.active) { fwdType = "Her Zaman"; fwdTarget = u.forwarding_always.target; }
-                        else if (u.forwarding_busy?.active) { fwdType = "Meşgulde"; fwdTarget = u.forwarding_busy.target; }
-                        else if (u.forwarding_no_answer?.active) { fwdType = "Cevapsız"; fwdTarget = u.forwarding_no_answer.target; }
-                        if (fwdType) {
-                            return (
-                             <div className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-[8px] font-bold shrink-0 border border-amber-200/50 dark:border-amber-800/50" title={`Yönlendirme: ${fwdType} -> ${fwdTarget || 'Belirtilmedi'}`}>
-                                <Forward size={10} />
-                                <span>{fwdType} {fwdTarget && <span className="opacity-75 font-medium">({fwdTarget})</span>}</span>
-                             </div>
-                             );
+                        const activeFwds = [];
+                        if (u.forwarding_always?.active) {
+                          activeFwds.push({ key: "always", label: "Her Zaman", target: u.forwarding_always.target });
+                        }
+                        if (u.forwarding_busy?.active) {
+                          activeFwds.push({ key: "busy", label: "Meşgulde", target: u.forwarding_busy.target });
+                        }
+                        if (u.forwarding_no_answer?.active) {
+                          activeFwds.push({ key: "no_answer", label: "Cevapsız", target: u.forwarding_no_answer.target });
+                        }
+                        if (activeFwds.length > 0) {
+                          return (
+                            <div className="flex flex-wrap items-center gap-1">
+                              {activeFwds.map((fw) => (
+                                <div
+                                  key={fw.key}
+                                  className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 text-[8px] font-bold shrink-0 border border-amber-200/50 dark:border-amber-800/50"
+                                  title={`Yönlendirme: ${fw.label} -> ${fw.target || "Belirtilmedi"}`}
+                                >
+                                  <Forward size={10} />
+                                  <span>
+                                    {fw.label} {fw.target && <span className="opacity-75 font-medium">({fw.target})</span>}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleQuickCancelForwarding(u.extension, fw.key);
+                                    }}
+                                    title={`${fw.label} yönlendirmesini iptal et`}
+                                    className="ml-0.5 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                                  >
+                                    <X size={10} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          );
                         }
                         return null;
                       })()}
@@ -1901,7 +1962,25 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         {activeTab === "forwarding" && (
                             <div className="space-y-6 animate-in fade-in duration-300">
                                 <div>
-                                    <h4 className="text-sm font-bold text-slate-800 dark:text-white mb-3">Çağrı Yönlendirme Kuralları</h4>
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h4 className="text-sm font-bold text-slate-800 dark:text-white">Çağrı Yönlendirme Kuralları</h4>
+                                        {(fwdAlwaysActive || fwdBusyActive || fwdNoAnswerActive) && (
+                                            <button
+                                                type="button"
+                                                onClick={async () => {
+                                                    setFwdAlwaysActive(false);
+                                                    setFwdBusyActive(false);
+                                                    setFwdNoAnswerActive(false);
+                                                    if (editingUser && editingUser.extension) {
+                                                        await handleQuickCancelForwarding(editingUser.extension, "all");
+                                                    }
+                                                }}
+                                                className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 dark:hover:bg-rose-900/50 text-[10px] font-bold flex items-center gap-1 transition-all"
+                                            >
+                                                <X size={12} /> Tüm Yönlendirmeleri İptal Et
+                                            </button>
+                                        )}
+                                    </div>
                                     <div className="space-y-3">
                                         {renderForwardingRow("Her Zaman", fwdAlwaysActive, setFwdAlwaysActive, fwdAlwaysType, setFwdAlwaysType, fwdAlwaysTarget, setFwdAlwaysTarget, null, null)}
                                         {renderForwardingRow("Meşgul Durumda", fwdBusyActive, setFwdBusyActive, fwdBusyType, setFwdBusyType, fwdBusyTarget, setFwdBusyTarget, null, null)}

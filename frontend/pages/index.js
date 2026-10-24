@@ -3707,6 +3707,21 @@ export default function Home() {
 
               {/* Forwarding Selection */}
               <div className={`space-y-4 max-h-[60vh] overflow-y-auto ${activeModalTab === "forwarding" ? "block" : "hidden"}`}>
+                {(fwdAlwaysActive || fwdBusyActive || fwdNoAnswerActive) && (
+                  <div className="flex justify-end pr-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFwdAlwaysActive(false);
+                        setFwdBusyActive(false);
+                        setFwdNoAnswerActive(false);
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/60 hover:bg-rose-100 text-[10px] font-bold flex items-center gap-1 transition-all"
+                    >
+                      Tüm Yönlendirmeleri İptal Et
+                    </button>
+                  </div>
+                )}
                 <div className="space-y-3 pr-2">
                     {renderForwardingRow("Her Zaman (Koşulsuz)", fwdAlwaysActive, setFwdAlwaysActive, fwdAlwaysType, setFwdAlwaysType, fwdAlwaysTarget, setFwdAlwaysTarget, null, null)}
                     {renderForwardingRow("Meşgul Durumda", fwdBusyActive, setFwdBusyActive, fwdBusyType, setFwdBusyType, fwdBusyTarget, setFwdBusyTarget, null, null)}
@@ -4001,9 +4016,9 @@ export default function Home() {
                             gsm_number: gsmNumber,
                             mobile_transfer_enabled: mobileTransferEnabled,
                             theme_color: tempThemeColor,
-                            forwarding_always: fwdAlwaysTarget ? { active: fwdAlwaysActive, type: fwdAlwaysType, target: fwdAlwaysTarget } : null,
-                            forwarding_busy: fwdBusyTarget ? { active: fwdBusyActive, type: fwdBusyType, target: fwdBusyTarget } : null,
-                            forwarding_no_answer: fwdNoAnswerTarget ? { active: fwdNoAnswerActive, type: fwdNoAnswerType, target: fwdNoAnswerTarget, timeout: fwdNoAnswerTimeout } : null,
+                            forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
+                            forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
+                            forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 20 },
                             active_profile: agentActiveProfile,
                             profiles: agentProfiles,
                             call_panel_prefs: callPanelPrefs,
