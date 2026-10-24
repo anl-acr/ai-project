@@ -84,6 +84,7 @@ const SYSTEM_FEATURES = [
   { id: "wallboard", name: "Canlı İzleme Paneli", icon: Monitor, type: "access", color: "indigo" },
   { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: PhoneCall, type: "access", color: "emerald" },
   { id: "omnichannel", name: "Ortak Gelen Kutusu", icon: MessageSquare, type: "access", color: "purple" },
+  { id: "api_budgets", name: "API Bütçe ve Tüketim", icon: Database, type: "crud_partial", color: "emerald" },
 
   // 2. Yapay Zeka & Bilgi
   { id: "ai_agents", name: "AI Temsilcileri", icon: Bot, type: "crud", color: "purple" },
@@ -164,7 +165,6 @@ const SYSTEM_FEATURES = [
   { id: "backup_restore", name: "Sistem Yedekleme", icon: HardDrive, type: "crud_partial", color: "rose" },
   { id: "recording_retention", name: "Kayıt & Saklama Sistemi", icon: HardDrive, type: "crud", color: "rose" },
   { id: "ai_providers", name: "Yapay Zeka API Ayarları", icon: Bot, type: "crud_partial", color: "purple" },
-  { id: "api_budgets", name: "API Bütçe ve Tüketim", icon: Database, type: "crud_partial", color: "emerald" },
   { id: "tenants", name: "Müşteri (Tenant) Yönetimi", icon: Users, type: "crud", color: "rose" },
   { id: "tenant_license", name: "Lisans & Key Yönetimi", icon: Lock, type: "crud", color: "rose" },
   { id: "email_notifications", name: "E-Mail Bildirimleri", icon: Mail, type: "crud", color: "blue" },
@@ -351,7 +351,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "operations",
       name: "Operasyon ve İzleme",
       icon: Activity,
-      items: ["dashboard", "wallboard", "call_panel", "omnichannel"]
+      items: ["dashboard", "wallboard", "call_panel", "omnichannel", "api_budgets"]
     },
     {
       id: "ai",
@@ -423,7 +423,6 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         "backup_restore",
         "recording_retention",
         "ai_providers",
-        "api_budgets",
         "tenants",
         "tenant_license",
         "email_notifications",

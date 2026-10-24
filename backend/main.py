@@ -727,11 +727,13 @@ DEFAULT_SETTINGS = {
         "elevenlabs_api_key": ""
     },
     "api_budgets": {
-        "openai": {"loaded_credit": 0.0, "spent_credit": 0.0},
-        "anthropic": {"loaded_credit": 0.0, "spent_credit": 0.0},
-        "groq": {"loaded_credit": 0.0, "spent_credit": 0.0},
-        "google": {"loaded_credit": 0.0, "spent_credit": 0.0},
-        "elevenlabs": {"loaded_credit": 0.0, "spent_credit": 0.0}
+        "google": {"loaded_credit": 50.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
+        "elevenlabs": {"loaded_credit": 25.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
+        "openai": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
+        "anthropic": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
+        "groq": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
+        "deepgram": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
+        "whatsapp": {"loaded_credit": 20.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80}
     },
     "call_flow": {
         "trunk_id": 1,
@@ -5290,33 +5292,459 @@ async def save_ai_providers(payload: AIProvidersSchema, user_info: dict = Depend
     save_settings(settings_db)
     return {"status": "success", "message": "AI ve TTS API anahtarları kaydedildi."}
 
+async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenant-default") -> dict:
+    from backend.database.models import DocumentChunk
+    raw_budgets = settings_db.get("api_budgets", {})
+    default_budgets = DEFAULT_SETTINGS["api_budgets"]
+    
+    # Ensure all service keys exist
+    service_keys = ["google", "elevenlabs", "openai", "anthropic", "groq", "deepgram", "whatsapp"]
+    merged_budgets = {}
+    for k in service_keys:
+        base_def = default_budgets.get(k, {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80})
+        saved = raw_budgets.get(k, {}) if isinstance(raw_budgets.get(k), dict) else {}
+        merged_budgets[k] = {
+            "loaded_credit": float(saved.get("loaded_credit", base_def.get("loaded_credit", 0.0)) or 0.0),
+            "spent_credit": float(saved.get("spent_credit", base_def.get("spent_credit", 0.0)) or 0.0),
+            "spent_offset": float(saved.get("spent_offset", 0.0) or 0.0),
+            "manual_spent_set": bool(saved.get("manual_spent_set", False)),
+            "alert_threshold": int(saved.get("alert_threshold", base_def.get("alert_threshold", 80)) or 80),
+            "package_name": saved.get("package_name", ""),
+            "last_updated": saved.get("last_updated", None)
+        }
+
+    # Resolve API Keys & Channels configuration
+    tenant_keys = settings_db.get("tenant_ai_providers", {}).get(target_tenant)
+    if not tenant_keys:
+        tenant_keys = settings_db.get("ai_providers", DEFAULT_SETTINGS["ai_providers"])
+    channels_cfg = settings_db.get("channels", DEFAULT_SETTINGS["channels"])
+    
+    google_key_present = bool((tenant_keys.get("google_api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip())
+    elevenlabs_key_present = bool((tenant_keys.get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY") or "").strip())
+    openai_key_present = bool((tenant_keys.get("openai_api_key") or os.getenv("OPENAI_API_KEY") or "").strip())
+    anthropic_key_present = bool((tenant_keys.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY") or "").strip())
+    groq_key_present = bool((tenant_keys.get("groq_api_key") or os.getenv("GROQ_API_KEY") or "").strip())
+    deepgram_key_present = bool((os.getenv("DEEPGRAM_API_KEY") or "").strip())
+    whatsapp_configured = bool((channels_cfg.get("whatsapp_token") or "").strip()) or bool(channels_cfg.get("whatsapp_accounts"))
+
+    # Inspect configured AI Agents
+    all_agents = settings_db.get("ai_agents", DEFAULT_SETTINGS["ai_agents"])
+    if not is_global_tenant(target_tenant):
+        if is_default_tenant(target_tenant):
+            agents = [a for a in all_agents if not a.get("tenant_id") or a.get("tenant_id") in ["tenant-default", "default"]]
+        else:
+            agents = [a for a in all_agents if a.get("tenant_id") == target_tenant]
+    else:
+        agents = all_agents
+
+    agent_usage_map = {k: [] for k in service_keys}
+    agent_by_name_or_id = {}
+    for ag in agents:
+        ag_name = ag.get("name") or ag.get("id") or "AI Temsilci"
+        agent_by_name_or_id[ag_name.lower()] = ag
+        if ag.get("id"):
+            agent_by_name_or_id[str(ag.get("id")).lower()] = ag
+        llm_p = (ag.get("llm_provider") or ag.get("provider") or "google").lower()
+        stt_p = (ag.get("stt_provider") or "google").lower()
+        tts_p = (ag.get("tts_provider") or ("elevenlabs" if ag.get("elevenlabs_voice_id") else "google")).lower()
+        roles_per_p = {}
+        for role_label, prov in [("LLM", llm_p), ("STT", stt_p), ("TTS", tts_p)]:
+            if prov in service_keys:
+                roles_per_p.setdefault(prov, []).append(role_label)
+        for prov, r_list in roles_per_p.items():
+            agent_usage_map[prov].append(f"{ag_name} ({', '.join(r_list)})")
+
+    # Initialize live metrics per service
+    stats = {
+        k: {
+            "call_count": 0,
+            "audio_seconds": 0.0,
+            "audio_minutes": 0.0,
+            "transcript_turns": 0,
+            "customer_chars": 0,
+            "ai_chars": 0,
+            "total_chars": 0,
+            "estimated_tokens": 0,
+            "chat_sessions": 0,
+            "chat_messages": 0,
+            "qa_evaluations": 0,
+            "rag_chunks": 0,
+            "today_cost": 0.0,
+            "auto_calculated_cost": 0.0,
+        }
+        for k in service_keys
+    }
+
+    now_utc = datetime.datetime.utcnow()
+    today_start = now_utc - datetime.timedelta(hours=24)
+    oldest_activity = now_utc
+
+    try:
+        # 1. Query Calls and Transcripts
+        if is_global_tenant(target_tenant):
+            calls_stmt = select(Call)
+        elif is_default_tenant(target_tenant):
+            calls_stmt = select(Call).where(or_(Call.tenant_id == None, Call.tenant_id.in_(["tenant-default", "default"])))
+        else:
+            calls_stmt = select(Call).where(Call.tenant_id == target_tenant)
+
+        calls_res = await db.execute(calls_stmt)
+        calls_list = calls_res.scalars().all()
+
+        call_ids = [c.id for c in calls_list if c.id]
+        transcripts_by_call = {}
+        if call_ids:
+            # Fetch transcripts in batches or all if reasonable
+            tr_stmt = select(Transcript).where(Transcript.call_id.in_(call_ids[:5000]))
+            tr_res = await db.execute(tr_stmt)
+            for tr in tr_res.scalars().all():
+                transcripts_by_call.setdefault(tr.call_id, []).append(tr)
+
+        for c in calls_list:
+            if c.start_time and c.start_time < oldest_activity:
+                oldest_activity = c.start_time
+            is_today = bool(c.start_time and c.start_time >= today_start)
+            
+            dur_sec = 0.0
+            if c.start_time and c.end_time and c.end_time >= c.start_time:
+                dur_sec = (c.end_time - c.start_time).total_seconds()
+            elif c.status == "completed":
+                dur_sec = 45.0  # fallback average for completed call without end_time
+
+            trs = transcripts_by_call.get(c.id, [])
+            cust_chars = sum(len(t.text or "") for t in trs if t.speaker == "customer")
+            ai_chars = sum(len(t.text or "") for t in trs if t.speaker == "ai")
+            summary_chars = len(c.summary or "") + len(c.qa_report or "")
+            has_qa = c.qa_score is not None or bool(c.summary)
+
+            # Determine which providers handled this call
+            ag_obj = None
+            if c.agent_name:
+                ag_obj = agent_by_name_or_id.get(c.agent_name.strip().lower())
+            if not ag_obj and agents:
+                ag_obj = agents[0]
+
+            llm_p = (ag_obj.get("llm_provider") or ag_obj.get("provider") or "google").lower() if ag_obj else "google"
+            stt_p = (ag_obj.get("stt_provider") or "google").lower() if ag_obj else "google"
+            tts_p = (ag_obj.get("tts_provider") or ("elevenlabs" if (ag_obj and ag_obj.get("elevenlabs_voice_id")) else "google")).lower() if ag_obj else "google"
+
+            if llm_p not in stats:
+                llm_p = "google"
+            if stt_p not in stats:
+                stt_p = "google"
+            if tts_p not in stats:
+                tts_p = "google"
+
+            # Attribute call count & duration to involved providers
+            for p in set([llm_p, stt_p, tts_p]):
+                stats[p]["call_count"] += 1
+                stats[p]["audio_seconds"] += dur_sec
+
+            stats[stt_p]["customer_chars"] += cust_chars
+            stats[stt_p]["transcript_turns"] += len([t for t in trs if t.speaker == "customer"])
+
+            stats[tts_p]["ai_chars"] += ai_chars
+            stats[tts_p]["transcript_turns"] += len([t for t in trs if t.speaker == "ai"])
+
+            stats[llm_p]["total_chars"] += (cust_chars + ai_chars + summary_chars)
+            if has_qa:
+                stats["google"]["qa_evaluations"] += 1
+
+            # Cost attribution per call
+            # Google Gemini Live / Audio + LLM cost (~$0.022 / min + token/QA overhead)
+            if llm_p == "google" or stt_p == "google":
+                c_cost = (dur_sec / 60.0) * 0.022 + ((cust_chars + ai_chars + summary_chars) / 1000.0) * 0.0015 + (0.004 if has_qa else 0.0)
+                stats["google"]["auto_calculated_cost"] += c_cost
+                if is_today:
+                    stats["google"]["today_cost"] += c_cost
+            elif has_qa:
+                qa_cost = 0.004 + (summary_chars / 1000.0) * 0.001
+                stats["google"]["auto_calculated_cost"] += qa_cost
+                if is_today:
+                    stats["google"]["today_cost"] += qa_cost
+
+            if tts_p == "elevenlabs" or llm_p == "elevenlabs":
+                # ElevenLabs ~$0.18 per 1000 chars or ~$0.09/min conversational AI
+                el_chars = max(ai_chars, int((dur_sec / 60.0) * 450))
+                stats["elevenlabs"]["total_chars"] += el_chars
+                el_cost = (el_chars / 1000.0) * 0.18
+                stats["elevenlabs"]["auto_calculated_cost"] += el_cost
+                if is_today:
+                    stats["elevenlabs"]["today_cost"] += el_cost
+
+            if llm_p == "openai" or stt_p == "openai" or tts_p == "openai":
+                oa_cost = (dur_sec / 60.0) * 0.03 + ((cust_chars + ai_chars) / 1000.0) * 0.005
+                stats["openai"]["auto_calculated_cost"] += oa_cost
+                if is_today:
+                    stats["openai"]["today_cost"] += oa_cost
+
+            if llm_p == "anthropic":
+                an_cost = ((cust_chars + ai_chars) / 1000.0) * 0.008 + (dur_sec / 60.0) * 0.015
+                stats["anthropic"]["auto_calculated_cost"] += an_cost
+                if is_today:
+                    stats["anthropic"]["today_cost"] += an_cost
+
+            if llm_p == "groq":
+                gr_cost = ((cust_chars + ai_chars) / 1000.0) * 0.0012 + (dur_sec / 60.0) * 0.004
+                stats["groq"]["auto_calculated_cost"] += gr_cost
+                if is_today:
+                    stats["groq"]["today_cost"] += gr_cost
+
+            if stt_p == "deepgram":
+                dg_cost = (dur_sec / 60.0) * 0.0059
+                stats["deepgram"]["auto_calculated_cost"] += dg_cost
+                if is_today:
+                    stats["deepgram"]["today_cost"] += dg_cost
+
+        # 2. Query Chat Sessions & Messages (Omnichannel & WhatsApp)
+        if is_global_tenant(target_tenant):
+            chat_stmt = select(ChatSession)
+        elif is_default_tenant(target_tenant):
+            chat_stmt = select(ChatSession).where(or_(ChatSession.tenant_id == None, ChatSession.tenant_id.in_(["tenant-default", "default"])))
+        else:
+            chat_stmt = select(ChatSession).where(ChatSession.tenant_id == target_tenant)
+
+        chat_res = await db.execute(chat_stmt)
+        chat_sessions = chat_res.scalars().all()
+        session_ids = [s.id for s in chat_sessions if s.id]
+        
+        wa_session_ids = set(s.id for s in chat_sessions if (s.channel or "").lower() == "whatsapp")
+        stats["whatsapp"]["chat_sessions"] = len(wa_session_ids)
+        stats["google"]["chat_sessions"] = len(chat_sessions)
+
+        if session_ids:
+            msg_stmt = select(ChatMessage).where(ChatMessage.session_id.in_(session_ids[:5000]))
+            msg_res = await db.execute(msg_stmt)
+            for m in msg_res.scalars().all():
+                m_chars = len(m.text or "")
+                is_msg_today = bool(m.timestamp and m.timestamp >= today_start)
+                if m.session_id in wa_session_ids:
+                    stats["whatsapp"]["chat_messages"] += 1
+                    stats["whatsapp"]["total_chars"] += m_chars
+                    if m.direction == "outbound":
+                        wa_msg_cost = 0.0085  # Meta Business Cloud API utility/service average rate
+                        stats["whatsapp"]["auto_calculated_cost"] += wa_msg_cost
+                        if is_msg_today:
+                            stats["whatsapp"]["today_cost"] += wa_msg_cost
+                if m.sender == "ai":
+                    stats["google"]["chat_messages"] += 1
+                    stats["google"]["total_chars"] += m_chars
+                    ai_msg_cost = 0.0012 + (m_chars / 1000.0) * 0.0008
+                    stats["google"]["auto_calculated_cost"] += ai_msg_cost
+                    if is_msg_today:
+                        stats["google"]["today_cost"] += ai_msg_cost
+
+        # 3. Query RAG Document Chunks (Google Embeddings)
+        if is_global_tenant(target_tenant):
+            rag_stmt = select(func.count(DocumentChunk.id))
+        elif is_default_tenant(target_tenant):
+            rag_stmt = select(func.count(DocumentChunk.id)).where(or_(DocumentChunk.tenant_id == None, DocumentChunk.tenant_id.in_(["tenant-default", "default"])))
+        else:
+            rag_stmt = select(func.count(DocumentChunk.id)).where(DocumentChunk.tenant_id == target_tenant)
+        rag_res = await db.execute(rag_stmt)
+        rag_count = rag_res.scalar() or 0
+        stats["google"]["rag_chunks"] = rag_count
+        stats["google"]["auto_calculated_cost"] += rag_count * 0.0004
+    except Exception as e:
+        print(f"[API Budgets Live Calculation Warning]: {e}")
+
+    active_days = max(1.0, min(30.0, (now_utc - oldest_activity).total_seconds() / 86400.0))
+
+    configured_map = {
+        "google": google_key_present or len(agent_usage_map["google"]) > 0 or stats["google"]["call_count"] > 0,
+        "elevenlabs": elevenlabs_key_present or len(agent_usage_map["elevenlabs"]) > 0 or stats["elevenlabs"]["call_count"] > 0,
+        "openai": openai_key_present or len(agent_usage_map["openai"]) > 0 or stats["openai"]["call_count"] > 0,
+        "anthropic": anthropic_key_present or len(agent_usage_map["anthropic"]) > 0 or stats["anthropic"]["call_count"] > 0,
+        "groq": groq_key_present or len(agent_usage_map["groq"]) > 0 or stats["groq"]["call_count"] > 0,
+        "deepgram": deepgram_key_present or len(agent_usage_map["deepgram"]) > 0 or stats["deepgram"]["call_count"] > 0,
+        "whatsapp": whatsapp_configured or stats["whatsapp"]["chat_sessions"] > 0 or stats["whatsapp"]["chat_messages"] > 0,
+    }
+
+    key_defined_map = {
+        "google": google_key_present,
+        "elevenlabs": elevenlabs_key_present,
+        "openai": openai_key_present,
+        "anthropic": anthropic_key_present,
+        "groq": groq_key_present,
+        "deepgram": deepgram_key_present,
+        "whatsapp": whatsapp_configured,
+    }
+
+    result = {}
+    for k in service_keys:
+        st = stats[k]
+        b = merged_budgets[k]
+        st["audio_minutes"] = round(st["audio_seconds"] / 60.0, 2)
+        total_c = st["total_chars"] or (st["customer_chars"] + st["ai_chars"])
+        st["total_chars"] = total_c
+        st["estimated_tokens"] = int(total_c / 3.8) + (st["call_count"] * 520) + (st["chat_messages"] * 240)
+        
+        auto_cost = round(st["auto_calculated_cost"], 4)
+        # Effective spent credit = auto_calculated_cost + spent_offset (or legacy spent_credit if higher and no offset set)
+        if b.get("manual_spent_set"):
+            effective_spent = max(0.0, round(auto_cost + b["spent_offset"], 4))
+        else:
+            effective_spent = max(round(b["spent_credit"], 4), auto_cost)
+
+        loaded = round(b["loaded_credit"], 2)
+        remaining = max(0.0, round(loaded - effective_spent, 4)) if loaded > 0 else 0.0
+        usage_pct = round((effective_spent / loaded) * 100.0, 1) if loaded > 0 else (100.0 if effective_spent > 0 else 0.0)
+        
+        daily_burn = round(max(st["today_cost"], effective_spent / active_days), 4) if effective_spent > 0 else 0.0
+        est_days_left = int(remaining / daily_burn) if (daily_burn > 0.0001 and loaded > 0) else (999 if loaded > 0 and effective_spent == 0 else 0)
+
+        # Build human-readable service usage breakdown
+        breakdown = []
+        if k == "google":
+            breakdown = [
+                {"label": "Gemini Live Sesli Görüşme", "value": f"{st['call_count']} Çağrı ({st['audio_minutes']} dk)"},
+                {"label": "LLM & Transkript Token", "value": f"{st['estimated_tokens']:,} Token"},
+                {"label": "Omnichannel AI Yanıtları", "value": f"{st['chat_messages']} Mesaj"},
+                {"label": "QA Kalite & Özet Analizi", "value": f"{st['qa_evaluations']} Analiz"},
+                {"label": "RAG Vektör Bilgi Bankası", "value": f"{st['rag_chunks']} Parça (Chunk)"}
+            ]
+        elif k == "elevenlabs":
+            breakdown = [
+                {"label": "Sentezlenen Karakter (TTS)", "value": f"{st['total_chars']:,} Karakter"},
+                {"label": "Sesli AI Görüşme Süresi", "value": f"{st['audio_minutes']} dk ({st['call_count']} Çağrı)"},
+                {"label": "Tahmini Kalan Karakter", "value": f"~{int((remaining / 0.18) * 1000):,} Karakter" if loaded > 0 else "Paket Tanımsız"}
+            ]
+        elif k == "whatsapp":
+            breakdown = [
+                {"label": "WhatsApp Konuşma Oturumu", "value": f"{st['chat_sessions']} Oturum"},
+                {"label": "Toplam Gönderilen/Alınan", "value": f"{st['chat_messages']} Mesaj"},
+                {"label": "Tahmini Mesaj Kapasitesi", "value": f"~{int(remaining / 0.0085):,} Mesaj" if loaded > 0 else "Paket Tanımsız"}
+            ]
+        elif k == "deepgram":
+            breakdown = [
+                {"label": "Nova-2 STT Ses Süresi", "value": f"{st['audio_minutes']} dk ({st['call_count']} Çağrı)"},
+                {"label": "Çözümlenen Konuşma", "value": f"{st['customer_chars']:,} Karakter"},
+                {"label": "Tahmini Kalan Süre", "value": f"~{int(remaining / 0.0059):,} dk" if loaded > 0 else "Paket Tanımsız"}
+            ]
+        else:
+            breakdown = [
+                {"label": "İşlenen Görüşme", "value": f"{st['call_count']} Çağrı ({st['audio_minutes']} dk)"},
+                {"label": "Toplam Token Tüketimi", "value": f"{st['estimated_tokens']:,} Token"},
+                {"label": "İşlenen Metin Hacmi", "value": f"{st['total_chars']:,} Karakter"}
+            ]
+
+        result[k] = {
+            "loaded_credit": loaded,
+            "spent_credit": round(effective_spent, 2),
+            "spent_credit_exact": effective_spent,
+            "auto_calculated_cost": auto_cost,
+            "remaining_credit": round(remaining, 2),
+            "usage_pct": min(100.0, usage_pct),
+            "raw_usage_pct": usage_pct,
+            "alert_threshold": b["alert_threshold"],
+            "configured": configured_map[k],
+            "api_key_defined": key_defined_map[k],
+            "active_agents": agent_usage_map[k],
+            "daily_burn_rate": round(daily_burn, 3),
+            "estimated_days_left": est_days_left,
+            "last_updated": b.get("last_updated"),
+            "metrics": st,
+            "breakdown": breakdown
+        }
+
+    return result
+
 @app.get("/api/settings/api-budgets")
-async def get_api_budgets():
-    return settings_db.get("api_budgets", DEFAULT_SETTINGS["api_budgets"])
+async def get_api_budgets(user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    return await compute_live_api_budgets(db, target_tenant)
 
-class BudgetDataSchema(BaseModel):
-    loaded_credit: float
-    spent_credit: float
+class ServiceBudgetActionSchema(BaseModel):
+    provider: str
+    action: str  # "add_credit", "set_budget", "reset_spent"
+    loaded_credit: Optional[float] = None
+    add_amount: Optional[float] = None
+    spent_credit: Optional[float] = None
+    alert_threshold: Optional[int] = None
 
-class APIBudgetsSchema(BaseModel):
-    openai: BudgetDataSchema
-    anthropic: BudgetDataSchema
-    groq: BudgetDataSchema
-    google: BudgetDataSchema
-    elevenlabs: BudgetDataSchema
-
-@app.post("/api/settings/api-budgets")
-async def save_api_budgets(payload: APIBudgetsSchema):
-    new_budgets = payload.model_dump()
-    current_budgets = settings_db.get("api_budgets", DEFAULT_SETTINGS["api_budgets"])
+@app.post("/api/settings/api-budgets/service")
+async def update_single_service_budget(
+    payload: ServiceBudgetActionSchema,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db)
+):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    live_data = await compute_live_api_budgets(db, target_tenant)
+    prov = payload.provider.lower().strip()
     
-    for provider, data in new_budgets.items():
-        if provider in current_budgets:
-            current_budgets[provider]["loaded_credit"] = data["loaded_credit"]
+    current_budgets = settings_db.get("api_budgets", {})
+    if not isinstance(current_budgets, dict):
+        current_budgets = {}
     
+    for k, v in DEFAULT_SETTINGS["api_budgets"].items():
+        if k not in current_budgets or not isinstance(current_budgets[k], dict):
+            current_budgets[k] = dict(v)
+    if prov not in current_budgets:
+        current_budgets[prov] = {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80}
+
+    auto_cost = live_data.get(prov, {}).get("auto_calculated_cost", 0.0)
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    if payload.action == "add_credit":
+        amt = float(payload.add_amount or 0.0)
+        current_budgets[prov]["loaded_credit"] = round(float(current_budgets[prov].get("loaded_credit", 0.0) or 0.0) + amt, 2)
+    elif payload.action == "set_budget":
+        if payload.loaded_credit is not None:
+            current_budgets[prov]["loaded_credit"] = round(max(0.0, float(payload.loaded_credit)), 2)
+        if payload.spent_credit is not None:
+            desired_spent = max(0.0, float(payload.spent_credit))
+            current_budgets[prov]["spent_credit"] = round(desired_spent, 4)
+            current_budgets[prov]["spent_offset"] = round(desired_spent - auto_cost, 4)
+            current_budgets[prov]["manual_spent_set"] = True
+        if payload.alert_threshold is not None:
+            current_budgets[prov]["alert_threshold"] = max(10, min(100, int(payload.alert_threshold)))
+    elif payload.action == "reset_spent":
+        current_budgets[prov]["spent_credit"] = 0.0
+        current_budgets[prov]["spent_offset"] = round(-auto_cost, 4)
+        current_budgets[prov]["manual_spent_set"] = True
+
+    current_budgets[prov]["last_updated"] = now_str
     settings_db["api_budgets"] = current_budgets
     save_settings(settings_db)
-    return {"status": "success"}
+    add_system_log("API_BUDGET", "INFO", f"{prov.upper()} API bütçesi güncellendi ({payload.action}).")
+    return await compute_live_api_budgets(db, target_tenant)
+
+@app.post("/api/settings/api-budgets")
+async def save_api_budgets(
+    payload: Dict[str, Any] = Body(...),
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db)
+):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    live_data = await compute_live_api_budgets(db, target_tenant)
+    current_budgets = settings_db.get("api_budgets", {})
+    if not isinstance(current_budgets, dict):
+        current_budgets = {}
+
+    for k, v in DEFAULT_SETTINGS["api_budgets"].items():
+        if k not in current_budgets or not isinstance(current_budgets[k], dict):
+            current_budgets[k] = dict(v)
+
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    for provider, data in payload.items():
+        if isinstance(data, dict):
+            if provider not in current_budgets or not isinstance(current_budgets[provider], dict):
+                current_budgets[provider] = {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80}
+            if "loaded_credit" in data and data["loaded_credit"] is not None:
+                current_budgets[provider]["loaded_credit"] = round(float(data["loaded_credit"]), 2)
+            if "alert_threshold" in data and data["alert_threshold"] is not None:
+                current_budgets[provider]["alert_threshold"] = int(data["alert_threshold"])
+            if "spent_credit" in data and data["spent_credit"] is not None and data.get("update_spent"):
+                desired_spent = max(0.0, float(data["spent_credit"]))
+                auto_cost = live_data.get(provider, {}).get("auto_calculated_cost", 0.0)
+                current_budgets[provider]["spent_credit"] = round(desired_spent, 4)
+                current_budgets[provider]["spent_offset"] = round(desired_spent - auto_cost, 4)
+                current_budgets[provider]["manual_spent_set"] = True
+            current_budgets[provider]["last_updated"] = now_str
+
+    settings_db["api_budgets"] = current_budgets
+    save_settings(settings_db)
+    return await compute_live_api_budgets(db, target_tenant)
 
 @app.get("/api/settings/ai-agents")
 async def get_ai_agents(request: Request, user_info: dict = Depends(get_user_info)):

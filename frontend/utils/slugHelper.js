@@ -4,6 +4,7 @@ export const TAB_TURKISH_SLUGS = {
   "wallboard": "canli-wallboard",
   "call-center": "cagri-merkezi",
   "omnichannel": "coklu-kanal",
+  "api-budgets": "api-butce-ve-tuketim",
   "ai-agents": "yapay-zeka-temsilcileri",
   "rag-kb": "bilgi-bankasi",
   "rule-editor": "kural-editoru",

@@ -199,6 +199,16 @@ export default function GlobalSearchBar({
         run: () => navigateTo("dashboard")
       },
       {
+        id: "menu-api-budgets",
+        category: "menu",
+        groupLabel: "Operasyon & İzleme",
+        title: "API Bütçe ve Tüketim Panosu",
+        subtitle: "Yapay zeka ve iletişim servislerinin canlı tüketim, paket bakiyesi ve kritik limit takibi",
+        keywords: "api bütçe tüketim bakiye kredi gemini elevenlabs openai whatsapp paket",
+        icon: Database,
+        run: () => navigateTo("api-budgets")
+      },
+      {
         id: "menu-call-center",
         category: "menu",
         groupLabel: "Temsilci Çağrı Paneli",

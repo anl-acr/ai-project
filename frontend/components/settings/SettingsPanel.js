@@ -23,7 +23,6 @@ import SSLSettings from "./SSLSettings";
 import BackupRestorePanel from "./BackupRestorePanel";
 import RecordingRetentionSettings from "./RecordingRetentionSettings";
 import AIProvidersSettings from "./AIProvidersSettings";
-import APIBudgetSettings from "./APIBudgetSettings";
 import TenantManagementPanel from "./TenantManagementPanel";
 import LicenseSettingsPanel from "./LicenseSettingsPanel";
 import ChangelogPanel from "./ChangelogPanel";
@@ -453,20 +452,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             <span>Yapay Zeka API Ayarları</span>
           </button>
 
-          {hasApiBudgetsPermission && (
-            <button
-              onClick={() => setActiveSubTab("api-budgets")}
-              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
-                activeSubTab === "api-budgets"
-                  ? "bg-emerald-50/50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 border-emerald-100/50 dark:border-emerald-900/30 shadow-sm"
-                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
-              }`}
-            >
-              <Database size={14} className={activeSubTab === "api-budgets" ? "text-emerald-600 dark:text-emerald-400" : ""} />
-              <span>API Bütçe ve Tüketim</span>
-            </button>
-          )}
-
           <button
             onClick={() => setActiveSubTab("tenants")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
@@ -554,9 +539,6 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           )}
           {activeSubTab === "ai-providers" && (
             <AIProvidersSettings backendHost={backendHost} />
-          )}
-          {activeSubTab === "api-budgets" && (
-            <APIBudgetSettings backendHost={backendHost} />
           )}
           {activeSubTab === "tenants" && (
             <TenantManagementPanel backendHost={backendHost} />

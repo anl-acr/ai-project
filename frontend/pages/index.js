@@ -114,6 +114,7 @@ import Login from "../components/auth/Login";
 import TenantSwitcher from "../components/TenantSwitcher";
 import LicenseModal from "../components/modals/LicenseModal";
 import GlobalSearchBar from "../components/common/GlobalSearchBar";
+import APIBudgetSettings from "../components/settings/APIBudgetSettings";
 
 const SUPER_ADMIN = {
   id: 9999,
@@ -1369,6 +1370,21 @@ export default function Home() {
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Ortak Gelen Kutusu</span>
                 </button>
               )}
+
+              <button
+                onClick={() => setActiveTab("api-budgets")}
+                title="API Bütçe ve Tüketim"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "api-budgets"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Database size={16} className={`shrink-0 ${activeTab === "api-budgets" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>API Bütçe ve Tüketim</span>
+              </button>
             </div>
           </div>
 
@@ -2774,6 +2790,10 @@ export default function Home() {
 
           {activeTab === "wallboard" && (
             <WallboardPanel backendHost={backendHost} />
+          )}
+
+          {activeTab === "api-budgets" && (
+            <APIBudgetSettings backendHost={backendHost} />
           )}
 
           {activeTab === "system-status" && (
