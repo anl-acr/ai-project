@@ -20,7 +20,8 @@ import {
   ShieldAlert,
   Bot,
   X,
-  Check
+  Check,
+  Calendar
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
@@ -29,19 +30,19 @@ const PROVIDERS_META = [
     key: "google",
     name: "Google Gemini (Live Ses, LLM, STT & TTS)",
     shortName: "Google Gemini",
-    desc: "Gemini Multimodal Live sesli asistan, çağrı özetleme, duygu analizi, QA kalite kontrol ve RAG vektör indeksleme.",
+    desc: "Gemini 2.0/2.5 Flash Multimodal Live sesli asistan, çağrı özetleme, duygu analizi ve QA kalite kontrol.",
     icon: Sparkles,
     category: "Ana Yapay Zeka & Ses Motoru",
-    unitHint: "~$0.022 / dk ses + ~$0.35 / 1M token"
+    unitHint: "~$0.0022 / dk ses • $0.10 / 1M giriş token"
   },
   {
     key: "elevenlabs",
     name: "ElevenLabs (Conversational AI & Premium TTS)",
     shortName: "ElevenLabs TTS",
-    desc: "Ultra-gerçekçi Türkçe ses sentezi (Text-to-Speech), klonlanmış kurumsal sesler ve akıcı diyalog seslendirmesi.",
+    desc: "Ultra-gerçekçi Türkçe ses sentezi (Text-to-Speech), klonlanmış kurumsal sesler ve canlı karakter kotası takibi.",
     icon: Volume2,
     category: "Premium Ses Sentezi (TTS)",
-    unitHint: "~$0.18 / 1.000 karakter (~$0.09 / dk)"
+    unitHint: "Canlı API Kotası • ~$0.165 / 1.000 karakter"
   },
   {
     key: "whatsapp",
@@ -50,16 +51,16 @@ const PROVIDERS_META = [
     desc: "WhatsApp kurumsal mesajlaşma, kaçan çağrı otomatik yanıtlayıcı, etkileşimli menüler ve toplu kampanya gönderimleri.",
     icon: MessageSquare,
     category: "Omnichannel Mesajlaşma",
-    unitHint: "~$0.0085 / giden oturum mesajı"
+    unitHint: "24s Servis Yanıtı: $0.00 (Ücretsiz)"
   },
   {
     key: "openai",
-    name: "OpenAI (GPT-4o, Whisper STT & TTS)",
+    name: "OpenAI (GPT-4o / Mini, Whisper STT & TTS)",
     shortName: "OpenAI GPT-4o",
     desc: "GPT-4o dil modelleri, Whisper konuşma tanıma (STT) ve alternatif sesli asistan entegrasyonu.",
     icon: Bot,
     category: "Alternatif LLM & STT",
-    unitHint: "~$0.03 / dk + ~$2.50 / 1M token"
+    unitHint: "~$0.15 / 1M giriş token • $0.006 / dk STT"
   },
   {
     key: "anthropic",
@@ -68,7 +69,7 @@ const PROVIDERS_META = [
     desc: "İleri düzey mantıksal akıl yürütme, karmaşık senaryo yönetimi ve kurumsal metin analitiği.",
     icon: Cpu,
     category: "Alternatif LLM",
-    unitHint: "~$3.00 / 1M token"
+    unitHint: "~$0.80 / 1M giriş token"
   },
   {
     key: "groq",
@@ -86,12 +87,12 @@ const PROVIDERS_META = [
     desc: "Yüksek doğruluklu ve düşük gecikmeli gerçek zamanlı Türkçe ses-metin (Speech-to-Text) dönüştürme servisi.",
     icon: Mic,
     category: "Konuşma Tanıma (STT)",
-    unitHint: "~$0.0059 / dk ses"
+    unitHint: "~$0.0043 / dk ses"
   }
 ];
 
 export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
-  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
 
   const [budgets, setBudgets] = useState({});
   const [loading, setLoading] = useState(true);
@@ -102,12 +103,15 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
 
   // Modal states
   const [addModalProvider, setAddModalProvider] = useState(null);
-  const [addAmount, setAddAmount] = useState("25");
+  const [addAmount, setAddAmount] = useState("10");
+  const [addMode, setAddMode] = useState("new_topup"); // "new_topup" (reset period from now) | "add_credit" (append to current)
+  const [addInitialSpent, setAddInitialSpent] = useState("0");
 
   const [editModalProvider, setEditModalProvider] = useState(null);
   const [editLoadedCredit, setEditLoadedCredit] = useState("0");
   const [editSpentCredit, setEditSpentCredit] = useState("0");
   const [editAlertThreshold, setEditAlertThreshold] = useState(80);
+  const [editResetPeriod, setEditResetPeriod] = useState(false);
 
   const [resetConfirmProvider, setResetConfirmProvider] = useState(null);
 
@@ -116,7 +120,7 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
 
   const showToast = (type, message) => {
     setStatusMsg({ type, text: message });
-    setTimeout(() => setStatusMsg(null), 4000);
+    setTimeout(() => setStatusMsg(null), 4500);
   };
 
   const fetchBudgets = async (silent = false) => {
@@ -189,27 +193,37 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
       const b = budgets[meta.key] || {};
       const loaded = Number(b.loaded_credit || 0);
       const spentExact = Number(b.spent_credit_exact ?? b.spent_credit ?? 0);
-      const spent = Number(b.spent_credit ?? 0);
+      const allTimeCost = Number(b.all_time_cost ?? spentExact);
       const remaining = loaded > 0 ? Math.max(0, loaded - spentExact) : 0;
       const threshold = Number(b.alert_threshold || 80);
-      const rawPct = loaded > 0 ? (spentExact / loaded) * 100 : spentExact > 0 ? 100 : 0;
+      const liveQuota = b.live_quota || null;
+
+      let rawPct = loaded > 0 ? (spentExact / loaded) * 100 : 0;
+      if (loaded <= 0 && liveQuota && liveQuota.limit > 0) {
+        rawPct = Number(liveQuota.pct || 0);
+      }
       const usagePct = Math.min(100, Math.round(rawPct * 10) / 10);
 
-      const isDepleted = loaded > 0 && remaining <= 0.001;
-      const isCritical = loaded > 0 && !isDepleted && rawPct >= threshold;
-      const isUnbudgetedUsage = loaded <= 0 && spentExact > 0;
+      const isQuotaDepleted = Boolean(liveQuota && liveQuota.limit > 0 && liveQuota.remaining <= 0);
+      const isDepleted = (loaded > 0 && remaining <= 0.0001) || isQuotaDepleted;
+      const isCritical =
+        !isDepleted &&
+        ((loaded > 0 && rawPct >= threshold) ||
+          Boolean(liveQuota && liveQuota.limit > 0 && liveQuota.pct >= threshold));
+      const isUnbudgetedUsage = loaded <= 0 && !liveQuota && spentExact > 0;
       const isActive =
         Boolean(b.configured) ||
         Boolean(b.api_key_defined) ||
         loaded > 0 ||
         spentExact > 0 ||
+        allTimeCost > 0 ||
         (b.active_agents && b.active_agents.length > 0);
 
       return {
         ...meta,
         loaded,
-        spent,
         spentExact,
+        allTimeCost,
         remaining,
         threshold,
         rawPct,
@@ -218,12 +232,16 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
         isCritical,
         isUnbudgetedUsage,
         isActive,
+        userConfigured: Boolean(b.user_configured),
+        lastTopupAt: b.last_topup_at || null,
+        lastTopupDisplay: b.last_topup_display || null,
         configured: Boolean(b.configured),
         apiKeyDefined: Boolean(b.api_key_defined),
         activeAgents: Array.isArray(b.active_agents) ? b.active_agents : [],
         dailyBurnRate: Number(b.daily_burn_rate || 0),
         estimatedDaysLeft: Number(b.estimated_days_left ?? 999),
         lastUpdated: b.last_updated || null,
+        liveQuota,
         metrics: b.metrics || {},
         breakdown: Array.isArray(b.breakdown) ? b.breakdown : []
       };
@@ -254,7 +272,7 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
 
       if (p.isDepleted) {
         depletedServices.push(p);
-      } else if (p.isCritical || p.isUnbudgetedUsage) {
+      } else if (p.isCritical) {
         criticalServices.push(p);
       }
     });
@@ -287,37 +305,70 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
     return enrichedProviders;
   }, [enrichedProviders, filterMode]);
 
+  const formatSpendDisplay = (exactVal) => {
+    const num = Number(exactVal || 0);
+    if (num === 0) return "$0.0000";
+    if (num < 1) return `$${num.toFixed(4)}`;
+    return `$${num.toFixed(3)}`;
+  };
+
+  const formatBalanceDisplay = (loadedVal, remVal, spentVal) => {
+    const ld = Number(loadedVal || 0);
+    const rem = Number(remVal || 0);
+    const sp = Number(spentVal || 0);
+    if (ld <= 0) return "$0.00";
+    if (sp > 0 && sp < 0.05) return `$${rem.toFixed(4)}`;
+    return `$${rem.toFixed(2)}`;
+  };
+
   const handleOpenAddModal = (prov) => {
     setAddModalProvider(prov);
-    setAddAmount("25");
+    setAddAmount(prov.loaded > 0 ? String(prov.loaded) : "10");
+    setAddMode("new_topup");
+    setAddInitialSpent("0");
   };
 
   const handleConfirmAddCredit = async () => {
     if (!addModalProvider) return;
     const val = parseFloat(addAmount);
+    const initSpentVal = parseFloat(addInitialSpent || "0");
     if (isNaN(val) || val <= 0) {
-      showToast("error", "Lütfen geçerli bir yükleme tutarı girin.");
+      showToast("error", "Lütfen geçerli bir paket / ücret yükleme tutarı girin.");
       return;
     }
     setSaving(true);
     try {
       const protocol = getProtocol();
+      const isNewTopup = addMode === "new_topup";
       const res = await fetch(`${protocol}//${backendHost}/api/settings/api-budgets/service`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           provider: addModalProvider.key,
-          action: "add_credit",
-          add_amount: val
+          action: isNewTopup ? "new_topup" : "add_credit",
+          add_amount: val,
+          loaded_credit: val,
+          spent_credit: isNewTopup ? (isNaN(initSpentVal) ? 0 : initSpentVal) : undefined,
+          reset_period: isNewTopup
         })
       });
       if (res.ok) {
         const updated = await res.json();
         setBudgets(updated);
-        showToast("success", `${addModalProvider.shortName} paketine +$${val.toFixed(2)} bakiye eklendi.`);
+        if (isNewTopup) {
+          showToast(
+            "success",
+            `${addModalProvider.shortName} için $${val.toFixed(2)} yeni ücret yüklemesi kaydedildi. Bundan sonraki tüketimler bu paketten düşülecek.`
+          );
+        } else {
+          showToast(
+            "success",
+            `${addModalProvider.shortName} mevcut paketine +$${val.toFixed(2)} ek bakiye eklendi.`
+          );
+        }
         setAddModalProvider(null);
       } else {
-        showToast("error", "Bakiye eklenirken bir hata oluştu.");
+        showToast("error", "Ücret yüklemesi kaydedilirken bir hata oluştu.");
       }
     } catch (err) {
       showToast("error", "Sunucu bağlantı hatası.");
@@ -329,8 +380,9 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
   const handleOpenEditModal = (prov) => {
     setEditModalProvider(prov);
     setEditLoadedCredit(String(prov.loaded.toFixed(2)));
-    setEditSpentCredit(String(prov.spentExact.toFixed(2)));
+    setEditSpentCredit(String(prov.spentExact.toFixed(4)));
     setEditAlertThreshold(prov.threshold || 80);
+    setEditResetPeriod(false);
   };
 
   const handleConfirmEditBudget = async () => {
@@ -352,13 +404,14 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
           action: "set_budget",
           loaded_credit: loadedVal,
           spent_credit: spentVal,
-          alert_threshold: Number(editAlertThreshold)
+          alert_threshold: Number(editAlertThreshold),
+          reset_period: editResetPeriod
         })
       });
       if (res.ok) {
         const updated = await res.json();
         setBudgets(updated);
-        showToast("success", `${editModalProvider.shortName} paket bütçesi ve alarm eşiği güncellendi.`);
+        showToast("success", `${editModalProvider.shortName} paket bütçesi ve tüketim referansı güncellendi.`);
         setEditModalProvider(null);
       } else {
         showToast("error", "Bütçe güncellenemedi.");
@@ -386,7 +439,10 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
       if (res.ok) {
         const updated = await res.json();
         setBudgets(updated);
-        showToast("success", `${resetConfirmProvider.shortName} dönem tüketimi $0.00 olarak sıfırlandı.`);
+        showToast(
+          "success",
+          `${resetConfirmProvider.shortName} yükleme sonrası tüketim sayacı şu andan itibaren $0.0000 olarak sıfırlandı.`
+        );
         setResetConfirmProvider(null);
       } else {
         showToast("error", "Tüketim sıfırlanamadı.");
@@ -398,19 +454,12 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
     }
   };
 
-  const formatSpendDisplay = (exactVal) => {
-    const num = Number(exactVal || 0);
-    if (num === 0) return "$0.00";
-    if (num < 0.01) return `$${num.toFixed(4)}`;
-    return `$${num.toFixed(2)}`;
-  };
-
   if (loading) {
     return (
       <div className="p-12 flex flex-col items-center justify-center gap-3 text-slate-400">
         <div className={`w-8 h-8 border-4 ${border} border-t-transparent rounded-full animate-spin`} />
         <span className="text-xs font-bold uppercase tracking-wider">
-          Servis Tüketim Verileri ve Paket Bakiyeleri Hesaplanıyor...
+          Gerçek AI Tüketim Verileri ve Canlı Platform Kotaları Hesaplanıyor...
         </span>
       </div>
     );
@@ -429,11 +478,11 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
               <h2 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
                 API Bütçe ve Servis Tüketim Panosu
                 <span className="px-2.5 py-0.5 text-[10px] font-extrabold uppercase tracking-wider rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                  Canlı Takip
+                  Gerçek Birim Fiyat & Yükleme Sonrası Takip
                 </span>
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                Hangi yapay zeka ve iletişim servisini ne kadar kullandığınızı, kalan paket bakiyelerinizi ve kritik tükenme uyarılarını anlık takip edin.
+                Her serviste <strong>son ücret yükleme işleminizden sonra</strong> gerçekleşen gerçek AI konuşma/token harcamalarını ve kalan bakiyenizi takip edin.
               </p>
             </div>
           </div>
@@ -535,27 +584,23 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                 }`}
               >
                 {summary.depletedServices.length > 0
-                  ? "KRİTİK UYARI: Paket Bakiyesi Tükenen Servisler Var — Sistem Durmadan Önlem Alın!"
+                  ? "KRİTİK UYARI: Paket Bakiyesi veya Kotası Tükenen Servisler Var — Sistem Durmadan Önlem Alın!"
                   : "DİKKAT: Kritik Tüketim Eşiğine Ulaşan Servisleriniz Var"}
               </h4>
               <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 leading-relaxed">
                 {summary.depletedServices.length > 0 && (
                   <span className="font-bold text-rose-700 dark:text-rose-400 mr-2">
-                    Paketi Bitenler:{" "}
-                    {summary.depletedServices.map((s) => `${s.shortName} (Kalan: $0.00)`).join(", ")}.
+                    Paketi / Kotası Bitenler:{" "}
+                    {summary.depletedServices.map((s) => s.shortName).join(", ")}.
                   </span>
                 )}
                 {summary.criticalServices.length > 0 && (
                   <span>
-                    Dikkat Gerektirenler:{" "}
+                    Kritik Eşiktekiler:{" "}
                     {summary.criticalServices
-                      .map((s) =>
-                        s.isUnbudgetedUsage
-                          ? `${s.shortName} (Paket Tanımsız - Harcanan: ${formatSpendDisplay(s.spentExact)})`
-                          : `${s.shortName} (%${s.usagePct} kullanıldı)`
-                      )
+                      .map((s) => `${s.shortName} (%${s.usagePct} kullanıldı)`)
                       .join(", ")}
-                    . Çağrı ve mesajlaşma trafiğinin kesintiye uğramaması için ilgili servislere bakiye yüklemesi yapabilirsiniz.
+                    . Token/kredi tükenip sesli asistan durmadan önce ilgili platformdan yükleme yapıp <strong>+</strong> butonuyla yeni yüklemenizi tanımlayabilirsiniz.
                   </span>
                 )}
               </p>
@@ -566,17 +611,19 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
 
       {/* Top 4 KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        {/* Card 1: Toplam Yüklenen Paket Bütçesi */}
+        {/* Card 1: Tanımlanan Paket Bütçesi */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm flex items-center justify-between">
           <div>
             <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
-              Toplam Paket Bütçesi
+              Tanımlı Paket Bütçesi
             </span>
             <div className="text-2xl font-black text-slate-900 dark:text-white mt-1">
               ${summary.totalLoaded.toFixed(2)}
             </div>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
-              {enrichedProviders.filter((p) => p.loaded > 0).length} serviste paket tanımlı
+              {enrichedProviders.filter((p) => p.loaded > 0).length > 0
+                ? `${enrichedProviders.filter((p) => p.loaded > 0).length} serviste yükleme tanımlı`
+                : "Kartlardaki (+) butonuyla yüklediğiniz ücreti girin"}
             </span>
           </div>
           <div className={`p-3.5 rounded-2xl ${lightBg} ${text} border ${borderLight}`}>
@@ -584,17 +631,17 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
           </div>
         </div>
 
-        {/* Card 2: Toplam Harcanan Tutar */}
+        {/* Card 2: Son Yükleme Sonrası Harcanan */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm flex items-center justify-between">
           <div>
             <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
-              Toplam Harcanan Tüketim
+              Yükleme Sonrası Harcanan
             </span>
             <div className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">
               {formatSpendDisplay(summary.totalSpent)}
             </div>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
-              Günlük Ort. ~${summary.totalDailyBurn.toFixed(3)} / gün
+              Günlük Ort. ~{formatSpendDisplay(summary.totalDailyBurn)} / gün
             </span>
           </div>
           <div className="p-3.5 bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 rounded-2xl border border-rose-200/50 dark:border-rose-800/40">
@@ -602,35 +649,37 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
           </div>
         </div>
 
-        {/* Card 3: Kalan Toplam Bakiye */}
+        {/* Card 3: Kalan Kullanılabilir Bakiye */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm flex items-center justify-between">
           <div>
             <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
               Kalan Kullanılabilir Bakiye
             </span>
             <div className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
-              ${summary.totalRemaining.toFixed(2)}
+              {formatBalanceDisplay(summary.totalLoaded, summary.totalRemaining, summary.totalSpent)}
             </div>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
-              Genel Bütçe Kullanımı: %{summary.overallPct}
+              {summary.totalLoaded > 0
+                ? `Genel Paket Kullanımı: %${summary.overallPct}`
+                : "Bakiye takibi için yükleme tutarı tanımlayın"}
             </span>
           </div>
-          <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-2xl border border-emerald-200/50 dark:border-emerald-800/40">
+          <div className="p-3.5 bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 rounded-2xl border border-emerald-200/50 dark:border-rose-800/40">
             <DollarSign size={22} />
           </div>
         </div>
 
-        {/* Card 4: Toplam İşlenen Ses & Token Hacmi */}
+        {/* Card 4: Yükleme Sonrası İşlenen AI Trafiği */}
         <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm flex items-center justify-between">
           <div>
             <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider block">
-              Toplam İşlenen AI Trafiği
+              Yükleme Sonrası AI Trafiği
             </span>
             <div className="text-xl font-black text-slate-900 dark:text-white mt-1">
-              {summary.totalCalls} Çağrı ({summary.totalAudioMinutes.toFixed(1)} dk)
+              {summary.totalCalls} AI Çağrısı ({summary.totalAudioMinutes.toFixed(1)} dk)
             </div>
             <span className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 block">
-              ~{summary.totalTokens.toLocaleString("tr-TR")} Toplam Token
+              ~{summary.totalTokens.toLocaleString("tr-TR")} Harcanan Token
             </span>
           </div>
           <div className={`p-3.5 rounded-2xl ${lightBg} ${text} border ${borderLight}`}>
@@ -645,12 +694,12 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
           const IconComponent = prov.icon || Database;
 
           let statusBadge = {
-            label: "Normal • Paket Aktif",
+            label: "Paket Aktif • Takip Ediliyor",
             cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
           };
           if (prov.isDepleted) {
             statusBadge = {
-              label: "PAKET BİTTİ! ACİL YÜKLEME GEREKLİ",
+              label: "PAKET / KOTA BİTTİ! ACİL YÜKLEME GEREKLİ",
               cls: "bg-rose-600 text-white border-rose-600 animate-pulse"
             };
           } else if (prov.isCritical) {
@@ -658,9 +707,14 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
               label: `KRİTİK SEVİYE (%${prov.usagePct} DOLDU)`,
               cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
             };
-          } else if (prov.isUnbudgetedUsage) {
+          } else if (prov.loaded === 0 && prov.liveQuota) {
             statusBadge = {
-              label: "AÇIK TÜKETİM (PAKET LİMİTİ TANIMSIZ)",
+              label: `Canlı API Kotası Aktif (%${prov.liveQuota.pct})`,
+              cls: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+            };
+          } else if (prov.loaded === 0 && prov.spentExact > 0) {
+            statusBadge = {
+              label: "Ücret Yüklemesi Tanımlanmadı (Sadece Tüketim İzleniyor)",
               cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
             };
           } else if (prov.loaded === 0 && prov.spentExact === 0) {
@@ -738,22 +792,20 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                         <span className="hidden sm:inline">Düzenle</span>
                       </button>
 
-                      {prov.spentExact > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => setResetConfirmProvider(prov)}
-                          title="Dönem Tüketimini Sıfırla ($0.00)"
-                          className="h-8 w-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 flex items-center justify-center transition-all"
-                        >
-                          <RotateCcw size={14} />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={() => setResetConfirmProvider(prov)}
+                        title="Son Yükleme Sonrası Tüketim Sayacını Şu Andan İtibaren Sıfırla ($0.0000)"
+                        className="h-8 w-8 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 hover:bg-rose-50 dark:hover:bg-rose-950/30 text-slate-500 hover:text-rose-600 dark:text-slate-400 dark:hover:text-rose-400 flex items-center justify-center transition-all"
+                      >
+                        <RotateCcw size={14} />
+                      </button>
 
                       {/* Unified Add Button Rule: bg-rose-600 hover:bg-rose-500 rounded-xl h-8 w-8 */}
                       <button
                         type="button"
                         onClick={() => handleOpenAddModal(prov)}
-                        title={`${prov.shortName} İçin Bakiye / Paket Yükle`}
+                        title={`${prov.shortName} İçin Yeni Ücret / Paket Yüklemesi Gir`}
                         className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 shadow-sm transition-all"
                       >
                         <Plus size={16} />
@@ -762,11 +814,33 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                   )}
                 </div>
 
+                {/* Last Top-Up Timestamp Bar */}
+                <div className="px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800/80 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                  <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-300 font-semibold">
+                    <Calendar size={13} className={text} />
+                    <span>Son Ücret Yükleme Tarihi:</span>
+                    {prov.lastTopupDisplay ? (
+                      <strong className="text-slate-900 dark:text-white font-extrabold">
+                        {prov.lastTopupDisplay}
+                      </strong>
+                    ) : (
+                      <span className="text-amber-600 dark:text-amber-400 font-bold">
+                        Henüz Girilmedi ( Sağ üstteki &quot;+&quot; butonuyla yüklediğiniz tutarı tanımlayın )
+                      </span>
+                    )}
+                  </div>
+                  {prov.lastTopupDisplay && (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                      Sadece bu tarihten sonraki kullanım düşülür
+                    </span>
+                  )}
+                </div>
+
                 {/* Financial Numbers Box */}
                 <div className="grid grid-cols-3 gap-2.5 p-3.5 bg-slate-50/90 dark:bg-slate-950/50 rounded-2xl border border-slate-200/60 dark:border-slate-800/80">
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">
-                      Paket Bütçesi
+                      Yüklenen Paket
                     </span>
                     <span className="text-base font-black text-slate-800 dark:text-slate-100 mt-0.5 block">
                       ${prov.loaded.toFixed(2)}
@@ -774,11 +848,11 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                   </div>
                   <div>
                     <span className="text-[10px] font-bold text-slate-400 uppercase block">
-                      Kullanılan Tutar
+                      Yükleme Sonrası Harcanan
                     </span>
                     <span
                       className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5 block"
-                      title={`Tam Tüketim: $${prov.spentExact.toFixed(4)}`}
+                      title={`Hassas Tüketim: $${prov.spentExact.toFixed(6)}`}
                     >
                       {formatSpendDisplay(prov.spentExact)}
                     </span>
@@ -794,10 +868,35 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                           : "text-emerald-600 dark:text-emerald-400"
                       }`}
                     >
-                      ${prov.remaining.toFixed(2)}
+                      {prov.loaded > 0
+                        ? formatBalanceDisplay(prov.loaded, prov.remaining, prov.spentExact)
+                        : prov.liveQuota
+                        ? `${prov.liveQuota.remaining.toLocaleString("tr-TR")} Krk`
+                        : "$0.00"}
                     </span>
                   </div>
                 </div>
+
+                {/* Live Provider Quota Box (e.g. ElevenLabs Real-Time Subscription API) */}
+                {prov.liveQuota && (
+                  <div className="p-3 rounded-2xl bg-emerald-50/60 dark:bg-emerald-950/20 border border-emerald-200/70 dark:border-emerald-800/50 space-y-1.5">
+                    <div className="flex items-center justify-between text-[11px] font-extrabold text-emerald-800 dark:text-emerald-300">
+                      <span>
+                        Canlı ElevenLabs Hesap Kotası ({prov.liveQuota.tier.toUpperCase()} Paketi)
+                      </span>
+                      <span>
+                        {prov.liveQuota.used.toLocaleString("tr-TR")} /{" "}
+                        {prov.liveQuota.limit.toLocaleString("tr-TR")} Karakter (%{prov.liveQuota.pct})
+                      </span>
+                    </div>
+                    <div className="text-[10px] text-emerald-700 dark:text-emerald-400 flex items-center justify-between">
+                      <span>API Anahtarınızdan Canlı Sorgulandı</span>
+                      <span className="font-bold">
+                        Kalan: {prov.liveQuota.remaining.toLocaleString("tr-TR")} Karakter
+                      </span>
+                    </div>
+                  </div>
+                )}
 
                 {/* Progress Bar & Depletion Forecast */}
                 <div className="space-y-1.5">
@@ -812,14 +911,16 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                       {(prov.isDepleted || prov.isCritical) && <AlertCircle size={13} />}
                       {prov.loaded > 0
                         ? `Paket Tüketim Oranı: %${prov.usagePct} (Uyarı Eşiği: %${prov.threshold})`
+                        : prov.liveQuota
+                        ? `Canlı Karakter Kotası Tüketimi: %${prov.liveQuota.pct}`
                         : prov.spentExact > 0
-                        ? `Paket Bütçesi Tanımlanmadı • Açık Tüketim: ${formatSpendDisplay(prov.spentExact)}`
-                        : "Paket Bütçesi Tanımlanmadı"}
+                        ? `Yükleme Sonrası Tüketim: ${formatSpendDisplay(prov.spentExact)}`
+                        : "Yükleme Bekleniyor"}
                     </span>
                     <span className="text-slate-500 dark:text-slate-400 flex items-center gap-1">
                       <Clock size={12} />
-                      {prov.loaded > 0 && prov.isDepleted
-                        ? "Bakiye Tükendi (0 Gün)"
+                      {prov.isDepleted
+                        ? "Paket / Kota Tükendi!"
                         : prov.loaded > 0 && prov.estimatedDaysLeft < 999
                         ? `Tahmini ~${prov.estimatedDaysLeft} Gün Yeterli`
                         : prov.dailyBurnRate > 0
@@ -844,7 +945,7 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                 {/* Detailed Service Usage Breakdown */}
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
                   <div className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
-                    Detaylı Servis Kullanım Dökümü
+                    Detaylı Servis Kullanım Dökümü (Gerçek Ölçüm)
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     {prov.breakdown.map((item, idx) => (
@@ -905,10 +1006,10 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
         <div className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
           <div>
             <h3 className="text-sm font-extrabold text-slate-900 dark:text-white">
-              Tüm Servislerin Karşılaştırmalı Tüketim ve Kapasite Özeti
+              Tüm Servislerin Yükleme Sonrası Tüketim ve Kapasite Özeti
             </h3>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Servis bazında çağrı, ses dakikası, token/mesaj hacmi ve paket yeterlilik süreleri
+              Sadece yapay zekanın konuştuğu gerçek çağrılar ve resmi platform birim fiyatları baz alınmaktadır
             </p>
           </div>
         </div>
@@ -917,13 +1018,13 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
             <thead>
               <tr className="border-b border-slate-100 dark:border-slate-800 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-950/40">
                 <th className="py-3 px-5">Servis / Sağlayıcı</th>
-                <th className="py-3 px-4">Durum</th>
-                <th className="py-3 px-4">Görüşme / Süre</th>
+                <th className="py-3 px-4">Son Yükleme Tarihi</th>
+                <th className="py-3 px-4">Yükleme Sonrası Görüşme</th>
                 <th className="py-3 px-4">Token / Karakter / Mesaj</th>
                 <th className="py-3 px-4">Yüklenen Paket</th>
-                <th className="py-3 px-4">Harcanan</th>
-                <th className="py-3 px-4">Kalan Bakiye</th>
-                <th className="py-3 px-5 text-right">Tahmini Süre</th>
+                <th className="py-3 px-4">Yükleme Sonrası Harcanan</th>
+                <th className="py-3 px-4">Kalan Bakiye / Kota</th>
+                <th className="py-3 px-5 text-right">Durum</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70 text-xs">
@@ -938,7 +1039,37 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                       {p.category}
                     </span>
                   </td>
-                  <td className="py-3.5 px-4">
+                  <td className="py-3.5 px-4 text-[11px] text-slate-600 dark:text-slate-400 font-medium">
+                    {p.lastTopupDisplay || "Tanımlanmadı"}
+                  </td>
+                  <td className="py-3.5 px-4 font-semibold text-slate-700 dark:text-slate-300">
+                    {p.key === "whatsapp"
+                      ? `${p.metrics.chat_sessions || 0} Oturum`
+                      : `${p.metrics.call_count || 0} AI Çağrı (${p.metrics.audio_minutes || 0} dk)`}
+                  </td>
+                  <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400">
+                    {p.key === "whatsapp"
+                      ? `${p.metrics.chat_messages || 0} Mesaj`
+                      : p.key === "elevenlabs"
+                      ? p.liveQuota
+                        ? `${p.liveQuota.used.toLocaleString("tr-TR")} / ${p.liveQuota.limit.toLocaleString("tr-TR")} Krk`
+                        : `${(p.metrics.total_chars || 0).toLocaleString("tr-TR")} Karakter`
+                      : `${(p.metrics.estimated_tokens || 0).toLocaleString("tr-TR")} Token`}
+                  </td>
+                  <td className="py-3.5 px-4 font-bold text-slate-800 dark:text-slate-200">
+                    ${p.loaded.toFixed(2)}
+                  </td>
+                  <td className="py-3.5 px-4 font-bold text-rose-600 dark:text-rose-400">
+                    {formatSpendDisplay(p.spentExact)}
+                  </td>
+                  <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400">
+                    {p.loaded > 0
+                      ? formatBalanceDisplay(p.loaded, p.remaining, p.spentExact)
+                      : p.liveQuota
+                      ? `${p.liveQuota.remaining.toLocaleString("tr-TR")} Krk`
+                      : "$0.00"}
+                  </td>
+                  <td className="py-3.5 px-5 text-right">
                     {p.isDepleted ? (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-600 text-white">
                         Paket Bitti
@@ -957,36 +1088,6 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                       </span>
                     )}
                   </td>
-                  <td className="py-3.5 px-4 font-semibold text-slate-700 dark:text-slate-300">
-                    {p.key === "whatsapp"
-                      ? `${p.metrics.chat_sessions || 0} Oturum`
-                      : `${p.metrics.call_count || 0} Çağrı (${p.metrics.audio_minutes || 0} dk)`}
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600 dark:text-slate-400">
-                    {p.key === "whatsapp"
-                      ? `${p.metrics.chat_messages || 0} Mesaj`
-                      : p.key === "elevenlabs"
-                      ? `${(p.metrics.total_chars || 0).toLocaleString("tr-TR")} Karakter`
-                      : `${(p.metrics.estimated_tokens || 0).toLocaleString("tr-TR")} Token`}
-                  </td>
-                  <td className="py-3.5 px-4 font-bold text-slate-800 dark:text-slate-200">
-                    ${p.loaded.toFixed(2)}
-                  </td>
-                  <td className="py-3.5 px-4 font-bold text-rose-600 dark:text-rose-400">
-                    {formatSpendDisplay(p.spentExact)}
-                  </td>
-                  <td className="py-3.5 px-4 font-bold text-emerald-600 dark:text-emerald-400">
-                    ${p.remaining.toFixed(2)}
-                  </td>
-                  <td className="py-3.5 px-5 text-right font-bold text-slate-600 dark:text-slate-300">
-                    {p.loaded > 0 && p.isDepleted
-                      ? "Tükendi (0 Gün)"
-                      : p.loaded > 0 && p.estimatedDaysLeft < 999
-                      ? `~${p.estimatedDaysLeft} Gün`
-                      : p.loaded > 0
-                      ? "Yeterli"
-                      : "-"}
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -994,7 +1095,7 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
         </div>
       </div>
 
-      {/* MODAL 1: Quick Add Credit (+ Bakiye Yükle) */}
+      {/* MODAL 1: Quick Add Credit (+ Ücret / Paket Yükle) */}
       {addModalProvider && (
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
           <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-150">
@@ -1005,11 +1106,10 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                 </div>
                 <div>
                   <h4 className="text-sm font-extrabold text-slate-900 dark:text-white">
-                    {addModalProvider.shortName} — Bakiye Yükle
+                    {addModalProvider.shortName} — Ücret / Paket Yüklemesi
                   </h4>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Mevcut Paket Bütçesi: ${addModalProvider.loaded.toFixed(2)} (Kalan: $
-                    {addModalProvider.remaining.toFixed(2)})
+                    Platforma yüklediğiniz kredi/paket tutarını girerek tüketim takibini başlatın.
                   </p>
                 </div>
               </div>
@@ -1022,30 +1122,78 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
               </button>
             </div>
 
-            <div className="space-y-3">
-              <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                Hızlı Paket Seçimi ($)
-              </label>
-              <div className="grid grid-cols-4 gap-2">
-                {["10", "25", "50", "100"].map((preset) => (
+            <div className="space-y-4">
+              {/* Mode selector */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                  Yükleme İşlem Türü
+                </label>
+                <div className="grid grid-cols-1 gap-2">
                   <button
-                    key={preset}
                     type="button"
-                    onClick={() => setAddAmount(preset)}
-                    className={`py-2 rounded-xl text-xs font-extrabold border transition-all ${
-                      addAmount === preset
-                        ? `${bg} text-white border-transparent shadow-sm`
-                        : "bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                    onClick={() => setAddMode("new_topup")}
+                    className={`p-3 rounded-2xl border text-left transition-all ${
+                      addMode === "new_topup"
+                        ? `${lightBg} ${border} ring-2 ring-rose-500/20`
+                        : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
                     }`}
                   >
-                    +${preset}
+                    <div className="text-xs font-extrabold text-slate-900 dark:text-white">
+                      Yeni Ücret Yüklemesi Başlat (Önerilen)
+                    </div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                      Son yükleme tarihini şu an olarak kaydeder ve sadece bundan sonraki çağrı/token tüketimlerini bu paketten düşer.
+                    </div>
                   </button>
-                ))}
+
+                  {addModalProvider.loaded > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setAddMode("add_credit")}
+                      className={`p-3 rounded-2xl border text-left transition-all ${
+                        addMode === "add_credit"
+                          ? `${lightBg} ${border} ring-2 ring-rose-500/20`
+                          : "bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      <div className="text-xs font-extrabold text-slate-900 dark:text-white">
+                        Mevcut Paketin Üzerine Ek Bakiye Ekle
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        Önceki yükleme tarihini ve mevcut tüketimi sıfırlamadan paket bütçesini artırır.
+                      </div>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="pt-2">
+              <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1.5">
-                  Eklenecek Tutar ($ USD)
+                  Hızlı Tutar Seçimi ($ USD)
+                </label>
+                <div className="grid grid-cols-5 gap-2">
+                  {["5", "10", "20", "50", "100"].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setAddAmount(preset)}
+                      className={`py-2 rounded-xl text-xs font-extrabold border transition-all ${
+                        addAmount === preset
+                          ? `${bg} text-white border-transparent shadow-sm`
+                          : "bg-slate-50 dark:bg-slate-800/70 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                      }`}
+                    >
+                      ${preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  {addMode === "new_topup"
+                    ? "Yüklenen Paket / Bakiye Tutarı ($ USD)"
+                    : "Eklenecek Tutar ($ USD)"}
                 </label>
                 <input
                   type="number"
@@ -1056,6 +1204,25 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                   className="w-full px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500/30"
                 />
               </div>
+
+              {addMode === "new_topup" && (
+                <div>
+                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                    Platformda Halihazırda Harcanmış Tutar Varsa ($ USD - Opsiyonel)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0"
+                    value={addInitialSpent}
+                    onChange={(e) => setAddInitialSpent(e.target.value)}
+                    className="w-full px-4 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-900 dark:text-white focus:outline-none"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Yeni yükleme yaptıysanız 0 bırakın. Platformda önceden harcanmış küsurat varsa (örn. 0.04) girebilirsiniz.
+                  </span>
+                </div>
+              )}
             </div>
 
             <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -1073,7 +1240,7 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
                 className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold shadow-md flex items-center gap-1.5 disabled:opacity-50"
               >
                 <Check size={15} />
-                <span>Pakete Ekle</span>
+                <span>{addMode === "new_topup" ? "Yüklemeyi Başlat" : "Pakete Ekle"}</span>
               </button>
             </div>
           </div>
@@ -1124,20 +1291,32 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
 
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                  Mevcut Harcanan Tutar ($ USD)
+                  Şu Ana Kadar Harcanan Tutar ($ USD)
                 </label>
                 <input
                   type="number"
-                  step="0.01"
+                  step="0.0001"
                   min="0"
                   value={editSpentCredit}
                   onChange={(e) => setEditSpentCredit(e.target.value)}
                   className="w-full px-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-sm font-bold text-slate-900 dark:text-white focus:outline-none"
                 />
                 <span className="text-[10px] text-slate-400 mt-1 block">
-                  Yeni çağrı ve mesaj tüketimleri bu tutarın üzerine otomatik eklenmeye devam eder.
+                  API sağlayıcı konsolunda gördüğünüz küsuratlı harcamayı (örn. 0.0150) buraya birebir yazarak eşitleyebilirsiniz.
                 </span>
               </div>
+
+              <label className="flex items-center gap-2.5 cursor-pointer select-none pt-1">
+                <input
+                  type="checkbox"
+                  checked={editResetPeriod}
+                  onChange={(e) => setEditResetPeriod(e.target.checked)}
+                  className="rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                />
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Son yükleme tarihini şu an olarak güncelle
+                </span>
+              </label>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
@@ -1194,17 +1373,14 @@ export default function APIBudgetSettings({ backendHost = "localhost:8000" }) {
             </div>
             <div className="space-y-1.5">
               <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
-                Dönem Tüketimini Sıfırla
+                Yükleme Sonrası Tüketimi Sıfırla
               </h4>
               <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
                 <strong className="text-slate-800 dark:text-slate-200">
                   {resetConfirmProvider.shortName}
                 </strong>{" "}
-                servisinin mevcut{" "}
-                <strong className="text-rose-600 dark:text-rose-400">
-                  {formatSpendDisplay(resetConfirmProvider.spentExact)}
-                </strong>{" "}
-                tutarındaki tüketim sayacını <strong>$0.00</strong> olarak sıfırlamak istediğinize emin misiniz?
+                servisinin son yükleme tarihini şu an olarak güncelleyip tüketim sayacını{" "}
+                <strong>$0.0000</strong> olarak sıfırlamak istediğinize emin misiniz?
               </p>
             </div>
             <div className="flex items-center justify-center gap-3 pt-2">

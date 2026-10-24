@@ -727,13 +727,13 @@ DEFAULT_SETTINGS = {
         "elevenlabs_api_key": ""
     },
     "api_budgets": {
-        "google": {"loaded_credit": 50.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
-        "elevenlabs": {"loaded_credit": 25.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
-        "openai": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
-        "anthropic": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
-        "groq": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
-        "deepgram": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80},
-        "whatsapp": {"loaded_credit": 20.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80}
+        "google": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None},
+        "elevenlabs": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None},
+        "openai": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None},
+        "anthropic": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None},
+        "groq": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None},
+        "deepgram": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None},
+        "whatsapp": {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None}
     },
     "call_flow": {
         "trunk_id": 1,
@@ -5292,24 +5292,78 @@ async def save_ai_providers(payload: AIProvidersSchema, user_info: dict = Depend
     save_settings(settings_db)
     return {"status": "success", "message": "AI ve TTS API anahtarları kaydedildi."}
 
+_ELEVENLABS_QUOTA_CACHE = {"ts": 0.0, "key": "", "data": None}
+
+async def fetch_elevenlabs_live_subscription(api_key: str) -> Optional[dict]:
+    if not api_key or not api_key.strip():
+        return None
+    import time
+    now_ts = time.time()
+    if (
+        _ELEVENLABS_QUOTA_CACHE["key"] == api_key.strip()
+        and (now_ts - _ELEVENLABS_QUOTA_CACHE["ts"]) < 60.0
+        and _ELEVENLABS_QUOTA_CACHE["data"] is not None
+    ):
+        return _ELEVENLABS_QUOTA_CACHE["data"]
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=4.0) as client:
+            resp = await client.get(
+                "https://api.elevenlabs.io/v1/user/subscription",
+                headers={"xi-api-key": api_key.strip()}
+            )
+            if resp.status_code == 200:
+                d = resp.json()
+                sub_info = {
+                    "tier": d.get("tier", "starter"),
+                    "character_count": int(d.get("character_count", 0) or 0),
+                    "character_limit": int(d.get("character_limit", 0) or 0),
+                    "status": d.get("status", "active"),
+                    "next_reset_unix": d.get("next_character_count_reset_unix")
+                }
+                _ELEVENLABS_QUOTA_CACHE["ts"] = now_ts
+                _ELEVENLABS_QUOTA_CACHE["key"] = api_key.strip()
+                _ELEVENLABS_QUOTA_CACHE["data"] = sub_info
+                return sub_info
+    except Exception as e:
+        print(f"[ElevenLabs Live Subscription Check Warning]: {e}")
+    return None
+
+def _parse_iso_utc(ts_str: Optional[str]) -> Optional[datetime.datetime]:
+    if not ts_str or not isinstance(ts_str, str):
+        return None
+    try:
+        clean = ts_str.replace("Z", "").strip()
+        dt = datetime.datetime.fromisoformat(clean)
+        if dt.tzinfo is not None:
+            dt = dt.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+        return dt
+    except Exception:
+        return None
+
 async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenant-default") -> dict:
     from backend.database.models import DocumentChunk
     raw_budgets = settings_db.get("api_budgets", {})
     default_budgets = DEFAULT_SETTINGS["api_budgets"]
     
-    # Ensure all service keys exist
     service_keys = ["google", "elevenlabs", "openai", "anthropic", "groq", "deepgram", "whatsapp"]
     merged_budgets = {}
     for k in service_keys:
-        base_def = default_budgets.get(k, {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80})
+        base_def = default_budgets.get(k, {})
         saved = raw_budgets.get(k, {}) if isinstance(raw_budgets.get(k), dict) else {}
+        user_cfg = bool(saved.get("user_configured", False))
+        # Ignore legacy unconfigured default numbers (50.0, 25.0, 20.0) if user hasn't explicitly configured
+        raw_loaded = float(saved.get("loaded_credit", 0.0) or 0.0)
+        if not user_cfg and not saved.get("last_updated") and raw_loaded in (50.0, 25.0, 20.0):
+            raw_loaded = 0.0
+
         merged_budgets[k] = {
-            "loaded_credit": float(saved.get("loaded_credit", base_def.get("loaded_credit", 0.0)) or 0.0),
-            "spent_credit": float(saved.get("spent_credit", base_def.get("spent_credit", 0.0)) or 0.0),
-            "spent_offset": float(saved.get("spent_offset", 0.0) or 0.0),
-            "manual_spent_set": bool(saved.get("manual_spent_set", False)),
+            "loaded_credit": raw_loaded,
+            "initial_spent": float(saved.get("initial_spent", 0.0) or 0.0),
             "alert_threshold": int(saved.get("alert_threshold", base_def.get("alert_threshold", 80)) or 80),
-            "package_name": saved.get("package_name", ""),
+            "user_configured": user_cfg,
+            "last_topup_at": saved.get("last_topup_at", None),
+            "last_topup_display": saved.get("last_topup_display", None),
             "last_updated": saved.get("last_updated", None)
         }
 
@@ -5319,13 +5373,23 @@ async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenan
         tenant_keys = settings_db.get("ai_providers", DEFAULT_SETTINGS["ai_providers"])
     channels_cfg = settings_db.get("channels", DEFAULT_SETTINGS["channels"])
     
-    google_key_present = bool((tenant_keys.get("google_api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip())
-    elevenlabs_key_present = bool((tenant_keys.get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY") or "").strip())
-    openai_key_present = bool((tenant_keys.get("openai_api_key") or os.getenv("OPENAI_API_KEY") or "").strip())
-    anthropic_key_present = bool((tenant_keys.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY") or "").strip())
-    groq_key_present = bool((tenant_keys.get("groq_api_key") or os.getenv("GROQ_API_KEY") or "").strip())
-    deepgram_key_present = bool((os.getenv("DEEPGRAM_API_KEY") or "").strip())
+    google_key_val = (tenant_keys.get("google_api_key") or os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or "").strip()
+    elevenlabs_key_val = (tenant_keys.get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY") or "").strip()
+    openai_key_val = (tenant_keys.get("openai_api_key") or os.getenv("OPENAI_API_KEY") or "").strip()
+    anthropic_key_val = (tenant_keys.get("anthropic_api_key") or os.getenv("ANTHROPIC_API_KEY") or "").strip()
+    groq_key_val = (tenant_keys.get("groq_api_key") or os.getenv("GROQ_API_KEY") or "").strip()
+    deepgram_key_val = (os.getenv("DEEPGRAM_API_KEY") or "").strip()
+
+    google_key_present = bool(google_key_val)
+    elevenlabs_key_present = bool(elevenlabs_key_val)
+    openai_key_present = bool(openai_key_val)
+    anthropic_key_present = bool(anthropic_key_val)
+    groq_key_present = bool(groq_key_val)
+    deepgram_key_present = bool(deepgram_key_val)
     whatsapp_configured = bool((channels_cfg.get("whatsapp_token") or "").strip()) or bool(channels_cfg.get("whatsapp_accounts"))
+
+    # Query ElevenLabs live subscription quota if key is configured
+    elevenlabs_live_sub = await fetch_elevenlabs_live_subscription(elevenlabs_key_val) if elevenlabs_key_present else None
 
     # Inspect configured AI Agents
     all_agents = settings_db.get("ai_agents", DEFAULT_SETTINGS["ai_agents"])
@@ -5354,9 +5418,8 @@ async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenan
         for prov, r_list in roles_per_p.items():
             agent_usage_map[prov].append(f"{ag_name} ({', '.join(r_list)})")
 
-    # Initialize live metrics per service
-    stats = {
-        k: {
+    def _new_stat_bucket():
+        return {
             "call_count": 0,
             "audio_seconds": 0.0,
             "audio_minutes": 0.0,
@@ -5364,16 +5427,23 @@ async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenan
             "customer_chars": 0,
             "ai_chars": 0,
             "total_chars": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
             "estimated_tokens": 0,
             "chat_sessions": 0,
             "chat_messages": 0,
             "qa_evaluations": 0,
             "rag_chunks": 0,
             "today_cost": 0.0,
-            "auto_calculated_cost": 0.0,
+            "period_cost": 0.0,
+            "all_time_cost": 0.0,
+            "all_time_calls": 0,
+            "all_time_tokens": 0,
+            "all_time_chars": 0,
         }
-        for k in service_keys
-    }
+
+    stats = {k: _new_stat_bucket() for k in service_keys}
+    topup_dts = {k: _parse_iso_utc(merged_budgets[k].get("last_topup_at")) for k in service_keys}
 
     now_utc = datetime.datetime.utcnow()
     today_start = now_utc - datetime.timedelta(hours=24)
@@ -5394,30 +5464,44 @@ async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenan
         call_ids = [c.id for c in calls_list if c.id]
         transcripts_by_call = {}
         if call_ids:
-            # Fetch transcripts in batches or all if reasonable
             tr_stmt = select(Transcript).where(Transcript.call_id.in_(call_ids[:5000]))
             tr_res = await db.execute(tr_stmt)
             for tr in tr_res.scalars().all():
                 transcripts_by_call.setdefault(tr.call_id, []).append(tr)
 
         for c in calls_list:
-            if c.start_time and c.start_time < oldest_activity:
-                oldest_activity = c.start_time
-            is_today = bool(c.start_time and c.start_time >= today_start)
-            
-            dur_sec = 0.0
-            if c.start_time and c.end_time and c.end_time >= c.start_time:
-                dur_sec = (c.end_time - c.start_time).total_seconds()
-            elif c.status == "completed":
-                dur_sec = 45.0  # fallback average for completed call without end_time
-
             trs = transcripts_by_call.get(c.id, [])
-            cust_chars = sum(len(t.text or "") for t in trs if t.speaker == "customer")
-            ai_chars = sum(len(t.text or "") for t in trs if t.speaker == "ai")
+            ai_trs = [t for t in trs if t.speaker == "ai" and (t.text or "").strip()]
+            cust_trs = [t for t in trs if t.speaker == "customer" and (t.text or "").strip()]
+
+            # CRITICAL RULE: Only count calls where AI actually spoke (ai_trs > 0) or generated an AI summary!
+            # Human-to-human calls, unanswered calls, or direct transfers without AI speech DO NOT consume AI tokens.
             summary_chars = len(c.summary or "") + len(c.qa_report or "")
             has_qa = c.qa_score is not None or bool(c.summary)
+            if len(ai_trs) == 0 and not has_qa:
+                continue
 
-            # Determine which providers handled this call
+            call_ts = c.start_time or (trs[0].timestamp if trs else now_utc)
+            if call_ts and call_ts < oldest_activity:
+                oldest_activity = call_ts
+            is_today = bool(call_ts and call_ts >= today_start)
+
+            cust_chars = sum(len(t.text or "") for t in cust_trs)
+            ai_chars = sum(len(t.text or "") for t in ai_trs)
+            ai_turns = len(ai_trs)
+            cust_turns = len(cust_trs)
+
+            # Accurate speech duration based on actual spoken transcript length (~14 chars/sec in Turkish)
+            # Capped by actual call duration if start_time and end_time are present
+            estimated_speech_sec = (cust_chars + ai_chars) / 14.0
+            if c.start_time and c.end_time and c.end_time > c.start_time:
+                raw_wall_sec = (c.end_time - c.start_time).total_seconds()
+                # Prevent stuck/zombie calls from inflating minutes
+                speech_sec = min(raw_wall_sec, max(estimated_speech_sec * 1.35, 3.0)) if ai_turns > 0 else 0.0
+            else:
+                speech_sec = max(estimated_speech_sec, 2.0) if ai_turns > 0 else 0.0
+
+            # Resolve AI Agent that handled this call
             ag_obj = None
             if c.agent_name:
                 ag_obj = agent_by_name_or_id.get(c.agent_name.strip().lower())
@@ -5428,71 +5512,134 @@ async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenan
             stt_p = (ag_obj.get("stt_provider") or "google").lower() if ag_obj else "google"
             tts_p = (ag_obj.get("tts_provider") or ("elevenlabs" if (ag_obj and ag_obj.get("elevenlabs_voice_id")) else "google")).lower() if ag_obj else "google"
 
-            if llm_p not in stats:
-                llm_p = "google"
-            if stt_p not in stats:
-                stt_p = "google"
-            if tts_p not in stats:
+            # Verify provider fallback: if a provider key is not present, AudioSocket falls back to Google Gemini
+            if tts_p == "elevenlabs" and not elevenlabs_key_present:
                 tts_p = "google"
+            if llm_p == "openai" and not openai_key_present:
+                llm_p = "google"
+            if llm_p == "anthropic" and not anthropic_key_present:
+                llm_p = "google"
+            if llm_p == "groq" and not groq_key_present:
+                llm_p = "google"
+            if stt_p == "deepgram" and not deepgram_key_present:
+                stt_p = "google"
 
-            # Attribute call count & duration to involved providers
-            for p in set([llm_p, stt_p, tts_p]):
-                stats[p]["call_count"] += 1
-                stats[p]["audio_seconds"] += dur_sec
+            # Token calculation for this call (~3.5 chars per token + compact system instruction per session)
+            in_tok = int(cust_chars / 3.5) + (320 if ai_turns > 0 else 0) + int(summary_chars / 3.5)
+            out_tok = int(ai_chars / 3.5) + (120 if has_qa else 0)
+            call_tokens = in_tok + out_tok
 
-            stats[stt_p]["customer_chars"] += cust_chars
-            stats[stt_p]["transcript_turns"] += len([t for t in trs if t.speaker == "customer"])
+            # 1) Google Gemini Cost (Official Gemini 2.0/2.5 Flash rates: $0.10/1M in, $0.40/1M out, ~$0.002/min audio)
+            if llm_p == "google" or stt_p == "google" or has_qa:
+                g_cost = (
+                    (in_tok / 1_000_000.0) * 0.10
+                    + (out_tok / 1_000_000.0) * 0.40
+                    + (speech_sec / 60.0) * 0.0022
+                )
+                stats["google"]["all_time_cost"] += g_cost
+                stats["google"]["all_time_calls"] += (1 if ai_turns > 0 else 0)
+                stats["google"]["all_time_tokens"] += call_tokens
+                stats["google"]["all_time_chars"] += (cust_chars + ai_chars + summary_chars)
 
-            stats[tts_p]["ai_chars"] += ai_chars
-            stats[tts_p]["transcript_turns"] += len([t for t in trs if t.speaker == "ai"])
-
-            stats[llm_p]["total_chars"] += (cust_chars + ai_chars + summary_chars)
-            if has_qa:
-                stats["google"]["qa_evaluations"] += 1
-
-            # Cost attribution per call
-            # Google Gemini Live / Audio + LLM cost (~$0.022 / min + token/QA overhead)
-            if llm_p == "google" or stt_p == "google":
-                c_cost = (dur_sec / 60.0) * 0.022 + ((cust_chars + ai_chars + summary_chars) / 1000.0) * 0.0015 + (0.004 if has_qa else 0.0)
-                stats["google"]["auto_calculated_cost"] += c_cost
+                after_topup = (topup_dts["google"] is None) or (call_ts >= topup_dts["google"])
+                if after_topup:
+                    if ai_turns > 0:
+                        stats["google"]["call_count"] += 1
+                        stats["google"]["audio_seconds"] += speech_sec
+                    stats["google"]["customer_chars"] += cust_chars
+                    stats["google"]["ai_chars"] += (ai_chars if tts_p == "google" else 0)
+                    stats["google"]["total_chars"] += (cust_chars + ai_chars + summary_chars)
+                    stats["google"]["input_tokens"] += in_tok
+                    stats["google"]["output_tokens"] += out_tok
+                    stats["google"]["estimated_tokens"] += call_tokens
+                    stats["google"]["transcript_turns"] += (cust_turns + ai_turns)
+                    if has_qa:
+                        stats["google"]["qa_evaluations"] += 1
+                    stats["google"]["period_cost"] += g_cost
                 if is_today:
-                    stats["google"]["today_cost"] += c_cost
-            elif has_qa:
-                qa_cost = 0.004 + (summary_chars / 1000.0) * 0.001
-                stats["google"]["auto_calculated_cost"] += qa_cost
-                if is_today:
-                    stats["google"]["today_cost"] += qa_cost
+                    stats["google"]["today_cost"] += g_cost
 
-            if tts_p == "elevenlabs" or llm_p == "elevenlabs":
-                # ElevenLabs ~$0.18 per 1000 chars or ~$0.09/min conversational AI
-                el_chars = max(ai_chars, int((dur_sec / 60.0) * 450))
-                stats["elevenlabs"]["total_chars"] += el_chars
-                el_cost = (el_chars / 1000.0) * 0.18
-                stats["elevenlabs"]["auto_calculated_cost"] += el_cost
+            # 2) ElevenLabs TTS Cost (ONLY actual ai_chars spoken when ElevenLabs TTS was active)
+            if (tts_p == "elevenlabs" or llm_p == "elevenlabs") and ai_chars > 0:
+                # Official ElevenLabs starter/creator rate: ~$0.15 - $0.18 per 1,000 characters
+                el_cost = (ai_chars / 1000.0) * 0.165
+                stats["elevenlabs"]["all_time_cost"] += el_cost
+                stats["elevenlabs"]["all_time_calls"] += 1
+                stats["elevenlabs"]["all_time_chars"] += ai_chars
+
+                after_topup = (topup_dts["elevenlabs"] is None) or (call_ts >= topup_dts["elevenlabs"])
+                if after_topup:
+                    stats["elevenlabs"]["call_count"] += 1
+                    stats["elevenlabs"]["audio_seconds"] += speech_sec
+                    stats["elevenlabs"]["ai_chars"] += ai_chars
+                    stats["elevenlabs"]["total_chars"] += ai_chars
+                    stats["elevenlabs"]["transcript_turns"] += ai_turns
+                    stats["elevenlabs"]["period_cost"] += el_cost
                 if is_today:
                     stats["elevenlabs"]["today_cost"] += el_cost
 
+            # 3) OpenAI Cost
             if llm_p == "openai" or stt_p == "openai" or tts_p == "openai":
-                oa_cost = (dur_sec / 60.0) * 0.03 + ((cust_chars + ai_chars) / 1000.0) * 0.005
-                stats["openai"]["auto_calculated_cost"] += oa_cost
+                oa_cost = (in_tok / 1_000_000.0) * 0.15 + (out_tok / 1_000_000.0) * 0.60
+                if stt_p == "openai":
+                    oa_cost += (speech_sec / 60.0) * 0.006
+                stats["openai"]["all_time_cost"] += oa_cost
+                stats["openai"]["all_time_calls"] += 1
+                stats["openai"]["all_time_tokens"] += call_tokens
+                after_topup = (topup_dts["openai"] is None) or (call_ts >= topup_dts["openai"])
+                if after_topup:
+                    stats["openai"]["call_count"] += 1
+                    stats["openai"]["audio_seconds"] += speech_sec
+                    stats["openai"]["total_chars"] += (cust_chars + ai_chars)
+                    stats["openai"]["estimated_tokens"] += call_tokens
+                    stats["openai"]["period_cost"] += oa_cost
                 if is_today:
                     stats["openai"]["today_cost"] += oa_cost
 
+            # 4) Anthropic Claude Cost
             if llm_p == "anthropic":
-                an_cost = ((cust_chars + ai_chars) / 1000.0) * 0.008 + (dur_sec / 60.0) * 0.015
-                stats["anthropic"]["auto_calculated_cost"] += an_cost
+                an_cost = (in_tok / 1_000_000.0) * 0.80 + (out_tok / 1_000_000.0) * 4.00
+                stats["anthropic"]["all_time_cost"] += an_cost
+                stats["anthropic"]["all_time_calls"] += 1
+                stats["anthropic"]["all_time_tokens"] += call_tokens
+                after_topup = (topup_dts["anthropic"] is None) or (call_ts >= topup_dts["anthropic"])
+                if after_topup:
+                    stats["anthropic"]["call_count"] += 1
+                    stats["anthropic"]["audio_seconds"] += speech_sec
+                    stats["anthropic"]["total_chars"] += (cust_chars + ai_chars)
+                    stats["anthropic"]["estimated_tokens"] += call_tokens
+                    stats["anthropic"]["period_cost"] += an_cost
                 if is_today:
                     stats["anthropic"]["today_cost"] += an_cost
 
+            # 5) Groq LPU Cost
             if llm_p == "groq":
-                gr_cost = ((cust_chars + ai_chars) / 1000.0) * 0.0012 + (dur_sec / 60.0) * 0.004
-                stats["groq"]["auto_calculated_cost"] += gr_cost
+                gr_cost = (in_tok / 1_000_000.0) * 0.59 + (out_tok / 1_000_000.0) * 0.79
+                stats["groq"]["all_time_cost"] += gr_cost
+                stats["groq"]["all_time_calls"] += 1
+                stats["groq"]["all_time_tokens"] += call_tokens
+                after_topup = (topup_dts["groq"] is None) or (call_ts >= topup_dts["groq"])
+                if after_topup:
+                    stats["groq"]["call_count"] += 1
+                    stats["groq"]["audio_seconds"] += speech_sec
+                    stats["groq"]["total_chars"] += (cust_chars + ai_chars)
+                    stats["groq"]["estimated_tokens"] += call_tokens
+                    stats["groq"]["period_cost"] += gr_cost
                 if is_today:
                     stats["groq"]["today_cost"] += gr_cost
 
+            # 6) Deepgram STT Cost
             if stt_p == "deepgram":
-                dg_cost = (dur_sec / 60.0) * 0.0059
-                stats["deepgram"]["auto_calculated_cost"] += dg_cost
+                dg_cost = (speech_sec / 60.0) * 0.0043
+                stats["deepgram"]["all_time_cost"] += dg_cost
+                stats["deepgram"]["all_time_calls"] += 1
+                after_topup = (topup_dts["deepgram"] is None) or (call_ts >= topup_dts["deepgram"])
+                if after_topup:
+                    stats["deepgram"]["call_count"] += 1
+                    stats["deepgram"]["audio_seconds"] += speech_sec
+                    stats["deepgram"]["customer_chars"] += cust_chars
+                    stats["deepgram"]["total_chars"] += cust_chars
+                    stats["deepgram"]["period_cost"] += dg_cost
                 if is_today:
                     stats["deepgram"]["today_cost"] += dg_cost
 
@@ -5509,32 +5656,43 @@ async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenan
         session_ids = [s.id for s in chat_sessions if s.id]
         
         wa_session_ids = set(s.id for s in chat_sessions if (s.channel or "").lower() == "whatsapp")
-        stats["whatsapp"]["chat_sessions"] = len(wa_session_ids)
-        stats["google"]["chat_sessions"] = len(chat_sessions)
 
         if session_ids:
             msg_stmt = select(ChatMessage).where(ChatMessage.session_id.in_(session_ids[:5000]))
             msg_res = await db.execute(msg_stmt)
+            wa_sessions_in_period = set()
+            g_sessions_in_period = set()
             for m in msg_res.scalars().all():
                 m_chars = len(m.text or "")
-                is_msg_today = bool(m.timestamp and m.timestamp >= today_start)
+                m_ts = m.timestamp or now_utc
+                is_msg_today = bool(m_ts >= today_start)
                 if m.session_id in wa_session_ids:
-                    stats["whatsapp"]["chat_messages"] += 1
-                    stats["whatsapp"]["total_chars"] += m_chars
-                    if m.direction == "outbound":
-                        wa_msg_cost = 0.0085  # Meta Business Cloud API utility/service average rate
-                        stats["whatsapp"]["auto_calculated_cost"] += wa_msg_cost
-                        if is_msg_today:
-                            stats["whatsapp"]["today_cost"] += wa_msg_cost
+                    after_wa_topup = (topup_dts["whatsapp"] is None) or (m_ts >= topup_dts["whatsapp"])
+                    if after_wa_topup:
+                        wa_sessions_in_period.add(m.session_id)
+                        stats["whatsapp"]["chat_messages"] += 1
+                        stats["whatsapp"]["total_chars"] += m_chars
                 if m.sender == "ai":
-                    stats["google"]["chat_messages"] += 1
-                    stats["google"]["total_chars"] += m_chars
-                    ai_msg_cost = 0.0012 + (m_chars / 1000.0) * 0.0008
-                    stats["google"]["auto_calculated_cost"] += ai_msg_cost
+                    # Gemini Flash text reply cost (~250 input tokens + output tokens)
+                    msg_in_tok = 250
+                    msg_out_tok = int(m_chars / 3.5)
+                    msg_tot_tok = msg_in_tok + msg_out_tok
+                    ai_msg_cost = (msg_in_tok / 1_000_000.0) * 0.10 + (msg_out_tok / 1_000_000.0) * 0.40
+                    stats["google"]["all_time_cost"] += ai_msg_cost
+                    stats["google"]["all_time_tokens"] += msg_tot_tok
+                    after_g_topup = (topup_dts["google"] is None) or (m_ts >= topup_dts["google"])
+                    if after_g_topup:
+                        g_sessions_in_period.add(m.session_id)
+                        stats["google"]["chat_messages"] += 1
+                        stats["google"]["total_chars"] += m_chars
+                        stats["google"]["estimated_tokens"] += msg_tot_tok
+                        stats["google"]["period_cost"] += ai_msg_cost
                     if is_msg_today:
                         stats["google"]["today_cost"] += ai_msg_cost
+            stats["whatsapp"]["chat_sessions"] = len(wa_sessions_in_period)
+            stats["google"]["chat_sessions"] = len(g_sessions_in_period)
 
-        # 3. Query RAG Document Chunks (Google Embeddings)
+        # 3. Query RAG Document Chunks count (informational only; does not add recurring cost)
         if is_global_tenant(target_tenant):
             rag_stmt = select(func.count(DocumentChunk.id))
         elif is_default_tenant(target_tenant):
@@ -5542,21 +5700,19 @@ async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenan
         else:
             rag_stmt = select(func.count(DocumentChunk.id)).where(DocumentChunk.tenant_id == target_tenant)
         rag_res = await db.execute(rag_stmt)
-        rag_count = rag_res.scalar() or 0
-        stats["google"]["rag_chunks"] = rag_count
-        stats["google"]["auto_calculated_cost"] += rag_count * 0.0004
+        stats["google"]["rag_chunks"] = rag_res.scalar() or 0
     except Exception as e:
         print(f"[API Budgets Live Calculation Warning]: {e}")
 
     active_days = max(1.0, min(30.0, (now_utc - oldest_activity).total_seconds() / 86400.0))
 
     configured_map = {
-        "google": google_key_present or len(agent_usage_map["google"]) > 0 or stats["google"]["call_count"] > 0,
-        "elevenlabs": elevenlabs_key_present or len(agent_usage_map["elevenlabs"]) > 0 or stats["elevenlabs"]["call_count"] > 0,
-        "openai": openai_key_present or len(agent_usage_map["openai"]) > 0 or stats["openai"]["call_count"] > 0,
-        "anthropic": anthropic_key_present or len(agent_usage_map["anthropic"]) > 0 or stats["anthropic"]["call_count"] > 0,
-        "groq": groq_key_present or len(agent_usage_map["groq"]) > 0 or stats["groq"]["call_count"] > 0,
-        "deepgram": deepgram_key_present or len(agent_usage_map["deepgram"]) > 0 or stats["deepgram"]["call_count"] > 0,
+        "google": google_key_present or len(agent_usage_map["google"]) > 0 or stats["google"]["all_time_calls"] > 0,
+        "elevenlabs": elevenlabs_key_present or len(agent_usage_map["elevenlabs"]) > 0 or stats["elevenlabs"]["all_time_calls"] > 0,
+        "openai": openai_key_present or len(agent_usage_map["openai"]) > 0 or stats["openai"]["all_time_calls"] > 0,
+        "anthropic": anthropic_key_present or len(agent_usage_map["anthropic"]) > 0 or stats["anthropic"]["all_time_calls"] > 0,
+        "groq": groq_key_present or len(agent_usage_map["groq"]) > 0 or stats["groq"]["all_time_calls"] > 0,
+        "deepgram": deepgram_key_present or len(agent_usage_map["deepgram"]) > 0 or stats["deepgram"]["all_time_calls"] > 0,
         "whatsapp": whatsapp_configured or stats["whatsapp"]["chat_sessions"] > 0 or stats["whatsapp"]["chat_messages"] > 0,
     }
 
@@ -5575,74 +5731,111 @@ async def compute_live_api_budgets(db: AsyncSession, target_tenant: str = "tenan
         st = stats[k]
         b = merged_budgets[k]
         st["audio_minutes"] = round(st["audio_seconds"] / 60.0, 2)
-        total_c = st["total_chars"] or (st["customer_chars"] + st["ai_chars"])
-        st["total_chars"] = total_c
-        st["estimated_tokens"] = int(total_c / 3.8) + (st["call_count"] * 520) + (st["chat_messages"] * 240)
         
-        auto_cost = round(st["auto_calculated_cost"], 4)
-        # Effective spent credit = auto_calculated_cost + spent_offset (or legacy spent_credit if higher and no offset set)
-        if b.get("manual_spent_set"):
-            effective_spent = max(0.0, round(auto_cost + b["spent_offset"], 4))
-        else:
-            effective_spent = max(round(b["spent_credit"], 4), auto_cost)
+        period_auto_cost = round(st["period_cost"], 6)
+        all_time_cost = round(st["all_time_cost"], 6)
+        initial_spent = round(b.get("initial_spent", 0.0), 6)
+
+        # Effective spent since last topup = initial_spent (if user synced existing spend) + period_auto_cost (usage strictly after last_topup_at)
+        effective_spent = max(0.0, round(initial_spent + period_auto_cost, 6))
 
         loaded = round(b["loaded_credit"], 2)
-        remaining = max(0.0, round(loaded - effective_spent, 4)) if loaded > 0 else 0.0
-        usage_pct = round((effective_spent / loaded) * 100.0, 1) if loaded > 0 else (100.0 if effective_spent > 0 else 0.0)
-        
-        daily_burn = round(max(st["today_cost"], effective_spent / active_days), 4) if effective_spent > 0 else 0.0
-        est_days_left = int(remaining / daily_burn) if (daily_burn > 0.0001 and loaded > 0) else (999 if loaded > 0 and effective_spent == 0 else 0)
+        remaining = max(0.0, round(loaded - effective_spent, 6)) if loaded > 0 else 0.0
+        usage_pct = round((effective_spent / loaded) * 100.0, 2) if loaded > 0 else 0.0
 
-        # Build human-readable service usage breakdown
+        # If ElevenLabs live subscription quota is available, also compute character quota %
+        live_quota_info = None
+        if k == "elevenlabs" and elevenlabs_live_sub:
+            char_used = elevenlabs_live_sub["character_count"]
+            char_limit = elevenlabs_live_sub["character_limit"]
+            char_rem = max(0, char_limit - char_used)
+            char_pct = round((char_used / char_limit) * 100.0, 1) if char_limit > 0 else 0.0
+            live_quota_info = {
+                "provider": "elevenlabs",
+                "tier": elevenlabs_live_sub["tier"],
+                "used": char_used,
+                "limit": char_limit,
+                "remaining": char_rem,
+                "pct": char_pct,
+                "unit": "Karakter"
+            }
+            if loaded <= 0 and char_limit > 0:
+                usage_pct = char_pct
+
+        # Daily burn rate based on period days (if topup set) or active_days
+        if topup_dts[k]:
+            period_days = max(1.0, (now_utc - topup_dts[k]).total_seconds() / 86400.0)
+            daily_burn = round(max(st["today_cost"], effective_spent / period_days), 6) if effective_spent > 0 else 0.0
+        else:
+            daily_burn = round(max(st["today_cost"], effective_spent / active_days), 6) if effective_spent > 0 else 0.0
+
+        est_days_left = int(remaining / daily_burn) if (daily_burn > 0.00001 and loaded > 0) else (999 if loaded > 0 and effective_spent == 0 else 0)
+
+        # Build human-readable service usage breakdown (for current period since last top-up)
         breakdown = []
         if k == "google":
             breakdown = [
-                {"label": "Gemini Live Sesli Görüşme", "value": f"{st['call_count']} Çağrı ({st['audio_minutes']} dk)"},
-                {"label": "LLM & Transkript Token", "value": f"{st['estimated_tokens']:,} Token"},
+                {"label": "Yükleme Sonrası AI Çağrısı", "value": f"{st['call_count']} Çağrı ({st['audio_minutes']} dk konuşma)"},
+                {"label": "Harcanan Token (Giriş + Çıkış)", "value": f"{st['estimated_tokens']:,} Token"},
                 {"label": "Omnichannel AI Yanıtları", "value": f"{st['chat_messages']} Mesaj"},
                 {"label": "QA Kalite & Özet Analizi", "value": f"{st['qa_evaluations']} Analiz"},
-                {"label": "RAG Vektör Bilgi Bankası", "value": f"{st['rag_chunks']} Parça (Chunk)"}
+                {"label": "Tüm Zamanlar Toplam Tüketim", "value": f"${all_time_cost:.4f} ({st['all_time_calls']} Çağrı / {st['all_time_tokens']:,} Token)"}
             ]
         elif k == "elevenlabs":
-            breakdown = [
-                {"label": "Sentezlenen Karakter (TTS)", "value": f"{st['total_chars']:,} Karakter"},
-                {"label": "Sesli AI Görüşme Süresi", "value": f"{st['audio_minutes']} dk ({st['call_count']} Çağrı)"},
-                {"label": "Tahmini Kalan Karakter", "value": f"~{int((remaining / 0.18) * 1000):,} Karakter" if loaded > 0 else "Paket Tanımsız"}
-            ]
+            if live_quota_info:
+                breakdown = [
+                    {"label": "Canlı ElevenLabs Paket Kotası", "value": f"{live_quota_info['used']:,} / {live_quota_info['limit']:,} Karakter (%{live_quota_info['pct']})"},
+                    {"label": "Kalan Karakter Hakkı (Canlı API)", "value": f"{live_quota_info['remaining']:,} Karakter ({live_quota_info['tier'].upper()})"},
+                    {"label": "Yükleme Sonrası Sentezlenen", "value": f"{st['total_chars']:,} Karakter ({st['call_count']} Çağrı)"},
+                    {"label": "Tüm Zamanlar Sentezlenen", "value": f"{st['all_time_chars']:,} Karakter (${all_time_cost:.4f})"}
+                ]
+            else:
+                breakdown = [
+                    {"label": "Yükleme Sonrası Sentezlenen", "value": f"{st['total_chars']:,} Karakter"},
+                    {"label": "Sesli AI Görüşme Süresi", "value": f"{st['audio_minutes']} dk ({st['call_count']} Çağrı)"},
+                    {"label": "Tahmini Kalan Karakter", "value": f"~{int((remaining / 0.165) * 1000):,} Karakter" if loaded > 0 else "Ücret Yüklenmedi"},
+                    {"label": "Tüm Zamanlar Tüketim", "value": f"{st['all_time_chars']:,} Karakter (${all_time_cost:.4f})"}
+                ]
         elif k == "whatsapp":
             breakdown = [
                 {"label": "WhatsApp Konuşma Oturumu", "value": f"{st['chat_sessions']} Oturum"},
                 {"label": "Toplam Gönderilen/Alınan", "value": f"{st['chat_messages']} Mesaj"},
-                {"label": "Tahmini Mesaj Kapasitesi", "value": f"~{int(remaining / 0.0085):,} Mesaj" if loaded > 0 else "Paket Tanımsız"}
+                {"label": "24 Saat Servis Penceresi Yanıtları", "value": "$0.0000 (Meta Ücretsiz Servis Yanıtı)"}
             ]
         elif k == "deepgram":
             breakdown = [
                 {"label": "Nova-2 STT Ses Süresi", "value": f"{st['audio_minutes']} dk ({st['call_count']} Çağrı)"},
                 {"label": "Çözümlenen Konuşma", "value": f"{st['customer_chars']:,} Karakter"},
-                {"label": "Tahmini Kalan Süre", "value": f"~{int(remaining / 0.0059):,} dk" if loaded > 0 else "Paket Tanımsız"}
+                {"label": "Tüm Zamanlar Tüketim", "value": f"${all_time_cost:.4f} ({st['all_time_calls']} Çağrı)"}
             ]
         else:
             breakdown = [
-                {"label": "İşlenen Görüşme", "value": f"{st['call_count']} Çağrı ({st['audio_minutes']} dk)"},
-                {"label": "Toplam Token Tüketimi", "value": f"{st['estimated_tokens']:,} Token"},
-                {"label": "İşlenen Metin Hacmi", "value": f"{st['total_chars']:,} Karakter"}
+                {"label": "Yükleme Sonrası Görüşme", "value": f"{st['call_count']} Çağrı ({st['audio_minutes']} dk)"},
+                {"label": "Harcanan Token", "value": f"{st['estimated_tokens']:,} Token"},
+                {"label": "İşlenen Metin Hacmi", "value": f"{st['total_chars']:,} Karakter"},
+                {"label": "Tüm Zamanlar Tüketim", "value": f"${all_time_cost:.4f} ({st['all_time_tokens']:,} Token)"}
             ]
 
         result[k] = {
             "loaded_credit": loaded,
-            "spent_credit": round(effective_spent, 2),
+            "spent_credit": round(effective_spent, 4),
             "spent_credit_exact": effective_spent,
-            "auto_calculated_cost": auto_cost,
-            "remaining_credit": round(remaining, 2),
-            "usage_pct": min(100.0, usage_pct),
-            "raw_usage_pct": usage_pct,
+            "period_auto_cost": period_auto_cost,
+            "all_time_cost": all_time_cost,
+            "remaining_credit": round(remaining, 4),
+            "usage_pct": min(100.0, round(usage_pct, 1)),
+            "raw_usage_pct": round(usage_pct, 2),
             "alert_threshold": b["alert_threshold"],
+            "user_configured": b["user_configured"],
+            "last_topup_at": b["last_topup_at"],
+            "last_topup_display": b["last_topup_display"],
             "configured": configured_map[k],
             "api_key_defined": key_defined_map[k],
             "active_agents": agent_usage_map[k],
-            "daily_burn_rate": round(daily_burn, 3),
+            "daily_burn_rate": daily_burn,
             "estimated_days_left": est_days_left,
             "last_updated": b.get("last_updated"),
+            "live_quota": live_quota_info,
             "metrics": st,
             "breakdown": breakdown
         }
@@ -5656,11 +5849,12 @@ async def get_api_budgets(user_info: dict = Depends(get_user_info), db: AsyncSes
 
 class ServiceBudgetActionSchema(BaseModel):
     provider: str
-    action: str  # "add_credit", "set_budget", "reset_spent"
+    action: str  # "new_topup", "add_credit", "set_budget", "reset_spent"
     loaded_credit: Optional[float] = None
     add_amount: Optional[float] = None
     spent_credit: Optional[float] = None
     alert_threshold: Optional[int] = None
+    reset_period: Optional[bool] = True
 
 @app.post("/api/settings/api-budgets/service")
 async def update_single_service_budget(
@@ -5669,7 +5863,6 @@ async def update_single_service_budget(
     db: AsyncSession = Depends(get_db)
 ):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
-    live_data = await compute_live_api_budgets(db, target_tenant)
     prov = payload.provider.lower().strip()
     
     current_budgets = settings_db.get("api_budgets", {})
@@ -5680,33 +5873,59 @@ async def update_single_service_budget(
         if k not in current_budgets or not isinstance(current_budgets[k], dict):
             current_budgets[k] = dict(v)
     if prov not in current_budgets:
-        current_budgets[prov] = {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80}
+        current_budgets[prov] = {"loaded_credit": 0.0, "spent_credit": 0.0, "initial_spent": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None}
 
-    auto_cost = live_data.get(prov, {}).get("auto_calculated_cost", 0.0)
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    now_utc_iso = datetime.datetime.utcnow().isoformat()
+    now_str = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
 
-    if payload.action == "add_credit":
-        amt = float(payload.add_amount or 0.0)
-        current_budgets[prov]["loaded_credit"] = round(float(current_budgets[prov].get("loaded_credit", 0.0) or 0.0) + amt, 2)
+    if payload.action in ("add_credit", "new_topup"):
+        amt = max(0.0, float(payload.add_amount or payload.loaded_credit or 0.0))
+        if payload.reset_period or payload.action == "new_topup" or not current_budgets[prov].get("user_configured"):
+            # Start a fresh tracking period from this top-up moment!
+            current_budgets[prov]["loaded_credit"] = round(amt, 2)
+            current_budgets[prov]["initial_spent"] = round(max(0.0, float(payload.spent_credit or 0.0)), 6)
+            current_budgets[prov]["last_topup_at"] = now_utc_iso
+            current_budgets[prov]["last_topup_display"] = now_str
+        else:
+            # Add onto existing loaded package without resetting the top-up timestamp
+            prev_loaded = float(current_budgets[prov].get("loaded_credit", 0.0) or 0.0)
+            current_budgets[prov]["loaded_credit"] = round(prev_loaded + amt, 2)
+            if not current_budgets[prov].get("last_topup_at"):
+                current_budgets[prov]["last_topup_at"] = now_utc_iso
+                current_budgets[prov]["last_topup_display"] = now_str
+        current_budgets[prov]["user_configured"] = True
+
     elif payload.action == "set_budget":
         if payload.loaded_credit is not None:
             current_budgets[prov]["loaded_credit"] = round(max(0.0, float(payload.loaded_credit)), 2)
-        if payload.spent_credit is not None:
-            desired_spent = max(0.0, float(payload.spent_credit))
-            current_budgets[prov]["spent_credit"] = round(desired_spent, 4)
-            current_budgets[prov]["spent_offset"] = round(desired_spent - auto_cost, 4)
-            current_budgets[prov]["manual_spent_set"] = True
         if payload.alert_threshold is not None:
             current_budgets[prov]["alert_threshold"] = max(10, min(100, int(payload.alert_threshold)))
+        if payload.reset_period:
+            # Reset tracking anchor to right now with the user's specified current spent amount
+            current_budgets[prov]["last_topup_at"] = now_utc_iso
+            current_budgets[prov]["last_topup_display"] = now_str
+            current_budgets[prov]["initial_spent"] = round(max(0.0, float(payload.spent_credit or 0.0)), 6)
+        elif payload.spent_credit is not None:
+            live_data = await compute_live_api_budgets(db, target_tenant)
+            period_auto = live_data.get(prov, {}).get("period_auto_cost", 0.0)
+            desired_spent = max(0.0, float(payload.spent_credit))
+            current_budgets[prov]["initial_spent"] = round(desired_spent - period_auto, 6)
+        if not current_budgets[prov].get("last_topup_at"):
+            current_budgets[prov]["last_topup_at"] = now_utc_iso
+            current_budgets[prov]["last_topup_display"] = now_str
+        current_budgets[prov]["user_configured"] = True
+
     elif payload.action == "reset_spent":
+        current_budgets[prov]["last_topup_at"] = now_utc_iso
+        current_budgets[prov]["last_topup_display"] = now_str
+        current_budgets[prov]["initial_spent"] = 0.0
         current_budgets[prov]["spent_credit"] = 0.0
-        current_budgets[prov]["spent_offset"] = round(-auto_cost, 4)
-        current_budgets[prov]["manual_spent_set"] = True
+        current_budgets[prov]["user_configured"] = True
 
     current_budgets[prov]["last_updated"] = now_str
     settings_db["api_budgets"] = current_budgets
     save_settings(settings_db)
-    add_system_log("API_BUDGET", "INFO", f"{prov.upper()} API bütçesi güncellendi ({payload.action}).")
+    add_system_log("API_BUDGET", "INFO", f"{prov.upper()} API bütçesi ve yükleme dönemi güncellendi ({payload.action}).")
     return await compute_live_api_budgets(db, target_tenant)
 
 @app.post("/api/settings/api-budgets")
@@ -5716,7 +5935,6 @@ async def save_api_budgets(
     db: AsyncSession = Depends(get_db)
 ):
     target_tenant = user_info.get("tenant_id") or "tenant-default"
-    live_data = await compute_live_api_budgets(db, target_tenant)
     current_budgets = settings_db.get("api_budgets", {})
     if not isinstance(current_budgets, dict):
         current_budgets = {}
@@ -5725,21 +5943,20 @@ async def save_api_budgets(
         if k not in current_budgets or not isinstance(current_budgets[k], dict):
             current_budgets[k] = dict(v)
 
-    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    now_utc_iso = datetime.datetime.utcnow().isoformat()
+    now_str = datetime.datetime.now().strftime("%d.%m.%Y %H:%M")
     for provider, data in payload.items():
         if isinstance(data, dict):
             if provider not in current_budgets or not isinstance(current_budgets[provider], dict):
-                current_budgets[provider] = {"loaded_credit": 0.0, "spent_credit": 0.0, "spent_offset": 0.0, "alert_threshold": 80}
+                current_budgets[provider] = {"loaded_credit": 0.0, "spent_credit": 0.0, "initial_spent": 0.0, "alert_threshold": 80, "user_configured": False, "last_topup_at": None}
             if "loaded_credit" in data and data["loaded_credit"] is not None:
                 current_budgets[provider]["loaded_credit"] = round(float(data["loaded_credit"]), 2)
+                current_budgets[provider]["user_configured"] = True
+                if not current_budgets[provider].get("last_topup_at"):
+                    current_budgets[provider]["last_topup_at"] = now_utc_iso
+                    current_budgets[provider]["last_topup_display"] = now_str
             if "alert_threshold" in data and data["alert_threshold"] is not None:
                 current_budgets[provider]["alert_threshold"] = int(data["alert_threshold"])
-            if "spent_credit" in data and data["spent_credit"] is not None and data.get("update_spent"):
-                desired_spent = max(0.0, float(data["spent_credit"]))
-                auto_cost = live_data.get(provider, {}).get("auto_calculated_cost", 0.0)
-                current_budgets[provider]["spent_credit"] = round(desired_spent, 4)
-                current_budgets[provider]["spent_offset"] = round(desired_spent - auto_cost, 4)
-                current_budgets[provider]["manual_spent_set"] = True
             current_budgets[provider]["last_updated"] = now_str
 
     settings_db["api_budgets"] = current_budgets

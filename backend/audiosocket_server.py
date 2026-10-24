@@ -892,6 +892,14 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         ai_agent = call_eval.get("agent")
         if ai_agent:
             print(f"Arama DID: {did} -> Secilen AI Agent: {ai_agent.get('name')} ({ai_agent.get('id')})")
+            try:
+                async with AsyncSessionLocal() as session:
+                    db_call = await session.get(Call, call_id)
+                    if db_call and not db_call.agent_name:
+                        db_call.agent_name = ai_agent.get("name") or ai_agent.get("id")
+                        await session.commit()
+            except Exception as ag_err:
+                print(f"[AudioSocket Agent Name Save Warning]: {ag_err}")
         else:
             print(f"Arama DID: {did} -> Uygun AI Agent bulunamadi. Varsayilan ayarlar kullanilacak.")
 
