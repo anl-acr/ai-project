@@ -51,80 +51,155 @@ export const DEFAULT_CALL_PANEL_SUB_PERMS = CALL_PANEL_SUB_GROUPS.flatMap(g =>
   g.items.filter(it => !it.isRestriction).map(it => it.id)
 );
 
+export const REPORT_FEATURE_IDS = [
+  "reports_pano",
+  "reports_cdr",
+  "reports_audio",
+  "reports_transcripts",
+  "reports_sentiment",
+  "reports_qa",
+  "reports_notes",
+  "reports_perf",
+  "reports_queue",
+  "reports_sentiment_heat",
+  "reports_wordcloud",
+  "reports_fcr",
+  "reports_roi",
+  "reports_missed",
+  "agent_timeline",
+  "reports_traffic_load",
+  "reports_trunk",
+  "reports_ivr_drop",
+  "reports_transfer_hold",
+  "reports_ab_testing",
+  "reports_friction",
+  "reports_compliance",
+  "reports_silence",
+  "reports_ceo_summary"
+];
+
 const SYSTEM_FEATURES = [
-  // 1. Operasyon & İzleme
+  // 1. Operasyon ve İzleme
   { id: "dashboard", name: "Gerçek Zamanlı AI Pano", icon: Activity, type: "access", color: "purple" },
-  { id: "wallboard", name: "Canlı İzleme Paneli (Wallboard)", icon: Monitor, type: "access", color: "indigo" },
-  { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: Coffee, type: "access", color: "emerald" },
-  { id: "call_panel:listen_records", name: "Temsilci Paneli Ses Kaydı Dinleme", icon: Volume2, type: "access", color: "emerald" },
-  { id: "omnichannel", name: "Ortak Gelen Kutusu (Omnichannel)", icon: MessageSquare, type: "access", color: "purple" },
+  { id: "wallboard", name: "Canlı İzleme Paneli", icon: Monitor, type: "access", color: "indigo" },
+  { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: PhoneCall, type: "access", color: "emerald" },
+  { id: "omnichannel", name: "Ortak Gelen Kutusu", icon: MessageSquare, type: "access", color: "purple" },
 
   // 2. Yapay Zeka & Bilgi
-  { id: "ai_agents", name: "Yapay Zeka Temsilcileri (AI Agents)", icon: Bot, type: "crud", color: "purple" },
-  { id: "ai_agent_scenarios", name: "AI Temsilci Senaryo Editörü", icon: GitBranch, type: "crud", color: "purple" },
-  { id: "rag_kb", name: "Bilgi Bankası (RAG) Yönetimi", icon: Database, type: "crud", color: "blue" },
+  { id: "ai_agents", name: "AI Temsilcileri", icon: Bot, type: "crud", color: "purple" },
+  { id: "rag_kb", name: "Bilgi Bankası (RAG)", icon: Database, type: "crud", color: "blue" },
   { id: "rule_editor", name: "Kural & Senaryo Editörü", icon: Sliders, type: "crud", color: "indigo" },
-  { id: "ai_whisper", name: "AI Fısıldama Yönetimi & Yetkisi", icon: Sparkles, type: "crud_partial", color: "amber" },
-  { id: "voice_biometrics", name: "Biyometrik Ses Doğrulama", icon: Fingerprint, type: "crud", color: "indigo" },
-  { id: "qa", name: "Otomatik Kalite Değerlendirme (QA)", icon: FileText, type: "crud", color: "indigo" },
+
+  // 3. Santral
+  { id: "users", name: "Kullanıcılar", icon: User, type: "crud", color: "blue" },
+  { id: "announcements", name: "Anons Yönetimi", icon: Volume2, type: "crud", color: "pink" },
+  { id: "acd_queues", name: "ACD Kuyruk", icon: Users, type: "crud", color: "blue" },
+  { id: "autoprovision", name: "Oto Provizyon", icon: Smartphone, type: "crud", color: "indigo" },
+  { id: "outbound_rules", name: "Giden Arama Kuralı", icon: ArrowUpRight, type: "crud", color: "indigo" },
+  { id: "inbound_rules", name: "Gelen Arama Kuralı", icon: PhoneCall, type: "crud", color: "pink" },
+  { id: "call_pickup_groups", name: "Çağrı Toplama Grubu", icon: Users, type: "crud", color: "blue" },
+  { id: "subscriber_groups", name: "Abone Grubu", icon: Users, type: "crud", color: "blue" },
+  { id: "contacts", name: "Rehber", icon: BookOpen, type: "crud", color: "blue" },
+  { id: "trunks", name: "Dış Hat Tanımı", icon: Cable, type: "crud", color: "indigo" },
+  { id: "conferences", name: "Konferans", icon: Users, type: "crud", color: "blue" },
+  { id: "speed_dials", name: "Hızlı Arama", icon: PhoneCall, type: "crud", color: "rose" },
+  { id: "blacklist", name: "Numara Engelleme", icon: Shield, type: "crud", color: "rose" },
+
+  // 4. Çağrı & Yönlendirme
+  { id: "call_flow", name: "Arama Akış Yönetimi", icon: GitBranch, type: "crud", color: "indigo" },
+  { id: "dialer", name: "Dış Arama (Dialer)", icon: PhoneCall, type: "crud", color: "blue" },
+  { id: "calendar", name: "Randevu Takvimi", icon: Calendar, type: "crud", color: "amber" },
+
+  // 5. Çağrı Raporları & Analiz
+  { id: "reports_pano", name: "Pano", icon: Monitor, type: "access", color: "purple" },
+  { id: "reports_cdr", name: "CDR", icon: FileText, type: "access", color: "emerald" },
+  { id: "reports_audio", name: "Ses Kayıtları", icon: Volume2, type: "access", color: "emerald" },
+  { id: "reports_transcripts", name: "Çağrı Transkripti", icon: MessageSquare, type: "access", color: "emerald" },
+  { id: "reports_sentiment", name: "Duygu Analizi", icon: Sparkles, type: "access", color: "emerald" },
+  { id: "reports_qa", name: "Kalite Değerlendirmeleri", icon: FileText, type: "access", color: "indigo" },
+  { id: "reports_notes", name: "Temsilci Notları", icon: FileText, type: "access", color: "emerald" },
+  { id: "reports_perf", name: "Temsilci Performans & KPI", icon: Activity, type: "access", color: "emerald" },
+  { id: "reports_queue", name: "Kuyruk & Bekleme Analitiği", icon: Users, type: "access", color: "emerald" },
+  { id: "reports_sentiment_heat", name: "Duygu Durumu Isı Haritası", icon: Activity, type: "access", color: "emerald" },
+  { id: "reports_wordcloud", name: "Kelime Bulutu & Trendler", icon: MessageSquare, type: "access", color: "emerald" },
+  { id: "reports_fcr", name: "İlk Aramada Çözüm (FCR)", icon: CheckCircle, type: "access", color: "emerald" },
+  { id: "reports_roi", name: "AI vs İnsan ROI Paneli", icon: Activity, type: "access", color: "emerald" },
+  { id: "reports_missed", name: "Kaçan Çağrı Analizi", icon: PhoneCall, type: "access", color: "rose" },
+  { id: "agent_timeline", name: "Temsilci Kronolojisi", icon: Clock, type: "access", color: "emerald" },
+  { id: "reports_traffic_load", name: "Yoğunluk Raporu", icon: Calendar, type: "access", color: "emerald" },
+  { id: "reports_trunk", name: "Hat Kapasite Raporu", icon: Server, type: "access", color: "emerald" },
+  { id: "reports_ivr_drop", name: "IVR Terk Oranı", icon: Shuffle, type: "access", color: "emerald" },
+  { id: "reports_transfer_hold", name: "Aktarma & Bekletme", icon: PhoneCall, type: "access", color: "emerald" },
+  { id: "reports_ab_testing", name: "Verimlilik Karşılaştırması", icon: Activity, type: "access", color: "emerald" },
+  { id: "reports_friction", name: "Müşteri Çile Noktaları", icon: Activity, type: "access", color: "rose" },
+  { id: "reports_compliance", name: "Senaryo Sadakati Raporu", icon: Shield, type: "access", color: "emerald" },
+  { id: "reports_silence", name: "Sessizlik & Söz Kesme", icon: Volume2, type: "access", color: "emerald" },
+  { id: "reports_ceo_summary", name: "CEO Özet Raporu", icon: FileText, type: "access", color: "amber" },
+
+  // 6. Yönetim & Ayarlar
+  { id: "system_status", name: "Sistem Panosu & Sağlık", icon: Server, type: "access", color: "cyan" },
+  { id: "logs", name: "Olay Günlükleri", icon: FileText, type: "access", color: "rose" },
+  { id: "sip_debugger", name: "SIP Trafik (sngrep)", icon: Terminal, type: "access", color: "indigo" },
+  { id: "security", name: "Güvenlik Kalkanı", icon: Shield, type: "crud", color: "rose" },
+
+  // 7. Sistem Ayarları
+  { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
+  { id: "nat", name: "NAT ve Dış IP Ayarları", icon: Network, type: "crud", color: "blue" },
+  { id: "qa", name: "Çağrı Kalite Kontrol", icon: Shield, type: "crud", color: "indigo" },
+  { id: "locations", name: "Lokasyon ve Departmanlar", icon: MapPin, type: "crud", color: "rose" },
+  { id: "numbering_plan", name: "Numara Planı", icon: Hash, type: "crud_partial", color: "blue" },
+  { id: "smart_callback", name: "Akıllı Geri Arama", icon: Shuffle, type: "crud_partial", color: "indigo" },
   { id: "lang_detect", name: "Otomatik Dil Algılama", icon: Languages, type: "crud_partial", color: "rose" },
   { id: "emotion_management", name: "Dinamik Duygu Yönetimi", icon: Heart, type: "crud_partial", color: "rose" },
-  { id: "ai_providers", name: "Yapay Zeka API Sağlayıcı Ayarları", icon: Bot, type: "crud_partial", color: "purple" },
-
-  // 3. Santral (PBX) & Çağrı Yönlendirme
-  { id: "pbx", name: "Santral Entegrasyonu", icon: Server, type: "crud", color: "indigo" },
-  { id: "users", name: "Kullanıcı Yönetimi", icon: User, type: "crud", color: "blue" },
-  { id: "announcements", name: "Anons Yönetimi", icon: Volume2, type: "crud", color: "pink" },
-  { id: "acd_queues", name: "ACD Kuyruk Yönetimi", icon: Users, type: "crud", color: "blue" },
-  { id: "autoprovision", name: "Oto Provizyon Cihaz Yönetimi", icon: Smartphone, type: "crud", color: "indigo" },
-  { id: "autoprovision_templates", name: "Otoprovizyon Şablonları", icon: FileText, type: "crud", color: "amber" },
-  { id: "outbound_rules", name: "Giden Arama Kuralları", icon: ArrowUpRight, type: "crud", color: "indigo" },
-  { id: "inbound_rules", name: "Gelen Arama Kuralları", icon: PhoneCall, type: "crud", color: "pink" },
-  { id: "call_pickup_groups", name: "Çağrı Toplama Grupları", icon: Users, type: "crud", color: "blue" },
-  { id: "subscriber_groups", name: "Abone Grupları", icon: Users, type: "crud", color: "blue" },
-  { id: "contacts", name: "Rehber (Contacts)", icon: BookOpen, type: "crud", color: "blue" },
-  { id: "trunks", name: "Dış Hat Tanımı (SIP Trunks)", icon: Cable, type: "crud", color: "indigo" },
-  { id: "conferences", name: "Konferans Yönetimi", icon: Users, type: "crud", color: "blue" },
-  { id: "speed_dials", name: "Hızlı Arama Yönetimi", icon: PhoneCall, type: "crud", color: "rose" },
-  { id: "blacklist", name: "Numara Engelleme & Kara Liste", icon: Shield, type: "crud", color: "rose" },
-  { id: "call_flow", name: "Arama Akış Yönetimi (Call Flow)", icon: GitBranch, type: "crud", color: "indigo" },
-  { id: "dialer", name: "Dış Arama Modülü (Dialer)", icon: Smartphone, type: "crud", color: "blue" },
-  { id: "calendar", name: "Randevu Takvimi", icon: Calendar, type: "crud", color: "amber" },
-  { id: "follow_me", name: "Beni Takip Et (Follow Me) Özelliği", icon: PhoneCall, type: "crud_partial", color: "indigo" },
-  { id: "mobile_transfer", name: "Mobil Numaraya Akıllı AI Transferi", icon: Smartphone, type: "crud_partial", color: "indigo" },
-  { id: "smart_callback", name: "Akıllı Geri Arama (Smart Callback)", icon: Shuffle, type: "crud_partial", color: "indigo" },
-  { id: "numbering_plan", name: "Numara Planı Ayarları", icon: Hash, type: "crud_partial", color: "blue" },
-
-  // 4. Raporlar & Analiz
-  { id: "reports", name: "Gelişmiş Çağrı Raporları ve KPI Panosu", icon: FileText, type: "access", color: "purple" },
-  { id: "agent_timeline", name: "Temsilci Kronolojisi Raporu", icon: Clock, type: "access", color: "emerald" },
-  { id: "transcripts", name: "Maskesiz Görüşme Metinleri Yetkisi", icon: Terminal, type: "access", color: "orange" },
-  { id: "roi_settings", name: "ROI Rapor Ayarları", icon: FileText, type: "crud", color: "amber" },
-
-  // 5. İletişim Kanalları
-  { id: "channels", name: "Kanal Entegrasyonları (WhatsApp/Meta/TG)", icon: Smartphone, type: "crud_partial", color: "pink" },
-  { id: "canned_responses", name: "Hızlı Cevap Taslakları", icon: FileText, type: "crud", color: "pink" },
-
-  // 6. Yönetim, Güvenlik & Sistem Ayarları
-  { id: "roles", name: "Rol ve Yetki Tanımları", icon: Shield, type: "crud", color: "purple" },
+  { id: "ai_whisper", name: "AI Fısıldama Yönetimi", icon: Bot, type: "crud_partial", color: "amber" },
+  { id: "voice_biometrics", name: "Biyometrik Ses Analizi", icon: Fingerprint, type: "crud", color: "indigo" },
+  { id: "channels", name: "Kanal Entegrasyonları", icon: Smartphone, type: "crud_partial", color: "pink" },
   { id: "breaks", name: "Mola Tanımları", icon: Coffee, type: "crud", color: "amber" },
-  { id: "locations", name: "Lokasyon ve Departmanlar", icon: MapPin, type: "crud", color: "rose" },
-  { id: "nat", name: "NAT ve Dış IP Ayarları", icon: Network, type: "crud", color: "blue" },
-  { id: "universal_api", name: "Evrensel API & Webhook Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
-  { id: "ssl", name: "SSL Sertifika Yönetimi", icon: Shield, type: "crud_partial", color: "emerald" },
-  { id: "backup_restore", name: "Sistem Yedekleme ve Geri Yükleme", icon: HardDrive, type: "crud_partial", color: "blue" },
-  { id: "recording_retention", name: "Kayıt & Saklama Süresi Sistemi", icon: Server, type: "crud", color: "rose" },
-  { id: "storage", name: "Recording/NAS Depolama Erişimi", icon: HardDrive, type: "access", color: "rose" },
-  { id: "api_budgets", name: "API Bütçe ve Tüketim Takibi", icon: HardDrive, type: "crud_partial", color: "emerald" },
-  { id: "tenant_license", name: "Müşteri (Tenant) & Lisans Yönetimi", icon: Lock, type: "crud", color: "rose" },
-  { id: "email_notifications", name: "E-Mail ve WhatsApp Sistem Bildirimleri", icon: Mail, type: "crud", color: "blue" },
-  { id: "restore_points", name: "Geri Yükleme Noktası Yönetimi", icon: RotateCcw, type: "crud", color: "emerald" },
-  { id: "system_status", name: "Sistem Panosu & Sağlık İzleme", icon: Server, type: "access", color: "cyan" },
-  { id: "logs", name: "Olay Günlükleri & Sistem Logları", icon: Terminal, type: "access", color: "cyan" },
-  { id: "sip_debugger", name: "SIP Trafik Yakalayıcı (sngrep)", icon: Terminal, type: "access", color: "indigo" },
-  { id: "security", name: "Güvenlik Kalkanı (Fail2Ban & UFW)", icon: Shield, type: "crud", color: "cyan" },
-  { id: "system_version", name: "Sistem Versiyonu & Değişiklik Günlüğü", icon: GitBranch, type: "access", color: "indigo" }
+  { id: "roles", name: "Roller", icon: Shield, type: "crud", color: "purple" },
+  { id: "canned_responses", name: "Hızlı Cevaplar", icon: FileText, type: "crud", color: "pink" },
+  { id: "universal_api", name: "Evrensel API Sihirbazı", icon: Cable, type: "crud", color: "indigo" },
+  { id: "autoprovision_templates", name: "Otoprovizyon Şablonları", icon: FileText, type: "crud", color: "amber" },
+  { id: "roi_settings", name: "ROI Rapor Ayarları", icon: FileText, type: "crud", color: "amber" },
+  { id: "ssl", name: "SSL Sertifikaları", icon: Lock, type: "crud_partial", color: "emerald" },
+  { id: "backup_restore", name: "Sistem Yedekleme", icon: HardDrive, type: "crud_partial", color: "rose" },
+  { id: "recording_retention", name: "Kayıt & Saklama Sistemi", icon: HardDrive, type: "crud", color: "rose" },
+  { id: "ai_providers", name: "Yapay Zeka API Ayarları", icon: Bot, type: "crud_partial", color: "purple" },
+  { id: "api_budgets", name: "API Bütçe ve Tüketim", icon: Database, type: "crud_partial", color: "emerald" },
+  { id: "tenants", name: "Müşteri (Tenant) Yönetimi", icon: Users, type: "crud", color: "rose" },
+  { id: "tenant_license", name: "Lisans & Key Yönetimi", icon: Lock, type: "crud", color: "rose" },
+  { id: "email_notifications", name: "E-Mail Bildirimleri", icon: Mail, type: "crud", color: "blue" },
+  { id: "restore_points", name: "Geri Yükleme Noktası", icon: RotateCcw, type: "crud", color: "emerald" },
+  { id: "system_version", name: "Sistem Versiyonu & Günlük", icon: GitBranch, type: "access", color: "indigo" }
 ];
+
+export const normalizeRolePermissionsList = (rawPerms = []) => {
+  let perms = Array.isArray(rawPerms) ? [...rawPerms] : [];
+
+  // Call Panel sub-permissions fallback
+  const hasCallPanelAccess = perms.includes("call_panel:access") || perms.includes("call_panel");
+  const hasAnyTabPerm = perms.some((p) => p.startsWith("call_panel:tab_"));
+  if (hasCallPanelAccess && !hasAnyTabPerm) {
+    perms = Array.from(new Set([...perms, ...DEFAULT_CALL_PANEL_SUB_PERMS]));
+  }
+
+  // Reports granular sub-permissions fallback if role has legacy reports:access
+  const hasLegacyReports = perms.includes("reports:access") || perms.includes("reports");
+  const hasGranularReportPerm = perms.some((p) => p.startsWith("reports_"));
+  if (hasLegacyReports && !hasGranularReportPerm) {
+    const allReportAccessCodes = REPORT_FEATURE_IDS.map((id) => `${id}:access`);
+    perms = Array.from(new Set([...perms, ...allReportAccessCodes]));
+  }
+
+  // Tenants permission fallback from tenant_license
+  const hasTenantsPerm = perms.some((p) => p.startsWith("tenants:"));
+  if (!hasTenantsPerm) {
+    if (perms.includes("tenant_license:read")) perms.push("tenants:read");
+    if (perms.includes("tenant_license:write")) perms.push("tenants:write");
+    if (perms.includes("tenant_license:delete")) perms.push("tenants:delete");
+  }
+
+  return Array.from(new Set(perms));
+};
 
 export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -185,7 +260,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   };
 
   const getRolePermissionStats = (role) => {
-    const perms = Array.isArray(role?.permissions) ? role.permissions : [];
+    const perms = normalizeRolePermissionsList(role?.permissions);
     let total = 0;
     let granted = 0;
 
@@ -218,17 +293,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       }
     });
 
-    const hasCallPanelAccess = perms.includes("call_panel:access") || perms.includes("call_panel");
-    const hasAnyTabPerm = perms.some((p) => p.startsWith("call_panel:tab_"));
-
     CALL_PANEL_SUB_GROUPS.forEach((group) => {
       group.items.forEach((subItem) => {
         if (SYSTEM_FEATURES.some((f) => f.id === subItem.id)) return;
         total += 1;
-        const isGranted =
-          perms.includes(subItem.id) ||
-          (hasCallPanelAccess && !hasAnyTabPerm && !subItem.isRestriction);
-        if (isGranted) granted += 1;
+        if (perms.includes(subItem.id)) granted += 1;
       });
     });
 
@@ -280,39 +349,87 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
   const ROLE_MODAL_CATEGORIES = [
     {
       id: "operations",
-      name: "Operasyon & Canlı İzleme",
+      name: "Operasyon ve İzleme",
       icon: Activity,
       items: ["dashboard", "wallboard", "call_panel", "omnichannel"]
     },
     {
       id: "ai",
-      name: "Yapay Zeka & Otomasyon",
+      name: "Yapay Zeka & Bilgi",
       icon: Bot,
-      items: ["ai_agents", "ai_agent_scenarios", "rag_kb", "rule_editor", "ai_whisper", "voice_biometrics", "qa", "lang_detect", "emotion_management", "ai_providers"]
+      items: ["ai_agents", "rag_kb", "rule_editor"]
     },
     {
-      id: "pbx",
-      name: "Santral (PBX) & Çağrı Yönlendirme",
-      icon: Server,
-      items: ["pbx", "users", "announcements", "acd_queues", "autoprovision", "autoprovision_templates", "outbound_rules", "inbound_rules", "call_pickup_groups", "subscriber_groups", "contacts", "trunks", "conferences", "speed_dials", "blacklist", "call_flow", "dialer", "calendar", "follow_me", "mobile_transfer", "smart_callback", "numbering_plan"]
+      id: "pbx_menu",
+      name: "Santral",
+      icon: PhoneCall,
+      items: [
+        "users",
+        "announcements",
+        "acd_queues",
+        "autoprovision",
+        "outbound_rules",
+        "inbound_rules",
+        "call_pickup_groups",
+        "subscriber_groups",
+        "contacts",
+        "trunks",
+        "conferences",
+        "speed_dials",
+        "blacklist"
+      ]
+    },
+    {
+      id: "routing",
+      name: "Çağrı & Yönlendirme",
+      icon: GitBranch,
+      items: ["call_flow", "dialer", "calendar"]
     },
     {
       id: "reports",
-      name: "Raporlar & Performans Analitiği",
+      name: "Çağrı Raporları & Analiz",
       icon: FileText,
-      items: ["reports", "agent_timeline", "transcripts", "roi_settings"]
+      items: REPORT_FEATURE_IDS
     },
     {
-      id: "omnichannel",
-      name: "İletişim Kanalları & Şablonlar",
-      icon: MessageSquare,
-      items: ["channels", "canned_responses"]
+      id: "management",
+      name: "Yönetim & Ayarlar",
+      icon: Terminal,
+      items: ["system_status", "logs", "sip_debugger", "security"]
     },
     {
-      id: "system",
-      name: "Yönetim, Güvenlik & Sistem Ayarları",
-      icon: Shield,
-      items: ["roles", "breaks", "locations", "nat", "universal_api", "ssl", "backup_restore", "recording_retention", "storage", "api_budgets", "tenant_license", "email_notifications", "restore_points", "system_status", "logs", "sip_debugger", "security", "system_version"]
+      id: "system_settings",
+      name: "Sistem Ayarları",
+      icon: Server,
+      items: [
+        "pbx",
+        "nat",
+        "qa",
+        "locations",
+        "numbering_plan",
+        "smart_callback",
+        "lang_detect",
+        "emotion_management",
+        "ai_whisper",
+        "voice_biometrics",
+        "channels",
+        "breaks",
+        "roles",
+        "canned_responses",
+        "universal_api",
+        "autoprovision_templates",
+        "roi_settings",
+        "ssl",
+        "backup_restore",
+        "recording_retention",
+        "ai_providers",
+        "api_budgets",
+        "tenants",
+        "tenant_license",
+        "email_notifications",
+        "restore_points",
+        "system_version"
+      ]
     },
     {
       id: "breaks",
@@ -363,12 +480,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     setEditingRole(r);
     setRoleCode(r.role_code);
     setRoleName(r.name);
-    let initialPerms = Array.isArray(r.permissions) ? [...r.permissions] : [];
-    const hasCallPanelAccess = initialPerms.includes("call_panel:access") || initialPerms.includes("call_panel");
-    const hasAnyTabPerm = initialPerms.some(p => p.startsWith("call_panel:tab_"));
-    if (hasCallPanelAccess && !hasAnyTabPerm) {
-      initialPerms = Array.from(new Set([...initialPerms, ...DEFAULT_CALL_PANEL_SUB_PERMS]));
-    }
+    const initialPerms = normalizeRolePermissionsList(r.permissions);
     setSelectedPermissions(initialPerms);
     setSelectedBreaks(r.allowed_breaks || []);
     setActiveModalTab("operations");
@@ -385,6 +497,13 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       return;
     }
 
+    const hasAnyReportPerm = selectedPermissions.some((p) =>
+      REPORT_FEATURE_IDS.some((id) => p === `${id}:access` || p === id)
+    );
+    const syncedSelectedPermissions = hasAnyReportPerm
+      ? Array.from(new Set([...selectedPermissions, "reports:access"]))
+      : selectedPermissions.filter((p) => p !== "reports:access" && p !== "reports");
+
     setSubmitting(true);
     let ok = false;
     try {
@@ -397,8 +516,13 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
               role_code: trimmedCode,
               name: trimmedName,
               permissions: Array.from(new Set([
-                ...(r.permissions || []).filter(p => !SYSTEM_FEATURES.some(f => p.startsWith(f.id + ':'))),
-                ...selectedPermissions
+                ...(r.permissions || []).filter(
+                  (p) =>
+                    p !== "reports:access" &&
+                    p !== "reports" &&
+                    !SYSTEM_FEATURES.some((f) => p.startsWith(f.id + ":"))
+                ),
+                ...syncedSelectedPermissions
               ])),
               allowed_breaks: selectedBreaks
             };
@@ -414,7 +538,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
           id: nextId,
           role_code: trimmedCode,
           name: trimmedName,
-          permissions: selectedPermissions,
+          permissions: syncedSelectedPermissions,
           allowed_breaks: selectedBreaks
         };
         const updated = [...roles, newRole];
