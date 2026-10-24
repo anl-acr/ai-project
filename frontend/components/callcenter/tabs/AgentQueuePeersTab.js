@@ -203,17 +203,6 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
             <Headphones size={22} className={text} />
             Kuyruk Temsilcileri
           </h2>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => fetchQueuePeers(true)}
-              className="px-3 py-2 text-xs font-semibold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 transition-all flex items-center gap-1.5 shadow-sm"
-              title="Şimdi Yenile"
-            >
-              <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-              Yenile
-            </button>
-          </div>
         </div>
 
         {/* Summary KPI Strip */}
