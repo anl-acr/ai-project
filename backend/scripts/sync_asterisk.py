@@ -129,6 +129,7 @@ stunaddr=stun.l.google.com:19302
             print(f"[Sync Script] rtp.conf error: {e}")
 
     # Generate /etc/asterisk/pjsip_custom.conf directly in sync script
+    sdata = {}
     try:
         import json
         settings_json_path = os.path.join(BASE_DIR, "settings.json")
@@ -340,7 +341,7 @@ password={pwd}
         print(f"[Sync Script] PJSIP oluşturma hatası: {e_pjsip}")
 
     # 2. Generate clean extensions_custom.conf with dynamic Call Pickup & Call Forwarding Feature Codes
-    pbx_cfg = settings.get("pbx", {}) if isinstance(settings.get("pbx"), dict) else {}
+    pbx_cfg = sdata.get("pbx", {}) if isinstance(sdata.get("pbx"), dict) else {}
     num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
     pickup_cfg = num_plan.get("call_pickup", {}) if isinstance(num_plan.get("call_pickup"), dict) else {}
     fwd_cfg = num_plan.get("call_forwarding", {}) if isinstance(num_plan.get("call_forwarding"), dict) else {}
