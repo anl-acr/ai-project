@@ -1,5 +1,12 @@
-import * as SIP from "sip.js";
 import { playRingtoneSound, stopRingtoneSound } from "./audioHelper";
+
+let SIP = null;
+async function ensureSipLoaded() {
+  if (!SIP && typeof window !== "undefined") {
+    SIP = await import("sip.js");
+  }
+  return SIP;
+}
 
 class WebphoneManager {
   constructor() {
@@ -328,8 +335,12 @@ class WebphoneManager {
     }
   }
 
-  startUserAgent(config) {
+  async startUserAgent(config) {
     if (!config?.asteriskWssUrl || !config?.agentExtension) return;
+    if (typeof window === "undefined") return;
+
+    await ensureSipLoaded();
+    if (!SIP) return;
 
     if (this.userAgent) {
       try {

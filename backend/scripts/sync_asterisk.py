@@ -541,7 +541,6 @@ same => n,Hangup()
 
     # Copy Turkish announcement WAV files to /var/spool/asterisk/monitor/
     try:
-        import shutil
         sounds_tr_dir = os.path.join(PROJECT_ROOT, "asterisk_config", "sounds_tr")
         monitor_dir = "/var/spool/asterisk/monitor"
         if os.path.isdir(sounds_tr_dir) and (os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk")):

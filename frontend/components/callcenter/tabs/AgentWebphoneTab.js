@@ -4,7 +4,7 @@ import AgentSessionCard from "../../phone/AgentSessionCard";
 import {
   Phone,
   PhoneOff,
-  PhonePlus,
+  PhoneCall,
   Mic,
   MicOff,
   Pause,
@@ -510,7 +510,7 @@ export default function AgentWebphoneTab({
                       }`}
                       title="Mevcut çağrıyı beklemeye alarak yeni bir numara/dahili ara"
                     >
-                      <PhonePlus size={14} />
+                      <PhoneCall size={14} />
                       + Yeni Çağrı Ekle
                     </button>
                   </div>
