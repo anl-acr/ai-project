@@ -1879,6 +1879,21 @@ export default function Home() {
               </button>
 
               <button
+                onClick={() => setActiveTab("reports-intent")}
+                title="Raporlar: Niyet Raporu"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-intent"
+                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Layers size={16} className={`shrink-0 ${activeTab === "reports-intent" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Niyet Raporu</span>
+              </button>
+
+              <button
                 onClick={() => setActiveTab("reports-qa")}
                 title="Raporlar: Kalite Değerlendirmeleri"
                 className={`w-full flex items-center ${
@@ -2318,10 +2333,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.5.8 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.5.9 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
-            <span>{isSidebarCollapsed ? "v2.5.8" : "v2.5.8 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.5.9" : "v2.5.9 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -2598,7 +2613,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
@@ -2698,6 +2713,10 @@ export default function Home() {
 
           {activeTab === "reports-sentiment" && (
             <ReportsPanel backendHost={backendHost} viewMode="sentiment" />
+          )}
+
+          {activeTab === "reports-intent" && (
+            <ReportsPanel backendHost={backendHost} viewMode="intent" />
           )}
 
           {activeTab === "reports-qa" && (

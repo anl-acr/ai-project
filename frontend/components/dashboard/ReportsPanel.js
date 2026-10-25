@@ -50,7 +50,14 @@ import {
   MessageSquareDashed,
   VolumeX,
   Briefcase,
-  PieChart
+  PieChart,
+  Plus,
+  Trash2,
+  Edit2,
+  Save,
+  Sparkles,
+  Tag,
+  Check
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
@@ -446,6 +453,335 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
   }, [viewMode, filterStartDate, filterEndDate, backendHost]);
 
+  const DEFAULT_INTENT_RULES = [
+    {
+      id: "intent-sales-positive",
+      name: "Satış Olumlu / Sipariş Niyeti",
+      category: "Satış",
+      color: "emerald",
+      scope: "customer",
+      is_active: true,
+      keywords: ["satın almak", "sipariş", "kabul ediyorum", "onaylıyorum", "almak istiyorum", "kredi kartı", "ödeme yapacağım", "başlatalım", "anlaştık"]
+    },
+    {
+      id: "intent-sales-inquiry",
+      name: "Fiyat & Teklif Sorgulama",
+      category: "Satış",
+      color: "blue",
+      scope: "customer",
+      is_active: true,
+      keywords: ["fiyat", "ücret", "ne kadar", "kampanya", "indirim", "paket", "taksit", "teklif"]
+    },
+    {
+      id: "intent-helpdesk",
+      name: "Yardım Masası / Teknik Destek",
+      category: "Yardım Masası",
+      color: "amber",
+      scope: "customer",
+      is_active: true,
+      keywords: ["arıza", "çalışmıyor", "hata", "destek", "bağlantı", "kurulum", "şifre", "giriş yapamıyorum", "sorun var", "yardım"]
+    },
+    {
+      id: "intent-cancel-complaint",
+      name: "İptal / İade / Şikayet Niyeti",
+      category: "Şikayet / İptal",
+      color: "rose",
+      scope: "customer",
+      is_active: true,
+      keywords: ["iptal", "iade", "şikayet", "memnun değilim", "kapatmak istiyorum", "vazgeçtim", "cayma", "tüketici hakem"]
+    }
+  ];
+
+  const [intentRules, setIntentRules] = useState(DEFAULT_INTENT_RULES);
+  const [intentTranscriptsByCall, setIntentTranscriptsByCall] = useState({});
+  const [intentLoading, setIntentLoading] = useState(false);
+  const [selectedIntentRuleIds, setSelectedIntentRuleIds] = useState([]);
+  const [intentQuickKeywords, setIntentQuickKeywords] = useState("");
+  const [intentQuickRuleName, setIntentQuickRuleName] = useState("");
+  const [intentQuickCategory, setIntentQuickCategory] = useState("Satış");
+  const [intentOnlyMatched, setIntentOnlyMatched] = useState(false);
+  const [isIntentRuleFormOpen, setIsIntentRuleFormOpen] = useState(false);
+  const [editingIntentRuleId, setEditingIntentRuleId] = useState(null);
+  const [intentRuleName, setIntentRuleName] = useState("");
+  const [intentRuleCategory, setIntentRuleCategory] = useState("Satış");
+  const [intentRuleKeywords, setIntentRuleKeywords] = useState("");
+  const [intentRuleScope, setIntentRuleScope] = useState("customer");
+  const [intentRuleColor, setIntentRuleColor] = useState("emerald");
+  const [intentRulesSaving, setIntentRulesSaving] = useState(false);
+  const [intentRulesSavedBadge, setIntentRulesSavedBadge] = useState(false);
+  const [deleteIntentRuleTarget, setDeleteIntentRuleTarget] = useState(null);
+
+  const fetchIntentAnalysisData = async (showSpin = false) => {
+    if (showSpin) setIntentLoading(true);
+    try {
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+      const params = new URLSearchParams();
+      params.append("tenant_id", activeTenantId);
+      if (filterStartDate) params.append("start_date", filterStartDate);
+      if (filterEndDate) params.append("end_date", filterEndDate);
+      const res = await fetch(`${protocol}//${backendHost}/api/reports/intent-analysis?${params.toString()}`, {
+        headers: { "X-Tenant-ID": activeTenantId }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.rules) && data.rules.length > 0) {
+          setIntentRules(data.rules);
+        }
+        if (data?.transcripts_by_call && typeof data.transcripts_by_call === "object") {
+          setIntentTranscriptsByCall(data.transcripts_by_call);
+        }
+      }
+    } catch (err) {
+      console.error("[IntentAnalysis] Veriler yüklenemedi:", err);
+    } finally {
+      if (showSpin) setIntentLoading(false);
+    }
+  };
+
+  const handleSaveIntentRulesToBackend = async (updatedRules) => {
+    setIntentRulesSaving(true);
+    try {
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+      const res = await fetch(`${protocol}//${backendHost}/api/settings/intent-rules`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Tenant-ID": activeTenantId
+        },
+        body: JSON.stringify({ rules: updatedRules })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.rules)) {
+          setIntentRules(data.rules);
+        } else {
+          setIntentRules(updatedRules);
+        }
+        setIntentRulesSavedBadge(true);
+        setTimeout(() => setIntentRulesSavedBadge(false), 3000);
+      }
+    } catch (err) {
+      console.error("[IntentRules] Kaydedilemedi:", err);
+    } finally {
+      setIntentRulesSaving(false);
+    }
+  };
+
+  const handleOpenNewIntentRuleForm = () => {
+    setEditingIntentRuleId(null);
+    setIntentRuleName("");
+    setIntentRuleCategory("Satış");
+    setIntentRuleKeywords(intentQuickKeywords || "");
+    setIntentRuleScope("customer");
+    setIntentRuleColor("emerald");
+    setIsIntentRuleFormOpen(true);
+  };
+
+  const handleOpenEditIntentRuleForm = (rule) => {
+    setEditingIntentRuleId(rule.id);
+    setIntentRuleName(rule.name || "");
+    setIntentRuleCategory(rule.category || "Satış");
+    setIntentRuleKeywords(Array.isArray(rule.keywords) ? rule.keywords.join(", ") : String(rule.keywords || ""));
+    setIntentRuleScope(rule.scope || "customer");
+    setIntentRuleColor(rule.color || "emerald");
+    setIsIntentRuleFormOpen(true);
+  };
+
+  const handleSubmitIntentRuleForm = async () => {
+    const cleanName = String(intentRuleName || "").trim();
+    const kwList = String(intentRuleKeywords || "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    if (!cleanName || kwList.length === 0) return;
+
+    let updated;
+    if (editingIntentRuleId) {
+      updated = intentRules.map((r) =>
+        r.id === editingIntentRuleId
+          ? {
+              ...r,
+              name: cleanName,
+              category: intentRuleCategory || "Genel",
+              keywords: kwList,
+              scope: intentRuleScope || "customer",
+              color: intentRuleColor || "emerald",
+              is_active: true
+            }
+          : r
+      );
+    } else {
+      const newRule = {
+        id: `intent-${Date.now()}`,
+        name: cleanName,
+        category: intentRuleCategory || "Genel",
+        keywords: kwList,
+        scope: intentRuleScope || "customer",
+        color: intentRuleColor || "emerald",
+        is_active: true
+      };
+      updated = [...intentRules, newRule];
+    }
+
+    setIntentRules(updated);
+    setIsIntentRuleFormOpen(false);
+    setEditingIntentRuleId(null);
+    await handleSaveIntentRulesToBackend(updated);
+  };
+
+  const handleConfirmDeleteIntentRule = async () => {
+    if (!deleteIntentRuleTarget) return;
+    const targetId = deleteIntentRuleTarget.id;
+    const updated = intentRules.filter((r) => r.id !== targetId);
+    setIntentRules(updated);
+    setSelectedIntentRuleIds((prev) => prev.filter((id) => id !== targetId));
+    setDeleteIntentRuleTarget(null);
+    await handleSaveIntentRulesToBackend(updated);
+  };
+
+  useEffect(() => {
+    if (viewMode === "intent") {
+      fetchIntentAnalysisData(true);
+    }
+  }, [viewMode, filterStartDate, filterEndDate, backendHost]);
+
+  const evaluateCallIntent = (call) => {
+    if (!call) {
+      return {
+        matchedRules: [],
+        primaryRule: null,
+        allMatchedKeywords: [],
+        primaryEvidence: "",
+        hasTranscript: false
+      };
+    }
+    const turns = intentTranscriptsByCall[call.id] || [];
+    const customerTurns = turns.filter(
+      (t) => (t.speaker === "customer" || t.speaker === "user") && t.text && String(t.text).trim()
+    );
+    const allTurns = turns.filter((t) => t.text && String(t.text).trim());
+    const fallbackTextParts = [
+      call.summary && !isInvalidSummaryText(call.summary) ? call.summary : "",
+      call.agent_notes || "",
+      call.agent_topic || ""
+    ].filter(Boolean);
+
+    const activeRulesToEvaluate = [
+      ...(intentRules || []).filter((r) => r.is_active !== false),
+    ];
+
+    const quickKwArray = String(intentQuickKeywords || "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+
+    if (quickKwArray.length > 0) {
+      activeRulesToEvaluate.unshift({
+        id: "intent-quick-filter",
+        name: intentQuickRuleName?.trim() || "Özel Anahtar Kelime Filtresi",
+        category: intentQuickCategory || "Özel Filtre",
+        color: "purple",
+        scope: "all",
+        keywords: quickKwArray
+      });
+    }
+
+    const matchedRules = [];
+    const allMatchedKwSet = new Set();
+
+    activeRulesToEvaluate.forEach((rule) => {
+      const kws = Array.isArray(rule.keywords)
+        ? rule.keywords
+        : String(rule.keywords || "")
+            .split(",")
+            .map((k) => k.trim())
+            .filter(Boolean);
+      if (kws.length === 0) return;
+
+      const sourceTurns =
+        rule.scope === "customer" && customerTurns.length > 0
+          ? customerTurns
+          : allTurns;
+
+      const ruleMatchedKeywords = [];
+      let bestEvidence = "";
+
+      kws.forEach((kw) => {
+        const kwLower = String(kw || "").trim().toLocaleLowerCase("tr-TR");
+        if (!kwLower) return;
+
+        let matchedInTurn = false;
+        for (const t of sourceTurns) {
+          const tLower = String(t.text || "").toLocaleLowerCase("tr-TR");
+          if (tLower.includes(kwLower)) {
+            matchedInTurn = true;
+            if (!bestEvidence) {
+              bestEvidence = String(t.text || "").trim();
+            }
+            break;
+          }
+        }
+
+        if (!matchedInTurn && allTurns.length > 0 && rule.scope === "customer") {
+          for (const t of allTurns) {
+            const tLower = String(t.text || "").toLocaleLowerCase("tr-TR");
+            if (tLower.includes(kwLower)) {
+              matchedInTurn = true;
+              if (!bestEvidence) {
+                bestEvidence = String(t.text || "").trim();
+              }
+              break;
+            }
+          }
+        }
+
+        if (!matchedInTurn && fallbackTextParts.length > 0) {
+          for (const fb of fallbackTextParts) {
+            const fbLower = String(fb || "").toLocaleLowerCase("tr-TR");
+            if (fbLower.includes(kwLower)) {
+              matchedInTurn = true;
+              if (!bestEvidence) {
+                bestEvidence = String(fb || "").trim();
+              }
+              break;
+            }
+          }
+        }
+
+        if (matchedInTurn) {
+          ruleMatchedKeywords.push(kw);
+          allMatchedKwSet.add(kw);
+        }
+      });
+
+      if (ruleMatchedKeywords.length > 0) {
+        matchedRules.push({
+          rule,
+          matchedKeywords: ruleMatchedKeywords,
+          evidence: bestEvidence
+        });
+      }
+    });
+
+    const primaryMatch = matchedRules[0] || null;
+    const defaultCustomerSentence =
+      customerTurns.length > 0
+        ? String(customerTurns[0].text || "").trim()
+        : allTurns.length > 0
+        ? String(allTurns[0].text || "").trim()
+        : fallbackTextParts[0] || "";
+
+    return {
+      matchedRules,
+      primaryRule: primaryMatch ? primaryMatch.rule : null,
+      allMatchedKeywords: Array.from(allMatchedKwSet),
+      primaryEvidence: primaryMatch?.evidence || defaultCustomerSentence,
+      hasTranscript: allTurns.length > 0 || fallbackTextParts.length > 0
+    };
+  };
+
   const baseCdrColumns = {
     startTime: "Tarih / Saat",
     callId: "Çağrı ID",
@@ -594,6 +930,17 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       kpiCards: "Ana KPI Kartları",
       winsPanel: "Operasyonel Başarılar",
       actionsPanel: "Gelişim & Aksiyon Alanları"
+    },
+    intent: {
+      startTime: "Tarih / Saat",
+      caller: "Arayan Numara",
+      conversant: "Görüşen Kişi",
+      intentBadge: "Tespit Edilen Niyet",
+      category: "Kategori",
+      matchedKeywords: "Eşleşen Anahtar Kelimeler",
+      evidence: "Müşteri İfadesi (Kanıt Cümlesi)",
+      durationTalk: "Görüşme Süresi",
+      detail: "Transkript"
     }
   };
 
@@ -982,6 +1329,54 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       const link = document.createElement("a");
       link.setAttribute("href", url);
       link.setAttribute("download", `aktarma_bekletme_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    if (viewMode === "intent") {
+      const headers = [
+        "Tarih / Saat",
+        "Arayan Numara",
+        "Görüşen Kişi",
+        "Tespit Edilen Niyet",
+        "Kategori",
+        "Eşleşen Anahtar Kelimeler",
+        "Müşteri İfadesi (Kanıt Cümlesi)",
+        "Görüşme Süresi"
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      filteredCalls.forEach((c) => {
+        const evalRes = evaluateCallIntent(c);
+        if (intentOnlyMatched && evalRes.matchedRules.length === 0) return;
+        if (selectedIntentRuleIds.length > 0) {
+          const matchesSelected = evalRes.matchedRules.some((mr) => selectedIntentRuleIds.includes(mr.rule.id));
+          if (!matchesSelected) return;
+        }
+        const durations = getCallDurations(c);
+        const intentNames = evalRes.matchedRules.map((mr) => mr.rule.name).join(" | ") || "Niyet Eşleşmedi";
+        const categories = Array.from(new Set(evalRes.matchedRules.map((mr) => mr.rule.category))).join(" / ") || "-";
+        const kwStr = evalRes.allMatchedKeywords.join(", ") || "-";
+        const row = [
+          formatDate(c.start_time),
+          getCustomerNumber(c),
+          getConversant(c) || "Bilinmiyor",
+          intentNames,
+          categories,
+          kwStr,
+          evalRes.primaryEvidence || "-",
+          durations.talk
+        ];
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `musteri_niyet_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2618,7 +3013,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const isComplianceMode = viewMode === "compliance";
   const isSilenceMode = viewMode === "silence";
   const isCeoSummaryMode = viewMode === "ceo-summary";
-  const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode;
+  const isIntentMode = viewMode === "intent";
+  const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode || isIntentMode;
 
   return (
     <div className="w-full h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100">
@@ -2651,7 +3047,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                viewMode === "friction" ? "Müşteri Çile Noktaları (Friction) Analizi" : 
                viewMode === "compliance" ? "Senaryo Sadakati (Script Compliance) Raporu" : 
                viewMode === "silence" ? "Sessizlik ve Söz Kesme (Interruption) Analizi" : 
-               viewMode === "ceo-summary" ? "Yönetim (CEO) Özet Raporu" : "Çağrı Raporları"}
+               viewMode === "ceo-summary" ? "Yönetim (CEO) Özet Raporu" :
+               viewMode === "intent" ? "Müşteri Niyet Analizi Raporu" : "Çağrı Raporları"}
             </h3>
             <div className="flex items-center gap-2 relative">
               {/* Charts Toggle Button (Only for CDR table view) */}
@@ -3497,6 +3894,243 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         />
                       </div>
                     </div>
+
+                    {/* Intent Rules & Saved Keywords Section (For Niyet Raporu) */}
+                    {viewMode === "intent" && (
+                      <div className="col-span-2 flex flex-col gap-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <Sparkles size={15} className="text-primary" />
+                            <div>
+                              <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                                Niyet Grupları & Anahtar Kelimeler (Kalıcı Kayıt)
+                              </h4>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                Satış, yardım masası veya özel süreçler için anahtar kelimeleri girip kaydedin.
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {intentRulesSavedBadge && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-200 dark:border-emerald-800/50">
+                                <Check size={12} /> Kaydedildi
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={handleOpenNewIntentRuleForm}
+                              title="Yeni Niyet Kuralı ve Anahtar Kelime Ekle"
+                              className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition cursor-pointer shadow-sm"
+                            >
+                              <Plus size={16} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Quick Keyword Input + Save as Rule */}
+                        <div className="flex flex-col gap-2 p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800">
+                          <label className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                            Hızlı Anahtar Kelime Girişi (Virgülle Ayırarak Yazın)
+                          </label>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="text"
+                              placeholder="Örn: satın almak, sipariş, fiyat, arıza, şifre, iptal..."
+                              value={intentQuickKeywords}
+                              onChange={(e) => setIntentQuickKeywords(e.target.value)}
+                              className="flex-1 min-w-[200px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                            />
+                            {intentQuickKeywords.trim() && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingIntentRuleId(null);
+                                  setIntentRuleName(intentQuickRuleName || "Özel Niyet Kuralı");
+                                  setIntentRuleCategory(intentQuickCategory || "Satış");
+                                  setIntentRuleKeywords(intentQuickKeywords);
+                                  setIntentRuleScope("customer");
+                                  setIntentRuleColor("emerald");
+                                  setIsIntentRuleFormOpen(true);
+                                }}
+                                className={"inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-white text-[11px] font-bold shadow-sm transition cursor-pointer " + bg + " " + hover}
+                              >
+                                <Save size={12} />
+                                <span>Kalıcı Olarak Kaydet</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Add / Edit Rule Form */}
+                        {isIntentRuleFormOpen && (
+                          <div className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border-2 border-primary/40 flex flex-col gap-3 animate-in fade-in duration-150">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                                {editingIntentRuleId ? "Niyet Kuralını Düzenle" : "Yeni Niyet Kuralı Oluştur & Kaydet"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setIsIntentRuleFormOpen(false)}
+                                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Niyet Başlığı</label>
+                                <input
+                                  type="text"
+                                  placeholder="Örn: Satış Olumlu / Sipariş"
+                                  value={intentRuleName}
+                                  onChange={(e) => setIntentRuleName(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Kategori</label>
+                                <select
+                                  value={intentRuleCategory}
+                                  onChange={(e) => setIntentRuleCategory(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-100"
+                                >
+                                  <option value="Satış">Satış</option>
+                                  <option value="Yardım Masası">Yardım Masası / Teknik Destek</option>
+                                  <option value="Şikayet / İptal">Şikayet / İptal / İade</option>
+                                  <option value="Fatura / Ödeme">Fatura / Ödeme</option>
+                                  <option value="Bilgi Talebi">Bilgi & Randevu Talebi</option>
+                                  <option value="Genel">Genel İşlemler</option>
+                                </select>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Arama Kapsamı</label>
+                                <select
+                                  value={intentRuleScope}
+                                  onChange={(e) => setIntentRuleScope(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-100"
+                                >
+                                  <option value="customer">Müşteri İfadeleri (Öncelikli)</option>
+                                  <option value="all">Tüm Görüşme Metni (Müşteri + Temsilci)</option>
+                                </select>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Etiket Rengi</label>
+                                <select
+                                  value={intentRuleColor}
+                                  onChange={(e) => setIntentRuleColor(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2.5 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-100"
+                                >
+                                  <option value="emerald">Yeşil (Olumlu / Satış / Çözüm)</option>
+                                  <option value="blue">Mavi (Fiyat / Bilgi / Sorgu)</option>
+                                  <option value="amber">Turuncu (Yardım Masası / Destek)</option>
+                                  <option value="rose">Kırmızı (İptal / Şikayet / Risk)</option>
+                                  <option value="purple">Mor (Özel Süreç)</option>
+                                </select>
+                              </div>
+                              <div className="md:col-span-2 flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                                  Anahtar Kelimeler (Virgül ile ayırın)
+                                </label>
+                                <textarea
+                                  rows={2}
+                                  placeholder="satın almak, sipariş, onaylıyorum, fiyat, kurulum, arıza..."
+                                  value={intentRuleKeywords}
+                                  onChange={(e) => setIntentRuleKeywords(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 text-xs font-semibold text-slate-800 dark:text-slate-100"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setIsIntentRuleFormOpen(false)}
+                                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                              >
+                                Vazgeç
+                              </button>
+                              <button
+                                type="button"
+                                disabled={intentRulesSaving}
+                                onClick={handleSubmitIntentRuleForm}
+                                className={"inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-white text-xs font-bold shadow-sm transition cursor-pointer " + bg + " " + hover}
+                              >
+                                <Save size={13} />
+                                <span>{intentRulesSaving ? "Kaydediliyor..." : "Kuralı Kaydet"}</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Saved Rules List */}
+                        <div className="flex flex-col gap-2 max-h-56 overflow-y-auto pr-1">
+                          {(intentRules || []).map((rule) => {
+                            const isSelected = selectedIntentRuleIds.includes(rule.id);
+                            const kwArr = Array.isArray(rule.keywords) ? rule.keywords : [];
+                            return (
+                              <div
+                                key={rule.id}
+                                className={`p-2.5 rounded-xl border flex items-start justify-between gap-3 transition ${
+                                  isSelected
+                                    ? "bg-primary/5 border-primary/40 dark:bg-primary/10"
+                                    : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800"
+                                }`}
+                              >
+                                <label className="flex items-start gap-2.5 cursor-pointer flex-1 min-w-0">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => {
+                                      setSelectedIntentRuleIds((prev) =>
+                                        prev.includes(rule.id) ? prev.filter((id) => id !== rule.id) : [...prev, rule.id]
+                                      );
+                                    }}
+                                    className="mt-0.5 rounded border-slate-300 text-primary focus:ring-primary"
+                                  />
+                                  <div className="flex flex-col gap-1 min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                                        {rule.name}
+                                      </span>
+                                      <span className="px-2 py-0.5 rounded-md text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                                        {rule.category}
+                                      </span>
+                                    </div>
+                                    <div className="flex flex-wrap gap-1 mt-0.5">
+                                      {kwArr.map((kw, kIdx) => (
+                                        <span
+                                          key={kIdx}
+                                          className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700"
+                                        >
+                                          #{kw}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                </label>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleOpenEditIntentRuleForm(rule)}
+                                    title="Anahtar Kelimeleri Düzenle"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                                  >
+                                    <Edit2 size={13} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteIntentRuleTarget(rule)}
+                                    title="Niyet Kuralını Sil"
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition cursor-pointer"
+                                  >
+                                    <Trash2 size={13} />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
@@ -3514,6 +4148,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     fetchCalls(true);
                     if (viewMode === "timeline") {
                       fetchAgentTimeline(filterEndDate || filterStartDate, true);
+                    }
+                    if (viewMode === "intent") {
+                      fetchIntentAnalysisData(true);
                     }
                     setIsFilterOpen(false);
                   }}
@@ -3533,7 +4170,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
               </div>
-            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode) ? (
+            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
                 Kayıt bulunamadı.
               </div>
@@ -7483,6 +8120,601 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   );
                 })()}
               </div>
+            ) : isIntentMode ? (
+              /* Customer Intent Analysis Report Mode (Müşteri Niyet Raporu) */
+              <div className="p-4 flex flex-col gap-5 h-full overflow-y-auto scrollbar-thin">
+                {(() => {
+                  const evaluatedCalls = filteredCalls.map((call) => ({
+                    call,
+                    evalRes: evaluateCallIntent(call)
+                  }));
+
+                  const totalScanned = evaluatedCalls.length;
+                  const matchedCallsList = evaluatedCalls.filter((item) => item.evalRes.matchedRules.length > 0);
+                  const matchedCount = matchedCallsList.length;
+                  const matchedRate = totalScanned > 0 ? Math.round((matchedCount / totalScanned) * 100) : 0;
+
+                  const ruleCountMap = {};
+                  let positiveSalesCount = 0;
+
+                  evaluatedCalls.forEach(({ evalRes }) => {
+                    let countedPositive = false;
+                    evalRes.matchedRules.forEach(({ rule }) => {
+                      ruleCountMap[rule.id] = (ruleCountMap[rule.id] || 0) + 1;
+                      if (
+                        !countedPositive &&
+                        (rule.color === "emerald" ||
+                          String(rule.category || "").toLowerCase().includes("satış") ||
+                          String(rule.name || "").toLowerCase().includes("olumlu"))
+                      ) {
+                        positiveSalesCount++;
+                        countedPositive = true;
+                      }
+                    });
+                  });
+
+                  const positiveRate = totalScanned > 0 ? Math.round((positiveSalesCount / totalScanned) * 100) : 0;
+
+                  let topRuleName = "Henüz Eşleşme Yok";
+                  let topRuleHits = 0;
+                  (intentRules || []).forEach((r) => {
+                    const cnt = ruleCountMap[r.id] || 0;
+                    if (cnt > topRuleHits) {
+                      topRuleHits = cnt;
+                      topRuleName = r.name;
+                    }
+                  });
+
+                  const displayedRows = evaluatedCalls.filter(({ evalRes }) => {
+                    if (intentOnlyMatched && evalRes.matchedRules.length === 0) return false;
+                    if (selectedIntentRuleIds.length > 0) {
+                      if (selectedIntentRuleIds.includes("__UNMATCHED__")) {
+                        if (evalRes.matchedRules.length === 0) return true;
+                      }
+                      const matchesSelected = evalRes.matchedRules.some((mr) =>
+                        selectedIntentRuleIds.includes(mr.rule.id)
+                      );
+                      if (!matchesSelected) return false;
+                    }
+                    return true;
+                  });
+
+                  const getRuleBadgeStyle = (colorKey) => {
+                    if (colorKey === "emerald") {
+                      return "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800/60";
+                    }
+                    if (colorKey === "blue") {
+                      return "bg-blue-50 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-800/60";
+                    }
+                    if (colorKey === "amber") {
+                      return "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800/60";
+                    }
+                    if (colorKey === "rose") {
+                      return "bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-300 border-rose-200 dark:border-rose-800/60";
+                    }
+                    return "bg-purple-50 dark:bg-purple-950/30 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800/60";
+                  };
+
+                  return (
+                    <>
+                      {/* 4 KPI Summary Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className={"rounded-2xl p-4 border flex flex-col gap-1 shadow-xs " + borderLight + " " + lightBg}>
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            Taranan Çağrı Sayısı
+                          </span>
+                          <div className="flex items-baseline gap-2 mt-1">
+                            <span className="text-2xl font-black text-slate-900 dark:text-slate-100">{totalScanned}</span>
+                            <span className="text-[11px] font-bold text-slate-400">Görüşme</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Transkript ve çağrı özetleri tarandı
+                          </span>
+                        </div>
+
+                        <div className={"rounded-2xl p-4 border flex flex-col gap-1 shadow-xs " + borderLight + " " + lightBg}>
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            Niyet Tespit Edilen Çağrı
+                          </span>
+                          <div className="flex items-baseline gap-2 mt-1">
+                            <span className={"text-2xl font-black " + text}>{matchedCount}</span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50">
+                              %{matchedRate} Eşleşme
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Kayıtlı anahtar kelimelerle eşleşenler
+                          </span>
+                        </div>
+
+                        <div className={"rounded-2xl p-4 border flex flex-col gap-1 shadow-xs " + borderLight + " " + lightBg}>
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            En Çok Tespit Edilen Niyet
+                          </span>
+                          <div className="flex items-baseline gap-2 mt-1">
+                            <span className="text-sm font-black text-slate-800 dark:text-slate-100 truncate">
+                              {topRuleName}
+                            </span>
+                          </div>
+                          <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                            {topRuleHits} çağrıda tespit edildi
+                          </span>
+                        </div>
+
+                        <div className={"rounded-2xl p-4 border flex flex-col gap-1 shadow-xs " + borderLight + " " + lightBg}>
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                            Olumlu / Satış & Dönüşüm Niyeti
+                          </span>
+                          <div className="flex items-baseline gap-2 mt-1">
+                            <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                              {positiveSalesCount}
+                            </span>
+                            <span className="text-xs font-extrabold text-slate-500">(%{positiveRate})</span>
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Satış / sipariş / çözüm odaklı görüşmeler
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Interactive Keyword & Intent Filter Bar (Savable) */}
+                      <div className="p-4 rounded-2xl bg-slate-50/80 dark:bg-slate-900/70 border border-slate-200/80 dark:border-slate-800 flex flex-col gap-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div className="flex items-center gap-2">
+                            <Sparkles size={16} className="text-primary" />
+                            <div>
+                              <h4 className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                                Müşteri Niyeti & Anahtar Kelime Filtresi
+                              </h4>
+                              <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                                Satış, yardım masası veya özel anahtar kelimelerinizi aşağıdan girip kalıcı olarak kaydedebilirsiniz.
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {intentRulesSavedBadge && (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold border border-emerald-200 dark:border-emerald-800/50">
+                                <Check size={12} /> Anahtar Kelimeler Kaydedildi
+                              </span>
+                            )}
+                            <label className="inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer select-none px-2.5 py-1.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                              <input
+                                type="checkbox"
+                                checked={intentOnlyMatched}
+                                onChange={(e) => setIntentOnlyMatched(e.target.checked)}
+                                className="rounded border-slate-300 text-primary focus:ring-primary"
+                              />
+                              <span>Sadece Eşleşenleri Göster</span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={handleOpenNewIntentRuleForm}
+                              title="Yeni Niyet Kuralı ve Anahtar Kelime Ekle"
+                              className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition cursor-pointer shadow-sm"
+                            >
+                              <Plus size={16} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Quick Keyword Search & Save Input Row */}
+                        <div className="flex flex-wrap items-center gap-2">
+                          <div className="relative flex-1 min-w-[240px]">
+                            <Tag size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                              type="text"
+                              placeholder="Transkript içinde aranacak anahtar kelimeleri virgülle girin (örn: satın almak, sipariş, fiyat, arıza, iptal)..."
+                              value={intentQuickKeywords}
+                              onChange={(e) => setIntentQuickKeywords(e.target.value)}
+                              className="w-full pl-8 pr-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                            />
+                          </div>
+                          {intentQuickKeywords.trim() && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingIntentRuleId(null);
+                                  setIntentRuleName(intentQuickRuleName || "Yeni Niyet Kuralı");
+                                  setIntentRuleCategory(intentQuickCategory || "Satış");
+                                  setIntentRuleKeywords(intentQuickKeywords);
+                                  setIntentRuleScope("customer");
+                                  setIntentRuleColor("emerald");
+                                  setIsIntentRuleFormOpen(true);
+                                }}
+                                className={"inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-white text-xs font-bold shadow-sm transition cursor-pointer " + bg + " " + hover}
+                              >
+                                <Save size={13} />
+                                <span>Bu Kelimeleri Kaydet</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setIntentQuickKeywords("")}
+                                className="px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-500 hover:text-slate-700 cursor-pointer"
+                              >
+                                Temizle
+                              </button>
+                            </>
+                          )}
+                        </div>
+
+                        {/* Inline Rule Creation / Edit Form */}
+                        {isIntentRuleFormOpen && (
+                          <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border-2 border-primary/40 flex flex-col gap-3 shadow-md animate-in fade-in duration-150">
+                            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+                              <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100 flex items-center gap-1.5">
+                                <Sparkles size={14} className="text-primary" />
+                                {editingIntentRuleId ? "Niyet Kuralını ve Anahtar Kelimeleri Düzenle" : "Yeni Niyet Kuralı ve Anahtar Kelime Kaydet"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setIsIntentRuleFormOpen(false)}
+                                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Niyet Adı</label>
+                                <input
+                                  type="text"
+                                  placeholder="Örn: Satış Olumlu / Sipariş"
+                                  value={intentRuleName}
+                                  onChange={(e) => setIntentRuleName(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Kategori</label>
+                                <select
+                                  value={intentRuleCategory}
+                                  onChange={(e) => setIntentRuleCategory(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-100"
+                                >
+                                  <option value="Satış">Satış</option>
+                                  <option value="Yardım Masası">Yardım Masası / Teknik Destek</option>
+                                  <option value="Şikayet / İptal">Şikayet / İptal / İade</option>
+                                  <option value="Fatura / Ödeme">Fatura / Ödeme</option>
+                                  <option value="Bilgi Talebi">Bilgi & Randevu Talebi</option>
+                                  <option value="Genel">Genel İşlemler</option>
+                                </select>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Arama Kapsamı</label>
+                                <select
+                                  value={intentRuleScope}
+                                  onChange={(e) => setIntentRuleScope(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-100"
+                                >
+                                  <option value="customer">Müşteri İfadeleri (Öncelikli)</option>
+                                  <option value="all">Tüm Görüşme Metni</option>
+                                </select>
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">Durum Rengi</label>
+                                <select
+                                  value={intentRuleColor}
+                                  onChange={(e) => setIntentRuleColor(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-1.5 text-xs font-bold text-slate-800 dark:text-slate-100"
+                                >
+                                  <option value="emerald">Yeşil (Olumlu / Satış)</option>
+                                  <option value="blue">Mavi (Bilgi / Fiyat)</option>
+                                  <option value="amber">Turuncu (Yardım Masası)</option>
+                                  <option value="rose">Kırmızı (İptal / Şikayet)</option>
+                                  <option value="purple">Mor (Özel)</option>
+                                </select>
+                              </div>
+                              <div className="md:col-span-4 flex flex-col gap-1">
+                                <label className="text-[10px] font-bold text-slate-500 uppercase">
+                                  Anahtar Kelimeler (Virgülle ayırarak yazın)
+                                </label>
+                                <input
+                                  type="text"
+                                  placeholder="Örn: satın almak, sipariş, onaylıyorum, kabul ediyorum, kredi kartı..."
+                                  value={intentRuleKeywords}
+                                  onChange={(e) => setIntentRuleKeywords(e.target.value)}
+                                  className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-xs font-semibold text-slate-800 dark:text-slate-100"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setIsIntentRuleFormOpen(false)}
+                                className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                              >
+                                Vazgeç
+                              </button>
+                              <button
+                                type="button"
+                                disabled={intentRulesSaving}
+                                onClick={handleSubmitIntentRuleForm}
+                                className={"inline-flex items-center gap-1.5 px-4 py-1.5 rounded-xl text-white text-xs font-bold shadow-sm transition cursor-pointer " + bg + " " + hover}
+                              >
+                                <Save size={13} />
+                                <span>{intentRulesSaving ? "Kaydediliyor..." : "Anahtar Kelimeleri Kaydet"}</span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Saved Intent Rule Filter Pills */}
+                        <div className="flex flex-wrap items-center gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedIntentRuleIds([])}
+                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                              selectedIntentRuleIds.length === 0
+                                ? `${bg} text-white border-transparent shadow-xs`
+                                : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100"
+                            }`}
+                          >
+                            <span>Tümü</span>
+                            <span className={`px-1.5 py-0.2 rounded-full text-[10px] ${selectedIntentRuleIds.length === 0 ? "bg-white/20 text-white" : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"}`}>
+                              {totalScanned}
+                            </span>
+                          </button>
+
+                          {(intentRules || []).map((rule) => {
+                            const isSelected = selectedIntentRuleIds.includes(rule.id);
+                            const count = ruleCountMap[rule.id] || 0;
+                            return (
+                              <div
+                                key={rule.id}
+                                className={`inline-flex items-center rounded-xl border text-xs font-bold transition ${
+                                  isSelected
+                                    ? `${bg} text-white border-transparent shadow-xs`
+                                    : "bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700"
+                                }`}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedIntentRuleIds((prev) =>
+                                      prev.includes(rule.id) ? prev.filter((id) => id !== rule.id) : [...prev, rule.id]
+                                    );
+                                  }}
+                                  className="px-3 py-1.5 flex items-center gap-1.5 cursor-pointer"
+                                  title={`Anahtar Kelimeler: ${(rule.keywords || []).join(", ")}`}
+                                >
+                                  <span>{rule.name}</span>
+                                  <span
+                                    className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+                                      isSelected
+                                        ? "bg-white/20 text-white"
+                                        : "bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300"
+                                    }`}
+                                  >
+                                    {count}
+                                  </span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleOpenEditIntentRuleForm(rule);
+                                  }}
+                                  title="Anahtar Kelimeleri Düzenle"
+                                  className={`p-1.5 border-l cursor-pointer transition ${
+                                    isSelected
+                                      ? "border-white/20 text-white/80 hover:text-white"
+                                      : "border-slate-200 dark:border-slate-700 text-slate-400 hover:text-primary"
+                                  }`}
+                                >
+                                  <Edit2 size={11} />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleteIntentRuleTarget(rule);
+                                  }}
+                                  title="Niyet Kuralını Sil"
+                                  className={`p-1.5 pr-2 cursor-pointer transition ${
+                                    isSelected
+                                      ? "text-white/80 hover:text-white"
+                                      : "text-slate-400 hover:text-rose-500"
+                                  }`}
+                                >
+                                  <Trash2 size={11} />
+                                </button>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Intent Analysis Table */}
+                      <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+                        <table className="w-full text-left border-collapse min-w-[950px]">
+                          <thead>
+                            <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40">
+                              {visibleColumns.startTime && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Tarih / Saat
+                                </th>
+                              )}
+                              {visibleColumns.caller && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Arayan Numara
+                                </th>
+                              )}
+                              {visibleColumns.conversant && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Görüşen Kişi
+                                </th>
+                              )}
+                              {visibleColumns.intentBadge && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Tespit Edilen Niyet
+                                </th>
+                              )}
+                              {visibleColumns.category && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Kategori
+                                </th>
+                              )}
+                              {visibleColumns.matchedKeywords && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Eşleşen Anahtar Kelimeler
+                                </th>
+                              )}
+                              {visibleColumns.evidence && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Müşteri İfadesi (Kanıt Cümlesi)
+                                </th>
+                              )}
+                              {visibleColumns.durationTalk && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                                  Görüşme Süresi
+                                </th>
+                              )}
+                              {visibleColumns.detail && (
+                                <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 text-center">
+                                  Transkript
+                                </th>
+                              )}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {intentLoading ? (
+                              <tr>
+                                <td colSpan="9" className="p-10 text-center text-xs font-semibold text-slate-400 animate-pulse">
+                                  Çağrı transkriptleri ve müşteri niyet eşleşmeleri analiz ediliyor...
+                                </td>
+                              </tr>
+                            ) : displayedRows.length === 0 ? (
+                              <tr>
+                                <td colSpan="9" className="p-10 text-center text-xs font-semibold text-slate-400">
+                                  Seçilen kriterlere ve anahtar kelimelere uygun çağrı kaydı bulunamadı.
+                                </td>
+                              </tr>
+                            ) : (
+                              displayedRows.map(({ call, evalRes }) => {
+                                const durations = getCallDurations(call);
+                                const conversant = getConversant(call);
+                                const hasMatch = evalRes.matchedRules.length > 0;
+
+                                return (
+                                  <tr
+                                    key={call.id}
+                                    className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition duration-150"
+                                  >
+                                    {visibleColumns.startTime && (
+                                      <td className="p-3.5 text-xs font-medium text-slate-700 dark:text-slate-300 whitespace-nowrap">
+                                        {formatDate(call.start_time)}
+                                      </td>
+                                    )}
+                                    {visibleColumns.caller && (
+                                      <td className="p-3.5 text-xs font-bold text-slate-800 dark:text-slate-200 whitespace-nowrap">
+                                        <div className="flex items-center gap-1.5">
+                                          <Phone size={12} className="text-slate-400 shrink-0" />
+                                          <span>{getCustomerNumber(call)}</span>
+                                        </div>
+                                      </td>
+                                    )}
+                                    {visibleColumns.conversant && (
+                                      <td className="p-3.5 text-xs whitespace-nowrap">
+                                        <span className="px-2.5 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
+                                          {conversant || "Temsilci"}
+                                        </span>
+                                      </td>
+                                    )}
+                                    {visibleColumns.intentBadge && (
+                                      <td className="p-3.5 text-xs">
+                                        {hasMatch ? (
+                                          <div className="flex flex-wrap gap-1.5">
+                                            {evalRes.matchedRules.map(({ rule }, rIdx) => (
+                                              <span
+                                                key={rIdx}
+                                                className={`px-2.5 py-1 rounded-xl text-[10px] font-extrabold border shadow-2xs ${getRuleBadgeStyle(rule.color)}`}
+                                              >
+                                                {rule.name}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <span className="px-2.5 py-1 rounded-xl text-[10px] font-bold bg-slate-100 dark:bg-slate-800/70 text-slate-400 dark:text-slate-500 border border-slate-200/60 dark:border-slate-800">
+                                            Eşleşme Yok
+                                          </span>
+                                        )}
+                                      </td>
+                                    )}
+                                    {visibleColumns.category && (
+                                      <td className="p-3.5 text-xs whitespace-nowrap">
+                                        {hasMatch ? (
+                                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                                            {Array.from(new Set(evalRes.matchedRules.map((m) => m.rule.category))).join(" / ")}
+                                          </span>
+                                        ) : (
+                                          <span className="text-xs text-slate-400">-</span>
+                                        )}
+                                      </td>
+                                    )}
+                                    {visibleColumns.matchedKeywords && (
+                                      <td className="p-3.5 text-xs">
+                                        {evalRes.allMatchedKeywords.length > 0 ? (
+                                          <div className="flex flex-wrap gap-1 max-w-xs">
+                                            {evalRes.allMatchedKeywords.map((kw, kIdx) => (
+                                              <span
+                                                key={kIdx}
+                                                className={"px-2 py-0.5 rounded-md text-[10px] font-extrabold border " + lightBg + " " + text + " " + borderLight}
+                                              >
+                                                #{kw}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <span className="text-[11px] text-slate-400 italic">Anahtar kelime geçmedi</span>
+                                        )}
+                                      </td>
+                                    )}
+                                    {visibleColumns.evidence && (
+                                      <td className="p-3.5 text-xs max-w-md">
+                                        {evalRes.primaryEvidence ? (
+                                          <p className="text-xs text-slate-600 dark:text-slate-300 font-medium line-clamp-2 italic">
+                                            "{evalRes.primaryEvidence}"
+                                          </p>
+                                        ) : (
+                                          <span className="text-[11px] text-slate-400 italic">
+                                            Transkript kaydı bulunamadı
+                                          </span>
+                                        )}
+                                      </td>
+                                    )}
+                                    {visibleColumns.durationTalk && (
+                                      <td className="p-3.5 text-xs font-bold text-slate-600 dark:text-slate-400 whitespace-nowrap">
+                                        {durations.talk}
+                                      </td>
+                                    )}
+                                    {visibleColumns.detail && (
+                                      <td className="p-3.5 text-xs text-center">
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setSelectedTranscriptCall(call);
+                                            setIsTranscriptPopupOpen(true);
+                                          }}
+                                          className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-primary border border-slate-200 dark:border-slate-700 rounded-xl transition cursor-pointer hover:scale-105 inline-flex items-center justify-center shadow-2xs"
+                                          title="Çağrı Transkriptini Görüntüle"
+                                        >
+                                          <MessageSquare size={13} />
+                                        </button>
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
             ) : (isCdrMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isNotesMode) ? (
               /* CDR, Audio, Transcripts, Sentiment, QA & Notes Table Mode */
               <div className="overflow-x-auto">
@@ -8247,7 +9479,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
-                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleTimeString('tr-TR')}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{formatDate(call.time)}</span>
                       </div>
                       <span className="text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-bold dark:bg-blue-900/30 dark:text-blue-400">Kuyrukta</span>
                     </div>
@@ -8268,7 +9500,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
-                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleTimeString('tr-TR')}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{formatDate(call.time)}</span>
                       </div>
                       <span className="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold dark:bg-rose-900/30 dark:text-rose-400">Başarısız</span>
                     </div>
@@ -8289,7 +9521,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
-                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleTimeString('tr-TR')}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{formatDate(call.time)}</span>
                       </div>
                       <span className="text-[10px] text-slate-500 font-bold">{call.dir}</span>
                     </div>
@@ -8298,6 +9530,41 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   )}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Custom Delete Confirmation Modal for Intent Rules */}
+      {deleteIntentRuleTarget && (
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-6 shadow-2xl w-full max-w-sm flex flex-col items-center text-center gap-4 animate-in zoom-in-95 duration-200">
+            <div className="h-14 w-14 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-100 dark:border-rose-900/50 text-rose-600 dark:text-rose-400 flex items-center justify-center animate-pulse">
+              <AlertTriangle size={28} />
+            </div>
+            <div className="space-y-1.5">
+              <h4 className="text-base font-extrabold text-slate-900 dark:text-white">
+                Niyet Kuralını Sil
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                <strong className="text-slate-800 dark:text-slate-200">"{deleteIntentRuleTarget.name}"</strong> niyet grubunu ve kayıtlı anahtar kelimelerini kalıcı olarak silmek istediğinize emin misiniz?
+              </p>
+            </div>
+            <div className="flex items-center gap-3 w-full pt-2">
+              <button
+                type="button"
+                onClick={() => setDeleteIntentRuleTarget(null)}
+                className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-slate-50 dark:hover:bg-slate-750 text-xs font-bold text-slate-700 dark:text-slate-200 transition cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteIntentRule}
+                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition cursor-pointer"
+              >
+                Sil
+              </button>
             </div>
           </div>
         </div>

@@ -76,7 +76,8 @@ export const REPORT_FEATURE_IDS = [
   "reports_friction",
   "reports_compliance",
   "reports_silence",
-  "reports_ceo_summary"
+  "reports_ceo_summary",
+  "reports_intent"
 ];
 
 const SYSTEM_FEATURES = [
@@ -138,6 +139,7 @@ const SYSTEM_FEATURES = [
   { id: "reports_compliance", name: "Senaryo Sadakati Raporu", icon: Shield, type: "access", color: "emerald" },
   { id: "reports_silence", name: "Sessizlik & Söz Kesme", icon: Volume2, type: "access", color: "emerald" },
   { id: "reports_ceo_summary", name: "CEO Özet Raporu", icon: FileText, type: "access", color: "amber" },
+  { id: "reports_intent", name: "Niyet Raporu", icon: Sparkles, type: "access", color: "emerald" },
 
   // 6. Yönetim & Ayarlar
   { id: "system_status", name: "Sistem Panosu & Sağlık", icon: Server, type: "access", color: "cyan" },

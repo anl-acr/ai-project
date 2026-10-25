@@ -30,6 +30,7 @@ export const TAB_TURKISH_SLUGS = {
   "reports-transcripts": "raporlar-ses-dokumleri",
   "reports-qa": "raporlar-kalite-degerlendirme",
   "reports-survey": "anket-raporlari",
+  "reports-intent": "niyet-raporu",
   "settings": "ayarlar",
   "system-status": "sistem-durumu"
 };

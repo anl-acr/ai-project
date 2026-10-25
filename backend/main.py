@@ -927,6 +927,7 @@ DEFAULT_SETTINGS = {
                 "reports_roi:access", "reports_missed:access", "reports_traffic_load:access", "reports_trunk:access",
                 "reports_ivr_drop:access", "reports_transfer_hold:access", "reports_ab_testing:access",
                 "reports_friction:access", "reports_compliance:access", "reports_silence:access", "reports_ceo_summary:access",
+                "reports_intent:access",
                 "roi_settings:read", "roi_settings:write", "roi_settings:delete",
                 # İletişim Kanalları
                 "channels:read", "channels:write",
@@ -991,6 +992,7 @@ DEFAULT_SETTINGS = {
                 "reports_roi:access", "reports_missed:access", "reports_traffic_load:access", "reports_trunk:access",
                 "reports_ivr_drop:access", "reports_transfer_hold:access", "reports_ab_testing:access",
                 "reports_friction:access", "reports_compliance:access", "reports_silence:access", "reports_ceo_summary:access",
+                "reports_intent:access",
                 "channels:read", "channels:write",
                 "canned_responses:read", "canned_responses:write", "canned_responses:delete",
                 "breaks:read", "breaks:write",
@@ -1045,6 +1047,44 @@ DEFAULT_SETTINGS = {
     "subscriber_groups": [],
     "speed_dials": [],
     "conferences": [],
+    "intent_rules": [
+        {
+            "id": "intent-sales-positive",
+            "name": "Satış Olumlu / Sipariş Niyeti",
+            "category": "Satış",
+            "keywords": ["satın almak", "sipariş", "onaylıyorum", "alıyorum", "kredi kartı", "gönderin", "kabul ediyorum", "paket"],
+            "speaker_scope": "customer",
+            "status_color": "emerald",
+            "tenant_id": "tenant-default"
+        },
+        {
+            "id": "intent-sales-inquiry",
+            "name": "Fiyat & Teklif Sorgulama",
+            "category": "Satış",
+            "keywords": ["fiyat", "ücret", "kampanya", "indirim", "teklif", "kaç para", "taksit", "maliyet"],
+            "speaker_scope": "customer",
+            "status_color": "blue",
+            "tenant_id": "tenant-default"
+        },
+        {
+            "id": "intent-helpdesk-issue",
+            "name": "Yardım Masası / Teknik Destek",
+            "category": "Yardım Masası",
+            "keywords": ["arıza", "çalışmıyor", "hata", "bağlanamıyorum", "şifre", "sorun var", "destek", "kesildi"],
+            "speaker_scope": "customer",
+            "status_color": "amber",
+            "tenant_id": "tenant-default"
+        },
+        {
+            "id": "intent-cancel-complaint",
+            "name": "İptal / İade / Şikayet Niyeti",
+            "category": "Müşteri Hizmetleri",
+            "keywords": ["iptal", "iade", "vazgeçtim", "istemiyorum", "şikayet", "memnun değilim", "kapatmak istiyorum"],
+            "speaker_scope": "customer",
+            "status_color": "rose",
+            "tenant_id": "tenant-default"
+        }
+    ],
     "nat": {
         "enabled": False,
         "extern_ip": "",
@@ -1465,6 +1505,10 @@ def load_settings():
         for provider in DEFAULT_SETTINGS["api_budgets"]:
             if provider not in db["api_budgets"]:
                 db["api_budgets"][provider] = {"loaded_credit": 0.0, "spent_credit": 0.0}
+
+    # Ensure intent_rules config exists
+    if "intent_rules" not in db or not isinstance(db.get("intent_rules"), list):
+        db["intent_rules"] = [r.copy() for r in DEFAULT_SETTINGS["intent_rules"]]
 
     for u in db.get("users", []):
         ensure_user_profiles(u)
@@ -11906,6 +11950,143 @@ async def get_agent_timeline_report(
     }
 
 
+@app.get("/api/settings/intent-rules")
+async def get_intent_rules(request: Request, tenant_id: Optional[str] = None):
+    u_info = get_user_info(request)
+    eff_tenant = tenant_id or u_info.get("tenant_id") or "tenant-default"
+    settings = load_settings()
+    all_rules = settings.get("intent_rules")
+    if not isinstance(all_rules, list) or len(all_rules) == 0:
+        all_rules = [r.copy() for r in DEFAULT_SETTINGS.get("intent_rules", [])]
+
+    tenant_rules = [
+        r for r in all_rules
+        if is_default_tenant(eff_tenant)
+        or r.get("tenant_id") in (eff_tenant, None, "tenant-default", "default")
+    ]
+    return {"status": "success", "rules": tenant_rules}
+
+
+@app.post("/api/settings/intent-rules")
+async def save_intent_rules_endpoint(request: Request):
+    u_info = get_user_info(request)
+    eff_tenant = u_info.get("tenant_id") or "tenant-default"
+    body = await request.json()
+    incoming_rules = body.get("rules", [])
+    if not isinstance(incoming_rules, list):
+        raise HTTPException(status_code=400, detail="rules listesi gereklidir")
+
+    cleaned_rules = []
+    for idx, item in enumerate(incoming_rules):
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        if not name:
+            continue
+        raw_kws = item.get("keywords") or []
+        if isinstance(raw_kws, str):
+            kws = [k.strip() for k in raw_kws.split(",") if k.strip()]
+        elif isinstance(raw_kws, list):
+            kws = [str(k).strip() for k in raw_kws if str(k).strip()]
+        else:
+            kws = []
+        cleaned_rules.append({
+            "id": str(item.get("id") or f"intent-custom-{int(datetime.datetime.utcnow().timestamp())}-{idx}"),
+            "name": name,
+            "category": str(item.get("category") or "Genel").strip(),
+            "keywords": kws,
+            "speaker_scope": str(item.get("speaker_scope") or "customer").strip(),
+            "status_color": str(item.get("status_color") or "blue").strip(),
+            "tenant_id": str(item.get("tenant_id") or eff_tenant)
+        })
+
+    settings = load_settings()
+    existing_all = settings.get("intent_rules", [])
+    if not isinstance(existing_all, list):
+        existing_all = []
+
+    if is_default_tenant(eff_tenant):
+        other_tenant_rules = [
+            r for r in existing_all
+            if r.get("tenant_id") not in (None, "tenant-default", "default", eff_tenant)
+        ]
+    else:
+        other_tenant_rules = [
+            r for r in existing_all
+            if r.get("tenant_id") != eff_tenant
+        ]
+
+    settings["intent_rules"] = other_tenant_rules + cleaned_rules
+    save_settings(settings)
+    return {"status": "success", "rules": cleaned_rules}
+
+
+@app.get("/api/reports/intent-analysis")
+async def get_intent_analysis_report(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db)
+):
+    u_info = get_user_info(request)
+    eff_tenant = tenant_id or u_info.get("tenant_id") or "tenant-default"
+    now_utc = datetime.datetime.utcnow()
+    now_tr = now_utc + datetime.timedelta(hours=3)
+
+    try:
+        s_str = (start_date or "").strip() or now_tr.strftime("%Y-%m-%d")
+        e_str = (end_date or "").strip() or s_str
+        s_dt_tr = datetime.datetime.strptime(s_str[:10], "%Y-%m-%d")
+        e_dt_tr = datetime.datetime.strptime(e_str[:10], "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+    except Exception:
+        s_dt_tr = now_tr.replace(hour=0, minute=0, second=0, microsecond=0)
+        e_dt_tr = now_tr.replace(hour=23, minute=59, second=59, microsecond=999999)
+
+    window_start_utc = s_dt_tr - datetime.timedelta(hours=3)
+    window_end_utc = e_dt_tr - datetime.timedelta(hours=3)
+
+    stmt_calls = select(Call).where(
+        Call.start_time >= window_start_utc,
+        Call.start_time <= window_end_utc
+    )
+    if not is_default_tenant(eff_tenant):
+        stmt_calls = stmt_calls.where(Call.tenant_id == eff_tenant)
+    stmt_calls = stmt_calls.order_by(Call.start_time.desc())
+    res_calls = await db.execute(stmt_calls)
+    calls_list = res_calls.scalars().all()
+
+    call_ids = [c.id for c in calls_list if c.id]
+    transcripts_by_call = {}
+    if call_ids:
+        stmt_tr = select(Transcript).where(Transcript.call_id.in_(call_ids)).order_by(Transcript.timestamp.asc())
+        res_tr = await db.execute(stmt_tr)
+        for tr in res_tr.scalars().all():
+            transcripts_by_call.setdefault(tr.call_id, []).append({
+                "id": tr.id,
+                "speaker": tr.speaker or "customer",
+                "text": tr.text or "",
+                "timestamp": tr.timestamp.isoformat() if tr.timestamp else None
+            })
+
+    settings = load_settings()
+    all_rules = settings.get("intent_rules")
+    if not isinstance(all_rules, list) or len(all_rules) == 0:
+        all_rules = [r.copy() for r in DEFAULT_SETTINGS.get("intent_rules", [])]
+
+    active_rules = [
+        r for r in all_rules
+        if is_default_tenant(eff_tenant)
+        or r.get("tenant_id") in (eff_tenant, None, "tenant-default", "default")
+    ]
+
+    return {
+        "status": "success",
+        "rules": active_rules,
+        "transcripts_by_call": transcripts_by_call
+    }
+
+
 @app.get("/api/agent/directory")
 async def get_agent_directory(db: AsyncSession = Depends(get_db)):
     settings = load_settings()
@@ -15009,18 +15190,40 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.5.8",
+        "version": "v2.5.9",
         "commit_hash": live_commit,
         "release_date": "25 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.5.8",
+                "version": "v2.5.9",
                 "commit_hash": live_commit,
                 "release_date": "25 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Müşteri Niyet Raporu (Intent Analysis) & Kaydedilebilir Anahtar Kelime Motoru",
+                "summary": "Çağrı transkriptlerinden müşteri niyetini (Satış, Yardım Masası, Fiyat Sorgulama, İptal/Şikayet veya özel süreçler) otomatik analiz eden, filtre alanından yeni anahtar kelimeler girip kalıcı olarak kaydetmeye olanak tanıyan 'Niyet Raporu' eklendi.",
+                "features": [
+                    {
+                        "title": "🎯 Çağrı Transkript Tabanlı Müşteri Niyet Raporu",
+                        "desc": "Çağrı Raporları & Analiz menüsü altına eklenen Niyet Raporu, görüşme transkriptlerini ve özetlerini tarayarak müşterinin arama niyetini, kategorisini, eşleşen anahtar kelimeleri ve müşterinin kurduğu kanıt cümlesini raporlar."
+                    },
+                    {
+                        "title": "💾 Kaydedilebilir Anahtar Kelime & Niyet Kuralı Yönetimi",
+                        "desc": "Raporun filtre ve üst yönetim alanından satış, yardım masası veya farklı operasyonlar için özel anahtar kelimeler girilip kalıcı olarak kaydedilebilir, düzenlenebilir ve filtrelenebilir."
+                    }
+                ],
+                "fixes": [
+                    "Rol ve Yetki Yönetimi (RoleSettings) altına 'Niyet Raporu' (reports_intent:access) yetkisi eklendi ve mevcut yönetici/süpervizör profillerine otomatik tanımlandı."
+                ]
+            },
+            {
+                "version": "v2.5.8",
+                "commit_hash": "072451a",
+                "release_date": "25 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Temsilci Kronolojisi (Timeline) Detay Penceresinde İnteraktif Hareket Filtresi",
                 "summary": "Temsilci Kronolojisi detay penceresindeki metin tabanlı 'Gün İçi Kronolojik Hareket Özeti' alanı kaldırılarak yerine 'Tümü', 'Login / Logout', 'Molalar', 'Gelen Çağrılar', 'Giden Çağrılar', 'Cevapsız Çağrılar' ve 'Transfer / Diğer' seçeneklerinden oluşan hızlı hareket filtreleme çubuğu eklendi.",
                 "features": [
