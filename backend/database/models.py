@@ -332,6 +332,14 @@ class PBXQueue(Base):
     smart_callback_outbound_trunk_id = Column(Integer, default=1)
     smart_callback_missed_call_auto = Column(Boolean, default=True)
 
+    # Per-Queue Post-Call Satisfaction Survey (Memnuniyet Anketi)
+    survey_enabled = Column(Boolean, default=False)
+    survey_scale = Column(String, default="1-5")
+    survey_question_announcement = Column(String, default="")
+    survey_thank_you_announcement = Column(String, default="")
+    survey_timeout_sec = Column(Integer, default=10)
+    survey_low_score_threshold = Column(Integer, default=2)
+
 class AIAgent(Base):
     __tablename__ = "ai_agents"
     id = Column(String, primary_key=True, index=True) # UUID or string ID
@@ -365,3 +373,17 @@ class AgentBreakLog(Base):
     end_time = Column(DateTime, nullable=True)
     duration_seconds = Column(Integer, default=0)
 
+class QueueSurveyResponse(Base):
+    __tablename__ = "queue_survey_responses"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    call_id = Column(String, nullable=True, index=True)
+    queue_extension = Column(String, nullable=True, index=True)
+    queue_name = Column(String, nullable=True)
+    agent_extension = Column(String, nullable=True, index=True)
+    agent_name = Column(String, nullable=True)
+    caller_number = Column(String, nullable=True, index=True)
+    score = Column(Integer, nullable=True)
+    max_score = Column(Integer, default=5)
+    status = Column(String, default="completed")  # completed, timeout, invalid
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)

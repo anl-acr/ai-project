@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload, Shuffle } from "lucide-react";
+import { Users, Search, Plus, Trash2, Edit2, CheckCircle, HeadphonesIcon, ShieldAlert, X, Settings, Download, Upload, Shuffle, Star } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import QueueEditModal from "./QueueEditModal";
@@ -458,6 +458,14 @@ export default function AcdQueuesPanel({ backendHost }) {
                         title={`Otomatik Geri Arama Aktif (Eşik: ${q.smart_callback_max_wait_seconds || 60}sn, Deneme: ${q.smart_callback_max_retries || 3})`}
                       >
                         <Shuffle size={10} /> Geri Arama
+                      </span>
+                    )}
+                    {q.survey_enabled && (
+                      <span
+                        className="px-2 py-0.5 rounded-lg text-[9px] font-bold flex items-center gap-1 shrink-0 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
+                        title={`Memnuniyet Anketi Aktif (Ölçek: ${q.survey_scale || '1-5'}, Süre: ${q.survey_timeout_sec || 10}sn)`}
+                      >
+                        <Star size={10} className="fill-amber-500 text-amber-500" /> Anket Aktif
                       </span>
                     )}
                   </div>

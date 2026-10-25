@@ -49,7 +49,7 @@ def add_system_log(source: str, level: str, message: str):
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
-from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, SystemSetting, EventLog
+from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, SystemSetting, EventLog, QueueSurveyResponse
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
 from backend.services.license_service import verify_license_key, generate_license_key
 from backend.services.websocket_manager import ws_manager
@@ -923,7 +923,7 @@ DEFAULT_SETTINGS = {
                 "reports:access", "agent_timeline:access", "transcripts:access",
                 "reports_pano:access", "reports_cdr:access", "reports_audio:access", "reports_transcripts:access",
                 "reports_sentiment:access", "reports_qa:access", "reports_notes:access", "reports_perf:access",
-                "reports_queue:access", "reports_sentiment_heat:access", "reports_wordcloud:access", "reports_fcr:access",
+                "reports_queue:access", "reports_survey:access", "reports_sentiment_heat:access", "reports_wordcloud:access", "reports_fcr:access",
                 "reports_roi:access", "reports_missed:access", "reports_traffic_load:access", "reports_trunk:access",
                 "reports_ivr_drop:access", "reports_transfer_hold:access", "reports_ab_testing:access",
                 "reports_friction:access", "reports_compliance:access", "reports_silence:access", "reports_ceo_summary:access",
@@ -987,7 +987,7 @@ DEFAULT_SETTINGS = {
                 "reports:access", "agent_timeline:access", "transcripts:access",
                 "reports_pano:access", "reports_cdr:access", "reports_audio:access", "reports_transcripts:access",
                 "reports_sentiment:access", "reports_qa:access", "reports_notes:access", "reports_perf:access",
-                "reports_queue:access", "reports_sentiment_heat:access", "reports_wordcloud:access", "reports_fcr:access",
+                "reports_queue:access", "reports_survey:access", "reports_sentiment_heat:access", "reports_wordcloud:access", "reports_fcr:access",
                 "reports_roi:access", "reports_missed:access", "reports_traffic_load:access", "reports_trunk:access",
                 "reports_ivr_drop:access", "reports_transfer_hold:access", "reports_ab_testing:access",
                 "reports_friction:access", "reports_compliance:access", "reports_silence:access", "reports_ceo_summary:access",
@@ -2314,8 +2314,21 @@ same => n,Hangup()
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
 exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UNIQUEID}})
 same => n,Playback(/var/spool/asterisk/monitor/tr_aktariliyor)
-same => n,Queue(temsilci_kuyrugu)
-same => n,Hangup()
+same => n,Queue(temsilci_kuyrugu,c)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(SURVEY_CFG=${{CURL(http://{backend_host}/api/queues/survey/config?queue_ext=temsilci_kuyrugu&agent_ext=${{URIENCODE(${{MEMBERINTERFACE}})}}&call_id=${{CALL_UUID}})}})
+same => n,GotoIf($["${{CUT(SURVEY_CFG,:,1)}}" != "ENABLED"]?hangup_transfer)
+same => n,Set(SURVEY_Q_EXT=${{CUT(SURVEY_CFG,:,2)}})
+same => n,Set(SURVEY_MAX_DIGITS=${{CUT(SURVEY_CFG,:,3)}})
+same => n,Set(SURVEY_TIMEOUT=${{CUT(SURVEY_CFG,:,4)}})
+same => n,Set(SURVEY_Q_WAV=${{CUT(SURVEY_CFG,:,5)}})
+same => n,Set(SURVEY_TY_WAV=${{CUT(SURVEY_CFG,:,6)}})
+same => n,Read(SURVEY_SCORE,/var/spool/asterisk/monitor/${{SURVEY_Q_WAV}},${{SURVEY_MAX_DIGITS}},,,${{SURVEY_TIMEOUT}})
+same => n,Set(SURVEY_RES=${{CURL(http://{backend_host}/api/queues/survey/submit?call_id=${{CALL_UUID}}&queue_ext=${{SURVEY_Q_EXT}}&agent_ext=${{URIENCODE(${{MEMBERINTERFACE}})}}&caller=${{CALLERID(num)}}&score=${{SURVEY_SCORE}})}})
+same => n,GotoIf($["${{SURVEY_SCORE}}" = ""]?hangup_transfer)
+same => n,Playback(/var/spool/asterisk/monitor/${{SURVEY_TY_WAV}})
+same => n(hangup_transfer),Hangup()
 
 [webrtc_agents]
 ; WebRTC istemcileri ve Masa Telefonları (temsilciler) bu context üzerinden görüşme yapar
@@ -2397,7 +2410,7 @@ same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:dial_pjsip)
 same => n(dial_pjsip),Set(TARGET_CONTACTS=${{PJSIP_DIAL_CONTACTS(${{EXTEN}})}})
 same => n,Set(DIAL_STR=${{IF($["${{TARGET_CONTACTS}}"=""]?PJSIP/${{EXTEN}}:${{TARGET_CONTACTS}})}})
 same => n,NoOp(PJSIP Dahiliye Arama Yapiliyor: ${{DIAL_STR}} Timeout=${{DIAL_TIMEOUT}}s)
-same => n,Dial(${{DIAL_STR}},${{DIAL_TIMEOUT}},tT)
+same => n,Dial(${{DIAL_STR}},${{DIAL_TIMEOUT}},tTg)
 same => n,NoOp(PJSIP Arama Sonucu: ${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call)
 
@@ -2427,7 +2440,7 @@ same => n,Playback(/var/spool/asterisk/monitor/tr_sesli_mesaj)
 same => n,Hangup()
 
 same => n(dial_internal_fwd),NoOp(Ic Dahili / Mobil Uygulama Yonlendirme: PJSIP/${{FWD_TARGET}} Timeout=${{STEP_TIMEOUT}}s)
-same => n,Dial(PJSIP/${{FWD_TARGET}},${{STEP_TIMEOUT}},tT)
+same => n,Dial(PJSIP/${{FWD_TARGET}},${{STEP_TIMEOUT}},tTg)
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?end_call:check_step2)
 
 same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${{CLEAN_TARGET}}@ikonsip.com:5060 Timeout=${{STEP_TIMEOUT}}s)
@@ -2445,12 +2458,25 @@ same => n,Set(STEP_TIMEOUT=${{IF($[${{ISNULL(${{FWD_TIMEOUT}})}} | "${{FWD_TIMEO
 same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${{DIALSTATUS}})
-same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER" | "${{DIALSTATUS}}"="CANCEL"]?final_hangup)
+same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?check_post_call_survey)
+same => n,GotoIf($["${{DIALSTATUS}}"="CANCEL"]?final_hangup)
 same => n,Answer()
 same => n,GotoIf($["${{DIALSTATUS}}"="BUSY"]?play_busy:play_unavail)
 same => n(play_busy),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul)
 same => n,Goto(final_hangup)
 same => n(play_unavail),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor)
+same => n,Goto(final_hangup)
+same => n(check_post_call_survey),Set(SURVEY_CFG=${{CURL(http://{backend_host}/api/queues/survey/config?queue_ext=${{EXTEN}}&agent_ext=${{EXTEN}}&call_id=${{CALL_UUID}})}})
+same => n,GotoIf($["${{CUT(SURVEY_CFG,:,1)}}" != "ENABLED"]?final_hangup)
+same => n,Set(SURVEY_Q_EXT=${{CUT(SURVEY_CFG,:,2)}})
+same => n,Set(SURVEY_MAX_DIGITS=${{CUT(SURVEY_CFG,:,3)}})
+same => n,Set(SURVEY_TIMEOUT=${{CUT(SURVEY_CFG,:,4)}})
+same => n,Set(SURVEY_Q_WAV=${{CUT(SURVEY_CFG,:,5)}})
+same => n,Set(SURVEY_TY_WAV=${{CUT(SURVEY_CFG,:,6)}})
+same => n,Read(SURVEY_SCORE,/var/spool/asterisk/monitor/${{SURVEY_Q_WAV}},${{SURVEY_MAX_DIGITS}},,,${{SURVEY_TIMEOUT}})
+same => n,Set(SURVEY_RES=${{CURL(http://{backend_host}/api/queues/survey/submit?call_id=${{CALL_UUID}}&queue_ext=${{SURVEY_Q_EXT}}&agent_ext=${{EXTEN}}&caller=${{CALLERID(num)}}&score=${{SURVEY_SCORE}})}})
+same => n,GotoIf($["${{SURVEY_SCORE}}" = ""]?final_hangup)
+same => n,Playback(/var/spool/asterisk/monitor/${{SURVEY_TY_WAV}})
 same => n(final_hangup),Hangup()
 
 [mobile_transfer_context]
@@ -6957,7 +6983,13 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
                     smart_callback_retry_interval=getattr(q, "smart_callback_retry_interval", 60),
                     smart_callback_priority_level=getattr(q, "smart_callback_priority_level", "high"),
                     smart_callback_outbound_trunk_id=getattr(q, "smart_callback_outbound_trunk_id", 1),
-                    smart_callback_missed_call_auto=getattr(q, "smart_callback_missed_call_auto", True)
+                    smart_callback_missed_call_auto=getattr(q, "smart_callback_missed_call_auto", True),
+                    survey_enabled=getattr(q, "survey_enabled", False),
+                    survey_scale=getattr(q, "survey_scale", "1-5"),
+                    survey_question_announcement=getattr(q, "survey_question_announcement", ""),
+                    survey_thank_you_announcement=getattr(q, "survey_thank_you_announcement", ""),
+                    survey_timeout_sec=getattr(q, "survey_timeout_sec", 10),
+                    survey_low_score_threshold=getattr(q, "survey_low_score_threshold", 2)
                 )
                 db.add(new_q)
 
@@ -13257,6 +13289,12 @@ async def startup_event():
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_priority_level VARCHAR DEFAULT 'high';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_outbound_trunk_id INTEGER DEFAULT 1;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS smart_callback_missed_call_auto BOOLEAN DEFAULT TRUE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_scale VARCHAR DEFAULT '1-5';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_question_announcement VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_thank_you_announcement VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_timeout_sec INTEGER DEFAULT 10;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_low_score_threshold INTEGER DEFAULT 2;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';",
@@ -14298,6 +14336,512 @@ async def delete_single_queue_endpoint(queue_id: int, user_info: dict = Depends(
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Kuyruk silinirken hata oluştu: {str(e)}")
 
+
+def _resolve_survey_announcement_wav(ann_val: str, default_wav: str) -> str:
+    if not ann_val or not str(ann_val).strip():
+        return default_wav
+    val_str = str(ann_val).strip()
+    for a in settings_db.get("announcements", []):
+        if str(a.get("id")) == val_str or str(a.get("filename")) == val_str or str(a.get("name")) == val_str:
+            fname = str(a.get("filename") or "").strip()
+            if fname:
+                return fname[:-4] if fname.lower().endswith(".wav") else fname
+    return val_str[:-4] if val_str.lower().endswith(".wav") else val_str
+
+
+def _extract_clean_agent_ext(raw_agent: str) -> str:
+    if not raw_agent:
+        return ""
+    s = str(raw_agent).strip()
+    if "/" in s:
+        s = s.split("/", 1)[1]
+    if "@" in s:
+        s = s.split("@", 1)[0]
+    if "-" in s:
+        s = s.split("-", 1)[0]
+    return s.strip()
+
+
+@app.get("/api/queues/survey/config")
+async def get_queue_survey_config_for_dialplan(
+    queue_ext: Optional[str] = "",
+    agent_ext: Optional[str] = "",
+    call_id: Optional[str] = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Called by Asterisk dialplan right after a queue or agent call ends from the agent side.
+    Returns: ENABLED:<queue_ext>:<max_digits>:<timeout>:<question_wav>:<thankyou_wav> or DISABLED
+    """
+    try:
+        res = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+        db_queues = res.scalars().all()
+        queues_list = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in db_queues]
+    except Exception:
+        queues_list = []
+    if not queues_list:
+        queues_list = settings_db.get("queues", [])
+
+    clean_q = str(queue_ext or "").strip()
+    clean_ag = _extract_clean_agent_ext(agent_ext or "")
+
+    matched_q = None
+    # 1. Exact queue extension or name match
+    if clean_q and clean_q != "temsilci_kuyrugu":
+        for q in queues_list:
+            if str(q.get("extension") or "") == clean_q or str(q.get("name") or "") == clean_q:
+                matched_q = q
+                break
+
+    # 2. Match by agent membership in an active survey-enabled queue
+    if not matched_q and clean_ag:
+        for q in queues_list:
+            if not q.get("survey_enabled"):
+                continue
+            members = q.get("queueMembers") or []
+            for m in members:
+                if isinstance(m, dict):
+                    m_ext = str(m.get("extension") or m.get("user_id") or "")
+                    if m_ext == clean_ag:
+                        matched_q = q
+                        break
+            if matched_q:
+                break
+
+    # 3. Fallback for generic transfer_to_human queue
+    if not matched_q and clean_q == "temsilci_kuyrugu":
+        matched_q = next((q for q in queues_list if q.get("survey_enabled")), None)
+
+    if not matched_q or not matched_q.get("survey_enabled"):
+        return PlainTextResponse("DISABLED")
+
+    q_ext_resolved = str(matched_q.get("extension") or clean_q or "2000")
+    scale = str(matched_q.get("survey_scale") or "1-5")
+    max_digits = 2 if scale == "1-10" else 1
+    timeout_sec = max(3, min(30, int(matched_q.get("survey_timeout_sec") or 10)))
+    q_wav = _resolve_survey_announcement_wav(matched_q.get("survey_question_announcement"), "tr_anket_soru")
+    ty_wav = _resolve_survey_announcement_wav(matched_q.get("survey_thank_you_announcement"), "tr_anket_tesekkur")
+
+    return PlainTextResponse(f"ENABLED:{q_ext_resolved}:{max_digits}:{timeout_sec}:{q_wav}:{ty_wav}")
+
+
+@app.get("/api/queues/survey/submit")
+@app.post("/api/queues/survey/submit")
+async def submit_queue_survey_response(
+    request: Request,
+    call_id: Optional[str] = "",
+    queue_ext: Optional[str] = "",
+    agent_ext: Optional[str] = "",
+    caller: Optional[str] = "",
+    score: Optional[str] = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """Records post-call queue satisfaction survey response from Asterisk DTMF or API."""
+    body_data = {}
+    if request.method == "POST":
+        try:
+            body_data = await request.json()
+        except Exception:
+            body_data = {}
+
+    c_id = str(body_data.get("call_id") or call_id or "").strip()
+    q_ext = str(body_data.get("queue_ext") or body_data.get("queue_extension") or queue_ext or "").strip()
+    ag_ext = _extract_clean_agent_ext(body_data.get("agent_ext") or body_data.get("agent_extension") or agent_ext or "")
+    caller_num = str(body_data.get("caller") or body_data.get("caller_number") or caller or "").strip()
+    raw_score = str(body_data.get("score") if body_data.get("score") is not None else (score or "")).strip()
+    tenant_id = str(body_data.get("tenant_id") or request.headers.get("X-Tenant-ID") or "tenant-default")
+
+    # Resolve queue metadata
+    queues_list = []
+    try:
+        res_q = await db.execute(select(PBXQueue))
+        queues_list = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in res_q.scalars().all()]
+    except Exception:
+        pass
+    if not queues_list:
+        queues_list = settings_db.get("queues", [])
+
+    matched_q = next((q for q in queues_list if str(q.get("extension") or "") == q_ext or str(q.get("name") or "") == q_ext), None)
+    if not matched_q and queues_list:
+        matched_q = next((q for q in queues_list if q.get("survey_enabled")), queues_list[0])
+
+    q_name = matched_q.get("name", f"Kuyruk {q_ext}") if matched_q else (f"Kuyruk {q_ext}" if q_ext else "Genel Kuyruk")
+    if matched_q and not q_ext:
+        q_ext = str(matched_q.get("extension") or "2000")
+    scale = str(matched_q.get("survey_scale") or "1-5") if matched_q else "1-5"
+    max_score = 10 if scale == "1-10" else (2 if scale == "1-2" else 5)
+    low_threshold = int(matched_q.get("survey_low_score_threshold") or 2) if matched_q else 2
+
+    # Resolve agent & caller from Call table if missing
+    ag_name = ""
+    if c_id:
+        try:
+            call_row = await db.get(Call, c_id)
+            if call_row:
+                if not caller_num and call_row.caller_number:
+                    caller_num = call_row.caller_number
+                if not ag_ext and call_row.callee_number and len(str(call_row.callee_number)) <= 5:
+                    ag_ext = str(call_row.callee_number)
+                if call_row.agent_name:
+                    ag_name = call_row.agent_name
+        except Exception:
+            pass
+
+    # Resolve agent name from users list
+    if ag_ext and not ag_name:
+        try:
+            res_u = await db.execute(select(SystemUser).where(SystemUser.extension == ag_ext))
+            u_row = res_u.scalars().first()
+            if u_row and u_row.full_name:
+                ag_name = u_row.full_name
+        except Exception:
+            pass
+        if not ag_name:
+            for u in settings_db.get("users", []):
+                if str(u.get("extension") or "") == ag_ext:
+                    ag_name = u.get("full_name") or f"Dahili {ag_ext}"
+                    break
+    if not ag_name:
+        ag_name = f"Dahili {ag_ext}" if ag_ext else "Temsilci"
+
+    # Parse score
+    score_val = None
+    status_val = "timeout"
+    if raw_score != "":
+        try:
+            parsed = int(raw_score)
+            if 1 <= parsed <= max_score:
+                score_val = parsed
+                status_val = "completed"
+            else:
+                score_val = parsed
+                status_val = "invalid"
+        except Exception:
+            status_val = "invalid"
+
+    now_utc = datetime.datetime.utcnow()
+    new_resp = QueueSurveyResponse(
+        tenant_id=tenant_id,
+        call_id=c_id or None,
+        queue_extension=q_ext or "2000",
+        queue_name=q_name,
+        agent_extension=ag_ext or "",
+        agent_name=ag_name,
+        caller_number=caller_num or "Bilinmeyen",
+        score=score_val,
+        max_score=max_score,
+        status=status_val,
+        timestamp=now_utc
+    )
+    try:
+        db.add(new_resp)
+        await db.commit()
+        await db.refresh(new_resp)
+        saved_id = new_resp.id
+    except Exception as db_err:
+        print(f"[Survey DB Save Warning]: {db_err}")
+        await db.rollback()
+        saved_id = int(now_utc.timestamp() * 1000)
+
+    # Also mirror in settings_db for instant fallback
+    survey_list = list(settings_db.get("queue_survey_responses", []))
+    survey_list.insert(0, {
+        "id": saved_id,
+        "tenant_id": tenant_id,
+        "call_id": c_id or None,
+        "queue_extension": q_ext or "2000",
+        "queue_name": q_name,
+        "agent_extension": ag_ext or "",
+        "agent_name": ag_name,
+        "caller_number": caller_num or "Bilinmeyen",
+        "score": score_val,
+        "max_score": max_score,
+        "status": status_val,
+        "timestamp": now_utc.isoformat()
+    })
+    settings_db["queue_survey_responses"] = survey_list[:1000]
+    save_settings(settings_db)
+
+    if status_val == "completed" and score_val is not None and score_val <= low_threshold:
+        add_system_log("QUEUE_SURVEY", "WARNING", f"Düşük Anket Puanı ({score_val}/{max_score}): Kuyruk={q_name} ({q_ext}), Temsilci={ag_name}, Arayan={caller_num}")
+    elif status_val == "completed":
+        add_system_log("QUEUE_SURVEY", "INFO", f"Anket Tamamlandı ({score_val}/{max_score}): Kuyruk={q_name} ({q_ext}), Temsilci={ag_name}, Arayan={caller_num}")
+
+    if request.method == "GET":
+        return PlainTextResponse("SAVED")
+    return {"status": "success", "id": saved_id, "score": score_val, "survey_status": status_val}
+
+
+@app.get("/api/reports/queue-surveys")
+async def get_queue_survey_reports(
+    request: Request,
+    queue_extension: Optional[str] = "all",
+    agent_extension: Optional[str] = "all",
+    score_filter: Optional[str] = "all",
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db)
+):
+    """Returns aggregated CSAT KPIs, score distribution, per-queue/per-agent breakdown, and detailed survey records."""
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+
+    raw_rows = []
+    try:
+        stmt = select(QueueSurveyResponse).order_by(QueueSurveyResponse.timestamp.desc())
+        res = await db.execute(stmt)
+        for r in res.scalars().all():
+            r_tenant = getattr(r, "tenant_id", "tenant-default") or "tenant-default"
+            if not is_global_tenant(target_tenant):
+                if is_default_tenant(target_tenant):
+                    if r_tenant not in ["tenant-default", "default", ""]:
+                        continue
+                elif r_tenant != target_tenant:
+                    continue
+            raw_rows.append({
+                "id": r.id,
+                "tenant_id": r_tenant,
+                "call_id": r.call_id,
+                "queue_extension": r.queue_extension or "2000",
+                "queue_name": r.queue_name or f"Kuyruk {r.queue_extension or '2000'}",
+                "agent_extension": r.agent_extension or "",
+                "agent_name": r.agent_name or "Temsilci",
+                "caller_number": r.caller_number or "Bilinmeyen",
+                "score": r.score,
+                "max_score": r.max_score or 5,
+                "status": r.status or "completed",
+                "timestamp": r.timestamp.isoformat() if r.timestamp else datetime.datetime.utcnow().isoformat()
+            })
+    except Exception as e:
+        print(f"[Survey Reports DB Read Warning]: {e}")
+
+    if not raw_rows and settings_db.get("queue_survey_responses"):
+        raw_rows = list(settings_db.get("queue_survey_responses", []))
+
+    # Load queues and users for filter options and low score threshold resolution
+    queues_meta = {}
+    try:
+        res_q = await db.execute(select(PBXQueue))
+        for q in res_q.scalars().all():
+            queues_meta[str(q.extension)] = {
+                "extension": str(q.extension),
+                "name": q.name,
+                "survey_enabled": bool(getattr(q, "survey_enabled", False)),
+                "survey_scale": getattr(q, "survey_scale", "1-5") or "1-5",
+                "low_threshold": int(getattr(q, "survey_low_score_threshold", 2) or 2)
+            }
+    except Exception:
+        pass
+    if not queues_meta:
+        for q in settings_db.get("queues", []):
+            ext_k = str(q.get("extension") or "")
+            if ext_k:
+                queues_meta[ext_k] = {
+                    "extension": ext_k,
+                    "name": q.get("name", f"Kuyruk {ext_k}"),
+                    "survey_enabled": bool(q.get("survey_enabled", False)),
+                    "survey_scale": q.get("survey_scale", "1-5"),
+                    "low_threshold": int(q.get("survey_low_score_threshold", 2) or 2)
+                }
+
+    # Filter rows
+    filtered = []
+    for row in raw_rows:
+        if queue_extension and queue_extension != "all":
+            if str(row.get("queue_extension")) != str(queue_extension):
+                continue
+        if agent_extension and agent_extension != "all":
+            if str(row.get("agent_extension")) != str(agent_extension):
+                continue
+        if start_date:
+            if str(row.get("timestamp", ""))[:10] < start_date:
+                continue
+        if end_date:
+            if str(row.get("timestamp", ""))[:10] > end_date:
+                continue
+
+        sc = row.get("score")
+        st = row.get("status", "completed")
+        q_info = queues_meta.get(str(row.get("queue_extension")), {})
+        low_thr = q_info.get("low_threshold", 2)
+
+        if score_filter and score_filter != "all":
+            if score_filter == "high":
+                if st != "completed" or sc is None or sc < 4:
+                    continue
+            elif score_filter == "low":
+                if st != "completed" or sc is None or sc > low_thr:
+                    continue
+            elif score_filter == "timeout":
+                if st == "completed":
+                    continue
+            else:
+                try:
+                    if sc != int(score_filter):
+                        continue
+                except Exception:
+                    pass
+
+        row["is_critical"] = bool(st == "completed" and sc is not None and sc <= low_thr)
+        row["recording_path"] = f"/api/recordings/{row['call_id']}.wav" if row.get("call_id") else None
+        filtered.append(row)
+
+    total_count = len(filtered)
+    completed_rows = [r for r in filtered if r.get("status") == "completed" and r.get("score") is not None]
+    completed_count = len(completed_rows)
+    timeout_count = total_count - completed_count
+    participation_rate = round((completed_count / total_count) * 100, 1) if total_count > 0 else 0.0
+
+    # Normalize scores to 5-point scale for unified average
+    norm_scores = []
+    high_count = 0
+    low_count = 0
+    dist_counts = {5: 0, 4: 0, 3: 0, 2: 0, 1: 0}
+
+    for r in completed_rows:
+        sc = float(r.get("score") or 0)
+        mx = float(r.get("max_score") or 5)
+        norm_5 = (sc / mx) * 5.0 if mx > 0 else sc
+        norm_scores.append(norm_5)
+
+        bucket = max(1, min(5, int(round(norm_5))))
+        dist_counts[bucket] = dist_counts.get(bucket, 0) + 1
+
+        if norm_5 >= 3.8:
+            high_count += 1
+        if r.get("is_critical") or norm_5 <= 2.2:
+            low_count += 1
+
+    avg_score = round(sum(norm_scores) / len(norm_scores), 2) if norm_scores else 0.0
+    csat_pct = round((high_count / completed_count) * 100, 1) if completed_count > 0 else 0.0
+
+    score_distribution = []
+    for star in [5, 4, 3, 2, 1]:
+        cnt = dist_counts.get(star, 0)
+        pct = round((cnt / completed_count) * 100, 1) if completed_count > 0 else 0.0
+        score_distribution.append({"score": star, "count": cnt, "percentage": pct})
+
+    # Per-Queue Aggregation
+    by_queue_map = {}
+    for q_ext, q_m in queues_meta.items():
+        by_queue_map[q_ext] = {
+            "queue_extension": q_ext,
+            "queue_name": q_m["name"],
+            "survey_enabled": q_m["survey_enabled"],
+            "survey_scale": q_m["survey_scale"],
+            "total": 0,
+            "completed": 0,
+            "scores": [],
+            "high_count": 0,
+            "low_count": 0
+        }
+    for r in filtered:
+        qe = str(r.get("queue_extension") or "2000")
+        if qe not in by_queue_map:
+            by_queue_map[qe] = {
+                "queue_extension": qe,
+                "queue_name": r.get("queue_name") or f"Kuyruk {qe}",
+                "survey_enabled": False,
+                "survey_scale": "1-5",
+                "total": 0,
+                "completed": 0,
+                "scores": [],
+                "high_count": 0,
+                "low_count": 0
+            }
+        by_queue_map[qe]["total"] += 1
+        if r.get("status") == "completed" and r.get("score") is not None:
+            by_queue_map[qe]["completed"] += 1
+            sc = float(r["score"])
+            mx = float(r.get("max_score") or 5)
+            n5 = (sc / mx) * 5.0 if mx > 0 else sc
+            by_queue_map[qe]["scores"].append(n5)
+            if n5 >= 3.8:
+                by_queue_map[qe]["high_count"] += 1
+            if r.get("is_critical") or n5 <= 2.2:
+                by_queue_map[qe]["low_count"] += 1
+
+    by_queue_list = []
+    for qe, qd in by_queue_map.items():
+        comp = qd["completed"]
+        avg_q = round(sum(qd["scores"]) / comp, 2) if comp > 0 else 0.0
+        csat_q = round((qd["high_count"] / comp) * 100, 1) if comp > 0 else 0.0
+        by_queue_list.append({
+            "queue_extension": qe,
+            "queue_name": qd["queue_name"],
+            "survey_enabled": qd["survey_enabled"],
+            "survey_scale": qd["survey_scale"],
+            "total": qd["total"],
+            "completed": comp,
+            "avg_score": avg_q,
+            "csat_pct": csat_q,
+            "high_count": qd["high_count"],
+            "low_count": qd["low_count"]
+        })
+    by_queue_list.sort(key=lambda x: (x["completed"], x["avg_score"]), reverse=True)
+
+    # Per-Agent Aggregation
+    by_agent_map = {}
+    for r in filtered:
+        ae = str(r.get("agent_extension") or "belirsiz")
+        aname = r.get("agent_name") or (f"Dahili {ae}" if ae != "belirsiz" else "Temsilci")
+        if ae not in by_agent_map:
+            by_agent_map[ae] = {
+                "agent_extension": ae,
+                "agent_name": aname,
+                "total": 0,
+                "completed": 0,
+                "scores": [],
+                "high_count": 0,
+                "low_count": 0
+            }
+        by_agent_map[ae]["total"] += 1
+        if r.get("status") == "completed" and r.get("score") is not None:
+            by_agent_map[ae]["completed"] += 1
+            sc = float(r["score"])
+            mx = float(r.get("max_score") or 5)
+            n5 = (sc / mx) * 5.0 if mx > 0 else sc
+            by_agent_map[ae]["scores"].append(n5)
+            if n5 >= 3.8:
+                by_agent_map[ae]["high_count"] += 1
+            if r.get("is_critical") or n5 <= 2.2:
+                by_agent_map[ae]["low_count"] += 1
+
+    by_agent_list = []
+    for ae, ad in by_agent_map.items():
+        comp = ad["completed"]
+        avg_a = round(sum(ad["scores"]) / comp, 2) if comp > 0 else 0.0
+        csat_a = round((ad["high_count"] / comp) * 100, 1) if comp > 0 else 0.0
+        by_agent_list.append({
+            "agent_extension": ae,
+            "agent_name": ad["agent_name"],
+            "total": ad["total"],
+            "completed": comp,
+            "avg_score": avg_a,
+            "csat_pct": csat_a,
+            "high_count": ad["high_count"],
+            "low_count": ad["low_count"]
+        })
+    by_agent_list.sort(key=lambda x: (x["avg_score"], x["completed"]), reverse=True)
+
+    return {
+        "summary": {
+            "total_surveys": total_count,
+            "completed_surveys": completed_count,
+            "timeout_surveys": timeout_count,
+            "participation_rate": participation_rate,
+            "avg_score": avg_score,
+            "csat_pct": csat_pct,
+            "high_score_count": high_count,
+            "low_score_count": low_count
+        },
+        "score_distribution": score_distribution,
+        "by_queue": by_queue_list,
+        "by_agent": by_agent_list,
+        "items": filtered[:250],
+        "queues_list": [{"extension": k, "name": v["name"]} for k, v in queues_meta.items()]
+    }
+
 @app.get("/api/settings/trunks")
 @app.get("/settings/trunks")
 async def new_list_trunks(request: Request, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
@@ -14465,18 +15009,45 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.5.4",
+        "version": "v2.5.5",
         "commit_hash": live_commit,
         "release_date": "25 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.5.4",
+                "version": "v2.5.5",
                 "commit_hash": live_commit,
                 "release_date": "25 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "ACD Kuyruk Çağrı Sonu Memnuniyet Anketi (CSAT) & Detaylı Anket Raporları (1-5 Yıldız / NPS)",
+                "summary": "ACD Kuyruk ayarları içerisine çağrı sonu tuşlamalı (DTMF) Memnuniyet Anketi sekmesi, Asterisk otomatik anket dialplan akışı, varsayılan Türkçe anket ve teşekkür ses kayıtları ile Çağrı Raporları & Analiz menüsü altına kapsamlı Anket Raporları (CSAT, puan dağılımı, kuyruk ve temsilci sıralaması, ses kaydı dinleme ve Excel dışa aktarma) eklendi.",
+                "features": [
+                    {
+                        "title": "⭐ ACD Kuyruk İçi Çağrı Sonu Memnuniyet Anketi Yapılandırması",
+                        "desc": "Santral > ACD Kuyruk düzenleme penceresine 'Memnuniyet Anketi' sekmesi eklendi. Her kuyruk için ayrı ayrı anket aktifliği, puanlama ölçeği (1-5 Yıldız CSAT, 1-10 NPS, 1-2 Evet/Hayır), tuşlama bekleme süresi, kritik düşük puan eşiği, anket soru anonsu ve teşekkür anonsu seçimi sağlandı."
+                    },
+                    {
+                        "title": "📞 Asterisk Otomatik Çağrı Sonu Anket & DTMF Tuşlama Motoru",
+                        "desc": "Temsilci görüşmeyi sonlandırdığında müşteri hattı kapanmadan otomatik olarak anket soru anonsuna aktarılır (Queue 'c' ve Dial 'tTg' bayrakları). Müşterinin tuşladığı puan (Read DTMF) arayan numara, kuyruk, temsilci ve görüşme ses kaydı ile eşleştirilerek veritabanına kaydedilir."
+                    },
+                    {
+                        "title": "📊 Çağrı Raporları & Analiz > Anket Raporları (CSAT & Temsilci Sıralaması)",
+                        "desc": "Sol menüdeki Çağrı Raporları & Analiz altına 'Anket Raporları' ekranı eklendi. Ortalama Memnuniyet Puanı (CSAT), Ankete Katılım Oranı, Yüksek Memnuniyet (4-5★) ve Düşük/Kritik Puan (1-2★) KPI kartları, 1-5 yıldız dağılım grafiği, kuyruk bazlı özet, temsilci başarı sıralaması, ses kaydı dinleme ve Excel indirme özellikleri sunuldu."
+                    }
+                ],
+                "fixes": [
+                    "Kuyruk kartları üzerine anketin açık olduğunu gösteren '⭐ Anket Aktif' rozeti eklendi.",
+                    "Rol ve Yetki Tanımları (RoleSettings) içerisine 'Anket Raporları' (reports_survey:access) yetkisi tanımlanarak mevcut yönetici ve takım lideri rollerine otomatik tanımlandı."
+                ]
+            },
+            {
+                "version": "v2.5.4",
+                "commit_hash": "640fca9",
+                "release_date": "25 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "AI Kural & Senaryo Zorunlu Öncelik Motoru, Kuyruk Bazlı Otomatik Geri Arama, Masa Telefonu Tuşlamalı Yönlendirme & Canlı API Bütçe Panosu",
                 "summary": "Kural ve Senaryo Editörü'ndeki soru-cevap ve senaryo kurallarının sesli/yazılı tüm AI temsilcilerde en yüksek öncelikle uygulanması, Otomatik Geri Arama (Smart Callback) özelliğinin ACD Kuyruk içine taşınması, masa telefonlarından *21*/*67*/*61*/#21# tuşlamasıyla çift yönlü yönlendirme senkronizasyonu ve Operasyon & İzleme altına gerçek zamanlı API Bütçe & Tüketim Panosu eklendi.",
                 "features": [

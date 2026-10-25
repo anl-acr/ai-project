@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock, Shuffle, Repeat, BarChart2, HelpCircle } from "lucide-react";
+import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock, Shuffle, Repeat, BarChart2, HelpCircle, Star } from "lucide-react";
 import { createPortal } from "react-dom";
 import { useTheme } from "../../utils/theme";
 import { tenantFetch } from "../../utils/apiHost";
@@ -98,7 +98,15 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     smart_callback_retry_interval: 60,
     smart_callback_priority_level: "high",
     smart_callback_outbound_trunk_id: 1,
-    smart_callback_missed_call_auto: true
+    smart_callback_missed_call_auto: true,
+
+    // Per-Queue Post-Call Satisfaction Survey (Memnuniyet Anketi)
+    survey_enabled: false,
+    survey_scale: "1-5",
+    survey_question_announcement: "",
+    survey_thank_you_announcement: "",
+    survey_timeout_sec: 10,
+    survey_low_score_threshold: 2
   });
 
   // State for Members & Supervisors
@@ -218,6 +226,12 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           smart_callback_priority_level: "high",
           smart_callback_outbound_trunk_id: 1,
           smart_callback_missed_call_auto: true,
+          survey_enabled: false,
+          survey_scale: "1-5",
+          survey_question_announcement: "",
+          survey_thank_you_announcement: "",
+          survey_timeout_sec: 10,
+          survey_low_score_threshold: 2,
           ...queueData
         }));
         
@@ -257,7 +271,13 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           smart_callback_retry_interval: 60,
           smart_callback_priority_level: "high",
           smart_callback_outbound_trunk_id: 1,
-          smart_callback_missed_call_auto: true
+          smart_callback_missed_call_auto: true,
+          survey_enabled: false,
+          survey_scale: "1-5",
+          survey_question_announcement: "",
+          survey_thank_you_announcement: "",
+          survey_timeout_sec: 10,
+          survey_low_score_threshold: 2
         });
         setQueueMembers([]);
         setSupervisors([]);
@@ -421,6 +441,18 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           </span>
           {formData.smart_callback_enabled && (
             <span className={"w-2 h-2 rounded-full " + bg + " shrink-0"} title="Otomatik Geri Arama Aktif" />
+          )}
+        </button>
+        <button 
+          type="button"
+          onClick={() => setActiveTab("survey")}
+          className={"w-full flex items-center justify-between gap-2 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'survey' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <span className="flex items-center gap-3">
+            <Star size={16} /> Memnuniyet Anketi
+          </span>
+          {formData.survey_enabled && (
+            <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" title="Memnuniyet Anketi Aktif" />
           )}
         </button>
       </nav>
@@ -1558,6 +1590,172 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     );
   };
 
+  const renderSurveyTab = () => {
+    const isEnabled = !!formData.survey_enabled;
+    return (
+      <div className="p-6 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[65vh]">
+        {/* Aktifleştirme Başlığı */}
+        <div className="p-4 bg-slate-50/60 dark:bg-slate-800/30 rounded-2xl border border-slate-200/80 dark:border-slate-800 flex items-center justify-between gap-4">
+          <div>
+            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <Star size={16} className="text-amber-500 fill-amber-500" />
+              Çağrı Sonu Memnuniyet Anketi (CSAT)
+            </h4>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Temsilci görüşmeyi sonlandırdığında müşteri hattı kapanmaz; otomatik olarak sesli memnuniyet anketi dinletilir ve tuşlanan puan (DTMF) kaydedilir.
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              name="survey_enabled"
+              checked={isEnabled}
+              onChange={handleChange}
+              className="sr-only peer"
+            />
+            <div className={"w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:" + bg}></div>
+          </label>
+        </div>
+
+        <div className={"space-y-5 transition-all duration-300 " + (!isEnabled ? "opacity-45 pointer-events-none select-none" : "")}>
+          {/* Anket Parametreleri */}
+          <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-5">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <Star size={12} className="text-amber-500" />
+                  Puanlama Ölçeği
+                </label>
+                <select
+                  name="survey_scale"
+                  value={formData.survey_scale || "1-5"}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
+                >
+                  <option value="1-5">1 - 5 Yıldız (Standart CSAT)</option>
+                  <option value="1-10">1 - 10 Puan (NPS Ölçeği)</option>
+                  <option value="1-2">1 - 2 (Evet / Hayır)</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Müşterinin telefon tuşlarıyla verebileceği puan aralığı.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <Clock size={12} className={text} />
+                  Tuşlama Süresi (Saniye)
+                </label>
+                <input
+                  type="number"
+                  name="survey_timeout_sec"
+                  value={formData.survey_timeout_sec ?? 10}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  min="3"
+                  max="30"
+                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring + " font-mono"}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Anons bittikten sonra müşterinin tuşlama yapması için beklenecek süre.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <AlertCircle size={12} className="text-rose-500" />
+                  Düşük Puan (Kritik) Eşiği
+                </label>
+                <input
+                  type="number"
+                  name="survey_low_score_threshold"
+                  value={formData.survey_low_score_threshold ?? 2}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  min="1"
+                  max="5"
+                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring + " font-mono"}
+                />
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Bu puan ve altındaki oylar raporlarda "Düşük Memnuniyet" olarak işaretlenir.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <Volume2 size={12} className={text} />
+                  Anket Soru Anonsu
+                </label>
+                <select
+                  name="survey_question_announcement"
+                  value={resolveAnnouncementVal(formData.survey_question_announcement)}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
+                >
+                  <option value="">Varsayılan Türkçe Anket Sorusu (1'den 5'e Puanlayın)</option>
+                  {announcementsList.map(a => (
+                    <option key={a.id || a.filename || a.name} value={a.id}>
+                      {formatAnnouncementLabel(a)}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Varsayılan: "Görüşmemizi değerlendirmek için lütfen 1 ile 5 arasında bir puan tuşlayınız..."
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
+                  <Volume2 size={12} className={text} />
+                  Teşekkür Anonsu (Tuşlama Sonrası)
+                </label>
+                <select
+                  name="survey_thank_you_announcement"
+                  value={resolveAnnouncementVal(formData.survey_thank_you_announcement)}
+                  onChange={handleChange}
+                  disabled={!isEnabled}
+                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
+                >
+                  <option value="">Varsayılan Türkçe Teşekkür Anonsu</option>
+                  {announcementsList.map(a => (
+                    <option key={a.id || a.filename || a.name} value={a.id}>
+                      {formatAnnouncementLabel(a)}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Varsayılan: "Değerlendirmeniz için teşekkür eder, iyi günler dileriz."
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Bilgi Kutusu */}
+          <div className="p-4 bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/70 dark:border-amber-800/50 rounded-2xl space-y-2.5">
+            <h5 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+              <HelpCircle size={14} className="text-amber-500" />
+              Memnuniyet Anketi Nasıl Çalışır ve Raporlanır?
+            </h5>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
+              <div className="flex gap-2">
+                <span className="font-extrabold text-amber-600 dark:text-amber-400">1.</span>
+                <p>Müşteriyle görüşen temsilci çağrıyı sonlandırdığında müşteri hattı otomatik olarak ankete aktarılır ve soru anonsu dinletilir.</p>
+              </div>
+              <div className="flex gap-2">
+                <span className="font-extrabold text-amber-600 dark:text-amber-400">2.</span>
+                <p>Müşterinin tuşladığı puan; kuyruk, temsilci, arayan numara ve ses kaydı ile eşleştirilerek <strong>Çağrı Raporları & Analiz &gt; Anket Raporları</strong> ekranına anlık yansır.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return createPortal(
     <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[150] p-4 transition-all duration-300">
       <div className="w-full max-w-4xl h-[85vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-200">
@@ -1569,7 +1767,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
               <PhoneCall size={18} className={text} />
               {queueData ? "Kuyruk Düzenle" : "Yeni Kuyruk Ekle"}
             </h2>
-            <p className="text-xs text-slate-500 font-medium">ACD kuyruk konfigürasyonu, üye atamaları, meşgule düşüş ve otomatik geri arama kuralları</p>
+            <p className="text-xs text-slate-500 font-medium">ACD kuyruk konfigürasyonu, üye atamaları, otomatik geri arama ve memnuniyet anketi kuralları</p>
           </div>
           <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">
             <X size={18} />
@@ -1607,6 +1805,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             {activeTab === "members" && renderMembersTab()}
             {activeTab === "busy_routing" && renderBusyRoutingTab()}
             {activeTab === "smart_callback" && renderSmartCallbackTab()}
+            {activeTab === "survey" && renderSurveyTab()}
           </div>
         </div>
 

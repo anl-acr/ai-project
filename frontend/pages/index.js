@@ -115,6 +115,7 @@ import TenantSwitcher from "../components/TenantSwitcher";
 import LicenseModal from "../components/modals/LicenseModal";
 import GlobalSearchBar from "../components/common/GlobalSearchBar";
 import APIBudgetSettings from "../components/settings/APIBudgetSettings";
+import QueueSurveyReportPanel from "../components/reports/QueueSurveyReportPanel";
 
 const SUPER_ADMIN = {
   id: 9999,
@@ -1939,6 +1940,22 @@ export default function Home() {
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kuyruk / Bekleme Analitiği</span>
               </button>
 
+              {/* ACD Kuyruk Memnuniyet Anketi Raporları */}
+              <button
+                onClick={() => setActiveTab("reports-survey")}
+                title="Raporlar: Anket Raporları"
+                className={`w-full flex items-center ${
+                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                  activeTab === "reports-survey"
+                    ? "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-100/80 dark:border-amber-900/30 shadow-sm"
+                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                }`}
+              >
+                <Sparkles size={16} className={`shrink-0 ${activeTab === "reports-survey" ? "text-primary" : ""}`} />
+                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Anket Raporları</span>
+              </button>
+
               {/* Duygu Durumu Isı Haritası */}
               <button
                 onClick={() => setActiveTab("reports-sentiment-heat")}
@@ -2301,10 +2318,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.5.3 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.5.5 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
-            <span>{isSidebarCollapsed ? "v2.5.3" : "v2.5.3 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.5.5" : "v2.5.5 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -2581,7 +2598,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
@@ -2697,6 +2714,12 @@ export default function Home() {
 
           {activeTab === "reports-queue" && (
             <ReportsPanel backendHost={backendHost} viewMode="queue" />
+          )}
+
+          {activeTab === "reports-survey" && (
+            <div className="w-full">
+              <QueueSurveyReportPanel backendHost={backendHost} />
+            </div>
           )}
 
           {activeTab === "reports-sentiment-heat" && (
