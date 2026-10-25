@@ -336,33 +336,24 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterCallId, setFilterCallId] = useState("");
   const filterQueuesAvailable = React.useMemo(() => {
     const items = [];
-    (trunks || []).forEach((t) => {
-      if (t.trunk_name) {
-        items.push({
-          id: `trunk-${t.id || t.trunk_name}`,
-          name: t.trunk_name,
-          type: t.trunk_type === "peer" ? "Peer Trunk" : "Register Trunk"
-        });
-      }
-    });
     (queues || []).forEach((q) => {
-      if (q.name) {
+      if (q.name || q.extension) {
         items.push({
-          id: `queue-${q.id || q.name}`,
-          name: q.name,
+          id: `queue-${q.extension || q.id || q.name}`,
+          extension: String(q.extension || q.id || "2000"),
+          name: q.name || `Kuyruk ${q.extension}`,
           type: "Dahili Kuyruk"
         });
       }
     });
     if (items.length === 0) {
       return [
-        { id: "q1", name: "Operator_Trunk", type: "Register Trunk" },
-        { id: "q2", name: "Satış Kuyruğu", type: "Dahili Kuyruk" },
-        { id: "q3", name: "Destek Kuyruğu", type: "Dahili Kuyruk" }
+        { id: "queue-2000", extension: "2000", name: "Satış Kuyruğu", type: "Dahili Kuyruk" },
+        { id: "queue-2001", extension: "2001", name: "Destek Kuyruğu", type: "Dahili Kuyruk" }
       ];
     }
     return items;
-  }, [trunks, queues]);
+  }, [queues]);
   const [filterQueuesSelected, setFilterQueuesSelected] = useState([]);
   const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -454,7 +445,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
   }, [viewMode, filterStartDate, filterEndDate, backendHost]);
 
-  const columnLabels = {
+  const baseCdrColumns = {
     startTime: "Tarih / Saat",
     callId: "Çağrı ID",
     callerNumber: "Arayan Numara",
@@ -467,30 +458,180 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     durationTotal: "Toplam Süre"
   };
 
-  const [visibleColumns, setVisibleColumns] = useState(() => {
+  const REPORT_COLUMNS_BY_VIEW = {
+    cdr: { ...baseCdrColumns, detail: "Detay" },
+    audio: { ...baseCdrColumns, audioRecord: "Ses Kaydı", detail: "Detay" },
+    transcripts: { ...baseCdrColumns, transcriptContent: "İçerik" },
+    sentiment: { ...baseCdrColumns, sentimentBadge: "Duygu Durumu" },
+    qa: { ...baseCdrColumns, qaScore: "Kalite Puanı" },
+    notes: { ...baseCdrColumns, agentNote: "Temsilci Notu" },
+    perf: {
+      agent: "Temsilci",
+      totalCalls: "Toplam Çağrı",
+      answered: "Cevaplanan",
+      missed: "Kaçan",
+      answerRate: "Cevaplama %",
+      totalTalk: "Top. Konuşma",
+      avgTalk: "Ort. Konuşma",
+      avgQa: "Ort. Kalite",
+      sentiment: "Duygu (Poz/Nöt/Neg)",
+      detail: "Detay"
+    },
+    queue: {
+      date: "Tarih",
+      queueId: "Kuyruk ID",
+      queueName: "Kuyruk İsmi",
+      totalCalls: "Toplam Çağrı",
+      queuedCalls: "Kuyruğa Giren",
+      abandoned: "Kuyrukta Kaçan",
+      sla: "SLA Uyumu (≤20s)",
+      totalWait: "Top. Bekleme",
+      avgWait: "Ort. Bekleme",
+      maxWait: "Max. Bekleme",
+      detail: "Detay"
+    },
+    "sentiment-heat": {
+      agent: "Temsilci",
+      h00_05: "00:00 - 05:00",
+      h06_11: "06:00 - 11:00",
+      h12_17: "12:00 - 17:00",
+      h18_23: "18:00 - 23:00"
+    },
+    wordcloud: {
+      word: "Anahtar Kelime",
+      count: "Geçiş Sıklığı",
+      trend: "Trend Değişimi",
+      sentiment: "Duygu Etkisi"
+    },
+    fcr: {
+      caller: "Arayan Numara",
+      callCount: "Arama Sayısı",
+      fcrStatus: "FCR Durumu",
+      lastAgent: "Son Temsilci",
+      totalDuration: "Top. Görüşme",
+      sentiment: "Duygu Durumu"
+    },
+    roi: {
+      aiCard: "Yapay Zeka (AI) Kartı",
+      humanCard: "İnsan Temsilci Kartı",
+      savingsBanner: "Tasarruf Özeti"
+    },
+    missed: {
+      startTime: "Tarih / Saat",
+      caller: "Arayan Numara",
+      waitTime: "Sabır Süresi",
+      queue: "Kuyruk",
+      cbStatus: "Geri Dönüş Durumu"
+    },
+    timeline: {
+      agent: "Temsilci",
+      shiftStart: "Mesai Başlama",
+      onlineDuration: "Mesaide Geçen Süre",
+      inbound: "Gelen Çağrı",
+      answered: "Cevaplanan",
+      outbound: "Giden Çağrı",
+      missed: "Cevapsız",
+      actions: "Transfer / Toplama",
+      breakTime: "Mola Süresi",
+      efficiency: "Verimlilik",
+      timelineBtn: "Timeline"
+    },
+    traffic: {
+      timeSlot: "Zaman Dilimi (Saat)",
+      callVolume: "Toplam Çağrı Hacmi",
+      loadLevel: "Yük Seviyesi"
+    },
+    trunk: {
+      trunkName: "Dış Hat (SIP Trunk)",
+      limit: "Kapasite Limiti",
+      totalCalls: "Toplam Çağrı",
+      peakUsage: "Pik Kullanım",
+      status: "Durum"
+    },
+    "ivr-drop": {
+      menuName: "Menü Adı",
+      hits: "Giriş (Hit)",
+      drops: "Terk (Drop)",
+      transfers: "Aktarım",
+      nextStep: "Sonraki Adım"
+    },
+    "transfer-hold": {
+      startTime: "Tarih / Saat",
+      caller: "Arayan Numara",
+      firstAgent: "İlk Temsilci",
+      hold: "Hold (Bekletme)",
+      transfer: "Transfer",
+      target: "Aktarılan Birim / Hedef"
+    },
+    efficiency: {
+      group: "Grup",
+      scenario: "Senaryo Açıklaması",
+      volume: "Hacim",
+      csat: "CSAT"
+    },
+    friction: {
+      caller: "Arayan Numara",
+      driver: "Kök Neden (Driver)",
+      score: "Çile Skoru",
+      sentiment: "Duygu"
+    },
+    compliance: {
+      caller: "Arayan Numara",
+      agent: "Temsilci",
+      score: "Sadakat Skoru",
+      missedStep: "Atlanan / İhlal Edilen Adım"
+    },
+    silence: {
+      caller: "Arayan Numara",
+      agent: "Temsilci",
+      silenceRate: "Sessizlik Oranı",
+      interruptionCount: "Çakışma Sayısı",
+      primaryIssue: "Ana Sorun"
+    },
+    "ceo-summary": {
+      heroBanner: "Yönetici Özeti Banner",
+      kpiCards: "Ana KPI Kartları",
+      winsPanel: "Operasyonel Başarılar",
+      actionsPanel: "Gelişim & Aksiyon Alanları"
+    }
+  };
+
+  const columnLabels = REPORT_COLUMNS_BY_VIEW[viewMode] || REPORT_COLUMNS_BY_VIEW.cdr;
+
+  const [reportColumnsByView, setReportColumnsByView] = useState(() => {
     if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("cdr_visible_columns");
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch (e) {
-          console.error("visibleColumns parse error:", e);
+      try {
+        const savedAll = localStorage.getItem("reports_columns_by_view_v1");
+        if (savedAll) {
+          return JSON.parse(savedAll);
         }
+        const legacyCdr = localStorage.getItem("cdr_visible_columns");
+        if (legacyCdr) {
+          return { cdr: JSON.parse(legacyCdr) };
+        }
+      } catch (e) {
+        console.error("reportColumnsByView parse error:", e);
       }
     }
-    return {
-      startTime: true,
-      callId: true,
-      callerNumber: true,
-      direction: true,
-      status: true,
-      conversant: true,
-      durationTalk: true,
-      durationQueue: true,
-      durationIvr: true,
-      durationTotal: true
-    };
+    return {};
   });
+
+  const isColVisible = (colKey, targetView = viewMode) => {
+    const viewMap = reportColumnsByView[targetView];
+    if (viewMap && typeof viewMap[colKey] === "boolean") {
+      return viewMap[colKey];
+    }
+    return true;
+  };
+
+  const visibleColumns = React.useMemo(() => {
+    const schema = REPORT_COLUMNS_BY_VIEW[viewMode] || REPORT_COLUMNS_BY_VIEW.cdr;
+    const res = {};
+    Object.keys(schema).forEach((k) => {
+      res[k] = isColVisible(k, viewMode);
+    });
+    return res;
+  }, [reportColumnsByView, viewMode]);
 
   const [visiblePanels, setVisiblePanels] = useState({
     ceoSummary: true,
@@ -506,15 +647,222 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   });
 
   const handleToggleColumn = (key) => {
-    setVisibleColumns((prev) => {
-      const updated = { ...prev, [key]: !prev[key] };
-      localStorage.setItem("cdr_visible_columns", JSON.stringify(updated));
+    setReportColumnsByView((prev) => {
+      const currentViewMap = { ...(prev[viewMode] || {}) };
+      const currentVal = typeof currentViewMap[key] === "boolean" ? currentViewMap[key] : true;
+      currentViewMap[key] = !currentVal;
+      const updated = { ...prev, [viewMode]: currentViewMap };
+      if (typeof window !== "undefined") {
+        localStorage.setItem("reports_columns_by_view_v1", JSON.stringify(updated));
+        if (viewMode === "cdr") {
+          localStorage.setItem("cdr_visible_columns", JSON.stringify(currentViewMap));
+        }
+      }
       return updated;
     });
   };
 
+  const resolveCallQueueInfo = (call) => {
+    if (!call) {
+      const q0 = Array.isArray(queues) && queues.length > 0 ? queues[0] : null;
+      return {
+        queueId: String(q0?.extension || q0?.id || "2000"),
+        queueName: String(q0?.name || "Genel Kuyruk")
+      };
+    }
+
+    // 1. Explicit queue properties on call
+    if (call.queue_extension || call.queue_name || call.queue_id) {
+      const rawExt = String(call.queue_extension || call.queue_id || "").trim();
+      const rawName = String(call.queue_name || "").trim();
+      const matched = (queues || []).find(
+        (q) =>
+          (rawExt && (String(q.extension || "") === rawExt || String(q.id || "") === rawExt)) ||
+          (rawName && String(q.name || "").toLowerCase() === rawName.toLowerCase())
+      );
+      if (matched) {
+        return {
+          queueId: String(matched.extension || matched.id || rawExt || "2000"),
+          queueName: String(matched.name || rawName || "Genel Kuyruk")
+        };
+      }
+      return {
+        queueId: rawExt || "2000",
+        queueName: rawName || `Kuyruk ${rawExt || "2000"}`
+      };
+    }
+
+    // 2. Match callee_number or transferred_to against configured queues
+    const callee = String(call.callee_number || "").trim();
+    const transferred = String(call.transferred_to || "").trim();
+    if (Array.isArray(queues) && queues.length > 0) {
+      const directMatch = queues.find(
+        (q) =>
+          String(q.extension || "").trim() === callee ||
+          String(q.id || "").trim() === callee ||
+          String(q.name || "").trim().toLowerCase() === callee.toLowerCase() ||
+          (transferred &&
+            (String(q.extension || "").trim() === transferred ||
+              String(q.id || "").trim() === transferred ||
+              String(q.name || "").trim().toLowerCase() === transferred.toLowerCase()))
+      );
+      if (directMatch) {
+        return {
+          queueId: String(directMatch.extension || directMatch.id || "2000"),
+          queueName: String(directMatch.name || "Genel Kuyruk")
+        };
+      }
+
+      // 3. Check inbound rules -> queue or workflow queue node
+      if (Array.isArray(inboundRules) && inboundRules.length > 0) {
+        for (const rule of inboundRules) {
+          const destType = String(rule.destination_type || "").toLowerCase();
+          if (destType === "queue" && rule.destination_id) {
+            const qByRule = queues.find(
+              (q) =>
+                String(q.id || "") === String(rule.destination_id) ||
+                String(q.extension || "") === String(rule.destination_id) ||
+                String(q.name || "").toLowerCase() === String(rule.destination_id).toLowerCase()
+            );
+            if (qByRule) {
+              return {
+                queueId: String(qByRule.extension || qByRule.id || "2000"),
+                queueName: String(qByRule.name || "Genel Kuyruk")
+              };
+            }
+          }
+        }
+      }
+
+      // 4. Match agent extension/name in queue members
+      const memberQueue = queues.find((q) => {
+        if (!Array.isArray(q.members)) return false;
+        return q.members.some((m) => {
+          const mExt = typeof m === "object" ? String(m.extension || m.id || "") : String(m || "");
+          return mExt && (mExt === callee || mExt === String(call.caller_number || "").trim());
+        });
+      });
+      if (memberQueue) {
+        return {
+          queueId: String(memberQueue.extension || memberQueue.id || "2000"),
+          queueName: String(memberQueue.name || "Genel Kuyruk")
+        };
+      }
+
+      // 5. Fallback to first configured queue
+      const q0 = queues[0];
+      return {
+        queueId: String(q0.extension || q0.id || "2000"),
+        queueName: String(q0.name || "Genel Kuyruk")
+      };
+    }
+
+    return { queueId: "2000", queueName: "Genel Kuyruk" };
+  };
+
   const handleExportExcel = () => {
     let csvContent = "\uFEFF";
+
+    if (viewMode === "queue") {
+      const headers = [
+        "Tarih",
+        "Kuyruk ID",
+        "Kuyruk İsmi",
+        "Toplam Çağrı",
+        "Kuyruğa Giren",
+        "Kuyrukta Kaçan",
+        "SLA Uyumu (%)",
+        "Top. Bekleme",
+        "Ort. Bekleme",
+        "Max. Bekleme"
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      const stats = {};
+      filteredCalls.forEach((call) => {
+        const dateStr = call.start_time ? call.start_time.split("T")[0] : "Bilinmiyor";
+        const qInfo = resolveCallQueueInfo(call);
+        if (filterQueuesSelected.length > 0) {
+          const isMatched = filterQueuesSelected.some(
+            (selId) =>
+              selId === `queue-${qInfo.queueId}` ||
+              selId === `queue-${qInfo.queueName}` ||
+              selId === qInfo.queueId ||
+              selId === qInfo.queueName
+          );
+          if (!isMatched) return;
+        }
+        const key = `${dateStr}__${qInfo.queueId}`;
+        if (!stats[key]) {
+          stats[key] = {
+            date: dateStr,
+            queueId: qInfo.queueId,
+            queueName: qInfo.queueName,
+            totalCalls: 0,
+            queuedCalls: 0,
+            totalQueueSecs: 0,
+            maxQueueSecs: 0,
+            abandonedInQueue: 0,
+            slaCompliant: 0
+          };
+        }
+        const dStats = stats[key];
+        dStats.totalCalls++;
+        const parsedDur = getCallDurations(call);
+        let queueSecs = 0;
+        if (parsedDur.queue) {
+          const qp = parsedDur.queue.split(":");
+          if (qp.length === 2) queueSecs = parseInt(qp[0]) * 60 + parseInt(qp[1]);
+        }
+        if (queueSecs > 0) {
+          dStats.queuedCalls++;
+          dStats.totalQueueSecs += queueSecs;
+          if (queueSecs > dStats.maxQueueSecs) dStats.maxQueueSecs = queueSecs;
+        }
+        if (queueSecs <= 20) dStats.slaCompliant++;
+        const statusLabel = getCallStatus(call);
+        if (statusLabel !== "Başarılı" && (!call.duration_talk || call.duration_talk === 0) && queueSecs > 0) {
+          dStats.abandonedInQueue++;
+        }
+      });
+
+      const fmtSec = (secs) => {
+        if (!secs || isNaN(secs)) return "00:00";
+        const m = Math.floor(secs / 60).toString().padStart(2, "0");
+        const s = Math.floor(secs % 60).toString().padStart(2, "0");
+        return `${m}:${s}`;
+      };
+
+      Object.values(stats)
+        .sort((a, b) => b.date.localeCompare(a.date) || String(a.queueId).localeCompare(String(b.queueId)))
+        .forEach((dData) => {
+          const slaRate = dData.totalCalls > 0 ? Math.round((dData.slaCompliant / dData.totalCalls) * 100) : 0;
+          const avgQueue = dData.queuedCalls > 0 ? Math.round(dData.totalQueueSecs / dData.queuedCalls) : 0;
+          const row = [
+            dData.date,
+            dData.queueId,
+            dData.queueName,
+            dData.totalCalls,
+            dData.queuedCalls,
+            dData.abandonedInQueue,
+            `%${slaRate}`,
+            fmtSec(dData.totalQueueSecs),
+            fmtSec(avgQueue),
+            fmtSec(dData.maxQueueSecs)
+          ];
+          csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+        });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `kuyruk_bekleme_analitigi_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
 
     if (viewMode === "timeline" && timelineReport?.agents) {
       const headers = [
@@ -2295,8 +2643,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 </button>
               )}
 
-              {/* Columns Toggle Checklist (Only for CDR/Audio/Transcript/Sentiment/QA/Notes table views and when table is active) */}
-              {(isCdrMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isNotesMode) && !showCharts && (
+              {/* Columns Toggle Checklist (Available across all report views) */}
+              {!isPanoMode && (!isCdrMode || !showCharts) && Object.keys(visibleColumns).length > 0 && (
                 <div className="relative">
                   <button 
                     onClick={() => setIsColumnSelectOpen(!isColumnSelectOpen)}
@@ -2306,13 +2654,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <span>Sütunlar</span>
                   </button>
                   {isColumnSelectOpen && (
-                    <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 shadow-xl z-30 flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-150">
+                    <div className="absolute right-0 mt-2 w-56 max-h-80 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 shadow-xl z-30 flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-150">
                       <h4 className="font-bold text-[9px] text-slate-400 dark:text-slate-555 uppercase tracking-wider mb-1">Görünür Sütunlar</h4>
                       {Object.keys(visibleColumns).map((key) => (
                         <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-350 cursor-pointer select-none">
                           <input 
                             type="checkbox"
-                            checked={visibleColumns[key]}
+                            checked={Boolean(visibleColumns[key])}
                             onChange={() => handleToggleColumn(key)}
                             className="rounded border-slate-300 text-primary focus:ring-purple-500"
                           />
@@ -3038,10 +3386,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     availableItems={filterQueuesAvailable}
                     selectedIds={filterQueuesSelected}
                     onChangeSelectedIds={setFilterQueuesSelected}
-                    columns={["İsim"]}
+                    columns={["Kuyruk ID", "Kuyruk İsmi"]}
                     bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
                     renderRow={(item) => (
                       <>
+                        <td className="p-2 text-slate-600 dark:text-slate-400 font-mono text-xs">{item.extension || item.id}</td>
                         <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
                       </>
                     )}
@@ -3681,16 +4030,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 <table className="w-full text-left border-collapse min-w-[900px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
                   <thead>
                     <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplanan</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kaçan</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplama %</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Konuşma</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Konuşma</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Kalite</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu (Poz/Nöt/Neg)</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>
+                      {visibleColumns.agent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>}
+                      {visibleColumns.totalCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>}
+                      {visibleColumns.answered && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplanan</th>}
+                      {visibleColumns.missed && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kaçan</th>}
+                      {visibleColumns.answerRate && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplama %</th>}
+                      {visibleColumns.totalTalk && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Konuşma</th>}
+                      {visibleColumns.avgTalk && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Konuşma</th>}
+                      {visibleColumns.avgQa && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Kalite</th>}
+                      {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu (Poz/Nöt/Neg)</th>}
+                      {visibleColumns.detail && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -3772,7 +4121,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       if (agentList.length === 0) {
                         return (
                           <tr>
-                            <td colSpan="9" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
+                            <td colSpan="10" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
                           </tr>
                         );
                       }
@@ -3784,60 +4133,70 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         
                         return (
                           <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                            <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
-                              <div className="flex items-center gap-3">
-                                <img
-                                  src={getAgentAvatarUrl(agentData.agent)}
-                                  alt={agentData.agent}
-                                  className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
-                                />
-                                {agentData.agent}
-                              </div>
-                            </td>
-                            <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{agentData.totalCalls}</td>
-                            <td className="p-4 text-center font-bold text-emerald-600 dark:text-emerald-400">{agentData.answeredCalls}</td>
-                            <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{agentData.missedCalls}</td>
-                            <td className="p-4 text-center">
-                              <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (answerRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
-                                %{answerRate}
-                              </div>
-                            </td>
-                            <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(agentData.totalTalkDuration)}</td>
-                            <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgTalk)}</td>
-                            <td className="p-4 text-center">
-                              {agentData.qaScoreCount > 0 ? (
-                                <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (
-                                  avgQa >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" :
-                                  avgQa >= 60 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" :
-                                  "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
-                                )}>
-                                  {avgQa}/100
+                            {visibleColumns.agent && (
+                              <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
+                                <div className="flex items-center gap-3">
+                                  <img
+                                    src={getAgentAvatarUrl(agentData.agent)}
+                                    alt={agentData.agent}
+                                    className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
+                                  />
+                                  {agentData.agent}
                                 </div>
-                              ) : (
-                                <span className="text-slate-400 text-xs">-</span>
-                              )}
-                            </td>
-                            <td className="p-4 text-center">
-                              <div className="flex items-center justify-center gap-2 text-xs font-bold">
-                                <span className="text-emerald-600 dark:text-emerald-400" title="Pozitif">{agentData.sentimentPositive}</span>
-                                <span className="text-slate-300 dark:text-slate-600">/</span>
-                                <span className="text-amber-500 dark:text-amber-400" title="Nötr">{agentData.sentimentNeutral}</span>
-                                <span className="text-slate-300 dark:text-slate-600">/</span>
-                                <span className="text-rose-600 dark:text-rose-400" title="Negatif">{agentData.sentimentNegative}</span>
-                              </div>
-                            </td>
-                            <td className="p-4 text-center">
-                              <button 
-                                onClick={() => {
-                                  setSelectedAgentDetails(agentData);
-                                  setIsAgentDetailsOpen(true);
-                                }}
-                                className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
-                                title="Çağrı Numaralarını Görüntüle"
-                              >
-                                <Search size={16} />
-                              </button>
-                            </td>
+                              </td>
+                            )}
+                            {visibleColumns.totalCalls && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{agentData.totalCalls}</td>}
+                            {visibleColumns.answered && <td className="p-4 text-center font-bold text-emerald-600 dark:text-emerald-400">{agentData.answeredCalls}</td>}
+                            {visibleColumns.missed && <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{agentData.missedCalls}</td>}
+                            {visibleColumns.answerRate && (
+                              <td className="p-4 text-center">
+                                <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (answerRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
+                                  %{answerRate}
+                                </div>
+                              </td>
+                            )}
+                            {visibleColumns.totalTalk && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(agentData.totalTalkDuration)}</td>}
+                            {visibleColumns.avgTalk && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgTalk)}</td>}
+                            {visibleColumns.avgQa && (
+                              <td className="p-4 text-center">
+                                {agentData.qaScoreCount > 0 ? (
+                                  <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (
+                                    avgQa >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" :
+                                    avgQa >= 60 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" :
+                                    "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30"
+                                  )}>
+                                    {avgQa}/100
+                                  </div>
+                                ) : (
+                                  <span className="text-slate-400 text-xs">-</span>
+                                )}
+                              </td>
+                            )}
+                            {visibleColumns.sentiment && (
+                              <td className="p-4 text-center">
+                                <div className="flex items-center justify-center gap-2 text-xs font-bold">
+                                  <span className="text-emerald-600 dark:text-emerald-400" title="Pozitif">{agentData.sentimentPositive}</span>
+                                  <span className="text-slate-300 dark:text-slate-600">/</span>
+                                  <span className="text-amber-500 dark:text-amber-400" title="Nötr">{agentData.sentimentNeutral}</span>
+                                  <span className="text-slate-300 dark:text-slate-600">/</span>
+                                  <span className="text-rose-600 dark:text-rose-400" title="Negatif">{agentData.sentimentNegative}</span>
+                                </div>
+                              </td>
+                            )}
+                            {visibleColumns.detail && (
+                              <td className="p-4 text-center">
+                                <button 
+                                  onClick={() => {
+                                    setSelectedAgentDetails(agentData);
+                                    setIsAgentDetailsOpen(true);
+                                  }}
+                                  className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
+                                  title="Çağrı Numaralarını Görüntüle"
+                                >
+                                  <Search size={16} />
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         );
                       });
@@ -3848,18 +4207,20 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
             ) : isQueueMode ? (
               /* Queue Analytics Table Mode */
               <div className="overflow-x-auto p-4">
-                <table className="w-full text-left border-collapse min-w-[900px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+                <table className="w-full text-left border-collapse min-w-[980px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
                   <thead>
                     <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruğa Giren</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyrukta Kaçan</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>SLA Uyumu (≤20s)</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Bekleme</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Bekleme</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Max. Bekleme</th>
-                      <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>
+                      {visibleColumns.date && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih</th>}
+                      {visibleColumns.queueId && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruk ID</th>}
+                      {visibleColumns.queueName && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kuyruk İsmi</th>}
+                      {visibleColumns.totalCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>}
+                      {visibleColumns.queuedCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyruğa Giren</th>}
+                      {visibleColumns.abandoned && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kuyrukta Kaçan</th>}
+                      {visibleColumns.sla && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>SLA Uyumu (≤20s)</th>}
+                      {visibleColumns.totalWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Bekleme</th>}
+                      {visibleColumns.avgWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Ort. Bekleme</th>}
+                      {visibleColumns.maxWait && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Max. Bekleme</th>}
+                      {visibleColumns.detail && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}></th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -3867,9 +4228,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       const stats = {};
                       filteredCalls.forEach(call => {
                         const dateStr = call.start_time ? call.start_time.split("T")[0] : "Bilinmiyor";
-                        if (!stats[dateStr]) {
-                          stats[dateStr] = {
+                        const qInfo = resolveCallQueueInfo(call);
+                        if (filterQueuesSelected.length > 0) {
+                          const matchesQueueFilter = filterQueuesSelected.some(selId => {
+                            const selQ = filterQueuesAvailable.find(fq => String(fq.id) === String(selId));
+                            if (!selQ) return String(selId) === String(qInfo.queueId);
+                            return String(selQ.extension) === String(qInfo.queueId) || String(selQ.id) === String(qInfo.queueId) || String(selQ.name) === String(qInfo.queueName);
+                          });
+                          if (!matchesQueueFilter) return;
+                        }
+                        const groupKey = `${dateStr}__${qInfo.queueId}`;
+                        if (!stats[groupKey]) {
+                          stats[groupKey] = {
                             date: dateStr,
+                            queueId: qInfo.queueId,
+                            queueName: qInfo.queueName,
                             totalCalls: 0,
                             queuedCalls: 0,
                             totalQueueSecs: 0,
@@ -3882,7 +4255,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           };
                         }
                         
-                        const dStats = stats[dateStr];
+                        const dStats = stats[groupKey];
                         dStats.totalCalls++;
                         
                         const callInfo = { id: call.id, number: getCustomerNumber(call), time: call.start_time, status: call.status, dir: getCallDirection(call) };
@@ -3913,7 +4286,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         }
                       });
                       
-                      const dateList = Object.values(stats).sort((a, b) => b.date.localeCompare(a.date));
+                      const dateList = Object.values(stats).sort((a, b) => {
+                        const cmp = b.date.localeCompare(a.date);
+                        if (cmp !== 0) return cmp;
+                        return String(a.queueId).localeCompare(String(b.queueId));
+                      });
                       
                       const formatSec = (secs) => {
                         if (!secs || isNaN(secs)) return "00:00";
@@ -3925,7 +4302,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       if (dateList.length === 0) {
                         return (
                           <tr>
-                            <td colSpan="8" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
+                            <td colSpan="11" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium">Bu filtrelere uygun çağrı bulunamadı.</td>
                           </tr>
                         );
                       }
@@ -3936,35 +4313,53 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         
                         return (
                           <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                            <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
-                              <div className="flex items-center gap-2">
-                                <CalendarIcon size={14} className={text} />
-                                {dData.date}
-                              </div>
-                            </td>
-                            <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{dData.totalCalls}</td>
-                            <td className="p-4 text-center font-bold text-blue-600 dark:text-blue-400">{dData.queuedCalls}</td>
-                            <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{dData.abandonedInQueue}</td>
-                            <td className="p-4 text-center">
-                              <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (slaRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : slaRate >= 50 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
-                                %{slaRate}
-                              </div>
-                            </td>
-                            <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(dData.totalQueueSecs)}</td>
-                            <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgQueue)}</td>
-                            <td className="p-4 text-center font-medium text-slate-800 dark:text-slate-200">{formatSec(dData.maxQueueSecs)}</td>
-                            <td className="p-4 text-center">
-                              <button 
-                                onClick={() => {
-                                  setSelectedQueueDetails(dData);
-                                  setIsQueueDetailsOpen(true);
-                                }}
-                                className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
-                                title="Çağrı Numaralarını Görüntüle"
-                              >
-                                <Search size={16} />
-                              </button>
-                            </td>
+                            {visibleColumns.date && (
+                              <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
+                                <div className="flex items-center gap-2">
+                                  <CalendarIcon size={14} className={text} />
+                                  {dData.date}
+                                </div>
+                              </td>
+                            )}
+                            {visibleColumns.queueId && (
+                              <td className="p-4 text-center">
+                                <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                                  #{dData.queueId}
+                                </span>
+                              </td>
+                            )}
+                            {visibleColumns.queueName && (
+                              <td className="p-4 font-bold text-slate-800 dark:text-slate-200">
+                                {dData.queueName}
+                              </td>
+                            )}
+                            {visibleColumns.totalCalls && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{dData.totalCalls}</td>}
+                            {visibleColumns.queuedCalls && <td className="p-4 text-center font-bold text-blue-600 dark:text-blue-400">{dData.queuedCalls}</td>}
+                            {visibleColumns.abandoned && <td className="p-4 text-center font-bold text-rose-600 dark:text-rose-400">{dData.abandonedInQueue}</td>}
+                            {visibleColumns.sla && (
+                              <td className="p-4 text-center">
+                                <div className={"inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border " + (slaRate >= 80 ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/30" : slaRate >= 50 ? "bg-amber-50 dark:bg-amber-955/20 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/30" : "bg-rose-50 dark:bg-rose-955/20 text-rose-600 dark:text-rose-400 border-rose-100 dark:border-rose-900/30")}>
+                                  %{slaRate}
+                                </div>
+                              </td>
+                            )}
+                            {visibleColumns.totalWait && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(dData.totalQueueSecs)}</td>}
+                            {visibleColumns.avgWait && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(avgQueue)}</td>}
+                            {visibleColumns.maxWait && <td className="p-4 text-center font-medium text-slate-800 dark:text-slate-200">{formatSec(dData.maxQueueSecs)}</td>}
+                            {visibleColumns.detail && (
+                              <td className="p-4 text-center">
+                                <button 
+                                  onClick={() => {
+                                    setSelectedQueueDetails(dData);
+                                    setIsQueueDetailsOpen(true);
+                                  }}
+                                  className={"p-2 inline-flex items-center justify-center rounded-lg transition-colors bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 " + text}
+                                  title="Çağrı Numaralarını Görüntüle"
+                                >
+                                  <Search size={16} />
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         );
                       });
@@ -3978,10 +4373,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 <table className="w-full text-left border-collapse min-w-[1200px] border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
                   <thead>
                     <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                      <th className={"p-3 text-[10px] font-bold uppercase tracking-wider sticky left-0 z-20 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 " + text}>Temsilci \ Saat</th>
-                      {Array.from({length: 24}).map((_, i) => (
-                        <th key={i} className={"p-2 text-[10px] font-bold uppercase tracking-wider text-center " + text}>{i.toString().padStart(2, '0')}:00</th>
-                      ))}
+                      {visibleColumns.agent && <th className={"p-3 text-[10px] font-bold uppercase tracking-wider sticky left-0 z-20 bg-slate-50 dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 " + text}>Temsilci \ Saat</th>}
+                      {Array.from({length: 24}).map((_, i) => {
+                        const isHourVisible = (i < 6 && visibleColumns.h00_05) || (i >= 6 && i < 12 && visibleColumns.h06_11) || (i >= 12 && i < 18 && visibleColumns.h12_17) || (i >= 18 && visibleColumns.h18_23);
+                        if (!isHourVisible) return null;
+                        return (
+                          <th key={i} className={"p-2 text-[10px] font-bold uppercase tracking-wider text-center " + text}>{i.toString().padStart(2, '0')}:00</th>
+                        );
+                      })}
                     </tr>
                   </thead>
                   <tbody>
@@ -4017,17 +4416,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       
                       return agentList.map((agent, rowIdx) => (
                         <tr key={rowIdx} className={"border-b " + borderLight}>
-                          <td className={"p-3 text-xs font-bold text-slate-800 dark:text-slate-200 sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800"}>
-                            <div className="flex items-center gap-2.5 whitespace-nowrap">
-                              <img
-                                src={getAgentAvatarUrl(agent)}
-                                alt={agent}
-                                className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
-                              />
-                              <span>{agent}</span>
-                            </div>
-                          </td>
+                          {visibleColumns.agent && (
+                            <td className={"p-3 text-xs font-bold text-slate-800 dark:text-slate-200 sticky left-0 z-10 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800"}>
+                              <div className="flex items-center gap-2.5 whitespace-nowrap">
+                                <img
+                                  src={getAgentAvatarUrl(agent)}
+                                  alt={agent}
+                                  className="w-7 h-7 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
+                                />
+                                <span>{agent}</span>
+                              </div>
+                            </td>
+                          )}
                           {Array.from({length: 24}).map((_, h) => {
+                            const isHourVisible = (h < 6 && visibleColumns.h00_05) || (h >= 6 && h < 12 && visibleColumns.h06_11) || (h >= 12 && h < 18 && visibleColumns.h12_17) || (h >= 18 && visibleColumns.h18_23);
+                            if (!isHourVisible) return null;
                             const data = heatmapData[agent][h];
                             const avg = data.total > 0 ? Math.round(data.score / data.total) : null;
                             let bgColor = "bg-transparent";
@@ -4106,10 +4509,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <table className="w-full text-left border-collapse border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
                       <thead>
                         <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                          <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Anahtar Kelime</th>
-                          <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geçiş Sıklığı</th>
-                          <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Trend Değişimi</th>
-                          <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu Etkisi</th>
+                          {visibleColumns.word && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Anahtar Kelime</th>}
+                          {visibleColumns.count && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geçiş Sıklığı</th>}
+                          {visibleColumns.trend && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Trend Değişimi</th>}
+                          {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu Etkisi</th>}
                         </tr>
                       </thead>
                       <tbody>
@@ -4121,14 +4524,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           { word: "Şikayet", count: 25, trend: "-15%", trendColor: "text-emerald-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100" },
                         ].map((item, idx) => (
                           <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                            <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{item.word}</td>
-                            <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{item.count}</td>
-                            <td className={`p-4 text-center font-bold ${item.trendColor}`}>{item.trend}</td>
-                            <td className="p-4 text-center">
-                              <div className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${item.sentimentColor}`}>
-                                {item.sentiment}
-                              </div>
-                            </td>
+                            {visibleColumns.word && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{item.word}</td>}
+                            {visibleColumns.count && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{item.count}</td>}
+                            {visibleColumns.trend && <td className={`p-4 text-center font-bold ${item.trendColor}`}>{item.trend}</td>}
+                            {visibleColumns.sentiment && (
+                              <td className="p-4 text-center">
+                                <div className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${item.sentimentColor}`}>
+                                  {item.sentiment}
+                                </div>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -4208,12 +4613,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         <table className="w-full text-left border-collapse min-w-[900px]">
                           <thead>
                             <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Arama Sayısı</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>FCR Durumu</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Son Temsilci</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Görüşme</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu Durumu</th>
+                              {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                              {visibleColumns.callCount && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Arama Sayısı</th>}
+                              {visibleColumns.fcrStatus && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>FCR Durumu</th>}
+                              {visibleColumns.lastAgent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Son Temsilci</th>}
+                              {visibleColumns.totalDuration && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Top. Görüşme</th>}
+                              {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu Durumu</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -4224,22 +4629,26 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             ) : (
                               callerList.map((c, idx) => (
                                 <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                  <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller}</td>
-                                  <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{c.callCount}</td>
-                                  <td className="p-4 text-center">
-                                    {c.callCount === 1 ? (
-                                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100">Başarılı</span>
-                                    ) : (
-                                      <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100">Başarısız (Tekrar Aramış)</span>
-                                    )}
-                                  </td>
-                                  <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">{c.lastAgent}</td>
-                                  <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(c.totalDuration)}</td>
-                                  <td className="p-4 text-center">
-                                    <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.sentiment === 'positive' ? 'bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100' : c.sentiment === 'negative' ? 'bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100' : 'bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100'}`}>
-                                      {c.sentiment === 'positive' ? 'Pozitif' : c.sentiment === 'negative' ? 'Negatif' : 'Nötr'}
-                                    </span>
-                                  </td>
+                                  {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{c.caller}</td>}
+                                  {visibleColumns.callCount && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{c.callCount}</td>}
+                                  {visibleColumns.fcrStatus && (
+                                    <td className="p-4 text-center">
+                                      {c.callCount === 1 ? (
+                                        <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100">Başarılı</span>
+                                      ) : (
+                                        <span className="inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100">Başarısız (Tekrar Aramış)</span>
+                                      )}
+                                    </td>
+                                  )}
+                                  {visibleColumns.lastAgent && <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">{c.lastAgent}</td>}
+                                  {visibleColumns.totalDuration && <td className="p-4 text-center font-medium text-slate-600 dark:text-slate-400">{formatSec(c.totalDuration)}</td>}
+                                  {visibleColumns.sentiment && (
+                                    <td className="p-4 text-center">
+                                      <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.sentiment === 'positive' ? 'bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100' : c.sentiment === 'negative' ? 'bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100' : 'bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100'}`}>
+                                        {c.sentiment === 'positive' ? 'Pozitif' : c.sentiment === 'negative' ? 'Negatif' : 'Nötr'}
+                                      </span>
+                                    </td>
+                                  )}
                                 </tr>
                               ))
                             )}
@@ -4286,12 +4695,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   const aiAvgDur = aiStats.calls > 0 ? Math.round(aiStats.duration / aiStats.calls) : 0;
                   const humanAvgDur = humanStats.calls > 0 ? Math.round(humanStats.duration / humanStats.calls) : 0;
                   
-                  // Savings calculation: If AI wasn't used, those calls would be handled by humans.
-                  // Since human cost is fixed per month, we can estimate how many extra humans we would need
-                  // or just calculate the savings as the equivalent cost of AI calls if handled by humans.
-                  // Let's assume a human handles a certain number of calls or duration per month.
-                  // For simplicity, let's calculate the "equivalent human cost" of the AI calls:
-                  // Assumed human cost per minute based on inputs: (Monthly Cost) / (22 days * 8 hours * 60 mins) => (Cost) / 10560 mins
                   const calculatedHumanCostPerMin = roiHumanCount > 0 ? (roiHumanCost / 10560) : 0;
                   const totalCostIfAllHuman = humanTotalCost + ((aiStats.duration / 60) * calculatedHumanCostPerMin);
                   const savings = totalCostIfAllHuman - (aiTotalCost + humanTotalCost);
@@ -4300,85 +4703,91 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         {/* Yapay Zeka (AI) Card */}
-                        <div className={"rounded-3xl p-8 border border-emerald-500/30 bg-emerald-500/5 shadow-sm shadow-emerald-500/10 flex flex-col gap-6"}>
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-emerald-500 text-white flex items-center justify-center">
-                              <Bot size={24} />
+                        {visibleColumns.aiCard && (
+                          <div className={"rounded-3xl p-8 border border-emerald-500/30 bg-emerald-500/5 shadow-sm shadow-emerald-500/10 flex flex-col gap-6"}>
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-xl bg-emerald-500 text-white flex items-center justify-center">
+                                <Bot size={24} />
+                              </div>
+                              <div>
+                                <h4 className="text-xl font-black text-emerald-700 dark:text-emerald-400">Yapay Zeka (AI)</h4>
+                                <p className="text-sm font-medium text-emerald-600/80 dark:text-emerald-400/80">Sanal Asistanlar</p>
+                              </div>
                             </div>
-                            <div>
-                              <h4 className="text-xl font-black text-emerald-700 dark:text-emerald-400">Yapay Zeka (AI)</h4>
-                              <p className="text-sm font-medium text-emerald-600/80 dark:text-emerald-400/80">Sanal Asistanlar</p>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Toplam Çağrı</p>
+                                <p className="text-3xl font-black text-slate-800 dark:text-slate-100">{aiStats.calls}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Toplam Maliyet</p>
+                                <p className="text-3xl font-black text-slate-800 dark:text-slate-100">₺{aiTotalCost.toFixed(2)}</p>
+                                <p className="text-[10px] font-bold text-emerald-600 mt-1">₺0.85 / dk</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Ort. Konuşma</p>
+                                <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{aiAvgDur} sn</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Ort. Kalite (QA)</p>
+                                <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{aiAvgQa}/100</p>
+                              </div>
                             </div>
                           </div>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Toplam Çağrı</p>
-                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">{aiStats.calls}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Toplam Maliyet</p>
-                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">₺{aiTotalCost.toFixed(2)}</p>
-                              <p className="text-[10px] font-bold text-emerald-600 mt-1">₺0.85 / dk</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Ort. Konuşma</p>
-                              <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{aiAvgDur} sn</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-wider text-emerald-600/70 dark:text-emerald-500/70 mb-1">Ort. Kalite (QA)</p>
-                              <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{aiAvgQa}/100</p>
-                            </div>
-                          </div>
-                        </div>
+                        )}
                         
                         {/* İnsan Temsilci Card */}
-                        <div className={"rounded-3xl p-8 border border-blue-500/30 bg-blue-500/5 shadow-sm shadow-blue-500/10 flex flex-col gap-6"}>
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 rounded-xl bg-blue-500 text-white flex items-center justify-center">
-                              <Users size={24} />
+                        {visibleColumns.humanCard && (
+                          <div className={"rounded-3xl p-8 border border-blue-500/30 bg-blue-500/5 shadow-sm shadow-blue-500/10 flex flex-col gap-6"}>
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 rounded-xl bg-blue-500 text-white flex items-center justify-center">
+                                <Users size={24} />
+                              </div>
+                              <div>
+                                <h4 className="text-xl font-black text-blue-700 dark:text-blue-400">İnsan Temsilci</h4>
+                                <p className="text-sm font-medium text-blue-600/80 dark:text-blue-400/80">Canlı Destek Ekibi</p>
+                              </div>
                             </div>
-                            <div>
-                              <h4 className="text-xl font-black text-blue-700 dark:text-blue-400">İnsan Temsilci</h4>
-                              <p className="text-sm font-medium text-blue-600/80 dark:text-blue-400/80">Canlı Destek Ekibi</p>
+                            
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Toplam Çağrı</p>
+                                <p className="text-3xl font-black text-slate-800 dark:text-slate-100">{humanStats.calls}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Toplam Maliyet</p>
+                                <p className="text-3xl font-black text-slate-800 dark:text-slate-100">₺{humanTotalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                                <p className="text-[10px] font-bold text-blue-600 mt-1">{roiHumanCount} Temsilci x ₺{roiHumanCost.toLocaleString('tr-TR')}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Ort. Konuşma</p>
+                                <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{humanAvgDur} sn</p>
+                              </div>
+                              <div>
+                                <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Ort. Kalite (QA)</p>
+                                <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{humanAvgQa}/100</p>
+                              </div>
                             </div>
                           </div>
-                          
-                          <div className="grid grid-cols-2 gap-4">
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Toplam Çağrı</p>
-                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">{humanStats.calls}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Toplam Maliyet</p>
-                              <p className="text-3xl font-black text-slate-800 dark:text-slate-100">₺{humanTotalCost.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                              <p className="text-[10px] font-bold text-blue-600 mt-1">{roiHumanCount} Temsilci x ₺{roiHumanCost.toLocaleString('tr-TR')}</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Ort. Konuşma</p>
-                              <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{humanAvgDur} sn</p>
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold uppercase tracking-wider text-blue-600/70 dark:text-blue-500/70 mb-1">Ort. Kalite (QA)</p>
-                              <p className="text-xl font-bold text-slate-700 dark:text-slate-200">{humanAvgQa}/100</p>
-                            </div>
-                          </div>
-                        </div>
+                        )}
                       </div>
                       
                       {/* ROI Summary Banner */}
-                      <div className={"w-full rounded-2xl p-6 border flex items-center justify-between mt-2 " + borderLight + " " + lightBg}>
-                        <div className="flex flex-col gap-1">
-                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Toplam Sağlanan Tasarruf (AI Etkisi)</p>
-                          <p className="text-sm text-slate-500 dark:text-slate-400">Yapay zeka asistanları tarafından karşılanan çağrılar insan temsilcilere aktarılsaydı oluşacak ek maliyete göre hesaplanmıştır.</p>
+                      {visibleColumns.savingsBanner && (
+                        <div className={"w-full rounded-2xl p-6 border flex items-center justify-between mt-2 " + borderLight + " " + lightBg}>
+                          <div className="flex flex-col gap-1">
+                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>Toplam Sağlanan Tasarruf (AI Etkisi)</p>
+                            <p className="text-sm text-slate-500 dark:text-slate-400">Yapay zeka asistanları tarafından karşılanan çağrılar insan temsilcilere aktarılsaydı oluşacak ek maliyete göre hesaplanmıştır.</p>
+                          </div>
+                          <div className="text-right flex flex-col items-end">
+                            <p className="text-4xl font-black text-emerald-500 flex items-center gap-2 justify-end">
+                              <TrendingUp size={28} />
+                              ₺{Math.max(0, savings).toFixed(2)}
+                            </p>
+                          </div>
                         </div>
-                        <div className="text-right flex flex-col items-end">
-                          <p className="text-4xl font-black text-emerald-500 flex items-center gap-2 justify-end">
-                            <TrendingUp size={28} />
-                            ₺{Math.max(0, savings).toFixed(2)}
-                          </p>
-                        </div>
-                      </div>
+                      )}
                     </>
                   );
                 })()}
@@ -4406,12 +4815,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     
                     const waitTime = 5 + ((call.id ? call.id.charCodeAt(0) : idx) % 120);
                     totalWaitTime += waitTime;
+                    const qInfo = resolveCallQueueInfo(call);
                     
                     return {
                       ...call,
                       cbStatus,
                       waitTime,
-                      queueName: "Müşteri Hizmetleri"
+                      queueName: `${qInfo.queueName} (#${qInfo.queueId})`
                     };
                   });
                   
@@ -4448,11 +4858,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         <table className="w-full text-left border-collapse min-w-[900px]">
                           <thead>
                             <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sabır Süresi</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kuyruk</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geri Dönüş Durumu</th>
+                              {visibleColumns.startTime && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>}
+                              {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                              {visibleColumns.waitTime && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sabır Süresi</th>}
+                              {visibleColumns.queue && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kuyruk</th>}
+                              {visibleColumns.cbStatus && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geri Dönüş Durumu</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -4463,17 +4873,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             ) : (
                               mappedMissed.map((c, idx) => (
                                 <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                  <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">
-                                    {c.start_time ? new Date(c.start_time).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : "-"}
-                                  </td>
-                                  <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
-                                  <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{c.waitTime} sn</td>
-                                  <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.queueName}</td>
-                                  <td className="p-4 text-center">
-                                    <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.cbStatus === 'Dönüldü (Başarılı)' ? 'bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100' : c.cbStatus === 'Bekliyor' ? 'bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100' : 'bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100'}`}>
-                                      {c.cbStatus}
-                                    </span>
-                                  </td>
+                                  {visibleColumns.startTime && (
+                                    <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">
+                                      {c.start_time ? new Date(c.start_time).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : "-"}
+                                    </td>
+                                  )}
+                                  {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
+                                  {visibleColumns.waitTime && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{c.waitTime} sn</td>}
+                                  {visibleColumns.queue && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{c.queueName}</td>}
+                                  {visibleColumns.cbStatus && (
+                                    <td className="p-4 text-center">
+                                      <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.cbStatus === 'Dönüldü (Başarılı)' ? 'bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100' : c.cbStatus === 'Bekliyor' ? 'bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100' : 'bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100'}`}>
+                                        {c.cbStatus}
+                                      </span>
+                                    </td>
+                                  )}
                                 </tr>
                               ))
                             )}
@@ -4808,17 +5222,17 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           <table className="w-full text-left border-collapse min-w-[980px]">
                             <thead>
                               <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mesai Başlama</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mesaide Geçen Süre</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Gelen Çağrı</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplanan</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Giden Çağrı</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevapsız</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer / Toplama</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mola Süresi</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Verimlilik</th>
-                                <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Timeline</th>
+                                {visibleColumns.agent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>}
+                                {visibleColumns.shiftStart && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mesai Başlama</th>}
+                                {visibleColumns.onlineDuration && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mesaide Geçen Süre</th>}
+                                {visibleColumns.inbound && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Gelen Çağrı</th>}
+                                {visibleColumns.answered && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevaplanan</th>}
+                                {visibleColumns.outbound && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Giden Çağrı</th>}
+                                {visibleColumns.missed && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Cevapsız</th>}
+                                {visibleColumns.actions && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer / Toplama</th>}
+                                {visibleColumns.breakTime && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Mola Süresi</th>}
+                                {visibleColumns.efficiency && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Verimlilik</th>}
+                                {visibleColumns.timelineBtn && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Timeline</th>}
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -4843,97 +5257,119 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                       className={"transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}
                                     >
                                       {/* Temsilci */}
-                                      <td className="p-4">
-                                        <div className="flex items-center gap-3">
-                                          <img
-                                            src={getAgentAvatarUrl(ag.agent_name, ag.extension, ag.avatar, ag.is_ai)}
-                                            alt={ag.agent_name}
-                                            className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
-                                          />
-                                          <div>
-                                            <div className="flex items-center gap-2">
-                                              <span className="font-bold text-slate-800 dark:text-slate-100 text-xs">
-                                                {ag.agent_name}
+                                      {visibleColumns.agent && (
+                                        <td className="p-4">
+                                          <div className="flex items-center gap-3">
+                                            <img
+                                              src={getAgentAvatarUrl(ag.agent_name, ag.extension, ag.avatar, ag.is_ai)}
+                                              alt={ag.agent_name}
+                                              className="w-9 h-9 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-0.5 object-cover shrink-0 shadow-xs"
+                                            />
+                                            <div>
+                                              <div className="flex items-center gap-2">
+                                                <span className="font-bold text-slate-800 dark:text-slate-100 text-xs">
+                                                  {ag.agent_name}
+                                                </span>
+                                                <span
+                                                  className={`w-2 h-2 rounded-full ${ag.is_online ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}
+                                                  title={ag.is_online ? "Çevrimiçi" : "Çevrimdışı"}
+                                                />
+                                              </div>
+                                              <span className="text-[10px] font-semibold text-slate-400">
+                                                Dahili: {ag.extension} {(ag.events || []).length > 0 ? `• ${(ag.events || []).length} hareket` : ""}
                                               </span>
-                                              <span
-                                                className={`w-2 h-2 rounded-full ${ag.is_online ? "bg-emerald-500" : "bg-slate-300 dark:bg-slate-600"}`}
-                                                title={ag.is_online ? "Çevrimiçi" : "Çevrimdışı"}
-                                              />
                                             </div>
-                                            <span className="text-[10px] font-semibold text-slate-400">
-                                              Dahili: {ag.extension} {(ag.events || []).length > 0 ? `• ${(ag.events || []).length} hareket` : ""}
-                                            </span>
                                           </div>
-                                        </div>
-                                      </td>
+                                        </td>
+                                      )}
 
                                       {/* Mesai Başlama Saati */}
-                                      <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300 font-mono">
-                                        {ag.shift_start_time || "-"}
-                                      </td>
+                                      {visibleColumns.shiftStart && (
+                                        <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300 font-mono">
+                                          {ag.shift_start_time || "-"}
+                                        </td>
+                                      )}
 
                                       {/* Mesaide Geçirdiği Süre */}
-                                      <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">
-                                        {ag.total_online_label || "-"}
-                                      </td>
+                                      {visibleColumns.onlineDuration && (
+                                        <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">
+                                          {ag.total_online_label || "-"}
+                                        </td>
+                                      )}
 
                                       {/* Gelen Çağrı */}
-                                      <td className="p-4 text-center">
-                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-100 dark:border-blue-900/40">
-                                          {ag.inbound_total_count}
-                                        </span>
-                                      </td>
+                                      {visibleColumns.inbound && (
+                                        <td className="p-4 text-center">
+                                          <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border border-blue-100 dark:border-blue-900/40">
+                                            {ag.inbound_total_count}
+                                          </span>
+                                        </td>
+                                      )}
 
                                       {/* Cevaplanan Çağrı */}
-                                      <td className="p-4 text-center">
-                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40">
-                                          {ag.answered_count}
-                                        </span>
-                                      </td>
+                                      {visibleColumns.answered && (
+                                        <td className="p-4 text-center">
+                                          <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-900/40">
+                                            {ag.answered_count}
+                                          </span>
+                                        </td>
+                                      )}
 
                                       {/* Giden Çağrı */}
-                                      <td className="p-4 text-center">
-                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40">
-                                          {ag.outbound_count}
-                                        </span>
-                                      </td>
+                                      {visibleColumns.outbound && (
+                                        <td className="p-4 text-center">
+                                          <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/40">
+                                            {ag.outbound_count}
+                                          </span>
+                                        </td>
+                                      )}
 
                                       {/* Cevapsız Çağrı */}
-                                      <td className="p-4 text-center">
-                                        <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-100 dark:border-rose-900/40">
-                                          {ag.missed_count}
-                                        </span>
-                                      </td>
+                                      {visibleColumns.missed && (
+                                        <td className="p-4 text-center">
+                                          <span className="inline-flex items-center justify-center min-w-[28px] px-2 py-0.5 rounded-lg font-bold bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 border border-rose-100 dark:border-rose-900/40">
+                                            {ag.missed_count}
+                                          </span>
+                                        </td>
+                                      )}
 
                                       {/* Transfer / Toplama / Aksiyon */}
-                                      <td className="p-4 text-center">
-                                        <span className="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-lg font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-100 dark:border-purple-900/40" title={`Transfer: ${ag.transfer_count || 0}, Çağrı Toplama: ${ag.pickup_count || 0}, Toplam Ek Aksiyon: ${ag.action_count || 0}`}>
-                                          {ag.action_count || 0}
-                                        </span>
-                                      </td>
+                                      {visibleColumns.actions && (
+                                        <td className="p-4 text-center">
+                                          <span className="inline-flex items-center justify-center gap-1 px-2 py-0.5 rounded-lg font-bold bg-purple-50 text-purple-700 dark:bg-purple-950/40 dark:text-purple-300 border border-purple-100 dark:border-purple-900/40" title={`Transfer: ${ag.transfer_count || 0}, Çağrı Toplama: ${ag.pickup_count || 0}, Toplam Ek Aksiyon: ${ag.action_count || 0}`}>
+                                            {ag.action_count || 0}
+                                          </span>
+                                        </td>
+                                      )}
 
                                       {/* Mola Süresi */}
-                                      <td className="p-4 text-center font-semibold text-amber-600 dark:text-amber-400">
-                                        {ag.total_break_label || "0 dk"}
-                                      </td>
+                                      {visibleColumns.breakTime && (
+                                        <td className="p-4 text-center font-semibold text-amber-600 dark:text-amber-400">
+                                          {ag.total_break_label || "0 dk"}
+                                        </td>
+                                      )}
 
                                       {/* Toplam Verimlilik */}
-                                      <td className="p-4 text-center">
-                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-black border ${effBadge}`}>
-                                          %{eff}
-                                        </span>
-                                      </td>
+                                      {visibleColumns.efficiency && (
+                                        <td className="p-4 text-center">
+                                          <span className={`inline-flex items-center px-2.5 py-1 rounded-xl text-xs font-black border ${effBadge}`}>
+                                            %{eff}
+                                          </span>
+                                        </td>
+                                      )}
 
                                       {/* Sağda Büyüteç Butonu (Timeline Detay Popup Aç) */}
-                                      <td className="p-4 text-center">
-                                        <button
-                                          onClick={() => setSelectedTimelineAgentModal(ag)}
-                                          className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-primary border border-slate-200 dark:border-slate-700 rounded-xl transition cursor-pointer hover:scale-105 active:scale-95 duration-150 inline-flex items-center justify-center shadow-xs"
-                                          title={`${ag.agent_name} Gün İçi Kronolojik Hareket Dökümünü (Timeline) Görüntüle`}
-                                        >
-                                          <Search size={14} />
-                                        </button>
-                                      </td>
+                                      {visibleColumns.timelineBtn && (
+                                        <td className="p-4 text-center">
+                                          <button
+                                            onClick={() => setSelectedTimelineAgentModal(ag)}
+                                            className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-primary border border-slate-200 dark:border-slate-700 rounded-xl transition cursor-pointer hover:scale-105 active:scale-95 duration-150 inline-flex items-center justify-center shadow-xs"
+                                            title={`${ag.agent_name} Gün İçi Kronolojik Hareket Dökümünü (Timeline) Görüntüle`}
+                                          >
+                                            <Search size={14} />
+                                          </button>
+                                        </td>
+                                      )}
                                     </tr>
                                   );
                                 })
@@ -5276,9 +5712,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         <table className="w-full text-left border-collapse">
                           <thead>
                             <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Zaman Dilimi (Saat)</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı Hacmi</th>
-                              <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Yük Seviyesi</th>
+                              {visibleColumns.timeSlot && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Zaman Dilimi (Saat)</th>}
+                              {visibleColumns.callVolume && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı Hacmi</th>}
+                              {visibleColumns.loadLevel && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Yük Seviyesi</th>}
                             </tr>
                           </thead>
                           <tbody>
@@ -5296,13 +5732,19 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               
                               return (
                                 <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                  <td className="p-4 font-bold text-slate-700 dark:text-slate-300">
-                                    {String(idx).padStart(2, '0')}:00 - {String(idx).padStart(2, '0')}:59
-                                  </td>
-                                  <td className="p-4 text-center font-black text-slate-800 dark:text-slate-200">{val}</td>
-                                  <td className="p-4 text-center">
-                                    {levelBadge}
-                                  </td>
+                                  {visibleColumns.timeSlot && (
+                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-300">
+                                      {String(idx).padStart(2, '0')}:00 - {String(idx).padStart(2, '0')}:59
+                                    </td>
+                                  )}
+                                  {visibleColumns.callVolume && (
+                                    <td className="p-4 text-center font-black text-slate-800 dark:text-slate-200">{val}</td>
+                                  )}
+                                  {visibleColumns.loadLevel && (
+                                    <td className="p-4 text-center">
+                                      {levelBadge}
+                                    </td>
+                                  )}
                                 </tr>
                               );
                             })}
@@ -5741,11 +6183,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Dış Hat (SIP Trunk)</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kapasite Limiti</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Pik Kullanım</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Durum</th>
+                                  {visibleColumns.trunkName && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Dış Hat (SIP Trunk)</th>}
+                                  {visibleColumns.limit && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Kapasite Limiti</th>}
+                                  {visibleColumns.totalCalls && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Toplam Çağrı</th>}
+                                  {visibleColumns.peakUsage && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Pik Kullanım</th>}
+                                  {visibleColumns.status && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Durum</th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -5758,44 +6200,54 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   providers.map((p, idx) => (
                                     <tr key={p.id || idx} className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}>
-                                      <td className="p-4">
-                                        <div className="flex items-center gap-2.5">
-                                          <span
-                                            className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                                              !p.isActive
-                                                ? "bg-slate-400"
-                                                : p.liveReg === "registered" || p.liveReg === "active"
-                                                ? "bg-emerald-500"
-                                                : "bg-amber-500"
-                                            }`}
-                                            title={!p.isActive ? "Pasif" : p.liveReg === "registered" || p.liveReg === "active" ? "Kayıtlı / Aktif" : "Bağlantı Bekleniyor"}
-                                          />
-                                          <div>
-                                            <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                                              <span>{p.name}</span>
-                                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
-                                                {p.trunkType}
-                                              </span>
-                                            </div>
-                                            <div className="text-[11px] font-mono text-slate-400 mt-0.5">
-                                              {p.did !== "-" ? `DID: ${p.did} • ` : ""}{p.host}
+                                      {visibleColumns.trunkName && (
+                                        <td className="p-4">
+                                          <div className="flex items-center gap-2.5">
+                                            <span
+                                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
+                                                !p.isActive
+                                                  ? "bg-slate-400"
+                                                  : p.liveReg === "registered" || p.liveReg === "active"
+                                                  ? "bg-emerald-500"
+                                                  : "bg-amber-500"
+                                              }`}
+                                              title={!p.isActive ? "Pasif" : p.liveReg === "registered" || p.liveReg === "active" ? "Kayıtlı / Aktif" : "Bağlantı Bekleniyor"}
+                                            />
+                                            <div>
+                                              <div className="font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                                <span>{p.name}</span>
+                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400">
+                                                  {p.trunkType}
+                                                </span>
+                                              </div>
+                                              <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                                                {p.did !== "-" ? `DID: ${p.did} • ` : ""}{p.host}
+                                              </div>
                                             </div>
                                           </div>
-                                        </div>
-                                      </td>
-                                      <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{p.limit} Kanal</td>
-                                      <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{p.totalCalls}</td>
-                                      <td className="p-4 text-center">
-                                        <div className="flex flex-col items-center">
-                                          <span className="font-black text-slate-800 dark:text-slate-200">{p.used} Kanal</span>
-                                          <span className="text-[10px] font-bold text-slate-400">%{p.satPct} Doluluk</span>
-                                        </div>
-                                      </td>
-                                      <td className="p-4 text-center">
-                                        <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${p.statusBadgeClass}`}>
-                                          {p.status}
-                                        </span>
-                                      </td>
+                                        </td>
+                                      )}
+                                      {visibleColumns.limit && (
+                                        <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{p.limit} Kanal</td>
+                                      )}
+                                      {visibleColumns.totalCalls && (
+                                        <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{p.totalCalls}</td>
+                                      )}
+                                      {visibleColumns.peakUsage && (
+                                        <td className="p-4 text-center">
+                                          <div className="flex flex-col items-center">
+                                            <span className="font-black text-slate-800 dark:text-slate-200">{p.used} Kanal</span>
+                                            <span className="text-[10px] font-bold text-slate-400">%{p.satPct} Doluluk</span>
+                                          </div>
+                                        </td>
+                                      )}
+                                      {visibleColumns.status && (
+                                        <td className="p-4 text-center">
+                                          <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-bold border ${p.statusBadgeClass}`}>
+                                            {p.status}
+                                          </span>
+                                        </td>
+                                      )}
                                     </tr>
                                   ))
                                 )}
@@ -5894,11 +6346,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Menü Adı</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Giriş (Hit)</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Terk (Drop)</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Aktarım</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Sonraki Adım</th>
+                                  {visibleColumns.menuName && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Menü Adı</th>}
+                                  {visibleColumns.hits && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Giriş (Hit)</th>}
+                                  {visibleColumns.drops && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Terk (Drop)</th>}
+                                  {visibleColumns.transfers && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Aktarım</th>}
+                                  {visibleColumns.nextStep && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Sonraki Adım</th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -5911,11 +6363,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   ivrMenus.map((m, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{m.name}</td>
-                                      <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{m.hits}</td>
-                                      <td className="p-4 text-center font-black text-rose-500">{m.drops}</td>
-                                      <td className="p-4 text-center font-bold text-amber-500">{m.transfers}</td>
-                                      <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{m.next}</td>
+                                      {visibleColumns.menuName && <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{m.name}</td>}
+                                      {visibleColumns.hits && <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{m.hits}</td>}
+                                      {visibleColumns.drops && <td className="p-4 text-center font-black text-rose-500">{m.drops}</td>}
+                                      {visibleColumns.transfers && <td className="p-4 text-center font-bold text-amber-500">{m.transfers}</td>}
+                                      {visibleColumns.nextStep && <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{m.next}</td>}
                                     </tr>
                                   ))
                                 )}
@@ -6027,12 +6479,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>İlk Temsilci</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hold (Bekletme)</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Aktarılan Birim / Hedef</th>
+                                  {visibleColumns.startTime && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>}
+                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                                  {visibleColumns.firstAgent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>İlk Temsilci</th>}
+                                  {visibleColumns.hold && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hold (Bekletme)</th>}
+                                  {visibleColumns.transfer && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer</th>}
+                                  {visibleColumns.target && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Aktarılan Birim / Hedef</th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -6045,22 +6497,26 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   topEvents.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatDate(c.start_time)}</td>
-                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
-                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>
-                                      <td className="p-4 text-center">
-                                        {c.hasHold ? (
-                                          <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.holdTime > 60 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
-                                            {c.holdTime} sn
-                                          </span>
-                                        ) : <span className="text-slate-300">-</span>}
-                                      </td>
-                                      <td className="p-4 text-center">
-                                        {c.isTransferred ? (
-                                          <PhoneForwarded size={16} className="mx-auto text-blue-500" />
-                                        ) : <span className="text-slate-300">-</span>}
-                                      </td>
-                                      <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{c.transferTarget}</td>
+                                      {visibleColumns.startTime && <td className="p-4 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatDate(c.start_time)}</td>}
+                                      {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
+                                      {visibleColumns.firstAgent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
+                                      {visibleColumns.hold && (
+                                        <td className="p-4 text-center">
+                                          {c.hasHold ? (
+                                            <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.holdTime > 60 ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
+                                              {c.holdTime} sn
+                                            </span>
+                                          ) : <span className="text-slate-300">-</span>}
+                                        </td>
+                                      )}
+                                      {visibleColumns.transfer && (
+                                        <td className="p-4 text-center">
+                                          {c.isTransferred ? (
+                                            <PhoneForwarded size={16} className="mx-auto text-blue-500" />
+                                          ) : <span className="text-slate-300">-</span>}
+                                        </td>
+                                      )}
+                                      {visibleColumns.target && <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{c.transferTarget}</td>}
                                     </tr>
                                   ))
                                 )}
@@ -6228,28 +6684,36 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               <table className="w-full text-left border-collapse">
                                 <thead>
                                   <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                    <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Grup</th>
-                                    <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Senaryo Açıklaması</th>
-                                    <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hacim</th>
-                                    <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>CSAT</th>
+                                    {visibleColumns.group && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Grup</th>}
+                                    {visibleColumns.scenario && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Senaryo Açıklaması</th>}
+                                    {visibleColumns.volume && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hacim</th>}
+                                    {visibleColumns.csat && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>CSAT</th>}
                                   </tr>
                                 </thead>
                                 <tbody>
                                   {scenarios.map((s, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4">
-                                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-black ${s.id === winner.id ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
-                                          {s.id}
-                                        </span>
-                                      </td>
-                                      <td className="p-4">
-                                        <div className="font-bold text-slate-700 dark:text-slate-300">{s.name}</div>
-                                        <div className="text-xs text-slate-500 mt-1">{s.desc}</div>
-                                      </td>
-                                      <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">%{Math.round((s.volume / totalVolume) * 100)}</td>
-                                      <td className="p-4 text-center font-black text-amber-500">
-                                        {s.csat.toFixed(1)} / 5.0
-                                      </td>
+                                      {visibleColumns.group && (
+                                        <td className="p-4">
+                                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-black ${s.id === winner.id ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
+                                            {s.id}
+                                          </span>
+                                        </td>
+                                      )}
+                                      {visibleColumns.scenario && (
+                                        <td className="p-4">
+                                          <div className="font-bold text-slate-700 dark:text-slate-300">{s.name}</div>
+                                          <div className="text-xs text-slate-500 mt-1">{s.desc}</div>
+                                        </td>
+                                      )}
+                                      {visibleColumns.volume && (
+                                        <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">%{Math.round((s.volume / totalVolume) * 100)}</td>
+                                      )}
+                                      {visibleColumns.csat && (
+                                        <td className="p-4 text-center font-black text-amber-500">
+                                          {s.csat.toFixed(1)} / 5.0
+                                        </td>
+                                      )}
                                     </tr>
                                   ))}
                                 </tbody>
@@ -6378,10 +6842,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kök Neden (Driver)</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Çile Skoru</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu</th>
+                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                                  {visibleColumns.driver && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kök Neden (Driver)</th>}
+                                  {visibleColumns.score && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Çile Skoru</th>}
+                                  {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu</th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -6392,18 +6856,22 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   highFrictionCalls.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
-                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400 text-sm truncate max-w-[200px]">{c.primaryDriver}</td>
-                                      <td className="p-4 text-center">
-                                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-black text-xs ${c.frictionScore > 8 ? 'bg-rose-100 text-rose-600 border border-rose-200' : 'bg-amber-100 text-amber-600 border border-amber-200'}`}>
-                                          {c.frictionScore.toFixed(1)}
-                                        </span>
-                                      </td>
-                                      <td className="p-4 text-center">
-                                        <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold border ${c.sentimentLabel === 'Kızgın' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
-                                          {c.sentimentLabel}
-                                        </span>
-                                      </td>
+                                      {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
+                                      {visibleColumns.driver && <td className="p-4 font-medium text-slate-600 dark:text-slate-400 text-sm truncate max-w-[200px]">{c.primaryDriver}</td>}
+                                      {visibleColumns.score && (
+                                        <td className="p-4 text-center">
+                                          <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-black text-xs ${c.frictionScore > 8 ? 'bg-rose-100 text-rose-600 border border-rose-200' : 'bg-amber-100 text-amber-600 border border-amber-200'}`}>
+                                            {c.frictionScore.toFixed(1)}
+                                          </span>
+                                        </td>
+                                      )}
+                                      {visibleColumns.sentiment && (
+                                        <td className="p-4 text-center">
+                                          <span className={`inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold border ${c.sentimentLabel === 'Kızgın' ? 'bg-rose-50 text-rose-600 border-rose-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
+                                            {c.sentimentLabel}
+                                          </span>
+                                        </td>
+                                      )}
                                     </tr>
                                   ))
                                 )}
@@ -6524,10 +6992,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sadakat Skoru</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Atlanan / İhlal Edilen Adım</th>
+                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                                  {visibleColumns.agent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>}
+                                  {visibleColumns.score && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sadakat Skoru</th>}
+                                  {visibleColumns.missedStep && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Atlanan / İhlal Edilen Adım</th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -6538,21 +7006,25 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   complianceViolations.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
-                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>
-                                      <td className="p-4 text-center">
-                                        <span className={`inline-flex items-center justify-center w-9 h-6 rounded font-black text-xs ${c.complianceScore < 70 ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
-                                          %{c.complianceScore}
-                                        </span>
-                                      </td>
-                                      <td className="p-4">
-                                        <div className="flex items-center gap-2">
-                                          {c.severity === "Kritik" && <AlertTriangle size={14} className="text-rose-500 shrink-0" />}
-                                          <span className={`text-sm font-medium ${c.severity === "Kritik" ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-400"}`}>
-                                            {c.missedStep}
+                                      {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
+                                      {visibleColumns.agent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
+                                      {visibleColumns.score && (
+                                        <td className="p-4 text-center">
+                                          <span className={`inline-flex items-center justify-center w-9 h-6 rounded font-black text-xs ${c.complianceScore < 70 ? 'bg-rose-100 text-rose-600' : 'bg-amber-100 text-amber-600'}`}>
+                                            %{c.complianceScore}
                                           </span>
-                                        </div>
-                                      </td>
+                                        </td>
+                                      )}
+                                      {visibleColumns.missedStep && (
+                                        <td className="p-4">
+                                          <div className="flex items-center gap-2">
+                                            {c.severity === "Kritik" && <AlertTriangle size={14} className="text-rose-500 shrink-0" />}
+                                            <span className={`text-sm font-medium ${c.severity === "Kritik" ? "text-rose-600 dark:text-rose-400" : "text-slate-600 dark:text-slate-400"}`}>
+                                              {c.missedStep}
+                                            </span>
+                                          </div>
+                                        </td>
+                                      )}
                                     </tr>
                                   ))
                                 )}
@@ -6662,11 +7134,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sessizlik Oranı</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Çakışma Sayısı</th>
-                                  <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Ana Sorun</th>
+                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                                  {visibleColumns.agent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>}
+                                  {visibleColumns.silenceRate && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sessizlik Oranı</th>}
+                                  {visibleColumns.interruptionCount && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Çakışma Sayısı</th>}
+                                  {visibleColumns.primaryIssue && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Ana Sorun</th>}
                                 </tr>
                               </thead>
                               <tbody>
@@ -6677,23 +7149,29 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   problematicCalls.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>
-                                      <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>
-                                      <td className="p-4 text-center">
-                                        <span className={`inline-flex items-center justify-center w-10 h-6 rounded font-black text-xs ${c.silencePercent > 30 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
-                                          %{c.silencePercent}
-                                        </span>
-                                      </td>
-                                      <td className="p-4 text-center">
-                                        <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${c.interruptionCount > 5 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
-                                          {c.interruptionCount}
-                                        </span>
-                                      </td>
-                                      <td className="p-4">
-                                        <span className={`text-xs font-bold ${c.primaryIssue.includes('Sessiz') ? 'text-rose-500' : 'text-amber-500'}`}>
-                                          {c.primaryIssue}
-                                        </span>
-                                      </td>
+                                      {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
+                                      {visibleColumns.agent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
+                                      {visibleColumns.silenceRate && (
+                                        <td className="p-4 text-center">
+                                          <span className={`inline-flex items-center justify-center w-10 h-6 rounded font-black text-xs ${c.silencePercent > 30 ? 'bg-rose-100 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
+                                            %{c.silencePercent}
+                                          </span>
+                                        </td>
+                                      )}
+                                      {visibleColumns.interruptionCount && (
+                                        <td className="p-4 text-center">
+                                          <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-black text-xs ${c.interruptionCount > 5 ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
+                                            {c.interruptionCount}
+                                          </span>
+                                        </td>
+                                      )}
+                                      {visibleColumns.primaryIssue && (
+                                        <td className="p-4">
+                                          <span className={`text-xs font-bold ${c.primaryIssue.includes('Sessiz') ? 'text-rose-500' : 'text-amber-500'}`}>
+                                            {c.primaryIssue}
+                                          </span>
+                                        </td>
+                                      )}
                                     </tr>
                                   ))
                                 )}
@@ -6722,148 +7200,158 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div className="flex flex-col gap-8 max-w-7xl mx-auto w-full">
                       
                       {/* Top Hero Banner */}
-                      <div className="w-full bg-gradient-to-r from-blue-900 via-indigo-800 to-purple-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
-                        <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none">
-                          <Crown size={240} />
-                        </div>
-                        <div className="relative z-10 flex flex-col gap-6 max-w-3xl">
-                          <div className="flex items-center gap-3">
-                            <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold tracking-widest uppercase backdrop-blur-md border border-white/20">
-                              Otomatik Yönetici Özeti
-                            </span>
-                            <span className="text-white/60 text-sm font-medium">Bu analiz yapay zeka tarafından son verilere göre derlenmiştir.</span>
+                      {visibleColumns.heroBanner && (
+                        <div className="w-full bg-gradient-to-r from-blue-900 via-indigo-800 to-purple-900 rounded-3xl p-8 text-white relative overflow-hidden shadow-2xl">
+                          <div className="absolute top-0 right-0 p-12 opacity-10 pointer-events-none">
+                            <Crown size={240} />
                           </div>
-                          
-                          <h2 className="text-3xl font-black leading-tight">Operasyonlarınız şu anda hedeflenen hizmet standartlarının %12 üzerinde seyrediyor.</h2>
-                          
-                          <p className="text-blue-100 font-medium leading-relaxed text-lg">
-                            Son incelediğimiz döneme göre müşteri memnuniyeti <strong>(CSAT) 4.6</strong> seviyesine çıkmış olup, çağrı karşılama kapasiteniz Yapay Zeka botları sayesinde canlı insan gücü maliyeti eklenmeden <strong>%40</strong> artırılmıştır. FCR (İlk Aramada Çözüm) oranındaki istikrarlı büyüme devam etmektedir.
-                          </p>
+                          <div className="relative z-10 flex flex-col gap-6 max-w-3xl">
+                            <div className="flex items-center gap-3">
+                              <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-bold tracking-widest uppercase backdrop-blur-md border border-white/20">
+                                Otomatik Yönetici Özeti
+                              </span>
+                              <span className="text-white/60 text-sm font-medium">Bu analiz yapay zeka tarafından son verilere göre derlenmiştir.</span>
+                            </div>
+                            
+                            <h2 className="text-3xl font-black leading-tight">Operasyonlarınız şu anda hedeflenen hizmet standartlarının %12 üzerinde seyrediyor.</h2>
+                            
+                            <p className="text-blue-100 font-medium leading-relaxed text-lg">
+                              Son incelediğimiz döneme göre müşteri memnuniyeti <strong>(CSAT) 4.6</strong> seviyesine çıkmış olup, çağrı karşılama kapasiteniz Yapay Zeka botları sayesinde canlı insan gücü maliyeti eklenmeden <strong>%40</strong> artırılmıştır. FCR (İlk Aramada Çözüm) oranındaki istikrarlı büyüme devam etmektedir.
+                            </p>
+                          </div>
                         </div>
-                      </div>
+                      )}
 
                       {/* Main KPI Row */}
-                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
-                          <div className="flex items-center justify-between">
-                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>Genel Memnuniyet</p>
-                            <Award size={20} className="text-amber-500" />
+                      {visibleColumns.kpiCards && (
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                          <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
+                            <div className="flex items-center justify-between">
+                              <p className={"text-xs font-bold uppercase tracking-wider " + text}>Genel Memnuniyet</p>
+                              <Award size={20} className="text-amber-500" />
+                            </div>
+                            <h4 className="text-4xl font-black text-slate-800 dark:text-slate-100 mt-2">
+                              {globalCsat} <span className="text-lg text-slate-400">/ 5.0</span>
+                            </h4>
+                            <p className="text-sm font-bold text-emerald-500 mt-auto">+0.2 (Geçen Ay)</p>
                           </div>
-                          <h4 className="text-4xl font-black text-slate-800 dark:text-slate-100 mt-2">
-                            {globalCsat} <span className="text-lg text-slate-400">/ 5.0</span>
-                          </h4>
-                          <p className="text-sm font-bold text-emerald-500 mt-auto">+0.2 (Geçen Ay)</p>
-                        </div>
 
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
-                          <div className="flex items-center justify-between">
-                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>İlk Aramada Çözüm (FCR)</p>
-                            <TrendingUp size={20} className="text-emerald-500" />
+                          <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
+                            <div className="flex items-center justify-between">
+                              <p className={"text-xs font-bold uppercase tracking-wider " + text}>İlk Aramada Çözüm (FCR)</p>
+                              <TrendingUp size={20} className="text-emerald-500" />
+                            </div>
+                            <h4 className="text-4xl font-black text-emerald-500 mt-2">
+                              %{globalFcr}
+                            </h4>
+                            <p className="text-sm font-bold text-emerald-500 mt-auto">+4.5% (Geçen Ay)</p>
                           </div>
-                          <h4 className="text-4xl font-black text-emerald-500 mt-2">
-                            %{globalFcr}
-                          </h4>
-                          <p className="text-sm font-bold text-emerald-500 mt-auto">+4.5% (Geçen Ay)</p>
-                        </div>
 
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
-                          <div className="flex items-center justify-between">
-                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>AI Operasyonel Tasarrufu</p>
-                            <Briefcase size={20} className="text-blue-500" />
+                          <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
+                            <div className="flex items-center justify-between">
+                              <p className={"text-xs font-bold uppercase tracking-wider " + text}>AI Operasyonel Tasarrufu</p>
+                              <Briefcase size={20} className="text-blue-500" />
+                            </div>
+                            <h4 className="text-4xl font-black text-blue-600 dark:text-blue-400 mt-2">
+                              ₺{aiSavings}
+                            </h4>
+                            <p className="text-sm font-bold text-emerald-500 mt-auto">Aylık Tahmini Katkı</p>
                           </div>
-                          <h4 className="text-4xl font-black text-blue-600 dark:text-blue-400 mt-2">
-                            ₺{aiSavings}
-                          </h4>
-                          <p className="text-sm font-bold text-emerald-500 mt-auto">Aylık Tahmini Katkı</p>
-                        </div>
 
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
-                          <div className="flex items-center justify-between">
-                            <p className={"text-xs font-bold uppercase tracking-wider " + text}>Kaçan Fırsat Kurtarma</p>
-                            <PieChart size={20} className="text-purple-500" />
+                          <div className={"rounded-2xl p-6 border flex flex-col gap-2 shadow-sm " + borderLight + " " + lightBg}>
+                            <div className="flex items-center justify-between">
+                              <p className={"text-xs font-bold uppercase tracking-wider " + text}>Kaçan Fırsat Kurtarma</p>
+                              <PieChart size={20} className="text-purple-500" />
+                            </div>
+                            <h4 className="text-4xl font-black text-purple-600 dark:text-purple-400 mt-2">
+                              ₺{revenueSaved}
+                            </h4>
+                            <p className="text-sm font-bold text-emerald-500 mt-auto">Kaybedilmek üzereyken çevrilen ciro</p>
                           </div>
-                          <h4 className="text-4xl font-black text-purple-600 dark:text-purple-400 mt-2">
-                            ₺{revenueSaved}
-                          </h4>
-                          <p className="text-sm font-bold text-emerald-500 mt-auto">Kaybedilmek üzereyken çevrilen ciro</p>
                         </div>
-                      </div>
+                      )}
                       
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* Strengths / Wins */}
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " bg-emerald-50/30 dark:bg-emerald-900/10"}>
-                          <div className="flex items-center gap-3 border-b pb-4 border-slate-200/50 dark:border-slate-700/50">
-                            <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-800 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
-                              <TrendingUp size={20} />
+                      {(visibleColumns.winsPanel || visibleColumns.actionsPanel) && (
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          {/* Strengths / Wins */}
+                          {visibleColumns.winsPanel && (
+                            <div className={"rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " bg-emerald-50/30 dark:bg-emerald-900/10"}>
+                              <div className="flex items-center gap-3 border-b pb-4 border-slate-200/50 dark:border-slate-700/50">
+                                <div className="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-800 text-emerald-600 dark:text-emerald-300 flex items-center justify-center">
+                                  <TrendingUp size={20} />
+                                </div>
+                                <div>
+                                  <h4 className={"text-sm font-black uppercase tracking-wider " + text}>Operasyonel Başarılar (Wins)</h4>
+                                  <p className="text-xs text-slate-500">Mevcut dönemdeki en güçlü olduğunuz alanlar</p>
+                                </div>
+                              </div>
+                              
+                              <ul className="flex flex-col gap-4 mt-2">
+                                <li className="flex gap-3">
+                                  <span className="text-emerald-500 font-bold mt-0.5">✓</span>
+                                  <div>
+                                    <p className={"text-sm font-bold " + text}>AI Karşılama Kapasitesi Mükemmel</p>
+                                    <p className="text-xs text-slate-500 mt-1">Gelen çağrıların %45'i hiçbir canlı temsilciye ulaşmadan yapay zeka IVR tarafından başarıyla çözümlendi.</p>
+                                  </div>
+                                </li>
+                                <li className="flex gap-3">
+                                  <span className="text-emerald-500 font-bold mt-0.5">✓</span>
+                                  <div>
+                                    <p className={"text-sm font-bold " + text}>Bekleme Süreleri Minimumda</p>
+                                    <p className="text-xs text-slate-500 mt-1">Ortalama bekleme süresi 18 saniyeye düşerek SLA standartlarının çok üstüne çıktı.</p>
+                                  </div>
+                                </li>
+                                <li className="flex gap-3">
+                                  <span className="text-emerald-500 font-bold mt-0.5">✓</span>
+                                  <div>
+                                    <p className={"text-sm font-bold " + text}>Müşteri Sadakati (Churn) Riski Düştü</p>
+                                    <p className="text-xs text-slate-500 mt-1">Negatif duygu ile başlayan görüşmelerin %80'i temsilcileriniz sayesinde pozitif veya nötr olarak tamamlandı.</p>
+                                  </div>
+                                </li>
+                              </ul>
                             </div>
-                            <div>
-                              <h4 className={"text-sm font-black uppercase tracking-wider " + text}>Operasyonel Başarılar (Wins)</h4>
-                              <p className="text-xs text-slate-500">Mevcut dönemdeki en güçlü olduğunuz alanlar</p>
-                            </div>
-                          </div>
+                          )}
                           
-                          <ul className="flex flex-col gap-4 mt-2">
-                            <li className="flex gap-3">
-                              <span className="text-emerald-500 font-bold mt-0.5">✓</span>
-                              <div>
-                                <p className={"text-sm font-bold " + text}>AI Karşılama Kapasitesi Mükemmel</p>
-                                <p className="text-xs text-slate-500 mt-1">Gelen çağrıların %45'i hiçbir canlı temsilciye ulaşmadan yapay zeka IVR tarafından başarıyla çözümlendi.</p>
+                          {/* Areas for Improvement / Actions */}
+                          {visibleColumns.actionsPanel && (
+                            <div className={"rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " bg-rose-50/30 dark:bg-rose-900/10"}>
+                              <div className="flex items-center gap-3 border-b pb-4 border-slate-200/50 dark:border-slate-700/50">
+                                <div className="w-10 h-10 rounded-full bg-rose-100 dark:bg-rose-800 text-rose-600 dark:text-rose-300 flex items-center justify-center">
+                                  <AlertTriangle size={20} />
+                                </div>
+                                <div>
+                                  <h4 className={"text-sm font-black uppercase tracking-wider " + text}>Gelişim & Aksiyon Alanları</h4>
+                                  <p className="text-xs text-slate-500">Dikkat edilmesi ve düzeltilmesi gereken noktalar</p>
+                                </div>
                               </div>
-                            </li>
-                            <li className="flex gap-3">
-                              <span className="text-emerald-500 font-bold mt-0.5">✓</span>
-                              <div>
-                                <p className={"text-sm font-bold " + text}>Bekleme Süreleri Minimumda</p>
-                                <p className="text-xs text-slate-500 mt-1">Ortalama bekleme süresi 18 saniyeye düşerek SLA standartlarının çok üstüne çıktı.</p>
-                              </div>
-                            </li>
-                            <li className="flex gap-3">
-                              <span className="text-emerald-500 font-bold mt-0.5">✓</span>
-                              <div>
-                                <p className={"text-sm font-bold " + text}>Müşteri Sadakati (Churn) Riski Düştü</p>
-                                <p className="text-xs text-slate-500 mt-1">Negatif duygu ile başlayan görüşmelerin %80'i temsilcileriniz sayesinde pozitif veya nötr olarak tamamlandı.</p>
-                              </div>
-                            </li>
-                          </ul>
-                        </div>
-                        
-                        {/* Areas for Improvement / Actions */}
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " bg-rose-50/30 dark:bg-rose-900/10"}>
-                          <div className="flex items-center gap-3 border-b pb-4 border-slate-200/50 dark:border-slate-700/50">
-                            <div className="w-10 h-10 rounded-full bg-rose-100 dark:bg-rose-800 text-rose-600 dark:text-rose-300 flex items-center justify-center">
-                              <AlertTriangle size={20} />
+                              
+                              <ul className="flex flex-col gap-4 mt-2">
+                                <li className="flex gap-3">
+                                  <span className="text-rose-500 font-bold mt-0.5">!</span>
+                                  <div>
+                                    <p className={"text-sm font-bold " + text}>Teknik Destekte "Sürekli Aktarım" Sorunu</p>
+                                    <p className="text-xs text-slate-500 mt-1">L1 Teknik destek çağrıları ortalama 2.4 kez başka birime aktarılıyor. First-line (İlk hat) bilgi bankasının güncellenmesi gerekli.</p>
+                                  </div>
+                                </li>
+                                <li className="flex gap-3">
+                                  <span className="text-rose-500 font-bold mt-0.5">!</span>
+                                  <div>
+                                    <p className={"text-sm font-bold " + text}>Hukuki Uyum (KVKK) Riskleri</p>
+                                    <p className="text-xs text-slate-500 mt-1">Temsilcilerin "Kayıt Onayı Hatırlatması" adımını %36 oranında atladığı tespit edildi. Sistemsel bir uyarı arayüzü eklenmeli.</p>
+                                  </div>
+                                </li>
+                                <li className="flex gap-3">
+                                  <span className="text-rose-500 font-bold mt-0.5">!</span>
+                                  <div>
+                                    <p className={"text-sm font-bold " + text}>Agresif Söz Kesme Eğilimi</p>
+                                    <p className="text-xs text-slate-500 mt-1">Satış biriminde temsilciler, müşterilerin sözünü çok fazla kesiyor. Empati eğitimi planlanmalıdır.</p>
+                                  </div>
+                                </li>
+                              </ul>
                             </div>
-                            <div>
-                              <h4 className={"text-sm font-black uppercase tracking-wider " + text}>Gelişim & Aksiyon Alanları</h4>
-                              <p className="text-xs text-slate-500">Dikkat edilmesi ve düzeltilmesi gereken noktalar</p>
-                            </div>
-                          </div>
-                          
-                          <ul className="flex flex-col gap-4 mt-2">
-                            <li className="flex gap-3">
-                              <span className="text-rose-500 font-bold mt-0.5">!</span>
-                              <div>
-                                <p className={"text-sm font-bold " + text}>Teknik Destekte "Sürekli Aktarım" Sorunu</p>
-                                <p className="text-xs text-slate-500 mt-1">L1 Teknik destek çağrıları ortalama 2.4 kez başka birime aktarılıyor. First-line (İlk hat) bilgi bankasının güncellenmesi gerekli.</p>
-                              </div>
-                            </li>
-                            <li className="flex gap-3">
-                              <span className="text-rose-500 font-bold mt-0.5">!</span>
-                              <div>
-                                <p className={"text-sm font-bold " + text}>Hukuki Uyum (KVKK) Riskleri</p>
-                                <p className="text-xs text-slate-500 mt-1">Temsilcilerin "Kayıt Onayı Hatırlatması" adımını %36 oranında atladığı tespit edildi. Sistemsel bir uyarı arayüzü eklenmeli.</p>
-                              </div>
-                            </li>
-                            <li className="flex gap-3">
-                              <span className="text-rose-500 font-bold mt-0.5">!</span>
-                              <div>
-                                <p className={"text-sm font-bold " + text}>Agresif Söz Kesme Eğilimi</p>
-                                <p className="text-xs text-slate-500 mt-1">Satış biriminde temsilciler, müşterilerin sözünü çok fazla kesiyor. Empati eğitimi planlanmalıdır.</p>
-                              </div>
-                            </li>
-                          </ul>
+                          )}
                         </div>
-                      </div>
+                      )}
                       
                     </div>
                   );
@@ -6885,12 +7373,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       {visibleColumns.durationQueue && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Kuyruk Bekleme</th>}
                       {visibleColumns.durationIvr && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">IVR Süresi</th>}
                       {visibleColumns.durationTotal && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Toplam Süre</th>}
-                      {isAudioMode && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Ses Kaydı</th>}
-                      {isTranscriptsMode && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">İçerik</th>}
-                      {isSentimentMode && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Duygu Durumu</th>}
-                      {isQAMode && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Kalite Puanı</th>}
-                      {isNotesMode && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Temsilci Notu</th>}
-                      {!isTranscriptsMode && !isSentimentMode && !isQAMode && !isNotesMode && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Detay</th>}
+                      {isAudioMode && visibleColumns.audioRecord && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Ses Kaydı</th>}
+                      {isTranscriptsMode && visibleColumns.transcriptContent && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">İçerik</th>}
+                      {isSentimentMode && visibleColumns.sentimentBadge && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Duygu Durumu</th>}
+                      {isQAMode && visibleColumns.qaScore && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Kalite Puanı</th>}
+                      {isNotesMode && visibleColumns.agentNote && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Temsilci Notu</th>}
+                      {!isTranscriptsMode && !isSentimentMode && !isQAMode && !isNotesMode && visibleColumns.detail && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400 text-center">Detay</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -7022,7 +7510,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </td>
                           )}
                           {/* Ses Kaydı Oynatıcı Column */}
-                          {isAudioMode && (
+                          {isAudioMode && visibleColumns.audioRecord && (
                             <td className="p-4 text-xs">
                               {call.recording_path ? (
                                 <button
@@ -7042,7 +7530,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </td>
                           )}
                           {/* Detay/Akış Magnifier Column */}
-                          {!isTranscriptsMode && !isSentimentMode && !isQAMode && !isNotesMode && (
+                          {!isTranscriptsMode && !isSentimentMode && !isQAMode && !isNotesMode && visibleColumns.detail && (
                             <td className="p-4 text-xs text-center animate-in fade-in duration-100">
                               <button
                                 onClick={() => {
@@ -7057,7 +7545,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </td>
                           )}
                           {/* Transcript/Summary Action Buttons (Only for Transcripts view mode) */}
-                          {isTranscriptsMode && (
+                          {isTranscriptsMode && visibleColumns.transcriptContent && (
                             <td className="p-4 text-xs text-center animate-in fade-in duration-100">
                               <div className="flex items-center justify-center gap-1.5 font-bold">
                                 <button
@@ -7084,7 +7572,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </td>
                           )}
                           {/* Duygu Durumu Column (Only for Sentiment view mode) */}
-                          {isSentimentMode && (
+                          {isSentimentMode && visibleColumns.sentimentBadge && (
                             <td className="p-4 text-xs text-center animate-in fade-in duration-100">
                               <span className={`px-3 py-1 rounded-full text-[10px] font-extrabold border tracking-wide inline-block shadow-sm ${
                                 call.sentiment === "Pozitif" || call.sentiment === "Memnun" || call.sentiment === "Mutlu"
@@ -7100,7 +7588,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </td>
                           )}
                           {/* Kalite Değerlendirme Column (Only for QA view mode) */}
-                          {isQAMode && (
+                          {isQAMode && visibleColumns.qaScore && (
                             <td className="p-4 text-xs text-center animate-in fade-in duration-100">
                               <div className="flex items-center justify-center gap-2">
                                 <span className={`px-2.5 py-1 rounded-xl text-[11px] font-black border tracking-wide shadow-sm ${
@@ -7126,7 +7614,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </td>
                           )}
                           {/* Temsilci Notu Column (Only for Notes view mode) */}
-                          {isNotesMode && (
+                          {isNotesMode && visibleColumns.agentNote && (
                             <td className="p-4 text-xs text-center animate-in fade-in duration-100">
                               <button
                                 onClick={() => {
@@ -7609,7 +8097,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 <span className={"w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs " + bg + " text-white"}>
                   <CalendarIcon size={14} />
                 </span>
-                <span>{selectedQueueDetails.date} Kuyruk Çağrı Detayları</span>
+                <span>
+                  {selectedQueueDetails.date} — {selectedQueueDetails.queueName || "Kuyruk"} (#{selectedQueueDetails.queueId || "-"}) Çağrı Detayları
+                </span>
               </h3>
               <button 
                 onClick={() => setIsQueueDetailsOpen(false)}

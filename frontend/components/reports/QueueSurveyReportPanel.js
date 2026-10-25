@@ -15,17 +15,59 @@ import {
   PhoneIncoming,
   Clock,
   Award,
-  TrendingUp
+  TrendingUp,
+  Columns
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
+
+const SURVEY_REPORT_COLUMNS = {
+  createdAt: { label: "Tarih / Saat", defaultVisible: true },
+  queue: { label: "Kuyruk", defaultVisible: true },
+  agent: { label: "Temsilci", defaultVisible: true },
+  callerNumber: { label: "Arayan Numara", defaultVisible: true },
+  score: { label: "Müşteri Puanı", defaultVisible: true },
+  status: { label: "Durum", defaultVisible: true },
+  audio: { label: "Ses Kaydı", defaultVisible: true }
+};
 
 export default function QueueSurveyReportPanel({ backendHost }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const API_BASE = getApiBaseUrl(backendHost);
 
   const [loading, setLoading] = useState(true);
+  const [isColumnsDropdownOpen, setIsColumnsDropdownOpen] = useState(false);
+  const [visibleColumns, setVisibleColumns] = useState(() => {
+    const initial = {};
+    Object.keys(SURVEY_REPORT_COLUMNS).forEach((k) => {
+      initial[k] = SURVEY_REPORT_COLUMNS[k].defaultVisible;
+    });
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem("queue_survey_report_columns_v1");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed === "object") {
+            return { ...initial, ...parsed };
+          }
+        }
+      } catch (e) {}
+    }
+    return initial;
+  });
+
+  const handleToggleColumn = (key) => {
+    setVisibleColumns((prev) => {
+      const next = { ...prev, [key]: !prev[key] };
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem("queue_survey_report_columns_v1", JSON.stringify(next));
+        } catch (e) {}
+      }
+      return next;
+    });
+  };
   const [reportData, setReportData] = useState({
     summary: {
       total_offered: 0,
@@ -222,6 +264,47 @@ export default function QueueSurveyReportPanel({ backendHost }) {
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
+            {/* Sütun Seçici (Column Visibility Dropdown) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setIsColumnsDropdownOpen(!isColumnsDropdownOpen)}
+                className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2 transition-all cursor-pointer"
+                title="Tablo Sütunlarını Seç"
+              >
+                <Columns size={14} className={text} />
+                <span>Sütunlar</span>
+              </button>
+
+              {isColumnsDropdownOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setIsColumnsDropdownOpen(false)}
+                  />
+                  <div className="absolute right-0 mt-2 w-52 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl shadow-xl p-2 z-20 space-y-1 max-h-80 overflow-y-auto animate-in fade-in zoom-in-95 duration-150">
+                    <p className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2 py-1">
+                      Görünür Sütunlar
+                    </p>
+                    {Object.entries(SURVEY_REPORT_COLUMNS).map(([key, col]) => (
+                      <label
+                        key={key}
+                        className="flex items-center gap-2.5 px-2.5 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800/60 rounded-xl cursor-pointer text-xs font-semibold text-slate-700 dark:text-slate-300 transition"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={!!visibleColumns[key]}
+                          onChange={() => handleToggleColumn(key)}
+                          className="rounded border-slate-300 text-primary focus:ring-purple-500 h-3.5 w-3.5 cursor-pointer"
+                        />
+                        <span>{col.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+
             <button
               type="button"
               onClick={fetchSurveyReport}
@@ -590,13 +673,13 @@ export default function QueueSurveyReportPanel({ backendHost }) {
           <table className="w-full text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-100 dark:border-slate-800/60 text-[10px] font-extrabold text-slate-400 uppercase tracking-wider bg-slate-50/50 dark:bg-slate-950/40">
-                <th className="py-3 px-4">Tarih / Saat</th>
-                <th className="py-3 px-4">Kuyruk</th>
-                <th className="py-3 px-4">Temsilci</th>
-                <th className="py-3 px-4">Arayan Numara</th>
-                <th className="py-3 px-4">Müşteri Puanı</th>
-                <th className="py-3 px-4">Durum</th>
-                <th className="py-3 px-4 text-right">Ses Kaydı</th>
+                {visibleColumns.createdAt && <th className="py-3 px-4">Tarih / Saat</th>}
+                {visibleColumns.queue && <th className="py-3 px-4">Kuyruk</th>}
+                {visibleColumns.agent && <th className="py-3 px-4">Temsilci</th>}
+                {visibleColumns.callerNumber && <th className="py-3 px-4">Arayan Numara</th>}
+                {visibleColumns.score && <th className="py-3 px-4">Müşteri Puanı</th>}
+                {visibleColumns.status && <th className="py-3 px-4">Durum</th>}
+                {visibleColumns.audio && <th className="py-3 px-4 text-right">Ses Kaydı</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50 text-xs">
@@ -621,58 +704,70 @@ export default function QueueSurveyReportPanel({ backendHost }) {
                       (item.is_low_score ? "bg-rose-50/20 dark:bg-rose-950/10" : "")
                     }
                   >
-                    <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-slate-600 dark:text-slate-300">
-                      {item.created_at ? new Date(item.created_at).toLocaleString("tr-TR") : "-"}
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="font-bold text-slate-800 dark:text-white">{item.queue_name}</span>
-                      <span className="ml-1.5 text-[10px] font-mono text-slate-400">({item.queue_extension})</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="font-semibold text-slate-700 dark:text-slate-200">{item.agent_name}</span>
-                      {item.agent_extension && (
-                        <span className="ml-1.5 text-[10px] font-mono text-slate-400">({item.agent_extension})</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 font-mono font-bold text-slate-700 dark:text-slate-300">
-                      {item.caller_number || "-"}
-                    </td>
-                    <td className="py-3 px-4">{renderStars(item.score, item.max_score || 5)}</td>
-                    <td className="py-3 px-4">
-                      {item.status === "completed" ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
-                          <CheckCircle2 size={11} /> Yanıtlandı
-                        </span>
-                      ) : item.status === "timeout" ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">
-                          <Clock size={11} /> Tuşlama Yok
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-600">
-                          Geçersiz Tuş
-                        </span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      {item.call_id ? (
-                        <button
-                          type="button"
-                          onClick={() => handleToggleAudio(item)}
-                          className={
-                            "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all " +
-                            (playingCallId === item.id
-                              ? "bg-rose-600 text-white"
-                              : lightBg + " " + text + " hover:opacity-80")
-                          }
-                          title="Görüşme Ses Kaydını Dinle"
-                        >
-                          {playingCallId === item.id ? <Square size={10} /> : <Play size={10} />}
-                          {playingCallId === item.id ? "Durdur" : "Kaydı Dinle"}
-                        </button>
-                      ) : (
-                        <span className="text-[10px] text-slate-400">-</span>
-                      )}
-                    </td>
+                    {visibleColumns.createdAt && (
+                      <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                        {item.created_at ? new Date(item.created_at).toLocaleString("tr-TR") : "-"}
+                      </td>
+                    )}
+                    {visibleColumns.queue && (
+                      <td className="py-3 px-4">
+                        <span className="font-bold text-slate-800 dark:text-white">{item.queue_name}</span>
+                        <span className="ml-1.5 text-[10px] font-mono text-slate-400">({item.queue_extension})</span>
+                      </td>
+                    )}
+                    {visibleColumns.agent && (
+                      <td className="py-3 px-4">
+                        <span className="font-semibold text-slate-700 dark:text-slate-200">{item.agent_name}</span>
+                        {item.agent_extension && (
+                          <span className="ml-1.5 text-[10px] font-mono text-slate-400">({item.agent_extension})</span>
+                        )}
+                      </td>
+                    )}
+                    {visibleColumns.callerNumber && (
+                      <td className="py-3 px-4 font-mono font-bold text-slate-700 dark:text-slate-300">
+                        {item.caller_number || "-"}
+                      </td>
+                    )}
+                    {visibleColumns.score && <td className="py-3 px-4">{renderStars(item.score, item.max_score || 5)}</td>}
+                    {visibleColumns.status && (
+                      <td className="py-3 px-4">
+                        {item.status === "completed" ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400">
+                            <CheckCircle2 size={11} /> Yanıtlandı
+                          </span>
+                        ) : item.status === "timeout" ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-500">
+                            <Clock size={11} /> Tuşlama Yok
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-600">
+                            Geçersiz Tuş
+                          </span>
+                        )}
+                      </td>
+                    )}
+                    {visibleColumns.audio && (
+                      <td className="py-3 px-4 text-right">
+                        {item.call_id ? (
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAudio(item)}
+                            className={
+                              "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all " +
+                              (playingCallId === item.id
+                                ? "bg-rose-600 text-white"
+                                : lightBg + " " + text + " hover:opacity-80")
+                            }
+                            title="Görüşme Ses Kaydını Dinle"
+                          >
+                            {playingCallId === item.id ? <Square size={10} /> : <Play size={10} />}
+                            {playingCallId === item.id ? "Durdur" : "Kaydı Dinle"}
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-slate-400">-</span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

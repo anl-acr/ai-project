@@ -15009,18 +15009,41 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.5.5",
+        "version": "v2.5.6",
         "commit_hash": live_commit,
         "release_date": "25 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.5.5",
+                "version": "v2.5.6",
                 "commit_hash": live_commit,
                 "release_date": "25 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kuyruk & Bekleme Analitiği Kuyruk ID/İsmi Alanları & Tüm Raporlarda Dinamik Sütun Seçici (Sütunlar)",
+                "summary": "Kuyruk & Bekleme Analitiği raporuna Kuyruk ID ve Kuyruk İsmi sütunları (tablo, filtre, detay penceresi ve Excel çıktısı dahil) eklendi. Ayrıca CDR raporundaki 'Sütunlar' görünürlük seçici özelliği sistemdeki tüm 24 rapor ekranına kendi sütun başlıklarıyla entegre edildi.",
+                "features": [
+                    {
+                        "title": "📋 Kuyruk & Bekleme Analitiği Raporunda Kuyruk ID ve Kuyruk İsmi Alanları",
+                        "desc": "Kuyruk & Bekleme Analitiği raporu artık çağrıları hem Tarih hem de Kuyruk bazında gruplayarak tabloda 'Kuyruk ID' (örn. #2000) ve 'Kuyruk İsmi' (örn. Satış Kuyruğu) sütunlarını gösterir. Filtre listesindeki kuyruk seçici, kuyruk detay popup başlığı ve Excel dışa aktarma çıktısı da Kuyruk ID ve Kuyruk İsmi bilgilerini içerecek şekilde güncellendi."
+                    },
+                    {
+                        "title": "🏛️ Tüm Raporlarda Dinamik 'Sütunlar' (Sütun Görünürlük Seçici) Özelliği",
+                        "desc": "CDR raporunda bulunan 'Sütunlar' açılır menüsü; Temsilci Performans, Kuyruk & Bekleme, Anket Raporları, Ses Kayıtları, Transkript, Duygu Analizi, QA Kalite, Temsilci Notları, Trafik Yoğunluk, Kaçan Çağrılar, FCR, AI ROI, Kelime Bulutu, Duygu Isı Haritası, Dış Hat (Trunk), IVR Terk, Transfer & Hold, Senaryo A/B, Müşteri Çilesi, Senaryo Uyum, Sessizlik Analizi ve Yönetici Özeti dahil tüm raporlara kendi özel sütun listeleriyle eklendi."
+                    }
+                ],
+                "fixes": [
+                    "Her rapor için seçilen görünür sütun tercihleri tarayıcı hafızasında (localStorage) rapor bazlı ayrı ayrı saklanacak şekilde yapılandırıldı.",
+                    "Çağrı kayıtlarının kuyruk eşleştirmesi (resolveCallQueueInfo) doğrudan kuyruk alanı, gelen arama kuralları (DID/Trunk) ve kuyruk üyesi dahili numaraları üzerinden otomatik çözümlenecek şekilde güçlendirildi."
+                ]
+            },
+            {
+                "version": "v2.5.5",
+                "commit_hash": "083599c",
+                "release_date": "25 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "ACD Kuyruk Çağrı Sonu Memnuniyet Anketi (CSAT) & Detaylı Anket Raporları (1-5 Yıldız / NPS)",
                 "summary": "ACD Kuyruk ayarları içerisine çağrı sonu tuşlamalı (DTMF) Memnuniyet Anketi sekmesi, Asterisk otomatik anket dialplan akışı, varsayılan Türkçe anket ve teşekkür ses kayıtları ile Çağrı Raporları & Analiz menüsü altına kapsamlı Anket Raporları (CSAT, puan dağılımı, kuyruk ve temsilci sıralaması, ses kaydı dinleme ve Excel dışa aktarma) eklendi.",
                 "features": [
