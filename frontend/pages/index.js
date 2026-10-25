@@ -60,7 +60,10 @@ import {
   ArrowUp,
   ArrowDown,
   GripVertical,
-  RotateCcw
+  RotateCcw,
+  Mail,
+  Copy,
+  RefreshCw
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
@@ -463,6 +466,16 @@ export default function Home() {
   const [autoLogoutEnabled, setAutoLogoutEnabled] = useState(false);
   const [autoLogoutDuration, setAutoLogoutDuration] = useState(1); // 1, 2, 3 (Hours)
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorMethod, setTwoFactorMethod] = useState("google_auth");
+  const [twoFactorSecret, setTwoFactorSecret] = useState("");
+  const [twoFactorEnrolled, setTwoFactorEnrolled] = useState(false);
+  const [twoFactorQrSvg, setTwoFactorQrSvg] = useState("");
+  const [twoFactorSetupLoading, setTwoFactorSetupLoading] = useState(false);
+  const [twoFactorTestCode, setTwoFactorTestCode] = useState("");
+  const [twoFactorVerifyLoading, setTwoFactorVerifyLoading] = useState(false);
+  const [twoFactorEmailSending, setTwoFactorEmailSending] = useState(false);
+  const [twoFactorStatusMsg, setTwoFactorStatusMsg] = useState(null);
+  const [twoFactorSecretCopied, setTwoFactorSecretCopied] = useState(false);
   const [passwordExpiryEnabled, setPasswordExpiryEnabled] = useState(false);
   const [passwordExpiryMonths, setPasswordExpiryMonths] = useState(3); // 1, 3, 6, 12 (Months)
   const [currentPassword, setCurrentPassword] = useState("");
@@ -513,6 +526,119 @@ export default function Home() {
     return diffDays >= allowedDays;
   }, [currentUser]);
 
+  const fetchProfile2faSetup = async (resetSecret = false, overrideMethod = null) => {
+    if (!currentUser) return;
+    const targetMethod = overrideMethod || twoFactorMethod || "google_auth";
+    if (targetMethod === "email") return;
+    setTwoFactorSetupLoading(true);
+    if (resetSecret) setTwoFactorStatusMsg(null);
+    try {
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const uid = currentUser.id || currentUser.extension || "admin";
+      const qs = new URLSearchParams({
+        reset: resetSecret ? "true" : "false",
+        method: targetMethod,
+        email: currentUser.email || "kullanici@aida.local"
+      });
+      const res = await fetch(`${protocol}//${backendHost}/api/auth/setup_2fa/${encodeURIComponent(String(uid))}?${qs.toString()}`);
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setTwoFactorSecret(data.secret || "");
+        setTwoFactorQrSvg(data.qr_svg || "");
+        if (resetSecret) {
+          setTwoFactorEnrolled(false);
+          setTwoFactorStatusMsg({ type: "success", text: "Yeni QR kod ve anahtar üretildi. Uygulamadan tekrar okutunuz." });
+        } else if (data.enrolled !== undefined) {
+          setTwoFactorEnrolled(Boolean(data.enrolled));
+        }
+      }
+    } catch (e) {
+      console.error("2FA profile setup error:", e);
+    } finally {
+      setTwoFactorSetupLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      settingsModalOpen &&
+      twoFactorEnabled &&
+      (twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth") &&
+      !twoFactorQrSvg &&
+      !twoFactorSetupLoading
+    ) {
+      fetchProfile2faSetup(false, twoFactorMethod);
+    }
+  }, [settingsModalOpen, twoFactorEnabled, twoFactorMethod]);
+
+  const handleProfileSendTestEmailOtp = async () => {
+    if (!currentUser) return;
+    const targetEmail = (currentUser.email || "").trim();
+    if (!targetEmail || !targetEmail.includes("@")) {
+      setTwoFactorStatusMsg({ type: "error", text: "Hesabınıza tanımlı geçerli bir E-Posta adresi bulunamadı." });
+      return;
+    }
+    setTwoFactorEmailSending(true);
+    setTwoFactorStatusMsg(null);
+    try {
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/auth/2fa/send-email-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: String(currentUser.id || currentUser.extension || "admin"),
+          email: targetEmail
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setTwoFactorStatusMsg({ type: "success", text: data.message });
+      } else {
+        setTwoFactorStatusMsg({ type: "error", text: data.detail || "E-Posta gönderilemedi." });
+      }
+    } catch (e) {
+      setTwoFactorStatusMsg({ type: "error", text: "E-Posta gönderim hatası: " + e.message });
+    } finally {
+      setTwoFactorEmailSending(false);
+    }
+  };
+
+  const handleProfileVerify2faCode = async () => {
+    if (!currentUser) return;
+    const cleanCode = (twoFactorTestCode || "").replace(/\D/g, "");
+    if (cleanCode.length !== 6) {
+      setTwoFactorStatusMsg({ type: "error", text: "Lütfen 6 haneli doğrulama kodunu giriniz." });
+      return;
+    }
+    setTwoFactorVerifyLoading(true);
+    setTwoFactorStatusMsg(null);
+    try {
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/auth/verify_2fa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: String(currentUser.id || currentUser.extension || "admin"),
+          code: cleanCode,
+          method: twoFactorMethod,
+          secret: twoFactorSecret || undefined
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setTwoFactorEnrolled(true);
+        setTwoFactorTestCode("");
+        setTwoFactorStatusMsg({ type: "success", text: data.message || "2FA doğrulaması başarılı ve eşleştirildi!" });
+      } else {
+        setTwoFactorStatusMsg({ type: "error", text: data.detail || "Doğrulama kodu geçersiz." });
+      }
+    } catch (e) {
+      setTwoFactorStatusMsg({ type: "error", text: "Doğrulama hatası: " + e.message });
+    } finally {
+      setTwoFactorVerifyLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (settingsModalOpen && currentUser) {
       setGsmNumber(currentUser.gsm_number || "");
@@ -553,6 +679,13 @@ export default function Home() {
       setAutoLogoutEnabled(currentUser.auto_logout_enabled ?? (localStorage.getItem("auto_logout_enabled") === "true"));
       setAutoLogoutDuration(currentUser.auto_logout_duration ?? parseInt(localStorage.getItem("auto_logout_duration") || "1"));
       setTwoFactorEnabled(currentUser.two_factor_enabled ?? (localStorage.getItem("two_factor_enabled") === "true"));
+      const norm2faMethod = (!currentUser.two_factor_method || currentUser.two_factor_method === "app") ? "google_auth" : currentUser.two_factor_method;
+      setTwoFactorMethod(norm2faMethod);
+      setTwoFactorSecret(currentUser.two_factor_secret || "");
+      setTwoFactorEnrolled(Boolean(currentUser.two_factor_enrolled));
+      setTwoFactorQrSvg("");
+      setTwoFactorTestCode("");
+      setTwoFactorStatusMsg(null);
       setPasswordExpiryEnabled(currentUser.password_expiry_enabled ?? (localStorage.getItem("password_expiry_enabled") === "true"));
       setPasswordExpiryMonths(currentUser.password_expiry_months ?? parseInt(localStorage.getItem("password_expiry_months") || "3"));
       setCurrentPassword("");
@@ -974,13 +1107,25 @@ export default function Home() {
     const validAdminPassword = adminUserFromDb?.password || SUPER_ADMIN.password || "admin";
 
     if (username === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
+      const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
+      if (activeAdminUser.two_factor_enabled) {
+        const normAdminMethod = (!activeAdminUser.two_factor_method || activeAdminUser.two_factor_method === "app") ? "google_auth" : activeAdminUser.two_factor_method;
+        return {
+          success: true,
+          requires2fa: true,
+          user_id: (activeAdminUser.id || "admin").toString(),
+          method: normAdminMethod,
+          enrolled: Boolean(activeAdminUser.two_factor_enrolled),
+          email: activeAdminUser.email || "",
+          full_name: activeAdminUser.full_name || "Sistem Yöneticisi"
+        };
+      }
       sessionStorage.setItem("is_logged_in", "true");
       sessionStorage.setItem("current_user_id", "admin");
       if (rememberMe) {
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("current_user_id", "admin");
       }
-      const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
       setCurrentUser(activeAdminUser);
       setIsLoggedIn(true);
       checkRolePermissions(activeAdminUser);
@@ -993,7 +1138,16 @@ export default function Home() {
     );
     if (foundUser) {
       if (foundUser.two_factor_enabled) {
-        return { success: true, requires2fa: true, user_id: foundUser.id.toString(), method: foundUser.two_factor_method || 'app' };
+        const normMethod = (!foundUser.two_factor_method || foundUser.two_factor_method === "app") ? "google_auth" : foundUser.two_factor_method;
+        return {
+          success: true,
+          requires2fa: true,
+          user_id: foundUser.id.toString(),
+          method: normMethod,
+          enrolled: Boolean(foundUser.two_factor_enrolled),
+          email: foundUser.email || "",
+          full_name: foundUser.full_name || ""
+        };
       }
 
       sessionStorage.setItem("is_logged_in", "true");
@@ -1013,17 +1167,23 @@ export default function Home() {
   };
 
   const complete2FALogin = (userId, rememberMe) => {
-    const foundUser = systemUsers.find(u => u.id.toString() === userId);
+    let foundUser = systemUsers.find(u => String(u.id) === String(userId) || String(u.extension) === String(userId));
+    if (!foundUser && (String(userId) === "admin" || String(userId) === "1")) {
+      const adminDb = systemUsers.find(u => u.role === "admin" || u.username === "admin");
+      foundUser = adminDb ? { ...SUPER_ADMIN, ...adminDb } : SUPER_ADMIN;
+    }
     if (foundUser) {
+      const updatedUser = { ...foundUser, two_factor_enrolled: true };
+      const storeId = foundUser.role === "admin" && String(userId) === "admin" ? "admin" : foundUser.id.toString();
       sessionStorage.setItem("is_logged_in", "true");
-      sessionStorage.setItem("current_user_id", foundUser.id.toString());
+      sessionStorage.setItem("current_user_id", storeId);
       if (rememberMe) {
         localStorage.setItem("is_logged_in", "true");
-        localStorage.setItem("current_user_id", foundUser.id.toString());
+        localStorage.setItem("current_user_id", storeId);
       }
-      setCurrentUser(foundUser);
+      setCurrentUser(updatedUser);
       setIsLoggedIn(true);
-      checkRolePermissions(foundUser);
+      checkRolePermissions(updatedUser);
     }
   };
 
@@ -2333,10 +2493,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.5.9 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.6.0 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
-            <span>{isSidebarCollapsed ? "v2.5.9" : "v2.5.9 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.6.0" : "v2.6.0 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -3973,22 +4133,31 @@ export default function Home() {
                   <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2.5">
-                        <div className="p-2 bg-blue-100/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 rounded-xl">
+                        <div className={`p-2 rounded-xl ${twoFactorEnabled ? `${lightBg} ${text}` : "bg-blue-100/70 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400"}`}>
                           <ShieldCheck size={16} />
                         </div>
                         <div>
-                          <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                            İki Faktörlü Doğrulama (2FA)
-                          </h5>
+                          <div className="flex items-center gap-2">
+                            <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                              İki Faktörlü Doğrulama (2FA)
+                            </h5>
+                            <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${twoFactorEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                              {twoFactorEnabled ? "Aktif" : "Pasif"}
+                            </span>
+                          </div>
                           <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">
-                            Girişlerde SMS / e-posta onay kodu isteyerek hesabınızı koruyun.
+                            Girişlerde E-Posta, Google Authenticator veya Microsoft Authenticator kodu isteyerek hesabınızı koruyun.
                           </p>
                         </div>
                       </div>
 
                       <button
                         type="button"
-                        onClick={() => setTwoFactorEnabled(!twoFactorEnabled)}
+                        onClick={() => {
+                          const nextVal = !twoFactorEnabled;
+                          setTwoFactorEnabled(nextVal);
+                          setTwoFactorStatusMsg(null);
+                        }}
                         className={`w-9 h-5 rounded-full p-0.5 transition-all duration-200 focus:outline-none flex items-center ${
                           twoFactorEnabled ? `${bg} justify-end` : "bg-slate-200 dark:bg-slate-800 justify-start"
                         }`}
@@ -3997,6 +4166,179 @@ export default function Home() {
                         <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
                       </button>
                     </div>
+
+                    {twoFactorEnabled && (
+                      <div className="pt-3 border-t border-slate-200/70 dark:border-slate-800 space-y-3 animate-in fade-in duration-200">
+                        <div>
+                          <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
+                            2FA Doğrulama Yöntemi Seçiniz
+                          </label>
+                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                            {[
+                              { id: "email", title: "E-Posta (E-Mail)", desc: "E-posta adresinize 6 haneli kod gönderilir", icon: Mail },
+                              { id: "google_auth", title: "Google Authenticator", desc: "Google Authenticator ile 30 sn'lik kod", icon: Smartphone },
+                              { id: "microsoft_auth", title: "Microsoft Authenticator", desc: "Microsoft Authenticator ile 30 sn'lik kod", icon: Key }
+                            ].map((m) => {
+                              const IconComp = m.icon;
+                              const isSelected = twoFactorMethod === m.id || (m.id === "google_auth" && twoFactorMethod === "app");
+                              return (
+                                <button
+                                  key={m.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setTwoFactorMethod(m.id);
+                                    setTwoFactorStatusMsg(null);
+                                    setTwoFactorTestCode("");
+                                    if (m.id === "google_auth" || m.id === "microsoft_auth") {
+                                      fetchProfile2faSetup(false, m.id);
+                                    }
+                                  }}
+                                  className={`p-2.5 rounded-xl text-left border transition-all flex flex-col justify-between gap-1.5 ${
+                                    isSelected
+                                      ? `${lightBg} ${border} ring-2 ${ring}`
+                                      : "bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
+                                  }`}
+                                >
+                                  <div className="flex items-center justify-between w-full">
+                                    <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${isSelected ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                                      <IconComp size={13} />
+                                    </div>
+                                    {isSelected && <CheckCircle size={13} className={text} />}
+                                  </div>
+                                  <div>
+                                    <div className={`text-[11px] font-extrabold ${isSelected ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                      {m.title}
+                                    </div>
+                                    <div className="text-[9px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                                      {m.desc}
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+
+                        {twoFactorMethod === "email" && (
+                          <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                                E-Posta: <span className="font-mono">{currentUser?.email || "Tanımlı değil"}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={handleProfileSendTestEmailOtp}
+                                disabled={twoFactorEmailSending}
+                                className={`px-2.5 py-1 rounded-lg text-[10px] font-bold text-white flex items-center gap-1 disabled:opacity-50 ${bg} ${hover}`}
+                              >
+                                <RefreshCw size={11} className={twoFactorEmailSending ? "animate-spin" : ""} />
+                                {twoFactorEmailSending ? "Gönderiliyor..." : "Test Kodu Gönder"}
+                              </button>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                maxLength={6}
+                                value={twoFactorTestCode}
+                                onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                placeholder="6 haneli e-posta kodunu girin"
+                                className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleProfileVerify2faCode}
+                                disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-bold disabled:opacity-50"
+                              >
+                                {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Doğrula"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {(twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app") && (
+                          <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-extrabold text-slate-800 dark:text-white">
+                                {twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator QR" : "Google Authenticator QR"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => fetchProfile2faSetup(true, twoFactorMethod)}
+                                disabled={twoFactorSetupLoading}
+                                className="text-[10px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800"
+                              >
+                                <RefreshCw size={10} className={twoFactorSetupLoading ? "animate-spin" : ""} />
+                                Yeni QR Üret
+                              </button>
+                            </div>
+                            <div className="flex flex-col sm:flex-row items-center gap-3">
+                              <div className="w-28 h-28 rounded-xl border border-slate-200 dark:border-slate-800 bg-white p-1.5 flex items-center justify-center shrink-0">
+                                {twoFactorSetupLoading ? (
+                                  <RefreshCw size={20} className="animate-spin text-slate-400" />
+                                ) : twoFactorQrSvg ? (
+                                  <img src={twoFactorQrSvg} alt="2FA QR" className="w-full h-full object-contain" />
+                                ) : (
+                                  <span className="text-[9px] text-slate-400 text-center">QR Yükleniyor</span>
+                                )}
+                              </div>
+                              <div className="flex-1 space-y-2 w-full">
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    readOnly
+                                    value={twoFactorSecret || "Üretiliyor..."}
+                                    className="flex-1 px-2 py-1 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-[10px] font-mono font-bold text-slate-700 dark:text-slate-200 outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (!twoFactorSecret) return;
+                                      navigator.clipboard.writeText(twoFactorSecret);
+                                      setTwoFactorSecretCopied(true);
+                                      setTimeout(() => setTwoFactorSecretCopied(false), 2000);
+                                    }}
+                                    className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 text-[10px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1"
+                                  >
+                                    {twoFactorSecretCopied ? <Check size={11} className="text-emerald-500" /> : <Copy size={11} />}
+                                    {twoFactorSecretCopied ? "Kopyalandı" : "Kopyala"}
+                                  </button>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <input
+                                    type="text"
+                                    maxLength={6}
+                                    value={twoFactorTestCode}
+                                    onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                    placeholder="Uygulamadaki 6 haneli kod"
+                                    className="flex-1 px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={handleProfileVerify2faCode}
+                                    disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                    className={`px-2.5 py-1 rounded-lg text-white text-[10px] font-bold disabled:opacity-50 ${bg} ${hover}`}
+                                  >
+                                    {twoFactorVerifyLoading ? "..." : "Eşleştir"}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {twoFactorStatusMsg && (
+                          <div className={`p-2 rounded-lg text-[11px] font-bold flex items-center gap-1.5 ${
+                            twoFactorStatusMsg.type === "success"
+                              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                              : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                          }`}>
+                            {twoFactorStatusMsg.type === "success" ? <CheckCircle size={13} className="shrink-0" /> : <AlertTriangle size={13} className="shrink-0" />}
+                            <span>{twoFactorStatusMsg.text}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                 </div>
@@ -4067,6 +4409,9 @@ export default function Home() {
                             auto_logout_enabled: autoLogoutEnabled,
                             auto_logout_duration: autoLogoutDuration,
                             two_factor_enabled: twoFactorEnabled,
+                            two_factor_method: twoFactorMethod || "google_auth",
+                            two_factor_secret: twoFactorSecret || undefined,
+                            two_factor_enrolled: twoFactorEnrolled,
                             password_expiry_enabled: passwordExpiryEnabled,
                             password_expiry_months: passwordExpiryMonths,
                             ...passwordPayload

@@ -251,6 +251,10 @@ class SystemUser(Base):
     active_profile = Column(String, default="available")
     profiles = Column(JSON, default=list)
     follow_me = Column(JSON, nullable=True)
+    two_factor_enabled = Column(Boolean, default=False)
+    two_factor_method = Column(String, default="google_auth")
+    two_factor_secret = Column(String, nullable=True)
+    two_factor_enrolled = Column(Boolean, default=False)
 
 class SystemRole(Base):
     __tablename__ = "system_roles"

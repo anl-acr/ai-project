@@ -250,7 +250,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [recordingActive, setRecordingActive] = useState(false);
   const [transport, setTransport] = useState("UDP");
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
-  const [twoFactorMethod, setTwoFactorMethod] = useState("app");
+  const [twoFactorMethod, setTwoFactorMethod] = useState("google_auth");
+  const [twoFactorSecret, setTwoFactorSecret] = useState("");
+  const [twoFactorEnrolled, setTwoFactorEnrolled] = useState(false);
+  const [twoFactorQrSvg, setTwoFactorQrSvg] = useState("");
+  const [twoFactorSetupLoading, setTwoFactorSetupLoading] = useState(false);
+  const [twoFactorTestCode, setTwoFactorTestCode] = useState("");
+  const [twoFactorVerifyLoading, setTwoFactorVerifyLoading] = useState(false);
+  const [twoFactorEmailSending, setTwoFactorEmailSending] = useState(false);
+  const [twoFactorStatusMsg, setTwoFactorStatusMsg] = useState(null);
+  const [twoFactorSecretCopied, setTwoFactorSecretCopied] = useState(false);
 
   // Follow Me (Beni Takip Et) Fields
   const [followMeEnabled, setFollowMeEnabled] = useState(false);
@@ -598,6 +607,158 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     navigator.clipboard.writeText(sipPassword);
   };
 
+  const copyTwoFactorSecret = () => {
+    if (!twoFactorSecret) return;
+    navigator.clipboard.writeText(twoFactorSecret);
+    setTwoFactorSecretCopied(true);
+    setTimeout(() => setTwoFactorSecretCopied(false), 2000);
+  };
+
+  const fetchTwoFactorSetup = async (resetSecret = false, overrideMethod = null, overrideSecret = null, overrideUserId = null, overrideEmail = null) => {
+    const targetMethod = overrideMethod || twoFactorMethod || "google_auth";
+    if (targetMethod === "email") return;
+    setTwoFactorSetupLoading(true);
+    if (resetSecret) setTwoFactorStatusMsg(null);
+    try {
+      const targetUid = overrideUserId !== null ? overrideUserId : (editingUser?.id || "preview");
+      const targetEmail = (overrideEmail !== null ? overrideEmail : (email || editingUser?.email || "kullanici@aida.local")).trim() || "kullanici@aida.local";
+      const existingSec = !resetSecret ? (overrideSecret !== null ? overrideSecret : twoFactorSecret) : "";
+      const qs = new URLSearchParams({
+        reset: resetSecret ? "true" : "false",
+        method: targetMethod,
+        email: targetEmail
+      });
+      if (existingSec) qs.set("secret", existingSec);
+      const res = await safeFetch(`/api/auth/setup_2fa/${encodeURIComponent(String(targetUid))}?${qs.toString()}`);
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setTwoFactorSecret(data.secret || "");
+        setTwoFactorQrSvg(data.qr_svg || "");
+        if (resetSecret) {
+          setTwoFactorEnrolled(false);
+          setTwoFactorStatusMsg({
+            type: "success",
+            text: "Yeni kurulum anahtarı ve QR kod üretildi. Lütfen uygulamadan tekrar taratınız."
+          });
+        } else if (data.enrolled !== undefined && editingUser) {
+          setTwoFactorEnrolled(Boolean(data.enrolled));
+        }
+      } else {
+        setTwoFactorStatusMsg({
+          type: "error",
+          text: data.detail || data.message || "2FA QR bilgisi alınamadı."
+        });
+      }
+    } catch (err) {
+      setTwoFactorStatusMsg({
+        type: "error",
+        text: "2FA kurulum bilgisi alınırken hata oluştu: " + err.message
+      });
+    } finally {
+      setTwoFactorSetupLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      showModal &&
+      twoFactorEnabled &&
+      (twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth") &&
+      !twoFactorQrSvg &&
+      !twoFactorSetupLoading
+    ) {
+      fetchTwoFactorSetup(false, twoFactorMethod);
+    }
+  }, [showModal, twoFactorEnabled, twoFactorMethod]);
+
+  const handleSendTestEmailOtp = async () => {
+    const targetEmail = (email || editingUser?.email || "").trim();
+    if (!targetEmail || !targetEmail.includes("@")) {
+      setTwoFactorStatusMsg({
+        type: "error",
+        text: "Lütfen önce Genel sekmesinden geçerli bir E-Posta adresi giriniz."
+      });
+      return;
+    }
+    setTwoFactorEmailSending(true);
+    setTwoFactorStatusMsg(null);
+    try {
+      const res = await safeFetch(`/api/auth/2fa/send-email-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: String(editingUser?.id || "preview"),
+          email: targetEmail
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setTwoFactorStatusMsg({
+          type: "success",
+          text: data.message || `6 haneli doğrulama kodu ${targetEmail} adresine gönderildi.`
+        });
+      } else {
+        setTwoFactorStatusMsg({
+          type: "error",
+          text: data.detail || data.message || "E-Posta gönderilemedi. SMTP ayarlarınızı kontrol edin."
+        });
+      }
+    } catch (err) {
+      setTwoFactorStatusMsg({
+        type: "error",
+        text: "E-Posta gönderim hatası: " + err.message
+      });
+    } finally {
+      setTwoFactorEmailSending(false);
+    }
+  };
+
+  const handleVerifyTest2faCode = async () => {
+    const cleanCode = (twoFactorTestCode || "").replace(/\D/g, "");
+    if (cleanCode.length !== 6) {
+      setTwoFactorStatusMsg({
+        type: "error",
+        text: "Lütfen 6 haneli doğrulama kodunu eksiksiz giriniz."
+      });
+      return;
+    }
+    setTwoFactorVerifyLoading(true);
+    setTwoFactorStatusMsg(null);
+    try {
+      const res = await safeFetch(`/api/auth/verify_2fa`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: String(editingUser?.id || "preview"),
+          code: cleanCode,
+          method: twoFactorMethod,
+          secret: twoFactorSecret || undefined
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setTwoFactorEnrolled(true);
+        setTwoFactorTestCode("");
+        setTwoFactorStatusMsg({
+          type: "success",
+          text: data.message || "Doğrulama başarılı! 2FA yöntemi test edildi ve aktif olarak eşleştirildi."
+        });
+      } else {
+        setTwoFactorStatusMsg({
+          type: "error",
+          text: data.detail || data.message || "Doğrulama kodu geçersiz veya süresi dolmuş."
+        });
+      }
+    } catch (err) {
+      setTwoFactorStatusMsg({
+        type: "error",
+        text: "Doğrulama hatası: " + err.message
+      });
+    } finally {
+      setTwoFactorVerifyLoading(false);
+    }
+  };
+
   const resetForm = () => {
     setEditingUser(null);
     setActiveTab("general");
@@ -623,7 +784,13 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setVoicemailPin(""); setVoicemailToEmail(false);
 
     setRecordingActive(false); setTransport("UDP");
-    setTwoFactorEnabled(false); setTwoFactorMethod("app");
+    setTwoFactorEnabled(false);
+    setTwoFactorMethod("google_auth");
+    setTwoFactorSecret("");
+    setTwoFactorEnrolled(false);
+    setTwoFactorQrSvg("");
+    setTwoFactorTestCode("");
+    setTwoFactorStatusMsg(null);
 
     setFollowMeEnabled(false);
     setFollowMeTimeout(15);
@@ -694,8 +861,14 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
 
     setRecordingActive(u.recording_active || false);
     setTransport(u.transport || "UDP");
-    setTwoFactorEnabled(u.two_factor_enabled || false);
-    setTwoFactorMethod(u.two_factor_method || "app");
+    const normMethod = (!u.two_factor_method || u.two_factor_method === "app") ? "google_auth" : u.two_factor_method;
+    setTwoFactorEnabled(Boolean(u.two_factor_enabled));
+    setTwoFactorMethod(normMethod);
+    setTwoFactorSecret(u.two_factor_secret || "");
+    setTwoFactorEnrolled(Boolean(u.two_factor_enrolled));
+    setTwoFactorQrSvg("");
+    setTwoFactorTestCode("");
+    setTwoFactorStatusMsg(null);
 
     let fmObj = u.follow_me;
     if (typeof fmObj === "string") {
@@ -831,7 +1004,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       recording_active: recordingActive,
       transport,
       two_factor_enabled: twoFactorEnabled,
-      two_factor_method: twoFactorMethod,
+      two_factor_method: twoFactorMethod || "google_auth",
+      two_factor_secret: twoFactorSecret || null,
+      two_factor_enrolled: twoFactorEnrolled,
       follow_me: {
         enabled: Boolean(followMeEnabled),
         timeout: Math.max(5, Math.min(120, Number(followMeTimeout) || 15)),
@@ -2188,35 +2363,260 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                 </div>
                                 
                                 <div className="p-4 bg-slate-50 dark:bg-slate-900/50 rounded-xl border border-slate-100 dark:border-slate-800">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <div>
-                                            <h5 className="text-sm font-bold text-slate-800 dark:text-white">İki Aşamalı Doğrulama (2FA)</h5>
-                                            <p className="text-[10px] text-slate-500 mt-0.5">Kullanıcı sisteme girerken doğrulama kodu sorulsun mu?</p>
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2.5">
+                                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${twoFactorEnabled ? `${lightBg} ${text}` : "bg-slate-200/70 dark:bg-slate-800 text-slate-500"}`}>
+                                                <Shield size={16} />
+                                            </div>
+                                            <div>
+                                                <div className="flex items-center gap-2">
+                                                    <h5 className="text-sm font-bold text-slate-800 dark:text-white">İki Aşamalı Doğrulama (2FA)</h5>
+                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${twoFactorEnabled ? `${lightBg} ${text} border ${border}` : "bg-slate-200 dark:bg-slate-800 text-slate-500"}`}>
+                                                        {twoFactorEnabled ? "Aktif" : "Pasif"}
+                                                    </span>
+                                                </div>
+                                                <p className="text-[10px] text-slate-500 mt-0.5">Kullanıcı sisteme girerken ikinci aşama doğrulama kodu sorulsun mu?</p>
+                                            </div>
                                         </div>
-                                        <button type="button" onClick={() => setTwoFactorEnabled(!twoFactorEnabled)} className="text-slate-400 hover:text-slate-700 transition-colors">
-                                            {twoFactorEnabled ? <ToggleRight size={30} className={`${text}`} /> : <ToggleLeft size={30} />}
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const nextVal = !twoFactorEnabled;
+                                                setTwoFactorEnabled(nextVal);
+                                                setTwoFactorStatusMsg(null);
+                                                if (nextVal && (!twoFactorMethod || twoFactorMethod === "app")) {
+                                                    setTwoFactorMethod("google_auth");
+                                                }
+                                            }}
+                                            className="text-slate-400 hover:text-slate-700 transition-colors"
+                                        >
+                                            {twoFactorEnabled ? <ToggleRight size={32} className={`${text}`} /> : <ToggleLeft size={32} />}
                                         </button>
                                     </div>
                                     
                                     {twoFactorEnabled && (
-                                        <div className="mt-3">
-                                            <label className="block text-xs font-bold text-slate-800 dark:text-white mb-2">Doğrulama Yöntemi</label>
-                                            <div className="flex gap-3">
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setTwoFactorMethod("app")}
-                                                    className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${twoFactorMethod === "app" ? (lightBg + " " + border + " " + text) : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'}`}
-                                                >
-                                                    Authenticator Uygulaması
-                                                </button>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => setTwoFactorMethod("email")}
-                                                    className={`flex-1 py-2 rounded-lg text-xs font-bold border transition-all ${twoFactorMethod === "email" ? (lightBg + " " + border + " " + text) : 'bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-900'}`}
-                                                >
-                                                    E-Posta Gönderimi
-                                                </button>
+                                        <div className="mt-4 pt-4 border-t border-slate-200/80 dark:border-slate-800 space-y-4 animate-in fade-in duration-200">
+                                            <div>
+                                                <label className="block text-xs font-bold text-slate-800 dark:text-white mb-2">
+                                                    2FA Doğrulama Yöntemi Seçiniz
+                                                </label>
+                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                    {[
+                                                        {
+                                                            id: "email",
+                                                            title: "E-Posta (E-Mail)",
+                                                            desc: "Girişte e-posta adresine 6 haneli tek kullanımlık kod gönderilir",
+                                                            icon: Mail
+                                                        },
+                                                        {
+                                                            id: "google_auth",
+                                                            title: "Google Authenticator",
+                                                            desc: "Google Authenticator mobil uygulaması ile 30 sn'lik kod üretilir",
+                                                            icon: Smartphone
+                                                        },
+                                                        {
+                                                            id: "microsoft_auth",
+                                                            title: "Microsoft Authenticator",
+                                                            desc: "Microsoft Authenticator mobil uygulaması ile 30 sn'lik kod üretilir",
+                                                            icon: KeyRound
+                                                        }
+                                                    ].map((m) => {
+                                                        const IconComp = m.icon;
+                                                        const isSelected = twoFactorMethod === m.id || (m.id === "google_auth" && twoFactorMethod === "app");
+                                                        return (
+                                                            <button
+                                                                key={m.id}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setTwoFactorMethod(m.id);
+                                                                    setTwoFactorStatusMsg(null);
+                                                                    setTwoFactorTestCode("");
+                                                                    if (m.id === "google_auth" || m.id === "microsoft_auth") {
+                                                                        fetchTwoFactorSetup(false, m.id);
+                                                                    }
+                                                                }}
+                                                                className={`p-3 rounded-xl text-left border transition-all flex flex-col justify-between gap-2 ${
+                                                                    isSelected
+                                                                        ? `${lightBg} ${border} ring-2 ${ring}`
+                                                                        : "bg-white dark:bg-slate-950 border-slate-200 dark:border-slate-800 hover:bg-slate-100/70 dark:hover:bg-slate-900"
+                                                                }`}
+                                                            >
+                                                                <div className="flex items-center justify-between w-full">
+                                                                    <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${isSelected ? `${bg} text-white` : "bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>
+                                                                        <IconComp size={14} />
+                                                                    </div>
+                                                                    {isSelected && <CheckCircle size={15} className={text} />}
+                                                                </div>
+                                                                <div>
+                                                                    <div className={`text-xs font-extrabold ${isSelected ? text : "text-slate-800 dark:text-slate-100"}`}>
+                                                                        {m.title}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-slate-500 dark:text-slate-400 leading-tight mt-0.5">
+                                                                        {m.desc}
+                                                                    </div>
+                                                                </div>
+                                                            </button>
+                                                        );
+                                                    })}
+                                                </div>
                                             </div>
+
+                                            {/* METHOD 1: E-MAIL OTP DETAILS */}
+                                            {twoFactorMethod === "email" && (
+                                                <div className="p-3.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                                        <div>
+                                                            <div className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                                                <Mail size={14} className={text} />
+                                                                Hedef E-Posta Adresi:
+                                                                <span className="font-mono text-slate-700 dark:text-slate-200">
+                                                                    {email && email.includes("@") ? email : "Tanımlanmadı"}
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-[10px] text-slate-500 mt-0.5">
+                                                                Kullanıcı giriş yaptığında 6 haneli doğrulama kodu bu e-posta adresine gönderilecektir.
+                                                            </p>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleSendTestEmailOtp}
+                                                            disabled={twoFactorEmailSending || !email || !email.includes("@")}
+                                                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold text-white transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50 ${bg} ${hover}`}
+                                                        >
+                                                            <RefreshCw size={12} className={twoFactorEmailSending ? "animate-spin" : ""} />
+                                                            {twoFactorEmailSending ? "Gönderiliyor..." : "Test Kodu Gönder"}
+                                                        </button>
+                                                    </div>
+
+                                                    {(!email || !email.includes("@")) && (
+                                                        <div className="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/50 text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-2">
+                                                            <AlertTriangle size={14} className="shrink-0" />
+                                                            Lütfen önce "Genel" sekmesinden kullanıcıya geçerli bir E-Posta adresi giriniz.
+                                                        </div>
+                                                    )}
+
+                                                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            maxLength={6}
+                                                            value={twoFactorTestCode}
+                                                            onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                                            placeholder="E-postaya gelen 6 haneli test kodunu girin"
+                                                            className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleVerifyTest2faCode}
+                                                            disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                                            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0"
+                                                        >
+                                                            {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Kodu Test Et & Onayla"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* METHOD 2 & 3: GOOGLE / MICROSOFT AUTHENTICATOR QR & SECRET */}
+                                            {(twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app") && (
+                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3.5">
+                                                    <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                                                        <div className="flex items-center gap-2">
+                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                {twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator Kurulumu" : "Google Authenticator Kurulumu"}
+                                                            </span>
+                                                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                                twoFactorEnrolled
+                                                                    ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800"
+                                                                    : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800"
+                                                            }`}>
+                                                                {twoFactorEnrolled ? "✓ Cihaz Eşleştirildi" : "İlk Girişte veya Aşağıdan Eşleştirilebilir"}
+                                                            </span>
+                                                        </div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => fetchTwoFactorSetup(true, twoFactorMethod)}
+                                                            disabled={twoFactorSetupLoading}
+                                                            className="text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+                                                        >
+                                                            <RefreshCw size={11} className={twoFactorSetupLoading ? "animate-spin" : ""} />
+                                                            Yeni QR / Anahtar Üret
+                                                        </button>
+                                                    </div>
+
+                                                    <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4">
+                                                        <div className="w-36 h-36 rounded-xl border-2 border-slate-200 dark:border-slate-800 bg-white p-2 flex items-center justify-center shrink-0 shadow-sm">
+                                                            {twoFactorSetupLoading ? (
+                                                                <RefreshCw size={24} className="animate-spin text-slate-400" />
+                                                            ) : twoFactorQrSvg ? (
+                                                                <img src={twoFactorQrSvg} alt="2FA QR Code" className="w-full h-full object-contain" />
+                                                            ) : (
+                                                                <span className="text-[10px] text-slate-400 text-center px-2">QR Kod Yükleniyor...</span>
+                                                            )}
+                                                        </div>
+
+                                                        <div className="flex-1 space-y-2.5 w-full">
+                                                            <div className="text-[11px] text-slate-600 dark:text-slate-300 space-y-1 leading-relaxed">
+                                                                <p className="font-bold text-slate-800 dark:text-white">Nasıl Eşleştirilir?</p>
+                                                                <p>1. Telefonunuzda <strong>{twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator" : "Google Authenticator"}</strong> uygulamasını açın.</p>
+                                                                <p>2. <strong>+ (Hesap Ekle)</strong> menüsünden <strong>QR Kodu Tara</strong> seçeneği ile yandaki kodu okutun (veya kullanıcı ilk girişinde kendi ekranından okutabilir).</p>
+                                                            </div>
+
+                                                            <div>
+                                                                <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">
+                                                                    Manuel Kurulum Anahtarı (Secret Key)
+                                                                </label>
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <input
+                                                                        type="text"
+                                                                        readOnly
+                                                                        value={twoFactorSecret || "Üretiliyor..."}
+                                                                        className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[11px] font-mono font-bold text-slate-700 dark:text-slate-200 outline-none"
+                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={copyTwoFactorSecret}
+                                                                        className="px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 text-[11px] font-bold flex items-center gap-1 transition-colors shrink-0"
+                                                                        title="Anahtarı Kopyala"
+                                                                    >
+                                                                        {twoFactorSecretCopied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+                                                                        {twoFactorSecretCopied ? "Kopyalandı" : "Kopyala"}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                                                <input
+                                                                    type="text"
+                                                                    maxLength={6}
+                                                                    value={twoFactorTestCode}
+                                                                    onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                                                    placeholder="Uygulamadaki 6 haneli kodu test edin"
+                                                                    className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                                                                />
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={handleVerifyTest2faCode}
+                                                                    disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                                                    className={`px-3.5 py-1.5 rounded-lg text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0 ${bg} ${hover}`}
+                                                                >
+                                                                    {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Test Et & Eşleştir"}
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {twoFactorStatusMsg && (
+                                                <div className={`p-2.5 rounded-lg text-xs font-bold flex items-center gap-2 ${
+                                                    twoFactorStatusMsg.type === "success"
+                                                        ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800"
+                                                        : "bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                                                }`}>
+                                                    {twoFactorStatusMsg.type === "success" ? <CheckCircle size={14} className="shrink-0" /> : <AlertTriangle size={14} className="shrink-0" />}
+                                                    <span>{twoFactorStatusMsg.text}</span>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

@@ -377,8 +377,9 @@ class UserSchema(BaseModel):
     profiles: Optional[List[dict]] = None
     follow_me: Optional[dict] = None
     two_factor_enabled: Optional[bool] = False
-    two_factor_method: str = "app"
+    two_factor_method: Optional[str] = "google_auth"
     two_factor_secret: Optional[str] = None
+    two_factor_enrolled: Optional[bool] = False
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -3974,6 +3975,9 @@ class ProfileUpdateSchema(BaseModel):
     auto_logout_enabled: Optional[bool] = None
     auto_logout_duration: Optional[float] = None
     two_factor_enabled: Optional[bool] = None
+    two_factor_method: Optional[str] = None
+    two_factor_secret: Optional[str] = None
+    two_factor_enrolled: Optional[bool] = None
     password_expiry_enabled: Optional[bool] = None
     password_expiry_months: Optional[int] = None
     current_password: Optional[str] = None
@@ -4057,6 +4061,12 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         user["auto_logout_duration"] = payload.auto_logout_duration
     if payload.two_factor_enabled is not None:
         user["two_factor_enabled"] = payload.two_factor_enabled
+    if payload.two_factor_method is not None:
+        user["two_factor_method"] = payload.two_factor_method
+    if payload.two_factor_secret is not None:
+        user["two_factor_secret"] = payload.two_factor_secret
+    if payload.two_factor_enrolled is not None:
+        user["two_factor_enrolled"] = payload.two_factor_enrolled
 
     if payload.password_expiry_enabled is not None:
         user["password_expiry_enabled"] = payload.password_expiry_enabled
@@ -4111,6 +4121,14 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 if payload.profiles is not None:
                     db_u.profiles = user["profiles"]
                     flag_modified(db_u, "profiles")
+                if payload.two_factor_enabled is not None:
+                    db_u.two_factor_enabled = bool(user.get("two_factor_enabled", False))
+                if payload.two_factor_method is not None:
+                    db_u.two_factor_method = user.get("two_factor_method", "google_auth")
+                if payload.two_factor_secret is not None:
+                    db_u.two_factor_secret = user.get("two_factor_secret")
+                if payload.two_factor_enrolled is not None:
+                    db_u.two_factor_enrolled = bool(user.get("two_factor_enrolled", False))
                 session.commit()
     except Exception as e_db_sync:
         print(f"[Profile Update] DB sync notice: {e_db_sync}")
@@ -13313,68 +13331,300 @@ async def save_geo_security(payload: GeoSecuritySchema, user_info: dict = Depend
     return {"status": "success", "message": "Bölgesel erişim (GeoIP) kuralları başarıyla kaydedildi."}
 
 
-try:
-    import pyotp
-except ImportError:
-    pyotp = None
+from backend.services.totp_service import (
+    generate_totp_secret,
+    verify_totp_code,
+    build_otpauth_uri,
+    generate_qr_svg_data_uri,
+    generate_email_otp,
+    verify_email_otp,
+    send_2fa_email_otp,
+    mask_email_address
+)
 
 class Verify2FASchema(BaseModel):
     user_id: str
     code: str
+    method: Optional[str] = None
+    secret: Optional[str] = None
 
-@app.post("/api/auth/verify_2fa")
-async def verify_2fa(payload: Verify2FASchema):
-    if pyotp is None:
-        raise HTTPException(status_code=500, detail="pyotp paketi sunucuda yüklü değil. Lütfen 'pip install pyotp' çalıştırın.")
-    user_id = payload.user_id
-    code = payload.code
-    
-    if user_id == "admin":
-        return {"status": "success", "message": "Admin login ok"}
-    
+class Setup2FASchema(BaseModel):
+    reset: Optional[bool] = False
+    method: Optional[str] = "google_auth"
+    email: Optional[str] = None
+    secret: Optional[str] = None
+
+class SendEmailOTPSchema(BaseModel):
+    user_id: str
+    email: Optional[str] = None
+
+def _find_disk_user_for_2fa(user_id: str) -> Optional[dict]:
     users = settings_db.get("users", [])
-    user = next((u for u in users if str(u.get("id")) == str(user_id)), None)
-    
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    secret = user.get("two_factor_secret")
-    if not secret:
-        raise HTTPException(status_code=400, detail="2FA is not set up for this user")
-        
-    totp = pyotp.TOTP(secret)
-    if totp.verify(code):
-        return {"status": "success", "message": "2FA verified"}
-    else:
-        raise HTTPException(status_code=401, detail="Geçersiz 2FA kodu")
+    uid_str = str(user_id or "").strip()
+    for u in users:
+        if (
+            str(u.get("id")) == uid_str
+            or str(u.get("extension")) == uid_str
+            or str(u.get("username") or "") == uid_str
+            or str(u.get("email") or "").lower() == uid_str.lower()
+        ):
+            return u
+    if uid_str in ["admin", "9999"]:
+        return next((u for u in users if u.get("role") == "admin"), None)
+    return None
+
+def _sync_user_2fa_to_db(user_dict: dict):
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import SystemUser
+        with SyncSessionLocal() as session:
+            uid = user_dict.get("id")
+            ext = str(user_dict.get("extension") or "")
+            q = session.query(SystemUser)
+            if uid is not None and str(uid).isdigit():
+                db_u = q.filter((SystemUser.id == int(uid)) | (SystemUser.extension == ext)).first()
+            else:
+                db_u = q.filter(SystemUser.extension == ext).first()
+            if db_u:
+                if "two_factor_enabled" in user_dict:
+                    db_u.two_factor_enabled = bool(user_dict.get("two_factor_enabled", False))
+                if "two_factor_method" in user_dict:
+                    db_u.two_factor_method = str(user_dict.get("two_factor_method") or "google_auth")
+                if "two_factor_secret" in user_dict:
+                    db_u.two_factor_secret = user_dict.get("two_factor_secret")
+                if "two_factor_enrolled" in user_dict:
+                    db_u.two_factor_enrolled = bool(user_dict.get("two_factor_enrolled", False))
+                session.commit()
+    except Exception as e:
+        print(f"[2FA DB Sync Notice]: {e}")
 
 @app.get("/api/auth/setup_2fa/{user_id}")
-async def setup_2fa(user_id: str):
-    if pyotp is None:
-        raise HTTPException(status_code=500, detail="pyotp paketi sunucuda yüklü değil. Lütfen 'pip install pyotp' çalıştırın.")
-    if user_id == "admin":
-        return {"status": "error", "message": "Admin 2FA setup not supported via UI yet"}
-        
-    users = settings_db.get("users", [])
-    user = next((u for u in users if str(u.get("id")) == str(user_id)), None)
-    
+@app.post("/api/auth/setup_2fa/{user_id}")
+async def setup_2fa(
+    user_id: str,
+    reset: bool = False,
+    method: str = "google_auth",
+    email: Optional[str] = None,
+    secret: Optional[str] = None,
+    payload: Optional[Setup2FASchema] = None
+):
+    if payload:
+        if payload.reset is not None:
+            reset = bool(payload.reset)
+        if payload.method:
+            method = payload.method
+        if payload.email:
+            email = payload.email
+        if payload.secret:
+            secret = payload.secret
+
+    norm_method = str(method or "google_auth").strip().lower()
+    if norm_method == "app":
+        norm_method = "google_auth"
+
+    # Support preview/new user creation inside UserSettings modal before saving
+    if str(user_id).strip().lower() in ["new", "preview", "temp", "0"]:
+        active_secret = secret if (secret and not reset) else generate_totp_secret()
+        acct = str(email or "kullanici@aida.local").strip()
+        uri = build_otpauth_uri(active_secret, account_name=acct, issuer="AIDA", method=norm_method)
+        qr_svg = generate_qr_svg_data_uri(uri)
+        return {
+            "status": "success",
+            "secret": active_secret,
+            "uri": uri,
+            "qr_svg": qr_svg,
+            "enrolled": False,
+            "method": norm_method,
+            "email": acct,
+            "masked_email": mask_email_address(acct)
+        }
+
+    user = _find_disk_user_for_2fa(user_id)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-        
-    secret = user.get("two_factor_secret")
-    if not secret:
-        secret = pyotp.random_base32()
-        user["two_factor_secret"] = secret
+        # Check DB directly if not in settings_db["users"]
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as session:
+                uid_s = str(user_id).strip()
+                if uid_s.isdigit():
+                    db_u = session.query(SystemUser).filter((SystemUser.id == int(uid_s)) | (SystemUser.extension == uid_s)).first()
+                else:
+                    db_u = session.query(SystemUser).filter((SystemUser.extension == uid_s) | (SystemUser.email == uid_s)).first()
+                if db_u:
+                    user = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
+                    if "users" not in settings_db:
+                        settings_db["users"] = []
+                    settings_db["users"].append(user)
+        except Exception as e:
+            print(f"[Setup 2FA DB Lookup Warning]: {e}")
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    active_secret = user.get("two_factor_secret")
+    if reset or not active_secret:
+        active_secret = generate_totp_secret()
+        user["two_factor_secret"] = active_secret
+        if reset:
+            user["two_factor_enrolled"] = False
         save_settings(settings_db)
-        
-    totp = pyotp.TOTP(secret)
-    uri = totp.provisioning_uri(name=user.get("email"), issuer_name="AIDA System")
-    
+        _sync_user_2fa_to_db(user)
+
+    acct_label = str(email or user.get("email") or user.get("extension") or user.get("full_name") or user_id).strip()
+    uri = build_otpauth_uri(active_secret, account_name=acct_label, issuer="AIDA", method=norm_method)
+    qr_svg = generate_qr_svg_data_uri(uri)
+
     return {
         "status": "success",
-        "secret": secret,
-        "uri": uri
+        "secret": active_secret,
+        "uri": uri,
+        "qr_svg": qr_svg,
+        "enrolled": bool(user.get("two_factor_enrolled", False)),
+        "method": user.get("two_factor_method") or norm_method,
+        "email": user.get("email", ""),
+        "masked_email": mask_email_address(user.get("email", ""))
     }
+
+@app.post("/api/auth/2fa/send-email-otp")
+@app.post("/auth/2fa/send-email-otp")
+async def send_email_otp_endpoint(payload: SendEmailOTPSchema, request: Request):
+    tenant_id = request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or "tenant-default"
+    uid_str = str(payload.user_id or "").strip()
+
+    user = None if uid_str.lower() in ["new", "preview", "temp", "0"] else _find_disk_user_for_2fa(uid_str)
+    if not user and uid_str.lower() not in ["new", "preview", "temp", "0"]:
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as session:
+                if uid_str.isdigit():
+                    db_u = session.query(SystemUser).filter((SystemUser.id == int(uid_str)) | (SystemUser.extension == uid_str)).first()
+                else:
+                    db_u = session.query(SystemUser).filter((SystemUser.extension == uid_str) | (SystemUser.email == uid_str)).first()
+                if db_u:
+                    user = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
+        except Exception:
+            pass
+
+    target_email = str(payload.email or (user.get("email") if user else "") or "").strip()
+    if not target_email or "@" not in target_email or target_email.endswith("@localhost"):
+        raise HTTPException(
+            status_code=400,
+            detail="Kullanıcıya tanımlı geçerli bir E-Posta adresi bulunamadı. Lütfen önce kullanıcı ayarlarından geçerli bir e-posta adresi tanımlayın."
+        )
+
+    user_key = str(user.get("id")) if (user and user.get("id") is not None) else uid_str
+    user_name = (user.get("full_name") or user.get("name") or "Kullanıcı") if user else "Kullanıcı"
+    user_tenant = (user.get("tenant_id") if user else None) or tenant_id
+
+    otp_info = generate_email_otp(user_key=user_key, email_str=target_email, ttl_seconds=180)
+    # Also store under uid_str and extension so lookup succeeds regardless of identifier used
+    if uid_str != user_key:
+        from backend.services.totp_service import _EMAIL_OTP_CACHE
+        _EMAIL_OTP_CACHE[uid_str] = _EMAIL_OTP_CACHE[user_key]
+    if user and user.get("extension"):
+        from backend.services.totp_service import _EMAIL_OTP_CACHE
+        _EMAIL_OTP_CACHE[str(user.get("extension"))] = _EMAIL_OTP_CACHE[user_key]
+
+    send_res = await send_2fa_email_otp(
+        settings_db=settings_db,
+        tenant_id=user_tenant,
+        to_email=target_email,
+        user_name=user_name,
+        otp_code=otp_info["code"],
+        ttl_seconds=180
+    )
+    if send_res.get("status") != "success":
+        raise HTTPException(status_code=400, detail=send_res.get("message") or "E-Posta gönderilemedi. SMTP ayarlarını kontrol edin.")
+
+    return {
+        "status": "success",
+        "message": f"6 haneli doğrulama kodu {otp_info['masked_email']} adresine gönderildi.",
+        "masked_email": otp_info["masked_email"],
+        "expires_in": 180
+    }
+
+@app.post("/api/auth/verify_2fa")
+@app.post("/auth/verify_2fa")
+async def verify_2fa(payload: Verify2FASchema):
+    uid_str = str(payload.user_id or "").strip()
+    code = str(payload.code or "").strip()
+
+    # Handle preview/new user verification in UserSettings modal
+    if uid_str.lower() in ["new", "preview", "temp", "0"]:
+        req_method = str(payload.method or "google_auth").strip().lower()
+        if req_method == "email":
+            if verify_email_otp(uid_str, code):
+                return {"status": "success", "message": "E-Posta 2FA doğrulama kodu onaylandı.", "enrolled": True}
+            raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
+        else:
+            if not payload.secret:
+                raise HTTPException(status_code=400, detail="2FA kurulum anahtarı (secret) bulunamadı.")
+            if verify_totp_code(payload.secret, code):
+                return {"status": "success", "message": "Authenticator kodu başarıyla doğrulandı.", "enrolled": True}
+            raise HTTPException(status_code=401, detail="Geçersiz 6 haneli Authenticator doğrulama kodu.")
+
+    user = _find_disk_user_for_2fa(uid_str)
+    if not user:
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as session:
+                if uid_str.isdigit():
+                    db_u = session.query(SystemUser).filter((SystemUser.id == int(uid_str)) | (SystemUser.extension == uid_str)).first()
+                else:
+                    db_u = session.query(SystemUser).filter((SystemUser.extension == uid_str) | (SystemUser.email == uid_str)).first()
+                if db_u:
+                    user = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
+                    if "users" not in settings_db:
+                        settings_db["users"] = []
+                    settings_db["users"].append(user)
+        except Exception:
+            pass
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Kullanıcı bulunamadı.")
+
+    eff_method = str(payload.method or user.get("two_factor_method") or "google_auth").strip().lower()
+    if eff_method == "email":
+        verified = (
+            verify_email_otp(str(user.get("id")), code)
+            or verify_email_otp(uid_str, code)
+            or verify_email_otp(str(user.get("extension") or ""), code)
+        )
+        if verified:
+            user["two_factor_enrolled"] = True
+            save_settings(settings_db)
+            _sync_user_2fa_to_db(user)
+            return {
+                "status": "success",
+                "message": "E-Posta 2FA doğrulaması başarılı.",
+                "enrolled": True,
+                "method": "email"
+            }
+        raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
+
+    # Google Authenticator / Microsoft Authenticator / TOTP App verification
+    secret = payload.secret or user.get("two_factor_secret")
+    if not secret:
+        raise HTTPException(status_code=400, detail="Bu kullanıcı için henüz Authenticator anahtarı oluşturulmamış.")
+
+    if verify_totp_code(secret, code):
+        user["two_factor_secret"] = secret
+        user["two_factor_enrolled"] = True
+        if payload.method and payload.method in ["google_auth", "microsoft_auth"]:
+            user["two_factor_method"] = payload.method
+        save_settings(settings_db)
+        _sync_user_2fa_to_db(user)
+        return {
+            "status": "success",
+            "message": "Authenticator 2FA doğrulaması başarılı.",
+            "enrolled": True,
+            "method": user.get("two_factor_method") or eff_method
+        }
+    else:
+        raise HTTPException(status_code=401, detail="Geçersiz 6 haneli doğrulama kodu. Lütfen uygulamadaki güncel kodu giriniz.")
 
 async def recording_cleanup_task():
     import asyncio
@@ -13483,6 +13733,10 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS sip_username VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS max_activations INTEGER DEFAULT 1;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS follow_me JSON;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_method VARCHAR DEFAULT 'google_auth';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
                 "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;"
@@ -13972,6 +14226,18 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["sip_password"] = disk_u.get("sip_password")
             if not u.get("sip_username") and disk_u.get("sip_username"):
                 u["sip_username"] = disk_u.get("sip_username")
+            if not u.get("two_factor_enabled") and disk_u.get("two_factor_enabled"):
+                u["two_factor_enabled"] = disk_u.get("two_factor_enabled")
+            if disk_u.get("two_factor_method") and (not u.get("two_factor_method") or u.get("two_factor_method") == "app"):
+                u["two_factor_method"] = disk_u.get("two_factor_method")
+            if not u.get("two_factor_secret") and disk_u.get("two_factor_secret"):
+                u["two_factor_secret"] = disk_u.get("two_factor_secret")
+            if not u.get("two_factor_enrolled") and disk_u.get("two_factor_enrolled"):
+                u["two_factor_enrolled"] = disk_u.get("two_factor_enrolled")
+        if u.get("two_factor_method") == "app" or not u.get("two_factor_method"):
+            u["two_factor_method"] = "google_auth"
+        u["two_factor_enabled"] = bool(u.get("two_factor_enabled", False))
+        u["two_factor_enrolled"] = bool(u.get("two_factor_enrolled", False))
         for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
             fval = u.get(fk)
             if isinstance(fval, str) and fval.strip().startswith("{"):
@@ -14043,17 +14309,31 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
             ensure_user_profiles(data)
             ext_str = str(data.get("extension") or "")
             data["sip_password"] = resolve_secure_sip_password(ext_str, data.get("sip_password") or "")
-                
-            if ext_str:
-                saved_payload_by_ext[ext_str] = data
-            if data.get("id") is not None:
-                saved_payload_by_id[data.get("id")] = data
+            if data.get("two_factor_method") == "app" or not data.get("two_factor_method"):
+                data["two_factor_method"] = "google_auth"
 
             target_user = None
             if data.get("id") and data.get("id") in existing_by_id:
                 target_user = existing_by_id[data.get("id")]
             elif ext_str and ext_str in existing_by_ext:
                 target_user = existing_by_ext[ext_str]
+
+            prev_disk = existing_disk_by_id.get(data.get("id")) or existing_disk_by_ext.get(ext_str) or {}
+            # Preserve existing 2FA secret if not explicitly overwritten
+            if not data.get("two_factor_secret"):
+                existing_sec = (getattr(target_user, "two_factor_secret", None) if target_user else None) or prev_disk.get("two_factor_secret")
+                if existing_sec:
+                    data["two_factor_secret"] = existing_sec
+            # Auto-generate a TOTP secret if 2FA is enabled with an Authenticator app and no secret exists yet
+            if data.get("two_factor_enabled") and data.get("two_factor_method") in ["google_auth", "microsoft_auth"] and not data.get("two_factor_secret"):
+                data["two_factor_secret"] = generate_totp_secret()
+            if not data.get("two_factor_enrolled") and prev_disk.get("two_factor_enrolled"):
+                data["two_factor_enrolled"] = True
+
+            if ext_str:
+                saved_payload_by_ext[ext_str] = data
+            if data.get("id") is not None:
+                saved_payload_by_id[data.get("id")] = data
 
             filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
@@ -14143,6 +14423,9 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_password"] = p_match.get("sip_password")
                         if p_match.get("sip_username"):
                             u_dict["sip_username"] = p_match.get("sip_username")
+                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled"):
+                            if p_match.get(tf_k) is not None:
+                                u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
                     ensure_user_profiles(u_dict)
         except Exception as dbe:
@@ -15190,18 +15473,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.5.9",
+        "version": "v2.6.0",
         "commit_hash": live_commit,
-        "release_date": "25 Ekim 2026",
+        "release_date": "26 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.5.9",
+                "version": "v2.6.0",
                 "commit_hash": live_commit,
-                "release_date": "25 Ekim 2026",
+                "release_date": "26 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Çok Yöntemli İki Faktörlü Doğrulama (2FA: E-Posta, Google Authenticator, Microsoft Authenticator)",
+                "summary": "Kullanıcı Yönetimi > Özellikler ve Temsilci Profili ekranlarına 2FA Aktif/Pasif kontrolü ile E-Posta (OTP), Google Authenticator ve Microsoft Authenticator yöntem seçimi, çevrimdışı QR Kod üretimi, manuel kurulum anahtarı ve ilk girişte cihaz eşleştirme akışı eklendi.",
+                "features": [
+                    {
+                        "title": "🔐 3 Yöntemli 2FA Seçimi (E-Posta, Google Authenticator, Microsoft Authenticator)",
+                        "desc": "Kullanıcı ekranındaki Özellikler sekmesinde 2FA aktif edildiğinde E-Posta (E-Mail Kodu), Google Authenticator veya Microsoft Authenticator yöntemlerinden biri seçilebilir, QR kod ve kurulum anahtarı anında görüntülenip test edilebilir."
+                    },
+                    {
+                        "title": "📱 İlk Girişte QR Kod Eşleştirme & E-Posta Geri Sayım Sayacı",
+                        "desc": "Authenticator seçili kullanıcılar ilk girişlerinde QR kodu telefon kamerasıyla okutarak cihazlarını eşleştirebilir; E-Posta 2FA kullanıcıları ise girişte otomatik gönderilen 6 haneli tek kullanımlık kod ile güvenli giriş yapabilir."
+                    }
+                ]
+            },
+            {
+                "version": "v2.5.9",
+                "commit_hash": "d751bbf",
+                "release_date": "25 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Müşteri Niyet Raporu (Intent Analysis) & Kaydedilebilir Anahtar Kelime Motoru",
                 "summary": "Çağrı transkriptlerinden müşteri niyetini (Satış, Yardım Masası, Fiyat Sorgulama, İptal/Şikayet veya özel süreçler) otomatik analiz eden, filtre alanından yeni anahtar kelimeler girip kalıcı olarak kaydetmeye olanak tanıyan 'Niyet Raporu' eklendi.",
                 "features": [
