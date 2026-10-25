@@ -839,7 +839,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           const slaRate = dData.totalCalls > 0 ? Math.round((dData.slaCompliant / dData.totalCalls) * 100) : 0;
           const avgQueue = dData.queuedCalls > 0 ? Math.round(dData.totalQueueSecs / dData.queuedCalls) : 0;
           const row = [
-            dData.date,
+            formatDateOnly(dData.date),
             dData.queueId,
             dData.queueName,
             dData.totalCalls,
@@ -880,7 +880,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       timelineReport.agents.forEach((ag) => {
         (ag.events || []).forEach((ev) => {
           const row = [
-            timelineDate,
+            formatDateOnly(timelineDate),
             ev.time,
             ag.agent_name,
             ag.extension,
@@ -1436,22 +1436,50 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const formatDateOnly = (dateStr) => {
+    if (!dateStr) return "-";
+    const raw = String(dateStr).trim();
+    if (!raw || raw === "-" || raw === "Bilinmiyor") return raw;
+    if (raw.includes(" / ")) {
+      return raw.split(" / ").map((part) => formatDateOnly(part)).join(" / ");
+    }
+    const isoDateMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoDateMatch) {
+      return `${isoDateMatch[3]}.${isoDateMatch[2]}.${isoDateMatch[1]}`;
+    }
+    let cleanDateStr = raw;
+    if (!raw.endsWith("Z") && !raw.includes("+") && !raw.includes("GMT") && raw.includes("T")) {
+      cleanDateStr = raw + "Z";
+    }
+    const d = new Date(cleanDateStr);
+    if (isNaN(d.getTime())) return raw;
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    return `${dd}.${mm}.${yyyy}`;
+  };
+
   const formatDate = (dateStr) => {
     if (!dateStr) return "";
-    let cleanDateStr = dateStr;
+    const raw = String(dateStr).trim();
+    const isoDateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoDateOnly) {
+      return `${isoDateOnly[3]}.${isoDateOnly[2]}.${isoDateOnly[1]}`;
+    }
+    let cleanDateStr = raw;
     // naive ISO string datetimes returned from FastAPI in UTC need "Z" suffix
-    if (!dateStr.endsWith("Z") && !dateStr.includes("+") && !dateStr.includes("GMT")) {
-      cleanDateStr = dateStr + "Z";
+    if (!raw.endsWith("Z") && !raw.includes("+") && !raw.includes("GMT") && raw.includes("T")) {
+      cleanDateStr = raw + "Z";
     }
     const date = new Date(cleanDateStr);
-    return date.toLocaleString("tr-TR", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit"
-    });
+    if (isNaN(date.getTime())) return raw;
+    const dd = String(date.getDate()).padStart(2, "0");
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const yyyy = date.getFullYear();
+    const hh = String(date.getHours()).padStart(2, "0");
+    const min = String(date.getMinutes()).padStart(2, "0");
+    const sec = String(date.getSeconds()).padStart(2, "0");
+    return `${dd}.${mm}.${yyyy} ${hh}:${min}:${sec}`;
   };
 
   const resolveTargetName = (targetRaw) => {
@@ -4317,14 +4345,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               <td className="p-4 font-semibold text-slate-800 dark:text-slate-200">
                                 <div className="flex items-center gap-2">
                                   <CalendarIcon size={14} className={text} />
-                                  {dData.date}
+                                  {formatDateOnly(dData.date)}
                                 </div>
                               </td>
                             )}
                             {visibleColumns.queueId && (
                               <td className="p-4 text-center">
                                 <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-mono font-bold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
-                                  #{dData.queueId}
+                                  {dData.queueId}
                                 </span>
                               </td>
                             )}
@@ -4821,7 +4849,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       ...call,
                       cbStatus,
                       waitTime,
-                      queueName: `${qInfo.queueName} (#${qInfo.queueId})`
+                      queueName: `${qInfo.queueName} (${qInfo.queueId})`
                     };
                   });
                   
@@ -4875,7 +4903,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
                                   {visibleColumns.startTime && (
                                     <td className="p-4 font-semibold text-slate-700 dark:text-slate-300">
-                                      {c.start_time ? new Date(c.start_time).toLocaleString('tr-TR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : "-"}
+                                      {c.start_time ? formatDate(c.start_time) : "-"}
                                     </td>
                                   )}
                                   {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
@@ -5406,7 +5434,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                       Dahili: {modalAgent.extension}
                                     </span>
                                     <span className="px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
-                                      Tarih: {timelineDate}
+                                      Tarih: {formatDateOnly(timelineDate)}
                                     </span>
                                   </div>
                                   <div className="flex flex-wrap items-center gap-3 mt-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
@@ -5464,7 +5492,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               <div className="py-12 px-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl flex flex-col items-center gap-2">
                                 <Clock size={32} className="text-slate-300 dark:text-slate-600" />
                                 <p className="text-sm font-bold text-slate-600 dark:text-slate-300">
-                                  Seçilen tarihte ({timelineDate}) bu kullanıcı için henüz kaydedilmiş bir sistem hareketi bulunmuyor.
+                                  Seçilen tarihte ({formatDateOnly(timelineDate)}) bu kullanıcı için henüz kaydedilmiş bir sistem hareketi bulunmuyor.
                                 </p>
                                 <p className="text-xs text-slate-400 max-w-lg">
                                   Kullanıcı sisteme giriş yaptığında, çağrı aldığında/yaptığında, çağrı transfer ettiğinde, çağrı topladığında (*8), beklemeye aldığında, profil veya mola değiştirdiğinde tüm hareketleri gerçek zamanlı olarak burada listelenir.
@@ -8033,7 +8061,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
-                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleString('tr-TR')}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{formatDate(call.time)}</span>
                       </div>
                       <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded font-bold dark:bg-emerald-900/30 dark:text-emerald-400">Başarılı</span>
                     </div>
@@ -8054,7 +8082,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
-                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleString('tr-TR')}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{formatDate(call.time)}</span>
                       </div>
                       <span className="text-[10px] bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold dark:bg-rose-900/30 dark:text-rose-400">Başarısız</span>
                     </div>
@@ -8075,7 +8103,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div key={i} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-2 rounded-lg border border-slate-100 dark:border-slate-800">
                       <div className="flex flex-col">
                         <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">{call.number}</span>
-                        <span className="text-[10px] text-slate-400 font-medium">{new Date(call.time).toLocaleString('tr-TR')}</span>
+                        <span className="text-[10px] text-slate-400 font-medium">{formatDate(call.time)}</span>
                       </div>
                       <span className="text-[10px] text-slate-500 font-bold">{call.dir}</span>
                     </div>
@@ -8098,7 +8126,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   <CalendarIcon size={14} />
                 </span>
                 <span>
-                  {selectedQueueDetails.date} — {selectedQueueDetails.queueName || "Kuyruk"} (#{selectedQueueDetails.queueId || "-"}) Çağrı Detayları
+                  {formatDateOnly(selectedQueueDetails.date)} — {selectedQueueDetails.queueName || "Kuyruk"} ({selectedQueueDetails.queueId || "-"}) Çağrı Detayları
                 </span>
               </h3>
               <button 

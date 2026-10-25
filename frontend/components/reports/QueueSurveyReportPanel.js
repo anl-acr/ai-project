@@ -179,9 +179,31 @@ export default function QueueSurveyReportPanel({ backendHost }) {
     );
   });
 
+  const formatDateDMY = (dateStr) => {
+    if (!dateStr) return "-";
+    const raw = String(dateStr).trim();
+    const isoDateOnly = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (isoDateOnly) {
+      return `${isoDateOnly[3]}.${isoDateOnly[2]}.${isoDateOnly[1]}`;
+    }
+    let cleanDateStr = raw;
+    if (!raw.endsWith("Z") && !raw.includes("+") && !raw.includes("GMT") && raw.includes("T")) {
+      cleanDateStr = raw + "Z";
+    }
+    const d = new Date(cleanDateStr);
+    if (isNaN(d.getTime())) return raw;
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const yyyy = d.getFullYear();
+    const hh = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    const sec = String(d.getSeconds()).padStart(2, "0");
+    return `${dd}.${mm}.${yyyy} ${hh}:${min}:${sec}`;
+  };
+
   const handleExportExcel = () => {
     const rows = filteredItems.map((it) => ({
-      "Tarih / Saat": it.created_at ? new Date(it.created_at).toLocaleString("tr-TR") : "-",
+      "Tarih / Saat": it.created_at ? formatDateDMY(it.created_at) : "-",
       "Kuyruk No": it.queue_extension || "-",
       "Kuyruk Adı": it.queue_name || "-",
       "Temsilci Dahili": it.agent_extension || "-",
@@ -706,7 +728,7 @@ export default function QueueSurveyReportPanel({ backendHost }) {
                   >
                     {visibleColumns.createdAt && (
                       <td className="py-3 px-4 whitespace-nowrap font-mono text-[11px] text-slate-600 dark:text-slate-300">
-                        {item.created_at ? new Date(item.created_at).toLocaleString("tr-TR") : "-"}
+                        {item.created_at ? formatDateDMY(item.created_at) : "-"}
                       </td>
                     )}
                     {visibleColumns.queue && (

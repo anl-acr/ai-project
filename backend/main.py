@@ -15009,24 +15009,47 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.5.6",
+        "version": "v2.5.7",
         "commit_hash": live_commit,
         "release_date": "25 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.5.6",
+                "version": "v2.5.7",
                 "commit_hash": live_commit,
                 "release_date": "25 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Tüm Raporlarda Standart Gün.Ay.Yıl (GG.AA.YYYY) Tarih Formatı & Kuyruk ID Gösterim Sadeleştirmesi",
+                "summary": "Sistemdeki tüm rapor ekranlarında, detay pencerelerinde ve Excel dışa aktarma çıktılarında tarih gösterimleri standart Gün.Ay.Yıl (GG.AA.YYYY ve GG.AA.YYYY SS:DD:sn) formatına güncellendi. Kuyruk & Bekleme Analitiği Raporunda Kuyruk ID önündeki '#' ibaresi kaldırıldı.",
+                "features": [
+                    {
+                        "title": "📅 Tüm Raporlarda Standart Gün.Ay.Yıl (GG.AA.YYYY) Tarih Gösterimi",
+                        "desc": "Kuyruk & Bekleme Analitiği, Temsilci Kronolojisi (Timeline), Kaçan Çağrılar, ACD Memnuniyet Anketi, CDR, Ses Kayıtları ve tüm detay pencereleri ile Excel dışa aktarma dosyalarındaki tarihler Yıl-Ay-Gün (YYYY-MM-DD) yerine standart Gün.Ay.Yıl (örn. 25.10.2026) formatına dönüştürüldü."
+                    },
+                    {
+                        "title": "🔢 Kuyruk & Bekleme Analitiği Raporunda Kuyruk ID Gösterimi",
+                        "desc": "Kuyruk & Bekleme Analitiği tablosu ve detay pencerelerinde Kuyruk ID alanının başındaki '#' işareti kaldırılarak doğrudan sade kuyruk numarası (örn. 2000) gösterilecek şekilde düzenlendi."
+                    }
+                ],
+                "fixes": [
+                    "Tarayıcı dil ayarlarından bağımsız deterministik GG.AA.YYYY tarih formatlayıcı eklendi.",
+                    "Kuyruk & Bekleme Analitiği tablosunda kronolojik sıralama korunarak görsel tarih gösterimi GG.AA.YYYY yapıldı."
+                ]
+            },
+            {
+                "version": "v2.5.6",
+                "commit_hash": "ffc964e",
+                "release_date": "25 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Kuyruk & Bekleme Analitiği Kuyruk ID/İsmi Alanları & Tüm Raporlarda Dinamik Sütun Seçici (Sütunlar)",
                 "summary": "Kuyruk & Bekleme Analitiği raporuna Kuyruk ID ve Kuyruk İsmi sütunları (tablo, filtre, detay penceresi ve Excel çıktısı dahil) eklendi. Ayrıca CDR raporundaki 'Sütunlar' görünürlük seçici özelliği sistemdeki tüm 24 rapor ekranına kendi sütun başlıklarıyla entegre edildi.",
                 "features": [
                     {
                         "title": "📋 Kuyruk & Bekleme Analitiği Raporunda Kuyruk ID ve Kuyruk İsmi Alanları",
-                        "desc": "Kuyruk & Bekleme Analitiği raporu artık çağrıları hem Tarih hem de Kuyruk bazında gruplayarak tabloda 'Kuyruk ID' (örn. #2000) ve 'Kuyruk İsmi' (örn. Satış Kuyruğu) sütunlarını gösterir. Filtre listesindeki kuyruk seçici, kuyruk detay popup başlığı ve Excel dışa aktarma çıktısı da Kuyruk ID ve Kuyruk İsmi bilgilerini içerecek şekilde güncellendi."
+                        "desc": "Kuyruk & Bekleme Analitiği raporu artık çağrıları hem Tarih hem de Kuyruk bazında gruplayarak tabloda 'Kuyruk ID' (örn. 2000) ve 'Kuyruk İsmi' (örn. Satış Kuyruğu) sütunlarını gösterir. Filtre listesindeki kuyruk seçici, kuyruk detay popup başlığı ve Excel dışa aktarma çıktısı da Kuyruk ID ve Kuyruk İsmi bilgilerini içerecek şekilde güncellendi."
                     },
                     {
                         "title": "🏛️ Tüm Raporlarda Dinamik 'Sütunlar' (Sütun Görünürlük Seçici) Özelliği",
