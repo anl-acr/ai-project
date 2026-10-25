@@ -1,6 +1,11 @@
 import os
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+
+# Ensure .env from backend directory is loaded before reading DATABASE_URL
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+load_dotenv(os.path.join(_BACKEND_DIR, ".env"))
 
 # PostgreSQL / SQLite connection string
 # Uses DATABASE_URL env var if set, otherwise defaults to local SQLite database

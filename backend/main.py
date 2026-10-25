@@ -5448,11 +5448,54 @@ async def delete_conference(conf_id: str):
 # ----------------------------------------------------
 # API Routes: Rules & Scenarios
 # ----------------------------------------------------
+async def _sync_rules_to_settings(db: AsyncSession):
+    try:
+        stmt = select(Rule).order_by(Rule.id.asc())
+        res = await db.execute(stmt)
+        all_db_rules = res.scalars().all()
+        serialized = [
+            {
+                "id": r.id,
+                "tenant_id": getattr(r, "tenant_id", "tenant-default") or "tenant-default",
+                "rule_type": r.rule_type,
+                "trigger_keyword": r.trigger_keyword,
+                "response_text": r.response_text,
+                "action_to_trigger": r.action_to_trigger,
+                "is_active": bool(r.is_active) if r.is_active is not None else True
+            }
+            for r in all_db_rules
+        ]
+        settings_db["rules"] = serialized
+        save_settings(settings_db)
+        return serialized
+    except Exception as e:
+        print(f"[Rules Sync Warning]: {e}")
+        return settings_db.get("rules", [])
+
 @app.get("/api/rules")
 async def list_rules(db: AsyncSession = Depends(get_db)):
-    stmt = select(Rule)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    try:
+        stmt = select(Rule).order_by(Rule.id.asc())
+        result = await db.execute(stmt)
+        db_rules = result.scalars().all()
+        if not db_rules and settings_db.get("rules"):
+            for sr in settings_db.get("rules", []):
+                new_r = Rule(
+                    rule_type=sr.get("rule_type", "faq"),
+                    trigger_keyword=sr.get("trigger_keyword"),
+                    response_text=sr.get("response_text"),
+                    action_to_trigger=sr.get("action_to_trigger"),
+                    is_active=sr.get("is_active", True)
+                )
+                db.add(new_r)
+            await db.commit()
+            result = await db.execute(select(Rule).order_by(Rule.id.asc()))
+            db_rules = result.scalars().all()
+        await _sync_rules_to_settings(db)
+        return db_rules
+    except Exception as e:
+        print(f"[Rules GET Fallback]: {e}")
+        return settings_db.get("rules", [])
 
 @app.post("/api/rules")
 async def create_rule(rule: RuleCreateSchema, db: AsyncSession = Depends(get_db)):
@@ -5466,6 +5509,24 @@ async def create_rule(rule: RuleCreateSchema, db: AsyncSession = Depends(get_db)
     db.add(db_rule)
     await db.commit()
     await db.refresh(db_rule)
+    await _sync_rules_to_settings(db)
+    return db_rule
+
+@app.put("/api/rules/{rule_id}")
+async def update_rule(rule_id: int, rule: RuleCreateSchema, db: AsyncSession = Depends(get_db)):
+    stmt = select(Rule).where(Rule.id == rule_id)
+    res = await db.execute(stmt)
+    db_rule = res.scalar_one_or_none()
+    if not db_rule:
+        raise HTTPException(status_code=404, detail="Kural bulunamadı.")
+    db_rule.rule_type = rule.rule_type
+    db_rule.trigger_keyword = rule.trigger_keyword
+    db_rule.response_text = rule.response_text
+    db_rule.action_to_trigger = rule.action_to_trigger
+    db_rule.is_active = rule.is_active
+    await db.commit()
+    await db.refresh(db_rule)
+    await _sync_rules_to_settings(db)
     return db_rule
 
 @app.delete("/api/rules/{rule_id}")
@@ -5473,6 +5534,7 @@ async def delete_rule(rule_id: int, db: AsyncSession = Depends(get_db)):
     stmt = delete(Rule).where(Rule.id == rule_id)
     await db.execute(stmt)
     await db.commit()
+    await _sync_rules_to_settings(db)
     return {"status": "success", "message": "Kural başarıyla silindi."}
 
 # ----------------------------------------------------

@@ -1102,8 +1102,19 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
         except Exception as e:
             print(f"[Custom API] Hata: {e}")
             
+        # Reinforce Kural & Senaryo Editörü rules at the end of system_instruction (after RAG chunks) so recency bias keeps them top priority
+        try:
+            from backend.services.prompt_manager import get_active_rules_list, build_mandatory_rules_block
+            active_rules_end = await get_active_rules_list()
+            if active_rules_end:
+                end_rules_block = build_mandatory_rules_block(active_rules_end, ai_agent)
+                if end_rules_block:
+                    system_instruction += "\n\n" + end_rules_block
+        except Exception as r_err:
+            print(f"[Rule Reinforce Warning]: {r_err}")
+
         system_instruction += "\n\n--- OPERASYONEL EYLEM VE ARAÇ SİSTEM TALİMATLARI ---\n"
-        system_instruction += "Sen canlı sesli bir müşteri temsilcisisin. Tüm döküman, ürün ve model sorularını sana sağlanan Bilgi Bankasından doğrudan Türkçe konuşarak yanıtla.\n"
+        system_instruction += "Sen canlı sesli bir müşteri temsilcisisin. Müşteri bir soru sorduğunda ÖNCELİKLE yukarıdaki 'ZORUNLU SORU-CEVAP (FAQ) VE KESİN BİLGİ KURAL TABANI' ile 'ZORUNLU KARAKTER VE SENARYO KURALLARI' bölümüne bak; orada cevabı veya kuralı bulunan hiçbir soruya KESİNLİKLE 'bilmiyorum' deme ve doğrudan oradaki cevabı kullanarak Türkçe yanıtla. Ayrıca Bilgi Bankası dökümanlarındaki bilgileri de kullanarak yardımcı ol.\n"
         system_instruction += "Görüşme sırasında aşağıdaki durumlar gerçekleştiğinde cümlenin sonuna ilgili EYLEM VEYA ARAÇ KODUNU ekle:\n"
         system_instruction += "1. Görüşmeyi sonlandırmak / kapatmak için (müşteri vedalaştığında veya işlemler bittiğinde): Cümlenin sonuna '[ACTION: HANGUP]' yaz.\n"
         system_instruction += "2. Canlı temsilciye veya belirli bir dahiliye transfer etmek için (müşteri temsilci veya kişiyi istediğinde): Cümlenin sonuna '[ACTION: TRANSFER]' veya hedef dahili için '[ACTION: TRANSFER:1000]' yaz.\n"

@@ -523,8 +523,18 @@ Yanıtını kesinlikle Türkçe olarak yaz.
                             m_desc = m_item.get("description", "")
                             media_instructions += f"- media_id: \"{m_id}\" | Başlık: {m_title} (Tür: {m_type}, Dosya: {m_fname}) | Gönderim Koşulu / Açıklama: {m_desc}\n"
                     
+                    # Load Kural & Senaryo Editörü rules
+                    rules_instructions = ""
+                    try:
+                        from backend.services.prompt_manager import get_active_rules_list, build_mandatory_rules_block
+                        active_chat_rules = await get_active_rules_list()
+                        if active_chat_rules:
+                            rules_instructions = "\n" + build_mandatory_rules_block(active_chat_rules)
+                    except Exception as r_err:
+                        print(f"[Chat Service Rules Warning]: {r_err}")
+
                     # Add instructions to prompt
-                    full_prompt = prompt + api_instructions + media_instructions
+                    full_prompt = prompt + rules_instructions + api_instructions + media_instructions
                     
                     tools_config = [
                         {

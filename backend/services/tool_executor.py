@@ -204,12 +204,25 @@ async def execute_transfer_to_human(call_id: str) -> dict:
         return {"status": "error", "message": "Aktarım başlatılamadı. Temsilciler şu an meşgul olabilir."}
 
 async def execute_query_knowledge_base(query: str) -> dict:
-    """Executes semantic search on PostgreSQL pgvector database."""
-    print(f"[Tool] Bilgi bankası aranıyor: '{query}'")
+    """Executes semantic search on PostgreSQL pgvector database and checks active FAQ rules."""
+    print(f"[Tool] Bilgi bankası ve Kural Editörü aranıyor: '{query}'")
     search_results = await query_vector_search(query)
+    faq_matches = []
+    try:
+        from backend.services.prompt_manager import get_active_rules_list
+        active_rules = await get_active_rules_list()
+        for r in active_rules:
+            if r.get("rule_type") == "faq" and r.get("trigger_keyword") and r.get("response_text"):
+                faq_matches.append(f"[Kural & Soru-Cevap: {r['trigger_keyword']}] -> {r['response_text']}")
+    except Exception as e:
+        print(f"[Tool FAQ Lookup Warning]: {e}")
+
+    combined = search_results if isinstance(search_results, list) else ([search_results] if search_results else [])
+    if faq_matches:
+        combined = faq_matches + combined
     return {
         "status": "success",
-        "results": search_results
+        "results": combined
     }
 
 def load_settings():
