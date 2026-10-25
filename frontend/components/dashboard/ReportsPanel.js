@@ -396,6 +396,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   });
   const [selectedTimelineAgent, setSelectedTimelineAgent] = useState("All");
   const [selectedTimelineAgentModal, setSelectedTimelineAgentModal] = useState(null);
+  const [timelineModalEventFilters, setTimelineModalEventFilters] = useState([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
 
   // Persist selected filter dates to localStorage and sync timelineDate
@@ -5390,7 +5391,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                       {visibleColumns.timelineBtn && (
                                         <td className="p-4 text-center">
                                           <button
-                                            onClick={() => setSelectedTimelineAgentModal(ag)}
+                                            onClick={() => {
+                                              setTimelineModalEventFilters([]);
+                                              setSelectedTimelineAgentModal(ag);
+                                            }}
                                             className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-primary border border-slate-200 dark:border-slate-700 rounded-xl transition cursor-pointer hover:scale-105 active:scale-95 duration-150 inline-flex items-center justify-center shadow-xs"
                                             title={`${ag.agent_name} Gün İçi Kronolojik Hareket Dökümünü (Timeline) Görüntüle`}
                                           >
@@ -5498,136 +5502,230 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   Kullanıcı sisteme giriş yaptığında, çağrı aldığında/yaptığında, çağrı transfer ettiğinde, çağrı topladığında (*8), beklemeye aldığında, profil veya mola değiştirdiğinde tüm hareketleri gerçek zamanlı olarak burada listelenir.
                                 </p>
                               </div>
-                            ) : (
-                              <>
-                                {/* Single-Line Chronological Chain Summary */}
-                                <div className={"p-3.5 rounded-2xl border text-xs leading-relaxed font-semibold " + borderLight + " " + lightBg}>
-                                  <span className={"text-[10px] font-extrabold uppercase tracking-wider block mb-1 " + text}>
-                                    Gün İçi Kronolojik Hareket Özeti:
-                                  </span>
-                                  <p className="text-slate-700 dark:text-slate-200 break-words">
-                                    {(modalAgent.events || [])
-                                      .map((ev) => ev.description || `${ev.time} ${ev.title}`)
-                                      .join(" → ")}
-                                  </p>
-                                </div>
+                            ) : (() => {
+                              const allModalEvents = modalAgent.events || [];
+                              const getEventFilterCategory = (type) => {
+                                if (type === "login" || type === "logout" || type === "profile_change") return "login_logout";
+                                if (type === "break_start" || type === "break_end") return "breaks";
+                                if (type === "call_inbound") return "inbound";
+                                if (type === "call_outbound" || type === "call_internal") return "outbound";
+                                if (type === "call_missed" || type === "call_missed_outbound" || type === "call_rejected") return "missed";
+                                return "actions";
+                              };
 
-                                {/* Step-by-Step Visual Flow Cards */}
-                                <div>
-                                  <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
-                                    Adım Adım Hareket Akışı ({(modalAgent.events || []).length} Kayıt)
-                                  </h5>
-                                  <div className="flex items-stretch flex-wrap gap-2.5">
-                                    {(modalAgent.events || []).map((ev, evIdx) => {
-                                      const st = getEventStyle(ev.type);
-                                      return (
-                                        <React.Fragment key={evIdx}>
-                                          <div className={`px-3.5 py-2.5 rounded-2xl border flex flex-col justify-between min-w-[190px] max-w-[260px] shadow-xs ${st.badge}`}>
-                                            <div className="flex items-center justify-between gap-2 mb-1">
-                                              <span className="inline-flex items-center gap-1.5 text-xs font-black font-mono">
-                                                <span className={`w-2 h-2 rounded-full ${st.dot}`} />
-                                                {ev.time}
-                                              </span>
-                                              <span className="text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60">
-                                                {st.tag}
-                                              </span>
-                                            </div>
-                                            <p className="text-xs font-bold leading-snug">
-                                              {ev.description || ev.title}
-                                            </p>
-                                            <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-current/10 text-[10px] font-semibold opacity-85">
-                                              <span className="truncate" title={ev.detail}>{ev.detail}</span>
-                                              {ev.duration_label && ev.duration_label !== "-" && (
-                                                <span className="shrink-0 font-bold">{ev.duration_label}</span>
-                                              )}
-                                            </div>
-                                          </div>
-                                          {evIdx < (modalAgent.events || []).length - 1 && (
-                                            <div className="flex items-center justify-center text-slate-300 dark:text-slate-600 px-0.5">
-                                              <ArrowRight size={16} />
-                                            </div>
-                                          )}
-                                        </React.Fragment>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
+                              const filterCategories = [
+                                { id: "login_logout", label: "Login / Logout", dot: "bg-emerald-500" },
+                                { id: "breaks", label: "Molalar", dot: "bg-amber-500" },
+                                { id: "inbound", label: "Gelen Çağrılar", dot: "bg-blue-500" },
+                                { id: "outbound", label: "Giden Çağrılar", dot: "bg-indigo-500" },
+                                { id: "missed", label: "Cevapsız Çağrılar", dot: "bg-rose-500" },
+                                { id: "actions", label: "Transfer / Diğer", dot: "bg-purple-500" }
+                              ];
 
-                                {/* 24-Hour Status Bar */}
-                                <div className="pt-1">
-                                  <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1.5 px-1">
-                                    <span>00:00</span>
-                                    <span>06:00</span>
-                                    <span>09:00</span>
-                                    <span>12:00</span>
-                                    <span>15:00</span>
-                                    <span>18:00</span>
-                                    <span>24:00</span>
-                                  </div>
-                                  <div className="w-full h-4 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex border border-slate-200/60 dark:border-slate-700/60">
-                                    {build24hBlocks(modalAgent.events || []).map((b, bIdx) => {
-                                      let bgCls = "bg-slate-200 dark:bg-slate-800";
-                                      if (b.type === "ready" || b.type === "login" || b.type === "break_end") bgCls = "bg-emerald-500";
-                                      else if (b.type === "call_inbound" || b.type === "call_outbound" || b.type === "call_internal") bgCls = "bg-blue-500";
-                                      else if (b.type?.includes("transfer") || b.type === "call_pickup" || b.type === "call_forwarded" || b.type === "call_conference") bgCls = "bg-purple-500";
-                                      else if (b.type === "break_start" || b.type === "call_hold") bgCls = "bg-amber-500";
-                                      else if (b.type === "call_missed" || b.type === "call_missed_outbound" || b.type === "call_rejected") bgCls = "bg-rose-500";
-                                      return (
-                                        <div
-                                          key={bIdx}
-                                          style={{ width: b.width }}
-                                          title={b.label}
-                                          className={`${bgCls} h-full border-r border-white/20 last:border-r-0 transition-opacity hover:opacity-85`}
-                                        />
-                                      );
-                                    })}
-                                  </div>
-                                  <div className="flex items-center flex-wrap gap-4 mt-2 text-[10px] font-bold text-slate-500">
-                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-emerald-500 inline-block" /> Login / Mesaide</span>
-                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-blue-500 inline-block" /> Çağrıda (Gelen/Giden/Dahili)</span>
-                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-purple-500 inline-block" /> Transfer / Çağrı Toplama / Yönlendirme</span>
-                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block" /> Mola / Bekletme (Hold)</span>
-                                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-rose-500 inline-block" /> Cevapsız / Reddedilen</span>
-                                  </div>
-                                </div>
+                              const isAllSelected = timelineModalEventFilters.length === 0 || timelineModalEventFilters.length === filterCategories.length;
+                              const filteredModalEvents = isAllSelected
+                                ? allModalEvents
+                                : allModalEvents.filter((ev) => timelineModalEventFilters.includes(getEventFilterCategory(ev.type)));
 
-                                {/* Detailed Chronological Event List Table */}
-                                <div className="border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden">
-                                  <div className="max-h-[300px] overflow-y-auto">
-                                    <table className="w-full text-left border-collapse text-xs">
-                                      <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
-                                        <tr className="border-b border-slate-200 dark:border-slate-700">
-                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Saat</th>
-                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500">İşlem Tipi</th>
-                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Hareket Açıklaması</th>
-                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Detay / Numara / Hedef</th>
-                                          <th className="p-3 font-bold uppercase text-[10px] text-slate-500 text-center">Süre</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                                        {(modalAgent.events || []).map((ev, i) => {
+                              const handleToggleTimelineCategory = (catId) => {
+                                setTimelineModalEventFilters((prev) => {
+                                  if (prev.length === 0) return [catId];
+                                  const exists = prev.includes(catId);
+                                  const next = exists ? prev.filter((c) => c !== catId) : [...prev, catId];
+                                  if (next.length === 0 || next.length === filterCategories.length) return [];
+                                  return next;
+                                });
+                              };
+
+                              return (
+                                <>
+                                  {/* Event Category Filter Bar */}
+                                  <div className={"p-3 rounded-2xl border flex flex-wrap items-center justify-between gap-2 " + borderLight + " " + lightBg}>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={"text-[11px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 mr-1 " + text}>
+                                        <Filter size={13} />
+                                        Hareket Filtresi:
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() => setTimelineModalEventFilters([])}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                                          isAllSelected
+                                            ? `${bg} text-white border-transparent shadow-xs`
+                                            : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                        }`}
+                                      >
+                                        <span>Tümü</span>
+                                        <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-extrabold ${isAllSelected ? "bg-white/20 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"}`}>
+                                          {allModalEvents.length}
+                                        </span>
+                                      </button>
+
+                                      {filterCategories.map((cat) => {
+                                        const count = allModalEvents.filter((ev) => getEventFilterCategory(ev.type) === cat.id).length;
+                                        const isActive = !isAllSelected && timelineModalEventFilters.includes(cat.id);
+                                        return (
+                                          <button
+                                            key={cat.id}
+                                            type="button"
+                                            onClick={() => handleToggleTimelineCategory(cat.id)}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                                              isActive
+                                                ? `${bg} text-white border-transparent shadow-xs`
+                                                : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                            }`}
+                                          >
+                                            <span className={`w-2 h-2 rounded-full ${isActive ? "bg-white" : cat.dot}`} />
+                                            <span>{cat.label}</span>
+                                            <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-extrabold ${isActive ? "bg-white/20 text-white" : "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400"}`}>
+                                              {count}
+                                            </span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                    {!isAllSelected && (
+                                      <button
+                                        type="button"
+                                        onClick={() => setTimelineModalEventFilters([])}
+                                        className="text-[11px] font-bold text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200 underline cursor-pointer"
+                                      >
+                                        Tümünü Göster
+                                      </button>
+                                    )}
+                                  </div>
+
+                                  {/* Step-by-Step Visual Flow Cards */}
+                                  <div>
+                                    <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3">
+                                      Adım Adım Hareket Akışı ({filteredModalEvents.length} Kayıt)
+                                    </h5>
+                                    {filteredModalEvents.length === 0 ? (
+                                      <div className="p-6 text-center border border-dashed border-slate-200 dark:border-slate-800 rounded-2xl text-xs font-semibold text-slate-400">
+                                        Seçilen filtreye uygun hareket kaydı bulunamadı.
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-stretch flex-wrap gap-2.5">
+                                        {filteredModalEvents.map((ev, evIdx) => {
                                           const st = getEventStyle(ev.type);
                                           return (
-                                            <tr key={i} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
-                                              <td className="p-3 font-black font-mono text-slate-800 dark:text-slate-200 whitespace-nowrap">{ev.time}</td>
-                                              <td className="p-3 whitespace-nowrap">
-                                                <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${st.badge}`}>
-                                                  <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
-                                                  {st.tag}
-                                                </span>
-                                              </td>
-                                              <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{ev.description || ev.title}</td>
-                                              <td className="p-3 font-semibold text-slate-600 dark:text-slate-400">{ev.detail}</td>
-                                              <td className="p-3 text-center font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">{ev.duration_label || "-"}</td>
-                                            </tr>
+                                            <React.Fragment key={evIdx}>
+                                              <div className={`px-3.5 py-2.5 rounded-2xl border flex flex-col justify-between min-w-[190px] max-w-[260px] shadow-xs ${st.badge}`}>
+                                                <div className="flex items-center justify-between gap-2 mb-1">
+                                                  <span className="inline-flex items-center gap-1.5 text-xs font-black font-mono">
+                                                    <span className={`w-2 h-2 rounded-full ${st.dot}`} />
+                                                    {ev.time}
+                                                  </span>
+                                                  <span className="text-[9px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded bg-white/70 dark:bg-slate-900/60">
+                                                    {st.tag}
+                                                  </span>
+                                                </div>
+                                                <p className="text-xs font-bold leading-snug">
+                                                  {ev.description || ev.title}
+                                                </p>
+                                                <div className="flex items-center justify-between gap-2 mt-2 pt-1.5 border-t border-current/10 text-[10px] font-semibold opacity-85">
+                                                  <span className="truncate" title={ev.detail}>{ev.detail}</span>
+                                                  {ev.duration_label && ev.duration_label !== "-" && (
+                                                    <span className="shrink-0 font-bold">{ev.duration_label}</span>
+                                                  )}
+                                                </div>
+                                              </div>
+                                              {evIdx < filteredModalEvents.length - 1 && (
+                                                <div className="flex items-center justify-center text-slate-300 dark:text-slate-600 px-0.5">
+                                                  <ArrowRight size={16} />
+                                                </div>
+                                              )}
+                                            </React.Fragment>
                                           );
                                         })}
-                                      </tbody>
-                                    </table>
+                                      </div>
+                                    )}
                                   </div>
-                                </div>
-                              </>
-                            )}
+
+                                  {/* 24-Hour Status Bar */}
+                                  <div className="pt-1">
+                                    <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 mb-1.5 px-1">
+                                      <span>00:00</span>
+                                      <span>06:00</span>
+                                      <span>09:00</span>
+                                      <span>12:00</span>
+                                      <span>15:00</span>
+                                      <span>18:00</span>
+                                      <span>24:00</span>
+                                    </div>
+                                    <div className="w-full h-4 bg-slate-100 dark:bg-slate-800 rounded-xl overflow-hidden flex border border-slate-200/60 dark:border-slate-700/60">
+                                      {build24hBlocks(allModalEvents).map((b, bIdx) => {
+                                        let bgCls = "bg-slate-200 dark:bg-slate-800";
+                                        if (b.type === "ready" || b.type === "login" || b.type === "break_end") bgCls = "bg-emerald-500";
+                                        else if (b.type === "call_inbound" || b.type === "call_outbound" || b.type === "call_internal") bgCls = "bg-blue-500";
+                                        else if (b.type?.includes("transfer") || b.type === "call_pickup" || b.type === "call_forwarded" || b.type === "call_conference") bgCls = "bg-purple-500";
+                                        else if (b.type === "break_start" || b.type === "call_hold") bgCls = "bg-amber-500";
+                                        else if (b.type === "call_missed" || b.type === "call_missed_outbound" || b.type === "call_rejected") bgCls = "bg-rose-500";
+                                        return (
+                                          <div
+                                            key={bIdx}
+                                            style={{ width: b.width }}
+                                            title={b.label}
+                                            className={`${bgCls} h-full border-r border-white/20 last:border-r-0 transition-opacity hover:opacity-85`}
+                                          />
+                                        );
+                                      })}
+                                    </div>
+                                    <div className="flex items-center flex-wrap gap-4 mt-2 text-[10px] font-bold text-slate-500">
+                                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-emerald-500 inline-block" /> Login / Mesaide</span>
+                                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-blue-500 inline-block" /> Çağrıda (Gelen/Giden/Dahili)</span>
+                                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-purple-500 inline-block" /> Transfer / Çağrı Toplama / Yönlendirme</span>
+                                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-amber-500 inline-block" /> Mola / Bekletme (Hold)</span>
+                                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded bg-rose-500 inline-block" /> Cevapsız / Reddedilen</span>
+                                    </div>
+                                  </div>
+
+                                  {/* Detailed Chronological Event List Table */}
+                                  <div className="border border-slate-200/80 dark:border-slate-800 rounded-2xl overflow-hidden">
+                                    <div className="max-h-[300px] overflow-y-auto">
+                                      <table className="w-full text-left border-collapse text-xs">
+                                        <thead className="sticky top-0 bg-slate-50 dark:bg-slate-800 z-10">
+                                          <tr className="border-b border-slate-200 dark:border-slate-700">
+                                            <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Saat</th>
+                                            <th className="p-3 font-bold uppercase text-[10px] text-slate-500">İşlem Tipi</th>
+                                            <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Hareket Açıklaması</th>
+                                            <th className="p-3 font-bold uppercase text-[10px] text-slate-500">Detay / Numara / Hedef</th>
+                                            <th className="p-3 font-bold uppercase text-[10px] text-slate-500 text-center">Süre</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                          {filteredModalEvents.length === 0 ? (
+                                            <tr>
+                                              <td colSpan="5" className="p-6 text-center text-slate-400 font-semibold">
+                                                Seçilen filtreye uygun hareket kaydı bulunamadı.
+                                              </td>
+                                            </tr>
+                                          ) : (
+                                            filteredModalEvents.map((ev, i) => {
+                                              const st = getEventStyle(ev.type);
+                                              return (
+                                                <tr key={i} className="hover:bg-slate-50/60 dark:hover:bg-slate-800/40">
+                                                  <td className="p-3 font-black font-mono text-slate-800 dark:text-slate-200 whitespace-nowrap">{ev.time}</td>
+                                                  <td className="p-3 whitespace-nowrap">
+                                                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-extrabold border ${st.badge}`}>
+                                                      <span className={`w-1.5 h-1.5 rounded-full ${st.dot}`} />
+                                                      {st.tag}
+                                                    </span>
+                                                  </td>
+                                                  <td className="p-3 font-bold text-slate-800 dark:text-slate-200">{ev.description || ev.title}</td>
+                                                  <td className="p-3 font-semibold text-slate-600 dark:text-slate-400">{ev.detail}</td>
+                                                  <td className="p-3 text-center font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">{ev.duration_label || "-"}</td>
+                                                </tr>
+                                              );
+                                            })
+                                          )}
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+                                </>
+                              );
+                            })()}
                           </div>
                         </div>
                       )}

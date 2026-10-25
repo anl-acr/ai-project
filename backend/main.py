@@ -15009,18 +15009,36 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.5.7",
+        "version": "v2.5.8",
         "commit_hash": live_commit,
         "release_date": "25 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.5.7",
+                "version": "v2.5.8",
                 "commit_hash": live_commit,
                 "release_date": "25 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Temsilci Kronolojisi (Timeline) Detay Penceresinde İnteraktif Hareket Filtresi",
+                "summary": "Temsilci Kronolojisi detay penceresindeki metin tabanlı 'Gün İçi Kronolojik Hareket Özeti' alanı kaldırılarak yerine 'Tümü', 'Login / Logout', 'Molalar', 'Gelen Çağrılar', 'Giden Çağrılar', 'Cevapsız Çağrılar' ve 'Transfer / Diğer' seçeneklerinden oluşan hızlı hareket filtreleme çubuğu eklendi.",
+                "features": [
+                    {
+                        "title": "🔍 Adım Adım Hareket Akışı İçin Hızlı Kategori Filtresi",
+                        "desc": "Temsilci Kronolojisi detay penceresinde seçilen kategori veya kategorilere (Login/Logout, Molalar, Gelen Çağrılar, Giden Çağrılar, Cevapsız Çağrılar, Transfer/Diğer) göre Adım Adım Hareket Akışı kartları ve altındaki kronolojik hareket tablosu anlık olarak filtrelenir. 'Tümü' seçildiğinde tüm hareketler gösterilir."
+                    }
+                ],
+                "fixes": [
+                    "Görsel bütünlüğü bozan uzun metinli 'Gün İçi Kronolojik Hareket Özeti' kutusu kaldırıldı."
+                ]
+            },
+            {
+                "version": "v2.5.7",
+                "commit_hash": "3c6057f",
+                "release_date": "25 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Tüm Raporlarda Standart Gün.Ay.Yıl (GG.AA.YYYY) Tarih Formatı & Kuyruk ID Gösterim Sadeleştirmesi",
                 "summary": "Sistemdeki tüm rapor ekranlarında, detay pencerelerinde ve Excel dışa aktarma çıktılarında tarih gösterimleri standart Gün.Ay.Yıl (GG.AA.YYYY ve GG.AA.YYYY SS:DD:sn) formatına güncellendi. Kuyruk & Bekleme Analitiği Raporunda Kuyruk ID önündeki '#' ibaresi kaldırıldı.",
                 "features": [
