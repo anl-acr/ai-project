@@ -14465,18 +14465,50 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.5.3",
+        "version": "v2.5.4",
         "commit_hash": live_commit,
-        "release_date": "22 Ekim 2026",
+        "release_date": "25 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.5.3",
+                "version": "v2.5.4",
                 "commit_hash": live_commit,
-                "release_date": "22 Ekim 2026",
+                "release_date": "25 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "AI Kural & Senaryo Zorunlu Öncelik Motoru, Kuyruk Bazlı Otomatik Geri Arama, Masa Telefonu Tuşlamalı Yönlendirme & Canlı API Bütçe Panosu",
+                "summary": "Kural ve Senaryo Editörü'ndeki soru-cevap ve senaryo kurallarının sesli/yazılı tüm AI temsilcilerde en yüksek öncelikle uygulanması, Otomatik Geri Arama (Smart Callback) özelliğinin ACD Kuyruk içine taşınması, masa telefonlarından *21*/*67*/*61*/#21# tuşlamasıyla çift yönlü yönlendirme senkronizasyonu ve Operasyon & İzleme altına gerçek zamanlı API Bütçe & Tüketim Panosu eklendi.",
+                "features": [
+                    {
+                        "title": "🧠 AI Kural & Senaryo Editörü Zorunlu Öncelik Motoru ve Kural Düzenleme",
+                        "desc": "Kural ve Senaryo Editörü'ne girilen Soru-Cevap (FAQ), Karakter/Prompt ve Özel Yönlendirme kuralları ile Görsel Senaryo Akışı hem canlı sesli görüşmelerde hem de Ortak Gelen Kutusu (WhatsApp/Web/Sosyal Medya) kanallarında en yüksek öncelikli bilgi tabanı olarak derlendi; mevcut kuralları yerinde düzenleme (PUT /api/rules/{id}) desteği eklendi."
+                    },
+                    {
+                        "title": "🔄 Kuyruk Bazlı Otomatik Geri Arama (Per-Queue Smart Callback)",
+                        "desc": "Otomatik Geri Arama ayarları genel sistem ayarlarından çıkarılarak ACD Kuyruk Düzenleme penceresi içine taşındı; her kuyruk için bağımsız geri arama aktifliği, bekleme eşiği, maksimum deneme sayısı, öncelik ve dış hat seçimi sağlandı."
+                    },
+                    {
+                        "title": "☎️ Masa Telefonu Çağrı Yönlendirme Kodları (*21*, *67*, *61*, #21#) & Arayüz Senkronizasyonu",
+                        "desc": "Numara Planı'na Her Zaman, Meşgulde, Zaman Aşımında Yönlendirme ve İptal prefix kodları eklendi. Masa telefonundan tuşlanan yönlendirmelerin Kullanıcı Düzenleme > Yönlendirme sekmesine anında yansıması ve arayüzden iptal edilebilmesi sağlandı."
+                    },
+                    {
+                        "title": "💳 Gerçek Zamanlı API Bütçe & Tüketim Panosu ve Rol Yetki Hiyerarşisi",
+                        "desc": "Operasyon & İzleme menüsü altına son bakiye yükleme tarihinden itibaren gerçek birim maliyetleri ve canlı ElevenLabs karakter kotasını takip eden API Bütçe & Tüketim Panosu eklendi; Rol ve Yetki Tanımları ekranı sol menü mimarisiyle birebir uyumlu sekmeli yapıya kavuşturuldu."
+                    }
+                ],
+                "fixes": [
+                    "AI temsilcinin Kural ve Senaryo Editörü'nde tanımlı sorulara RAG PDF dökümanlarında bulamadığı için 'bilmiyorum' yanıtı vermesi sorunu tamamen giderildi.",
+                    "Kuralların hem PostgreSQL veritabanı hem de settings.json üzerinde çift yönlü yedekli çalışması sağlandı.",
+                    "API Bütçe ekranındaki geçmiş tüm zamanların toplamını gösteren hatalı hesaplama düzeltilerek yalnızca son yükleme sonrası gerçek kullanımın hesaplanması sağlandı."
+                ]
+            },
+            {
+                "version": "v2.5.3",
+                "commit_hash": "e6c4df3",
+                "release_date": "22 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "minor",
                 "title": "SIP Sızma (Toll-Fraud) Kalkanı, Fail2Ban Arayüz Yönetimi & Güvenli IP / Blok Beyaz Listesi",
                 "summary": "Dışarıdan gelen yetkisiz SIP INVITE sızma girişimlerine karşı çok katmanlı güvenlik kalkanı, arayüzdeki SIP şifresi ile Asterisk PJSIP tam senkronizasyonu, canlı Fail2Ban/UFW kontrolü ve Güvenli IP / CIDR Blok tanımlama altyapısı devreye alındı.",
                 "features": [

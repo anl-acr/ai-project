@@ -138,8 +138,13 @@
     - Multi-Tenant Heartbeat & Per-Tenant Remote Licensing: Client background worker (`backend/services/telemetry_worker.py`) iterates through ALL active tenants on the host, sending a multi-tenant telemetry payload (`tenants: [...]`) with shared `hardware_id` to `POST /api/v1/telemetry/heartbeat`. Central server evaluates per-tenant kill-switch and auto-renewal instructions, enabling independent remote suspension or license extension for individual tenants sharing the same physical or virtual server host.
     - **Central License Driven Read-Only Quotas & Offline License Key Activation Engine**: All 19 feature capacities (Yapay Zeka, Santral, Çağrı Akışları) are derived read-only from the signed cryptographic License Key (`Control Center` / `plan_tier`), rendering clean "Lisans Hakları & Canlı Kullanım" capacity cards. License Renewal Studio in `license_center` generates signed keys with embedded Base64 custom quotas (`AIDA-{TENANT}-{YYYYMMDD}-{HW8}-{SIG8}.{BASE64_QUOTAS}`). On the application server, users can activate offline licenses via **"🔑 Offline Key Yükle"** in `TenantManagementPanel.js`, **"📋 Panodan Yapıştır"** in Edit modals, or `<LicenseModal />`. Backend `POST /api/tenant/license/renew` and `update_tenant` verify HMAC signatures & machine binding (`HW-361B-F973`), decode Base64 custom quotas, update expiration dates, set tenant status to `active`, and instantly refresh all 19 feature capacities.
 
+## Mandatory Pre-Push Version & Changelog Update Rule
+- **EVERY TIME** before committing and pushing any code improvements, new features, or bug fixes to Git (`git commit` / `git push`), you **MUST** update the system version and changelog registry:
+  1. Increment the version number (e.g., `v2.5.4` -> `v2.5.5`, or add the latest changes into the active release entry) and update `release_date` inside `get_system_version_info()` (`GET /api/settings/version`) in [main.py](file:///Users/anilacar/ai-project/backend/main.py).
+  2. Record a clear, user-friendly Turkish summary of the new features (`features`) and bug fixes (`fixes`) at the top of the `changelog` list in [main.py](file:///Users/anilacar/ai-project/backend/main.py).
+  3. Update the fallback version string in [ChangelogPanel.js](file:///Users/anilacar/ai-project/frontend/components/settings/ChangelogPanel.js) so the UI and backend version stay 100% synchronized.
+- Never push changes to `origin main` without first updating the version & changelog registry.
+
 ## Automatic Project Memory Update Rule
 - Antigravity AI MUST automatically record all major architectural decisions, server deployment steps, environment configurations, PM2 process commands, key API ports, and troubleshooting insights directly into [AGENTS.md](file:///Users/anilacar/ai-project/.agents/AGENTS.md) as they are resolved during a task.
 - Do not wait for explicit user prompt to update memory when a critical workflow or server insight is discovered.
-
-
