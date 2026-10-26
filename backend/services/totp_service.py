@@ -531,3 +531,128 @@ async def send_2fa_email_otp(
     """
     return await _send_notification_email(cfg, channels_cfg, [clean_to], subject, html_body, plain_body)
 
+
+# ============================================================================
+# 4. WHATSAPP 2FA OTP ENGINE (User-Initiated "Giriş Kodu" & 24h Window Reply)
+# ============================================================================
+
+_WHATSAPP_OTP_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+def normalize_phone_last10(phone_str: str) -> str:
+    """Extracts the last 10 digits of a phone number (e.g. +90 507 123 45 67 -> 5071234567)."""
+    digits = "".join(ch for ch in str(phone_str or "") if ch.isdigit())
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def mask_phone_number(phone_str: str) -> str:
+    """Masks a phone number like 05071234567 -> 0507 *** ** 67."""
+    last10 = normalize_phone_last10(phone_str)
+    if len(last10) == 10:
+        return f"0{last10[:3]} *** ** {last10[-2:]}"
+    raw = str(phone_str or "").strip()
+    if len(raw) > 4:
+        return raw[:3] + "***" + raw[-2:]
+    return raw
+
+
+def generate_whatsapp_otp(keys: List[str], phone_str: str, ttl_seconds: int = 300) -> Dict[str, Any]:
+    """
+    Generates a 6-digit numeric WhatsApp OTP code valid for 5 minutes (300 seconds)
+    and indexes it under all provided keys (user_id, extension, last-10 phone digits)
+    so pre-generated 'Giriş Kodu' replies can be verified seamlessly at login time.
+    """
+    code = str(secrets.randbelow(900000) + 100000)
+    now = time.time()
+    last10 = normalize_phone_last10(phone_str)
+    all_keys = set()
+    for k in (keys or []):
+        ks = str(k or "").strip()
+        if ks:
+            all_keys.add(ks)
+    if last10:
+        all_keys.add(last10)
+
+    entry = {
+        "code": code,
+        "phone": str(phone_str or "").strip(),
+        "last10": last10,
+        "keys": list(all_keys),
+        "sent_at": now,
+        "expires_at": now + ttl_seconds
+    }
+    for k in all_keys:
+        _WHATSAPP_OTP_CACHE[k] = entry
+
+    return {
+        "code": code,
+        "expires_in": ttl_seconds,
+        "masked_phone": mask_phone_number(phone_str)
+    }
+
+
+def verify_whatsapp_otp(keys: List[str], code: str, consume: bool = True) -> bool:
+    """Verifies a 6-digit WhatsApp OTP code against any of the user's identifiers or phone digits."""
+    if not code:
+        return False
+    clean_code = "".join(ch for ch in str(code).strip() if ch.isdigit())
+    if len(clean_code) != 6:
+        return False
+
+    now = time.time()
+    candidate_keys = []
+    for k in (keys or []):
+        ks = str(k or "").strip()
+        if ks and ks not in candidate_keys:
+            candidate_keys.append(ks)
+        l10 = normalize_phone_last10(ks)
+        if len(l10) == 10 and l10 not in candidate_keys:
+            candidate_keys.append(l10)
+
+    for k in candidate_keys:
+        entry = _WHATSAPP_OTP_CACHE.get(k)
+        if not entry:
+            continue
+        if now > float(entry.get("expires_at", 0)):
+            for rk in entry.get("keys", [k]):
+                _WHATSAPP_OTP_CACHE.pop(rk, None)
+            continue
+        if hmac.compare_digest(str(entry.get("code", "")), clean_code):
+            if consume:
+                for rk in entry.get("keys", [k]):
+                    _WHATSAPP_OTP_CACHE.pop(rk, None)
+            return True
+    return False
+
+
+def format_whatsapp_2fa_message(user_name: str, otp_code: str, ttl_seconds: int = 300) -> str:
+    """Formats the WhatsApp 2FA verification message."""
+    minutes_valid = max(1, ttl_seconds // 60)
+    return (
+        f"🔐 *AIDA İki Faktörlü Doğrulama (2FA)*\n\n"
+        f"Merhaba *{user_name or 'Kullanıcı'}*,\n"
+        f"Sisteme güvenli giriş için tek kullanımlık doğrulama kodunuz:\n\n"
+        f"👉 *{otp_code}*\n\n"
+        f"⏱️ Bu kod *{minutes_valid} dakika ({ttl_seconds} saniye)* boyunca geçerlidir.\n"
+        f"Giriş ekranındaki 6 haneli doğrulama alanına bu kodu yazarak giriş yapabilirsiniz."
+    )
+
+
+def resolve_business_whatsapp_number(settings_db: dict, tenant_id: str = "tenant-default") -> str:
+    """Returns the active WhatsApp Business phone number (digits only, e.g. 908503607390)."""
+    channels = (settings_db or {}).get("channels", {})
+    wa_accounts = channels.get("whatsapp_accounts", [])
+    if isinstance(wa_accounts, list):
+        for acc in wa_accounts:
+            if not isinstance(acc, dict):
+                continue
+            if acc.get("enabled", True) and acc.get("display_phone"):
+                digits = "".join(ch for ch in str(acc.get("display_phone")) if ch.isdigit())
+                if len(digits) >= 10:
+                    if digits.startswith("0") and len(digits) == 11:
+                        return "9" + digits
+                    if len(digits) == 10:
+                        return "90" + digits
+                    return digits
+    return "908503607390"
+

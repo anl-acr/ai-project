@@ -13339,7 +13339,13 @@ from backend.services.totp_service import (
     generate_email_otp,
     verify_email_otp,
     send_2fa_email_otp,
-    mask_email_address
+    mask_email_address,
+    generate_whatsapp_otp,
+    verify_whatsapp_otp,
+    format_whatsapp_2fa_message,
+    mask_phone_number,
+    normalize_phone_last10,
+    resolve_business_whatsapp_number
 )
 
 class Verify2FASchema(BaseModel):
@@ -13347,6 +13353,7 @@ class Verify2FASchema(BaseModel):
     code: str
     method: Optional[str] = None
     secret: Optional[str] = None
+    phone: Optional[str] = None
 
 class Setup2FASchema(BaseModel):
     reset: Optional[bool] = False
@@ -13357,6 +13364,10 @@ class Setup2FASchema(BaseModel):
 class SendEmailOTPSchema(BaseModel):
     user_id: str
     email: Optional[str] = None
+
+class SendWhatsAppOTPSchema(BaseModel):
+    user_id: str
+    phone: Optional[str] = None
 
 def _find_disk_user_for_2fa(user_id: str) -> Optional[dict]:
     users = settings_db.get("users", [])
@@ -13394,6 +13405,8 @@ def _sync_user_2fa_to_db(user_dict: dict):
                     db_u.two_factor_secret = user_dict.get("two_factor_secret")
                 if "two_factor_enrolled" in user_dict:
                     db_u.two_factor_enrolled = bool(user_dict.get("two_factor_enrolled", False))
+                if "gsm_number" in user_dict and user_dict.get("gsm_number"):
+                    db_u.gsm_number = str(user_dict.get("gsm_number"))
                 session.commit()
     except Exception as e:
         print(f"[2FA DB Sync Notice]: {e}")
@@ -13422,6 +13435,8 @@ async def setup_2fa(
     if norm_method == "app":
         norm_method = "google_auth"
 
+    biz_wa = resolve_business_whatsapp_number(settings_db)
+
     # Support preview/new user creation inside UserSettings modal before saving
     if str(user_id).strip().lower() in ["new", "preview", "temp", "0"]:
         active_secret = secret if (secret and not reset) else generate_totp_secret()
@@ -13436,7 +13451,8 @@ async def setup_2fa(
             "enrolled": False,
             "method": norm_method,
             "email": acct,
-            "masked_email": mask_email_address(acct)
+            "masked_email": mask_email_address(acct),
+            "business_whatsapp_number": biz_wa
         }
 
     user = _find_disk_user_for_2fa(user_id)
@@ -13474,6 +13490,7 @@ async def setup_2fa(
     acct_label = str(email or user.get("email") or user.get("extension") or user.get("full_name") or user_id).strip()
     uri = build_otpauth_uri(active_secret, account_name=acct_label, issuer="AIDA", method=norm_method)
     qr_svg = generate_qr_svg_data_uri(uri)
+    user_gsm = user.get("gsm_number") or (user.get("follow_me", {}) or {}).get("mobile_number") or ""
 
     return {
         "status": "success",
@@ -13483,7 +13500,10 @@ async def setup_2fa(
         "enrolled": bool(user.get("two_factor_enrolled", False)),
         "method": user.get("two_factor_method") or norm_method,
         "email": user.get("email", ""),
-        "masked_email": mask_email_address(user.get("email", ""))
+        "masked_email": mask_email_address(user.get("email", "")),
+        "phone": user_gsm,
+        "masked_phone": mask_phone_number(user_gsm),
+        "business_whatsapp_number": biz_wa
     }
 
 @app.post("/api/auth/2fa/send-email-otp")
@@ -13545,6 +13565,67 @@ async def send_email_otp_endpoint(payload: SendEmailOTPSchema, request: Request)
         "expires_in": 180
     }
 
+@app.post("/api/auth/2fa/send-whatsapp-otp")
+@app.post("/auth/2fa/send-whatsapp-otp")
+async def send_whatsapp_otp_endpoint(payload: SendWhatsAppOTPSchema):
+    from backend.services.whatsapp_service import send_whatsapp_message
+    uid_str = str(payload.user_id or "").strip()
+
+    user = None if uid_str.lower() in ["new", "preview", "temp", "0"] else _find_disk_user_for_2fa(uid_str)
+    if not user and uid_str.lower() not in ["new", "preview", "temp", "0"]:
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            with SyncSessionLocal() as session:
+                if uid_str.isdigit():
+                    db_u = session.query(SystemUser).filter((SystemUser.id == int(uid_str)) | (SystemUser.extension == uid_str)).first()
+                else:
+                    db_u = session.query(SystemUser).filter((SystemUser.extension == uid_str) | (SystemUser.email == uid_str)).first()
+                if db_u:
+                    user = {c.name: getattr(db_u, c.name) for c in db_u.__table__.columns}
+        except Exception:
+            pass
+
+    user_gsm = ""
+    if user:
+        user_gsm = user.get("gsm_number") or (user.get("follow_me", {}) or {}).get("mobile_number") or ""
+    target_phone = str(payload.phone or user_gsm or "").strip()
+    last10 = normalize_phone_last10(target_phone)
+
+    if len(last10) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="Kullanıcıya tanımlı geçerli bir Cep Telefonu (GSM) numarası bulunamadı. Lütfen önce GSM numarası tanımlayın."
+        )
+
+    user_key = str(user.get("id")) if (user and user.get("id") is not None) else uid_str
+    ext_key = str(user.get("extension") or "") if user else ""
+    user_name = (user.get("full_name") or user.get("name") or f"{user.get('first_name', '')} {user.get('last_name', '')}".strip() or "Kullanıcı") if user else "Kullanıcı"
+
+    otp_info = generate_whatsapp_otp([user_key, uid_str, ext_key, last10], target_phone, ttl_seconds=300)
+    msg_text = format_whatsapp_2fa_message(user_name, otp_info["code"], ttl_seconds=300)
+    biz_wa = resolve_business_whatsapp_number(settings_db)
+
+    sent_ok = await send_whatsapp_message(target_phone, msg_text)
+    if sent_ok:
+        return {
+            "status": "success",
+            "sent_direct": True,
+            "message": f"5 dakika geçerli 6 haneli doğrulama kodu {otp_info['masked_phone']} numaralı WhatsApp hattına gönderildi.",
+            "masked_phone": otp_info["masked_phone"],
+            "business_whatsapp_number": biz_wa,
+            "expires_in": 300
+        }
+    else:
+        return {
+            "status": "success",
+            "sent_direct": False,
+            "message": f"24 saatlik ücretsiz WhatsApp penceresini açmak için lütfen WhatsApp üzerinden 'Giriş Kodu' mesajı gönderin.",
+            "masked_phone": otp_info["masked_phone"],
+            "business_whatsapp_number": biz_wa,
+            "expires_in": 300
+        }
+
 @app.post("/api/auth/verify_2fa")
 @app.post("/auth/verify_2fa")
 async def verify_2fa(payload: Verify2FASchema):
@@ -13558,6 +13639,10 @@ async def verify_2fa(payload: Verify2FASchema):
             if verify_email_otp(uid_str, code):
                 return {"status": "success", "message": "E-Posta 2FA doğrulama kodu onaylandı.", "enrolled": True}
             raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
+        elif req_method == "whatsapp":
+            if verify_whatsapp_otp([uid_str, str(payload.phone or "")], code):
+                return {"status": "success", "message": "WhatsApp 2FA doğrulama kodu onaylandı.", "enrolled": True}
+            raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş (5 dk) WhatsApp doğrulama kodu.")
         else:
             if not payload.secret:
                 raise HTTPException(status_code=400, detail="2FA kurulum anahtarı (secret) bulunamadı.")
@@ -13604,6 +13689,33 @@ async def verify_2fa(payload: Verify2FASchema):
                 "method": "email"
             }
         raise HTTPException(status_code=401, detail="Geçersiz veya süresi dolmuş E-Posta doğrulama kodu.")
+
+    if eff_method == "whatsapp":
+        user_gsm = user.get("gsm_number") or (user.get("follow_me", {}) or {}).get("mobile_number") or ""
+        candidate_keys = [
+            str(user.get("id") or ""),
+            uid_str,
+            str(user.get("extension") or ""),
+            str(user_gsm),
+            str(payload.phone or "")
+        ]
+        if verify_whatsapp_otp(candidate_keys, code):
+            user["two_factor_enrolled"] = True
+            user["two_factor_method"] = "whatsapp"
+            if payload.phone and not user.get("gsm_number"):
+                user["gsm_number"] = str(payload.phone).strip()
+            save_settings(settings_db)
+            _sync_user_2fa_to_db(user)
+            return {
+                "status": "success",
+                "message": "WhatsApp 2FA doğrulaması başarılı.",
+                "enrolled": True,
+                "method": "whatsapp"
+            }
+        raise HTTPException(
+            status_code=401,
+            detail="Geçersiz veya süresi dolmuş (5 dk) WhatsApp doğrulama kodu. Lütfen WhatsApp hattımıza 'Giriş Kodu' yazarak yeni kod alınız."
+        )
 
     # Google Authenticator / Microsoft Authenticator / TOTP App verification
     secret = payload.secret or user.get("two_factor_secret")
@@ -15473,18 +15585,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.0",
+        "version": "v2.6.1",
         "commit_hash": live_commit,
         "release_date": "26 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.0",
+                "version": "v2.6.1",
                 "commit_hash": live_commit,
                 "release_date": "26 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "WhatsApp 'Giriş Kodu' İki Faktörlü Doğrulama (Ücretsiz 24 Saat Penceresi & 5 Dk Geçerli Kod)",
+                "summary": "Kullanıcı WhatsApp hattımıza 'Giriş Kodu' mesajı gönderdiğinde sistem numarayı otomatik tanır ve 5 dakika (300 saniye) geçerli 6 haneli 2FA doğrulama kodunu %100 ücretsiz olarak yanıtlar.",
+                "features": [
+                    {
+                        "title": "💬 WhatsApp 'Giriş Kodu' ile %100 Ücretsiz 2FA",
+                        "desc": "Kullanıcı WhatsApp üzerinden sistem hattına 'Giriş Kodu' (veya '2FA') yazdığında Meta 24 saatlik ücretsiz müşteri hizmetleri penceresi açılır; sistem 5 dakika geçerli 6 haneli doğrulama kodunu üretip anında yanıtlar."
+                    },
+                    {
+                        "title": "🔐 4 Yöntemli 2FA Seçimi (E-Posta, WhatsApp, Google & Microsoft Authenticator)",
+                        "desc": "Kullanıcı Yönetimi > Özellikler, Temsilci Profili ve Giriş (Login) ekranlarına WhatsApp 2FA seçeneği, tek tıkla WhatsApp 'Giriş Kodu' bağlantısı ve test doğrulama akışı eklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.0",
+                "commit_hash": "4a7610c",
+                "release_date": "26 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Çok Yöntemli İki Faktörlü Doğrulama (2FA: E-Posta, Google Authenticator, Microsoft Authenticator)",
                 "summary": "Kullanıcı Yönetimi > Özellikler ve Temsilci Profili ekranlarına 2FA Aktif/Pasif kontrolü ile E-Posta (OTP), Google Authenticator ve Microsoft Authenticator yöntem seçimi, çevrimdışı QR Kod üretimi, manuel kurulum anahtarı ve ilk girişte cihaz eşleştirme akışı eklendi.",
                 "features": [

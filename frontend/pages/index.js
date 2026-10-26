@@ -603,6 +603,38 @@ export default function Home() {
     }
   };
 
+  const handleProfileSendTestWhatsAppOtp = async () => {
+    if (!currentUser) return;
+    const targetPhone = (gsmNumber || currentUser.gsm_number || currentUser.follow_me?.mobile_number || "").trim();
+    if (targetPhone.replace(/\D/g, "").length < 10) {
+      setTwoFactorStatusMsg({ type: "error", text: "Lütfen geçerli bir Cep Telefonu (GSM) numarası giriniz." });
+      return;
+    }
+    setTwoFactorEmailSending(true);
+    setTwoFactorStatusMsg(null);
+    try {
+      const protocol = typeof window !== "undefined" && window.location.protocol === "https:" ? "https:" : "http:";
+      const res = await fetch(`${protocol}//${backendHost}/api/auth/2fa/send-whatsapp-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: String(currentUser.id || currentUser.extension || "admin"),
+          phone: targetPhone
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setTwoFactorStatusMsg({ type: "success", text: data.message });
+      } else {
+        setTwoFactorStatusMsg({ type: "error", text: data.detail || "WhatsApp kodu gönderilemedi." });
+      }
+    } catch (e) {
+      setTwoFactorStatusMsg({ type: "error", text: "WhatsApp gönderim hatası: " + e.message });
+    } finally {
+      setTwoFactorEmailSending(false);
+    }
+  };
+
   const handleProfileVerify2faCode = async () => {
     if (!currentUser) return;
     const cleanCode = (twoFactorTestCode || "").replace(/\D/g, "");
@@ -621,7 +653,8 @@ export default function Home() {
           user_id: String(currentUser.id || currentUser.extension || "admin"),
           code: cleanCode,
           method: twoFactorMethod,
-          secret: twoFactorSecret || undefined
+          secret: twoFactorSecret || undefined,
+          phone: (gsmNumber || currentUser.gsm_number || currentUser.follow_me?.mobile_number || "").trim() || undefined
         })
       });
       const data = await res.json();
@@ -641,7 +674,7 @@ export default function Home() {
 
   useEffect(() => {
     if (settingsModalOpen && currentUser) {
-      setGsmNumber(currentUser.gsm_number || "");
+      setGsmNumber(currentUser.gsm_number || currentUser.follow_me?.mobile_number || "");
       setMobileTransferEnabled(currentUser.mobile_transfer_enabled || false);
       setTempThemeColor(getSafeThemeColor(currentUser.theme_color));
       
@@ -1117,6 +1150,7 @@ export default function Home() {
           method: normAdminMethod,
           enrolled: Boolean(activeAdminUser.two_factor_enrolled),
           email: activeAdminUser.email || "",
+          phone: activeAdminUser.gsm_number || activeAdminUser.follow_me?.mobile_number || "",
           full_name: activeAdminUser.full_name || "Sistem Yöneticisi"
         };
       }
@@ -1146,6 +1180,7 @@ export default function Home() {
           method: normMethod,
           enrolled: Boolean(foundUser.two_factor_enrolled),
           email: foundUser.email || "",
+          phone: foundUser.gsm_number || foundUser.follow_me?.mobile_number || "",
           full_name: foundUser.full_name || ""
         };
       }
@@ -2493,10 +2528,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.6.0 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.6.1 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
-            <span>{isSidebarCollapsed ? "v2.6.0" : "v2.6.0 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.6.1" : "v2.6.1 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -4173,9 +4208,10 @@ export default function Home() {
                           <label className="block text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-2">
                             2FA Doğrulama Yöntemi Seçiniz
                           </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             {[
                               { id: "email", title: "E-Posta (E-Mail)", desc: "E-posta adresinize 6 haneli kod gönderilir", icon: Mail },
+                              { id: "whatsapp", title: "WhatsApp (Giriş Kodu)", desc: "WhatsApp'a 'Giriş Kodu' yazıldığında 5 dk geçerli kod gelir", icon: Phone },
                               { id: "google_auth", title: "Google Authenticator", desc: "Google Authenticator ile 30 sn'lik kod", icon: Smartphone },
                               { id: "microsoft_auth", title: "Microsoft Authenticator", desc: "Microsoft Authenticator ile 30 sn'lik kod", icon: Key }
                             ].map((m) => {
@@ -4251,6 +4287,63 @@ export default function Home() {
                                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-bold disabled:opacity-50"
                               >
                                 {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Doğrula"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {twoFactorMethod === "whatsapp" && (
+                          <div className="p-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                              <div className="flex-1">
+                                <label className="block text-[9px] font-bold uppercase text-slate-400 mb-1">WhatsApp / GSM Numaranız</label>
+                                <input
+                                  type="text"
+                                  value={gsmNumber}
+                                  onChange={(e) => setGsmNumber(e.target.value)}
+                                  placeholder="Örn: 0532 123 45 67"
+                                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-semibold text-slate-800 dark:text-white outline-none"
+                                />
+                              </div>
+                              <div className="flex items-center gap-1.5 sm:mt-4">
+                                <a
+                                  href="https://wa.me/908503607390?text=Giri%C5%9F%20Kodu"
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold"
+                                >
+                                  WhatsApp Aç
+                                </a>
+                                <button
+                                  type="button"
+                                  onClick={handleProfileSendTestWhatsAppOtp}
+                                  disabled={twoFactorEmailSending}
+                                  className={`px-2.5 py-1.5 rounded-lg text-[10px] font-bold text-white flex items-center gap-1 disabled:opacity-50 ${bg} ${hover}`}
+                                >
+                                  <RefreshCw size={11} className={twoFactorEmailSending ? "animate-spin" : ""} />
+                                  {twoFactorEmailSending ? "..." : "Test Kodu"}
+                                </button>
+                              </div>
+                            </div>
+                            <p className="text-[10px] text-slate-500 leading-relaxed">
+                              WhatsApp üzerinden <strong>0850 360 7390</strong> hattımıza <strong>"Giriş Kodu"</strong> yazdığınızda 5 dakika geçerli 6 haneli kodunuz ücretsiz olarak yanıtlanır.
+                            </p>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="text"
+                                maxLength={6}
+                                value={twoFactorTestCode}
+                                onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                placeholder="WhatsApp'a gelen 6 haneli kodu girin"
+                                className="flex-1 px-2.5 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={handleProfileVerify2faCode}
+                                disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-white text-[10px] font-bold disabled:opacity-50"
+                              >
+                                {twoFactorVerifyLoading ? "..." : "Doğrula"}
                               </button>
                             </div>
                           </div>

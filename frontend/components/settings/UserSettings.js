@@ -713,6 +713,49 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
   };
 
+  const handleSendTestWhatsAppOtp = async () => {
+    const targetPhone = (followMeMobileNumber || editingUser?.gsm_number || "").trim();
+    const digits = targetPhone.replace(/\D/g, "");
+    if (digits.length < 10) {
+      setTwoFactorStatusMsg({
+        type: "error",
+        text: "Lütfen geçerli bir Cep Telefonu (GSM) numarası giriniz (Örn: 0532 123 45 67)."
+      });
+      return;
+    }
+    setTwoFactorEmailSending(true);
+    setTwoFactorStatusMsg(null);
+    try {
+      const res = await safeFetch(`/api/auth/2fa/send-whatsapp-otp`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: String(editingUser?.id || "preview"),
+          phone: targetPhone
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setTwoFactorStatusMsg({
+          type: "success",
+          text: data.message || "5 dakika geçerli 6 haneli WhatsApp doğrulama kodu oluşturuldu."
+        });
+      } else {
+        setTwoFactorStatusMsg({
+          type: "error",
+          text: data.detail || data.message || "WhatsApp doğrulama kodu gönderilemedi."
+        });
+      }
+    } catch (err) {
+      setTwoFactorStatusMsg({
+        type: "error",
+        text: "WhatsApp gönderim hatası: " + err.message
+      });
+    } finally {
+      setTwoFactorEmailSending(false);
+    }
+  };
+
   const handleVerifyTest2faCode = async () => {
     const cleanCode = (twoFactorTestCode || "").replace(/\D/g, "");
     if (cleanCode.length !== 6) {
@@ -732,7 +775,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
           user_id: String(editingUser?.id || "preview"),
           code: cleanCode,
           method: twoFactorMethod,
-          secret: twoFactorSecret || undefined
+          secret: twoFactorSecret || undefined,
+          phone: (followMeMobileNumber || editingUser?.gsm_number || "").trim() || undefined
         })
       });
       const data = await res.json();
@@ -2400,13 +2444,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 <label className="block text-xs font-bold text-slate-800 dark:text-white mb-2">
                                                     2FA Doğrulama Yöntemi Seçiniz
                                                 </label>
-                                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
                                                     {[
                                                         {
                                                             id: "email",
                                                             title: "E-Posta (E-Mail)",
                                                             desc: "Girişte e-posta adresine 6 haneli tek kullanımlık kod gönderilir",
                                                             icon: Mail
+                                                        },
+                                                        {
+                                                            id: "whatsapp",
+                                                            title: "WhatsApp (Giriş Kodu)",
+                                                            desc: "WhatsApp'a 'Giriş Kodu' yazıldığında 5 dk geçerli ücretsiz kod yanıtlanır",
+                                                            icon: PhoneCall
                                                         },
                                                         {
                                                             id: "google_auth",
@@ -2516,7 +2566,84 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                 </div>
                                             )}
 
-                                            {/* METHOD 2 & 3: GOOGLE / MICROSOFT AUTHENTICATOR QR & SECRET */}
+                                            {/* METHOD 2: WHATSAPP ("GİRİŞ KODU") DETAILS */}
+                                            {twoFactorMethod === "whatsapp" && (
+                                                <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3.5">
+                                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+                                                        <div className="flex items-center gap-2">
+                                                            <PhoneCall size={15} className={text} />
+                                                            <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                                WhatsApp İki Faktörlü Doğrulama ("Giriş Kodu" Sistemi)
+                                                            </span>
+                                                            <span className="px-2 py-0.5 rounded-full text-[9px] font-extrabold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                                                                %100 Ücretsiz • 5 Dk Geçerli
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+                                                        <div>
+                                                            <label className="block text-[10px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider mb-1">
+                                                                Kullanıcının WhatsApp / GSM Numarası
+                                                            </label>
+                                                            <input
+                                                                type="text"
+                                                                placeholder="Örn: 0532 123 45 67"
+                                                                value={followMeMobileNumber}
+                                                                onChange={(e) => setFollowMeMobileNumber(e.target.value)}
+                                                                className={`w-full text-xs font-semibold px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                                                            />
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <a
+                                                                href="https://wa.me/908503607390?text=Giri%C5%9F%20Kodu"
+                                                                target="_blank"
+                                                                rel="noreferrer"
+                                                                className="flex-1 px-3 py-2 rounded-lg text-[11px] font-bold text-center bg-emerald-600 hover:bg-emerald-500 text-white transition-all shadow-sm"
+                                                            >
+                                                                WhatsApp'ta "Giriş Kodu" Aç
+                                                            </a>
+                                                            <button
+                                                                type="button"
+                                                                onClick={handleSendTestWhatsAppOtp}
+                                                                disabled={twoFactorEmailSending || (followMeMobileNumber || "").replace(/\D/g, "").length < 10}
+                                                                className={`px-3 py-2 rounded-lg text-[11px] font-bold text-white transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50 ${bg} ${hover}`}
+                                                            >
+                                                                <RefreshCw size={12} className={twoFactorEmailSending ? "animate-spin" : ""} />
+                                                                {twoFactorEmailSending ? "Gönderiliyor..." : "Test Kodu Gönder"}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/70 border border-slate-200/70 dark:border-slate-800 text-[11px] text-slate-600 dark:text-slate-300 space-y-1 leading-relaxed">
+                                                        <div className="font-bold text-slate-800 dark:text-white">Nasıl Çalışır?</div>
+                                                        <p>1. Kullanıcı WhatsApp üzerinden sistem hattımıza (<strong>0850 360 7390</strong>) <strong>"Giriş Kodu"</strong> mesajı gönderir.</p>
+                                                        <p>2. Sistem numarayı otomatik tanır ve <strong>5 dakika (300 saniye)</strong> geçerli 6 haneli doğrulama kodunu anında ücretsiz yanıtlar.</p>
+                                                        <p>3. Kullanıcı sisteme girerken kullanıcı adı, şifre ve WhatsApp'a gelen 6 haneli kodu yazarak giriş yapar.</p>
+                                                    </div>
+
+                                                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                                        <input
+                                                            type="text"
+                                                            maxLength={6}
+                                                            value={twoFactorTestCode}
+                                                            onChange={(e) => setTwoFactorTestCode(e.target.value.replace(/\D/g, ""))}
+                                                            placeholder="WhatsApp'a gelen 6 haneli kodu test edin"
+                                                            className="flex-1 px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-mono tracking-widest text-slate-800 dark:text-white outline-none"
+                                                        />
+                                                        <button
+                                                            type="button"
+                                                            onClick={handleVerifyTest2faCode}
+                                                            disabled={twoFactorVerifyLoading || twoFactorTestCode.length !== 6}
+                                                            className="px-3.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 text-white text-[11px] font-bold transition-all disabled:opacity-50 shrink-0"
+                                                        >
+                                                            {twoFactorVerifyLoading ? "Doğrulanıyor..." : "Kodu Test Et & Onayla"}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* METHOD 3 & 4: GOOGLE / MICROSOFT AUTHENTICATOR QR & SECRET */}
                                             {(twoFactorMethod === "google_auth" || twoFactorMethod === "microsoft_auth" || twoFactorMethod === "app") && (
                                                 <div className="p-4 rounded-xl bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3.5">
                                                     <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">

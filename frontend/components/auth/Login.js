@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, ShieldCheck } from "lucide-react";
+import { Lock, Mail, ArrowRight, BrainCircuit, User, Smartphone, KeyRound, RefreshCw, Copy, Check, PhoneCall } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl } from "../../utils/apiHost";
 
@@ -18,6 +18,7 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const [twoFactorMethod, setTwoFactorMethod] = useState("google_auth");
   const [twoFactorEnrolled, setTwoFactorEnrolled] = useState(true);
   const [twoFactorEmail, setTwoFactorEmail] = useState("");
+  const [twoFactorPhone, setTwoFactorPhone] = useState("");
   const [twoFactorMaskedEmail, setTwoFactorMaskedEmail] = useState("");
   const [twoFactorQrSvg, setTwoFactorQrSvg] = useState("");
   const [twoFactorSecret, setTwoFactorSecret] = useState("");
@@ -70,6 +71,33 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
     }
   };
 
+  const triggerSendWhatsAppOtp = async (uid, phoneStr) => {
+    setEmailSending(true);
+    setTwoFactorError("");
+    setTwoFactorInfo("");
+    try {
+      const res = await fetch(resolveApiUrl("/api/auth/2fa/send-whatsapp-otp"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: String(uid),
+          phone: phoneStr || undefined
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.status === "success") {
+        setEmailCountdown(Number(data.expires_in) || 300);
+        setTwoFactorInfo(data.message || "5 dakika geçerli 6 haneli doğrulama kodu WhatsApp hattınıza gönderildi.");
+      } else {
+        setTwoFactorError(data.detail || data.message || "WhatsApp doğrulama kodu gönderilemedi.");
+      }
+    } catch (err) {
+      setTwoFactorError("WhatsApp servisi ile iletişim kurulamadı.");
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
   const fetchAuthenticatorSetup = async (uid, methodType) => {
     setSetupLoading(true);
     try {
@@ -108,7 +136,8 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
             user_id: String(twoFactorUserId),
             code: cleanCode,
             method: twoFactorMethod,
-            secret: twoFactorSecret || undefined
+            secret: twoFactorSecret || undefined,
+            phone: twoFactorPhone || undefined
           })
         });
         const data = await res.json();
@@ -141,10 +170,15 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
         setTwoFactorMethod(normMethod);
         setTwoFactorEnrolled(isEnrolled);
         setTwoFactorEmail(result.email || "");
+        setTwoFactorPhone(result.phone || "");
 
         if (normMethod === "email") {
           setShowQrSetup(false);
           triggerSendEmailOtp(result.user_id, result.email);
+        } else if (normMethod === "whatsapp") {
+          // Do not overwrite pre-generated WhatsApp 'Giriş Kodu' automatically!
+          setShowQrSetup(false);
+          setEmailCountdown(0);
         } else {
           if (!isEnrolled) {
             setShowQrSetup(true);
@@ -167,6 +201,8 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
   const methodTitle =
     twoFactorMethod === "email"
       ? "E-Posta İki Aşamalı Doğrulama"
+      : twoFactorMethod === "whatsapp"
+      ? "WhatsApp İki Aşamalı Doğrulama"
       : twoFactorMethod === "microsoft_auth"
       ? "Microsoft Authenticator Doğrulaması"
       : "Google Authenticator Doğrulaması";
@@ -269,6 +305,8 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   <div className="w-14 h-14 rounded-2xl bg-indigo-100 dark:bg-indigo-900/30 flex items-center justify-center mx-auto mb-2.5 text-indigo-600 dark:text-indigo-400">
                     {twoFactorMethod === "email" ? (
                       <Mail size={26} />
+                    ) : twoFactorMethod === "whatsapp" ? (
+                      <PhoneCall size={26} />
                     ) : twoFactorMethod === "microsoft_auth" ? (
                       <KeyRound size={26} />
                     ) : (
@@ -279,6 +317,8 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
                     {twoFactorMethod === "email"
                       ? `${twoFactorMaskedEmail || "E-posta"} adresinize gönderilen 6 haneli doğrulama kodunu girin.`
+                      : twoFactorMethod === "whatsapp"
+                      ? "WhatsApp hattımıza 'Giriş Kodu' yazarak aldığınız (5 dakika geçerli) 6 haneli doğrulama kodunu girin."
                       : showQrSetup
                       ? `İlk girişiniz için ${twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator" : "Google Authenticator"} uygulamasından QR kodu okutup 6 haneli kodu girin.`
                       : `Lütfen ${twoFactorMethod === "microsoft_auth" ? "Microsoft Authenticator" : "Google Authenticator"} uygulamasındaki 6 haneli kodu girin.`}
@@ -297,8 +337,41 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   </div>
                 )}
 
+                {/* WHATSAPP "GİRİŞ KODU" HELPER BOX */}
+                {twoFactorMethod === "whatsapp" && (
+                  <div className="p-3 rounded-2xl bg-emerald-50/80 dark:bg-emerald-950/30 border border-emerald-200/80 dark:border-emerald-800/60 space-y-2.5">
+                    <div className="text-[11px] text-emerald-800 dark:text-emerald-200 text-center leading-relaxed">
+                      Henüz kod almadıysanız WhatsApp üzerinden <strong>0850 360 7390</strong> hattımıza <strong>"Giriş Kodu"</strong> mesajı gönderin:
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href="https://wa.me/908503607390?text=Giri%C5%9F%20Kodu"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex-1 py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold text-center transition-all shadow-sm"
+                      >
+                        WhatsApp'ta "Giriş Kodu" Gönder
+                      </a>
+                      <button
+                        type="button"
+                        disabled={emailSending}
+                        onClick={() => triggerSendWhatsAppOtp(twoFactorUserId, twoFactorPhone)}
+                        className="py-2 px-3 rounded-xl bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 text-xs font-bold flex items-center gap-1 shrink-0 disabled:opacity-50"
+                      >
+                        <RefreshCw size={12} className={emailSending ? "animate-spin" : ""} />
+                        {emailSending ? "..." : "Kodu İste"}
+                      </button>
+                    </div>
+                    {emailCountdown > 0 && (
+                      <div className="text-[10px] font-bold text-emerald-700 dark:text-emerald-300 text-center">
+                        Kod Geçerlilik Süresi: {formatCountdown(emailCountdown)}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* FIRST-LOGIN QR CODE SETUP CARD FOR GOOGLE / MICROSOFT AUTHENTICATOR */}
-                {twoFactorMethod !== "email" && showQrSetup && (
+                {twoFactorMethod !== "email" && twoFactorMethod !== "whatsapp" && showQrSetup && (
                   <div className="p-3.5 rounded-2xl bg-white/80 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 space-y-3">
                     <div className="flex flex-col items-center gap-2.5">
                       <div className="w-36 h-36 rounded-xl border-2 border-slate-200 dark:border-slate-800 bg-white p-2 flex items-center justify-center shadow-sm">
@@ -370,8 +443,8 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                   </div>
                 )}
 
-                {/* Authenticator Helper Links (Show QR or Switch to Email Fallback) */}
-                {twoFactorMethod !== "email" && (
+                {/* Authenticator Helper Links (Show QR or Switch to WhatsApp/Email Fallback) */}
+                {twoFactorMethod !== "email" && twoFactorMethod !== "whatsapp" && (
                   <div className="flex flex-col items-center gap-1.5 pt-1">
                     {!showQrSetup && (
                       <button
@@ -383,6 +456,21 @@ export default function Login({ onLogin, onComplete2FA, error, backendHost }) {
                         className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline"
                       >
                         Henüz eşleştirmediniz mi? QR Kurulum Kodunu Göster
+                      </button>
+                    )}
+                    {twoFactorPhone && twoFactorPhone.replace(/\D/g, "").length >= 10 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTwoFactorMethod("whatsapp");
+                          setShowQrSetup(false);
+                          setTwoFactorCode("");
+                          setTwoFactorError("");
+                          setTwoFactorInfo("");
+                        }}
+                        className="text-[11px] font-medium text-emerald-600 dark:text-emerald-400 hover:underline transition-colors"
+                      >
+                        WhatsApp "Giriş Kodu" ile Doğrula
                       </button>
                     )}
                     {twoFactorEmail && twoFactorEmail.includes("@") && !twoFactorEmail.endsWith("@localhost") && (

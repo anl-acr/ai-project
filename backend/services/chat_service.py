@@ -81,6 +81,79 @@ async def handle_inbound_chat_message(channel: str, sender_info: str, text: str,
                 print(f"[Abuse Shield] Ignored message from blacklisted sender: {sender_info}")
                 return "Görüşmeniz suistimal tespiti nedeniyle sistem tarafından otomatik olarak sonlandırılmıştır."
 
+            # --- WHATSAPP 2FA "GİRİŞ KODU" INTERCEPTOR (5-Minute Pre-Generated OTP) ---
+            if str(channel or "").lower() == "whatsapp":
+                raw_norm = str(text or "").strip().lower()
+                tr_map = str.maketrans("ığüşöçİĞÜŞÖÇ", "igusocigusoc")
+                clean_cmd = re.sub(r"[^a-z0-9\s]", "", raw_norm.translate(tr_map)).strip()
+                clean_cmd = re.sub(r"\s+", " ", clean_cmd)
+                explicit_2fa_cmds = {"giris kodu", "giriskodu", "2fa", "2fa kodu", "2fa kod", "dogrulama kodu", "login kodu"}
+                short_2fa_cmds = {"kod", "giris"}
+
+                if clean_cmd in explicit_2fa_cmds or clean_cmd in short_2fa_cmds:
+                    from backend.database.models import SystemUser
+                    from backend.main import settings_db, add_system_log
+                    from backend.services.totp_service import (
+                        normalize_phone_last10,
+                        generate_whatsapp_otp,
+                        format_whatsapp_2fa_message
+                    )
+                    from backend.services.whatsapp_service import send_whatsapp_message
+
+                    sender_last10 = normalize_phone_last10(sender_info)
+                    matched_keys = [sender_last10] if sender_last10 else []
+                    matched_user_name = None
+
+                    if len(sender_last10) == 10:
+                        # 1. Check PostgreSQL SystemUser records
+                        stmt_users = select(SystemUser)
+                        res_users = await session.execute(stmt_users)
+                        for su in res_users.scalars().all():
+                            u_gsm = normalize_phone_last10(getattr(su, "gsm_number", "") or "")
+                            fm = getattr(su, "follow_me", None)
+                            u_fm = normalize_phone_last10(fm.get("mobile_number", "") if isinstance(fm, dict) else "")
+                            if sender_last10 in (u_gsm, u_fm):
+                                matched_keys.append(str(su.id))
+                                if su.extension:
+                                    matched_keys.append(str(su.extension))
+                                if not matched_user_name:
+                                    matched_user_name = f"{su.first_name or ''} {su.last_name or ''}".strip() or su.extension
+
+                        # 2. Check settings_db["users"] fallback
+                        for u_dict in settings_db.get("users", []):
+                            if not isinstance(u_dict, dict):
+                                continue
+                            d_gsm = normalize_phone_last10(u_dict.get("gsm_number") or "")
+                            d_fm_obj = u_dict.get("follow_me")
+                            d_fm = normalize_phone_last10(d_fm_obj.get("mobile_number", "") if isinstance(d_fm_obj, dict) else "")
+                            if sender_last10 in (d_gsm, d_fm):
+                                if u_dict.get("id") is not None:
+                                    matched_keys.append(str(u_dict.get("id")))
+                                if u_dict.get("extension"):
+                                    matched_keys.append(str(u_dict.get("extension")))
+                                if not matched_user_name:
+                                    matched_user_name = f"{u_dict.get('first_name', '')} {u_dict.get('last_name', '')}".strip() or u_dict.get("extension")
+
+                    if matched_user_name:
+                        otp_info = generate_whatsapp_otp(matched_keys, sender_info, ttl_seconds=300)
+                        reply_msg = format_whatsapp_2fa_message(matched_user_name, otp_info["code"], ttl_seconds=300)
+                        await send_whatsapp_message(sender_info, reply_msg, phone_number_id=recipient_phone_id)
+                        add_system_log(
+                            "SECURITY",
+                            "INFO",
+                            f"WhatsApp 'Giriş Kodu' talebi karşılandı: {matched_user_name} ({sender_info}) için 5 dk geçerli 2FA kodu gönderildi."
+                        )
+                        return reply_msg
+                    elif clean_cmd in explicit_2fa_cmds:
+                        no_user_msg = (
+                            "🔐 *AIDA İki Faktörlü Doğrulama (2FA)*\n\n"
+                            "Bu telefon numarası ile eşleşen bir AIDA kullanıcı hesabı bulunamadı.\n"
+                            "Lütfen *Kullanıcı Yönetimi > Özellikler > İki Aşamalı Doğrulama (WhatsApp)* "
+                            "alanından cep telefonu numaranızın tanımlı olduğundan emin olunuz."
+                        )
+                        await send_whatsapp_message(sender_info, no_user_msg, phone_number_id=recipient_phone_id)
+                        return no_user_msg
+
             # Check block words match on incoming text
             stmt_bw = select(BlockWord)
             res_bw = await session.execute(stmt_bw)
