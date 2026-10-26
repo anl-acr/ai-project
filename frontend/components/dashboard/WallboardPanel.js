@@ -452,8 +452,8 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
       {/* Full Width Wallboard Content */}
       <div className="w-full space-y-6">
         
-        {/* Primary Wallboard Statistics Grid (5 KPI Cards) */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+        {/* Primary Wallboard Statistics Grid (6 KPI Cards) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           
           {/* Card 1: Queue Callers (Sırada Bekleyen) */}
           <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
@@ -485,7 +485,24 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
             <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-violet-500 to-indigo-500" />
           </div>
 
-          {/* Card 3: Available Agents (Müsait) */}
+          {/* Card 3: Service Level & Wait Time (Servis Seviyesi / SL) */}
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">SERVİS SEVİYESİ</span>
+              <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-xl">
+                <Clock size={14} />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5 justify-between">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">{serviceLevel}%</span>
+              <span className="text-[8px] font-extrabold text-slate-450 dark:text-slate-500 uppercase bg-slate-50 dark:bg-slate-950/50 px-1.5 py-0.5 rounded border border-slate-100 dark:border-slate-850/60 shrink-0">
+                {avgHoldTime}s
+              </span>
+            </div>
+            <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 to-orange-500" />
+          </div>
+
+          {/* Card 4: Available Agents (Müsait) */}
           <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
             <div className="flex items-center justify-between">
               <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">MÜSAİT</span>
@@ -500,7 +517,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
             <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
           </div>
 
-          {/* Card 4: Busy / On Call Agents (Meşgul) */}
+          {/* Card 5: Busy / On Call Agents (Meşgul) */}
           <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
             <div className="flex items-center justify-between">
               <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">MEŞGUL</span>
@@ -515,11 +532,11 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
             <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-indigo-500 to-blue-500" />
           </div>
 
-          {/* Card 5: On Break Agents (Molada) */}
+          {/* Card 6: On Break Agents (Molada) */}
           <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
             <div className="flex items-center justify-between">
               <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">MOLADA</span>
-              <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-xl">
+              <div className="p-2 bg-orange-50 dark:bg-orange-950/20 text-orange-500 rounded-xl">
                 <Clock size={14} />
               </div>
             </div>
@@ -527,7 +544,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
               <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">{breakCount}</span>
               <span className="text-[9px] font-bold text-slate-400 uppercase">Temsilci</span>
             </div>
-            <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 to-orange-500" />
+            <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-orange-500 to-amber-500" />
           </div>
 
         </div>

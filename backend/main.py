@@ -16713,18 +16713,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.5",
+        "version": "v2.6.6",
         "commit_hash": live_commit,
         "release_date": "26 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.5",
+                "version": "v2.6.6",
                 "commit_hash": live_commit,
                 "release_date": "26 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Canlı İzleme Paneli (Wallboard) Servis Seviyesi (SL) Kartı Eklemesi (6'lı KPI Satırı)",
+                "summary": "Canlı İzleme Paneli üst KPI satırına Servis Seviyesi (SL %) ve ortalama bekleme süresi kutucuğu tekrar eklendi (Sırada Bekleyen, AI Başarılı Çözüm, Servis Seviyesi, Müsait, Meşgul, Molada).",
+                "features": [
+                    {
+                        "title": "📈 Servis Seviyesi (SL %) & Bekleme Süresi Kartı",
+                        "desc": "Canlı İzleme Paneli üst özet satırında Sırada Bekleyen, AI Başarılı Çözüm, Servis Seviyesi (SL %), Müsait, Meşgul ve Molada olmak üzere 6 kutucuk yan yana gösterilir."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.5",
+                "commit_hash": "2068fa2",
+                "release_date": "26 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Canlı İzleme Paneli (Wallboard) Tam Genişlik Düzeni & Müsait / Meşgul / Molada Özet Kartları",
                 "summary": "Canlı İzleme Paneli'nden Hedef & Eşik Durumu, Çağrı Olay Günlüğü ve Canlı Santral Trafik Akışı panelleri kaldırıldı; Sırada Bekleyen ve AI Başarılı Çözüm kartlarının yanına Müsait, Meşgul ve Molada kartları eklendi, Temsilci & AI Çağrı Meşguliyet Durumları alanı tam genişliğe çıkarıldı.",
                 "features": [
