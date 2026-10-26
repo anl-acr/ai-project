@@ -605,6 +605,7 @@ password={pwd}
     num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
     pickup_cfg = num_plan.get("call_pickup", {}) if isinstance(num_plan.get("call_pickup"), dict) else {}
     fwd_cfg = num_plan.get("call_forwarding", {}) if isinstance(num_plan.get("call_forwarding"), dict) else {}
+    mon_cfg = num_plan.get("call_monitoring", {}) if isinstance(num_plan.get("call_monitoring"), dict) else {}
 
     pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
     pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
@@ -615,17 +616,50 @@ password={pwd}
     fwd_noans_pfx = str(fwd_cfg.get("no_answer") or "*61*").strip() or "*61*"
     fwd_cancel_pfx = str(fwd_cfg.get("cancel") or "#21#").strip() or "#21#"
 
+    mon_listen_pfx = str(mon_cfg.get("listen") or "*551*").strip() or "*551*"
+    mon_whisper_pfx = str(mon_cfg.get("whisper") or "*552*").strip() or "*552*"
+    mon_barge_pfx = str(mon_cfg.get("barge") or "*553*").strip() or "*553*"
+
+    def _build_chanspy_exten(pat_str: str, mode_str: str, comment_str: str) -> str:
+        return f"""; {comment_str} ({pat_str})
+exten => {pat_str},1,NoOp(Masa Telefonu Canli Cagri Izleme [{mode_str}]: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(SPY_RES=${{CURL(http://127.0.0.1:8000/api/calls/resolve_chanspy?caller=${{URIENCODE(${{CALLERID(num)}})}}&exten=${{URIENCODE(${{EXTEN}})}}&mode={mode_str}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Set(SPY_STATUS=${{CUT(SPY_RES,:,1)}})
+same => n,Set(SPY_CHAN=${{CUT(SPY_RES,:,2)}})
+same => n,Set(SPY_FLAGS=${{CUT(SPY_RES,:,3)}})
+same => n,GotoIf($["${{SPY_STATUS}}"="ALLOW"]?do_spy:deny_spy)
+same => n(do_spy),NoOp(ChanSpy Baslatiliyor: Kanal=${{SPY_CHAN}}, Bayraklar=${{SPY_FLAGS}})
+same => n,Answer()
+same => n,Wait(0.2)
+same => n,ChanSpy(${{SPY_CHAN}},${{SPY_FLAGS}})
+same => n,Hangup()
+same => n(deny_spy),NoOp(ChanSpy Reddedildi veya Aktif Cagri Yok: ${{SPY_RES}})
+same => n,Answer()
+same => n,Wait(0.2)
+same => n,Playback(beeperr)
+same => n,Hangup()
+"""
+
     def _build_feat_exten(pat_str: str, comment_str: str) -> str:
         return f"""; {comment_str} ({pat_str})
 exten => {pat_str},1,NoOp(Masa Telefonu Yonlendirme Kodu: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=3)
 same => n,Set(FEAT_RES=${{CURL(http://127.0.0.1:8000/api/subscriber/resolve_feature_code?caller=${{URIENCODE(${{CALLERID(num)}})}}&exten=${{URIENCODE(${{EXTEN}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,GotoIf($["${{CUT(FEAT_RES,:,1)}}"="CHANSPY"]?do_feat_spy)
 same => n,Answer()
 same => n,Wait(0.3)
 same => n,GotoIf($["${{FEAT_RES}}"="ACTIVATED"]?play_act)
 same => n,GotoIf($["${{FEAT_RES}}"="CANCELLED"]?play_canc)
 same => n,Playback(beeperr)
+same => n,Hangup()
+same => n(do_feat_spy),Set(SPY_CHAN=${{CUT(FEAT_RES,:,2)}})
+same => n,Set(SPY_FLAGS=${{CUT(FEAT_RES,:,3)}})
+same => n,Answer()
+same => n,Wait(0.2)
+same => n,ChanSpy(${{SPY_CHAN}},${{SPY_FLAGS}})
 same => n,Hangup()
 same => n(play_act),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_aktif)
 same => n,Hangup()
@@ -637,11 +671,27 @@ same => n,Hangup()
     feat_blocks = []
     seen_pats = set(reserved_pats)
 
+    def _add_chanspy_feat(pat: str, mode_str: str, label: str):
+        if not pat or pat in seen_pats:
+            return
+        seen_pats.add(pat)
+        feat_blocks.append(_build_chanspy_exten(pat, mode_str, label))
+
     def _add_feat(pat: str, label: str):
         if not pat or pat in seen_pats:
             return
         seen_pats.add(pat)
         feat_blocks.append(_build_feat_exten(pat, label))
+
+    for m_pfx, m_mode, m_lbl in [
+        (mon_listen_pfx, "listen", "Cagri Dinleme / Fisildama (ChanSpy Listen)"),
+        (mon_whisper_pfx, "whisper", "Sufle Verme (ChanSpy Whisper)"),
+        (mon_barge_pfx, "barge", "Araya Girme (ChanSpy Barge)"),
+    ]:
+        _add_chanspy_feat(f"_{m_pfx}.", m_mode, m_lbl)
+        if m_pfx.endswith("*") and len(m_pfx.rstrip("*")) >= 2:
+            _add_chanspy_feat(f"_{m_pfx.rstrip('*')}X.", m_mode, f"{m_lbl} (Alternatif)")
+        _add_chanspy_feat(m_pfx, m_mode, f"{m_lbl} (Genel AI/Aktif Cagri)")
 
     for pfx, lbl in [
         (fwd_always_pfx, "Her Zaman Yonlendirme"),

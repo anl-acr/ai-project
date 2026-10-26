@@ -15,11 +15,16 @@ import {
   Play,
   Pause,
   AlertCircle,
-  CheckCircle
+  CheckCircle,
+  Headphones,
+  Mic,
+  PhoneCall
 } from "lucide-react";
 import AddContactModal from "./AddContactModal";
+import { useTheme } from "../../utils/theme";
 
 export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [activeCalls, setActiveCalls] = useState([]);
   const [selectedCall, setSelectedCall] = useState(null);
   const [transcripts, setTranscripts] = useState([]);
@@ -36,8 +41,20 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   const [sendingWhisper, setSendingWhisper] = useState(false);
   const [hasWhisperPermission, setHasWhisperPermission] = useState(false);
   const [showAddContactModal, setShowAddContactModal] = useState(false);
-  
-  // Real-time system metrics (mocked but reactive to simulate live engine activity)
+
+  // Granular Call Monitoring Permissions & User Extension
+  const [currentUserExt, setCurrentUserExt] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
+  const [monitorPerms, setMonitorPerms] = useState({
+    listen: true,
+    whisper: true,
+    barge: true
+  });
+  const [openMenuCallId, setOpenMenuCallId] = useState(null);
+  const panelRef = useRef(null);
+  const whisperInputRef = useRef(null);
+
+  // Real-time system metrics
   const [metrics, setMetrics] = useState({
     cpu: 18,
     ram: 42,
@@ -46,6 +63,16 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
 
   const chatEndRef = useRef(null);
   const wsRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutside = (e) => {
+      if (panelRef.current && !panelRef.current.contains(e.target)) {
+        setOpenMenuCallId(null);
+      }
+    };
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, []);
 
   // Poll active calls from the Asterisk/FastAPI backend
   useEffect(() => {
@@ -97,45 +124,82 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
     return () => clearInterval(timer);
   }, [activeCalls, backendHost]);
 
-  // Check AI Whisperer permission on load
+  // Check AI Whisperer & Call Monitoring permissions on load
   useEffect(() => {
     const checkWhisperPermission = async () => {
       try {
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        const storedUserId = typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null;
         const resStatus = await fetch(`${protocol}//${backendHost}/api/agent/status`);
         const statusData = await resStatus.json();
-        
-        if (!statusData.is_logged_in) {
-          setHasWhisperPermission(true); // Allow by default for guest/admin if not logged in
+
+        const [resUsers, resRoles] = await Promise.all([
+          fetch(`${protocol}//${backendHost}/api/settings/users`),
+          fetch(`${protocol}//${backendHost}/api/settings/roles`)
+        ]);
+        const usersRaw = await resUsers.json();
+        const usersData = Array.isArray(usersRaw) ? usersRaw : (usersRaw?.users || []);
+        const rolesRaw = await resRoles.json();
+        const rolesData = Array.isArray(rolesRaw) ? rolesRaw : (rolesRaw?.roles || []);
+
+        const resolvedUid = storedUserId || (statusData.is_logged_in ? statusData.user_id : "admin");
+        setCurrentUserId(String(resolvedUid || "admin"));
+
+        if (String(resolvedUid).toLowerCase() === "admin") {
+          setHasWhisperPermission(true);
+          setMonitorPerms({ listen: true, whisper: true, barge: true });
           return;
         }
-        
-        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users`);
-        const usersData = await resUsers.json();
-        const currentUser = usersData.find(u => u.id === statusData.user_id);
+
+        const currentUser = usersData.find(
+          u => String(u.id) === String(resolvedUid) || String(u.extension) === String(resolvedUid)
+        );
         if (!currentUser) {
           setHasWhisperPermission(true);
+          setMonitorPerms({ listen: true, whisper: true, barge: true });
           return;
         }
 
-        const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
-        const rolesData = await resRoles.json();
-        const currentRole = rolesData.find(r => r.role_code === currentUser.role);
-        if (!currentRole) {
+        if (currentUser.extension) {
+          setCurrentUserExt(String(currentUser.extension));
+        }
+
+        const currentRole = rolesData.find(
+          r => String(r.role_code || "").toLowerCase() === String(currentUser.role || "").toLowerCase()
+        );
+        if (!currentRole || String(currentRole.role_code).toLowerCase() === "admin") {
           setHasWhisperPermission(true);
+          setMonitorPerms({ listen: true, whisper: true, barge: true });
           return;
         }
 
-        const hasAccess = currentRole.permissions.includes("ai_whisper:access");
-        setHasWhisperPermission(hasAccess);
+        const perms = Array.isArray(currentRole.permissions) ? currentRole.permissions : [];
+        const hasLegacyWhisper =
+          perms.includes("ai_whisper:access") ||
+          perms.includes("ai_whisper:write") ||
+          perms.includes("ai_whisper");
+
+        const canListen = perms.includes("call_monitor:listen") || perms.includes("ai_whisper:read") || hasLegacyWhisper;
+        const canWhisper = perms.includes("call_monitor:whisper") || hasLegacyWhisper;
+        const canBarge = perms.includes("call_monitor:barge") || hasLegacyWhisper;
+
+        setHasWhisperPermission(canWhisper || hasLegacyWhisper);
+        setMonitorPerms({
+          listen: canListen,
+          whisper: canWhisper,
+          barge: canBarge
+        });
       } catch (err) {
         console.error("Whisper permission check failed:", err);
-        setHasWhisperPermission(true); // Fallback to true on error so we don't break default setups
+        setHasWhisperPermission(true);
+        setMonitorPerms({ listen: true, whisper: true, barge: true });
       }
     };
 
     checkWhisperPermission();
   }, [backendHost]);
+
+  const canMonitorAny = monitorPerms.listen || monitorPerms.whisper || monitorPerms.barge;
 
   const handleSendWhisper = async (e) => {
     e.preventDefault();
@@ -153,7 +217,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccessMsg("Fısıltı AI'a başarıyla iletildi.");
+        setSuccessMsg("Sufle / Fısıltı AI'a başarıyla iletildi.");
         setWhisperText("");
       } else {
         setErrorMsg(data.detail || "Fısıltı gönderilemedi.");
@@ -289,23 +353,49 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
 
   const sentiment = getCallSentiment(transcripts);
 
-  // Trigger ChanSpy to listen to this call via supervisor extension 200
-  const handleChanSpy = async () => {
-    if (!selectedCall) return;
+  // Trigger ChanSpy (listen / whisper / barge) via user's extension
+  const handleChanSpy = async (mode = "listen", callObj = null) => {
+    const targetCall = callObj || selectedCall;
+    if (!targetCall) return;
+    if (callObj && (!selectedCall || selectedCall.id !== callObj.id)) {
+      setSelectedCall(callObj);
+    }
+    setOpenMenuCallId(null);
     setLoadingSpy(true);
     setErrorMsg("");
     setSuccessMsg("");
 
+    const modeLabels = {
+      barge: "Araya Girme (Barge-In)",
+      whisper: "Sufle Verme (Whisper)",
+      listen: "Fısıldama / Sessiz Dinleme"
+    };
+    const modeTitle = modeLabels[mode] || "Canlı Dinleme";
+
     try {
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-      const res = await fetch(`${protocol}//${backendHost}/api/calls/${selectedCall.id}/spy?agent_ext=200`, {
-        method: "POST"
+      const res = await fetch(`${protocol}//${backendHost}/api/calls/${encodeURIComponent(targetCall.id)}/spy`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": currentUserId || localStorage.getItem("current_user_id") || "admin"
+        },
+        body: JSON.stringify({
+          mode,
+          agent_ext: currentUserExt || undefined,
+          target_ext: targetCall.callee_number || undefined,
+          caller_number: targetCall.caller_number || undefined,
+          user_id: currentUserId || localStorage.getItem("current_user_id") || "admin"
+        })
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccessMsg("Canlı dinleme (ChanSpy) başlatıldı! Temsilci WebRTC telefonunuz çalacaktır, lütfen çağrıyı cevaplayın.");
+        setSuccessMsg(`${modeTitle} başlatıldı! WebPhone veya masa telefonunuz otomatik olarak çağrıya bağlanıyor.`);
+        if (mode === "whisper" && whisperInputRef.current) {
+          setTimeout(() => whisperInputRef.current?.focus(), 150);
+        }
       } else {
-        setErrorMsg(data.detail || "Canlı dinleme başlatılamadı.");
+        setErrorMsg(data.detail || `${modeTitle} başlatılamadı.`);
       }
     } catch (err) {
       setErrorMsg("Bağlantı hatası oluştu.");
@@ -342,7 +432,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
   };
 
   return (
-    <div className="w-full h-full flex flex-col gap-6">
+    <div ref={panelRef} className="w-full h-full flex flex-col gap-6">
 
       {/* Top Header Metrics (Agents vs Bot Performance) */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -433,30 +523,95 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto space-y-2.5">
-              {activeCalls.map((call) => (
-                <button
-                  key={call.id}
-                  onClick={() => setSelectedCall(call)}
-                  className={`w-full text-left p-4 rounded-xl border transition-all duration-200 flex flex-col gap-2 ${
-                    selectedCall?.id === call.id
-                      ? "bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-900/40 shadow-sm"
-                      : "bg-slate-50/50 dark:bg-slate-950/40 border-slate-200/50 dark:border-slate-850/65 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-100/50 dark:hover:bg-slate-955"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
-                      {call.caller_name ? `${call.caller_name} (${call.caller_number})` : call.caller_number}
-                    </span>
-                    <span className="text-[9px] font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-755 dark:text-purple-400 px-2 py-0.5 rounded border border-purple-200/50 dark:border-purple-900/50">
-                      Yapay Zeka
-                    </span>
+              {activeCalls.map((call) => {
+                const menuKey = `list-${call.id}`;
+                const isMenuOpen = openMenuCallId === menuKey;
+
+                return (
+                  <div
+                    key={call.id}
+                    onClick={() => setSelectedCall(call)}
+                    className={`w-full text-left p-4 rounded-xl border transition-all duration-200 flex flex-col gap-2 cursor-pointer relative ${
+                      selectedCall?.id === call.id
+                        ? "bg-purple-50 dark:bg-purple-950/20 border-purple-200 dark:border-purple-900/40 shadow-sm"
+                        : "bg-slate-50/50 dark:bg-slate-950/40 border-slate-200/50 dark:border-slate-850/65 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-100/50 dark:hover:bg-slate-955"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200 truncate">
+                        {call.caller_name ? `${call.caller_name} (${call.caller_number})` : call.caller_number}
+                      </span>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <span className="text-[9px] font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-755 dark:text-purple-400 px-2 py-0.5 rounded border border-purple-200/50 dark:border-purple-900/50">
+                          Yapay Zeka
+                        </span>
+
+                        {canMonitorAny && (
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setOpenMenuCallId(isMenuOpen ? null : menuKey);
+                              }}
+                              title="Dinleme / Müdahale Seçenekleri (Araya Gir - Sufle - Fısılda)"
+                              className={`h-6 w-6 rounded-lg border flex items-center justify-center transition-all ${
+                                isMenuOpen
+                                  ? `${bg} text-white border-transparent shadow-sm`
+                                  : `${lightBg} ${text} ${borderLight} hover:opacity-90`
+                              }`}
+                            >
+                              <Headphones size={12} />
+                            </button>
+
+                            {isMenuOpen && (
+                              <div
+                                onClick={(e) => e.stopPropagation()}
+                                className="absolute right-0 top-7 z-40 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 animate-in fade-in zoom-in-95 duration-150"
+                              >
+                                {monitorPerms.barge && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleChanSpy("barge", call)}
+                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                  >
+                                    <PhoneCall size={12} className="text-rose-500 shrink-0" />
+                                    <span>Araya Gir</span>
+                                  </button>
+                                )}
+                                {monitorPerms.whisper && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleChanSpy("whisper", call)}
+                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                  >
+                                    <Mic size={12} className="text-amber-500 shrink-0" />
+                                    <span>Sufle</span>
+                                  </button>
+                                )}
+                                {monitorPerms.listen && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleChanSpy("listen", call)}
+                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                  >
+                                    <Headphones size={12} className="text-indigo-500 shrink-0" />
+                                    <span>Fısılda</span>
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
+                      <span>DID: {call.callee_number}</span>
+                      <span>Kanal: {call.channel ? call.channel.split("/")[0] : "AudioSocket"}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
-                    <span>DID: {call.callee_number}</span>
-                    <span>Kanal: {call.channel ? call.channel.split("/")[0] : "AudioSocket"}</span>
-                  </div>
-                </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -495,10 +650,70 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                   </div>
                 </div>
 
-                {/* Call Sentiment pill */}
-                <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-bold ${sentiment.bg} ${sentiment.color}`}>
-                  {sentiment.icon}
-                  <span>Müşteri Hali: {sentiment.type}</span>
+                {/* Call Sentiment pill & Small Listen Dropdown Icon */}
+                <div className="flex items-center gap-2">
+                  <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-bold ${sentiment.bg} ${sentiment.color}`}>
+                    {sentiment.icon}
+                    <span>Müşteri Hali: {sentiment.type}</span>
+                  </div>
+
+                  {canMonitorAny && (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setOpenMenuCallId(openMenuCallId === "console-header" ? null : "console-header");
+                        }}
+                        title="Dinleme / Müdahale Seçenekleri (Araya Gir - Sufle - Fısılda)"
+                        className={`h-8 w-8 rounded-xl border flex items-center justify-center transition-all ${
+                          openMenuCallId === "console-header"
+                            ? `${bg} text-white border-transparent shadow-sm`
+                            : `${lightBg} ${text} ${borderLight} hover:opacity-90`
+                        }`}
+                      >
+                        <Headphones size={15} />
+                      </button>
+
+                      {openMenuCallId === "console-header" && (
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="absolute right-0 top-9 z-40 w-40 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 animate-in fade-in zoom-in-95 duration-150"
+                        >
+                          {monitorPerms.barge && (
+                            <button
+                              type="button"
+                              onClick={() => handleChanSpy("barge", selectedCall)}
+                              className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                            >
+                              <PhoneCall size={12} className="text-rose-500 shrink-0" />
+                              <span>Araya Gir</span>
+                            </button>
+                          )}
+                          {monitorPerms.whisper && (
+                            <button
+                              type="button"
+                              onClick={() => handleChanSpy("whisper", selectedCall)}
+                              className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                            >
+                              <Mic size={12} className="text-amber-500 shrink-0" />
+                              <span>Sufle</span>
+                            </button>
+                          )}
+                          {monitorPerms.listen && (
+                            <button
+                              type="button"
+                              onClick={() => handleChanSpy("listen", selectedCall)}
+                              className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                            >
+                              <Headphones size={12} className="text-indigo-500 shrink-0" />
+                              <span>Fısılda</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -517,20 +732,44 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
               )}
 
               {/* Console Action Bar */}
-              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/20 dark:bg-slate-950/20 flex flex-wrap gap-2.5">
-                <button
-                  onClick={handleChanSpy}
-                  disabled={loadingSpy}
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold shadow-md shadow-purple-500/10 transition duration-150"
-                >
-                  <Volume2 size={13} className="animate-bounce" />
-                  <span>{loadingSpy ? "Başlatılıyor..." : "Canlı Dinle (WebRTC)"}</span>
-                </button>
+              <div className="px-4 py-3 border-b border-slate-100 dark:border-slate-800/50 bg-slate-50/20 dark:bg-slate-950/20 flex flex-wrap gap-2">
+                {monitorPerms.listen && (
+                  <button
+                    onClick={() => handleChanSpy("listen", selectedCall)}
+                    disabled={loadingSpy}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold shadow-sm transition duration-150"
+                  >
+                    <Headphones size={13} />
+                    <span>{loadingSpy ? "Bağlanıyor..." : "Fısılda (Dinle)"}</span>
+                  </button>
+                )}
+
+                {monitorPerms.whisper && (
+                  <button
+                    onClick={() => handleChanSpy("whisper", selectedCall)}
+                    disabled={loadingSpy}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-white rounded-xl text-[11px] font-bold shadow-sm transition duration-150"
+                  >
+                    <Mic size={13} />
+                    <span>Sufle Ver</span>
+                  </button>
+                )}
+
+                {monitorPerms.barge && (
+                  <button
+                    onClick={() => handleChanSpy("barge", selectedCall)}
+                    disabled={loadingSpy}
+                    className={`flex items-center gap-1.5 px-3.5 py-2 ${bg} ${hover} disabled:opacity-50 text-white rounded-xl text-[11px] font-bold shadow-sm transition duration-150`}
+                  >
+                    <PhoneCall size={13} />
+                    <span>Araya Gir</span>
+                  </button>
+                )}
 
                 <button
                   onClick={handleTransfer}
                   disabled={loadingTransfer}
-                  className="flex items-center gap-2 px-4 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-[11px] font-bold shadow-sm transition duration-150"
+                  className="flex items-center gap-2 px-3.5 py-2 bg-white dark:bg-slate-850 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl text-[11px] font-bold shadow-sm transition duration-150"
                 >
                   <PhoneForwarded size={13} />
                   <span>{loadingTransfer ? "Aktarılıyor..." : "Temsilciye Yönlendir"}</span>
@@ -608,16 +847,17 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
               </div>
 
               {/* AI Whisperer Input Box */}
-              {hasWhisperPermission && (
+              {(hasWhisperPermission || monitorPerms.whisper) && (
                 <form onSubmit={handleSendWhisper} className="px-4 py-3.5 border-t border-slate-100 dark:border-slate-800 bg-primary/[0.02] dark:bg-primary/[0.01] flex flex-col gap-2">
                   <div className="flex items-center gap-1.5">
                     <span className="h-1.5 w-1.5 bg-primary rounded-full animate-ping"></span>
                     <span className="text-[10px] text-primary dark:text-amber-400 font-extrabold uppercase tracking-wider flex items-center gap-1">
-                      AI'a Fısılda (Canlı Prompt Müdahalesi)
+                      AI'a Sufle Ver / Fısılda (Canlı Prompt Müdahalesi)
                     </span>
                   </div>
                   <div className="flex gap-2">
                     <input
+                      ref={whisperInputRef}
                       type="text"
                       placeholder="Yapay zekanın bir sonraki cevabı için anlık yönlendirme yazın..."
                       value={whisperText}
@@ -630,7 +870,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
                       disabled={sendingWhisper || !whisperText.trim()}
                       className="px-3.5 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-450 hover:to-orange-450 text-white rounded-xl text-[11px] font-extrabold shadow-md shadow-amber-500/10 transition shrink-0 flex items-center gap-1 disabled:opacity-50"
                     >
-                      <span>{sendingWhisper ? "İletiliyor..." : "Fısılda"}</span>
+                      <span>{sendingWhisper ? "İletiliyor..." : "Sufle Gönder"}</span>
                     </button>
                   </div>
                 </form>

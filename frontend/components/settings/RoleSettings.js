@@ -1,7 +1,13 @@
 import React, { useState, useEffect } from "react";
-import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles } from "lucide-react";
+import { Plus, Trash2, Edit2, X, Shield, Search, Check, CheckCircle, Smartphone, Server, Coffee, User, Users, Terminal, HardDrive, Lock, Unlock, Eye, Edit3, Trash, GitBranch, Bot, MessageSquare, BookOpen, FileText, Cable, Fingerprint, Volume2, ArrowUpRight, PhoneCall, Network, Mail, RotateCcw, Activity, Monitor, Database, Sliders, Calendar, Clock, MapPin, Hash, Shuffle, Languages, Heart, Sparkles, Headphones, Mic } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
+
+export const CALL_MONITOR_PERMS = [
+  { id: "call_monitor:listen", name: "Fısıldama / Dinleme (Sessiz Dinle)" },
+  { id: "call_monitor:whisper", name: "Sufle Verme (Temsilciye / AI'a Fısılda)" },
+  { id: "call_monitor:barge", name: "Araya Girme (Çağrıya Dahil Ol)" }
+];
 
 export const CALL_PANEL_SUB_GROUPS = [
   {
@@ -84,6 +90,7 @@ const SYSTEM_FEATURES = [
   // 1. Operasyon ve İzleme
   { id: "dashboard", name: "Gerçek Zamanlı AI Pano", icon: Activity, type: "access", color: "purple" },
   { id: "wallboard", name: "Canlı İzleme Paneli", icon: Monitor, type: "access", color: "indigo" },
+  { id: "call_monitor", name: "Araya Girme, Sufle ve Fısıldama (Canlı Çağrı Müdahale)", icon: Headphones, type: "call_monitor", color: "amber" },
   { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: PhoneCall, type: "access", color: "emerald" },
   { id: "omnichannel", name: "Ortak Gelen Kutusu", icon: MessageSquare, type: "access", color: "purple" },
   { id: "api_budgets", name: "API Bütçe ve Tüketim", icon: Database, type: "crud_partial", color: "emerald" },
@@ -288,6 +295,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         const hasWrite = perms.includes(`${feat.id}:write`);
         if (hasRead) granted += 1;
         if (hasWrite) granted += 1;
+      } else if (feat.type === "call_monitor") {
+        total += 3;
+        if (perms.includes("call_monitor:listen")) granted += 1;
+        if (perms.includes("call_monitor:whisper")) granted += 1;
+        if (perms.includes("call_monitor:barge")) granted += 1;
       } else {
         total += 1;
         const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
@@ -354,7 +366,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "operations",
       name: "Operasyon ve İzleme",
       icon: Activity,
-      items: ["dashboard", "wallboard", "call_panel", "omnichannel", "api_budgets"]
+      items: ["dashboard", "wallboard", "call_monitor", "call_panel", "omnichannel", "api_budgets"]
     },
     {
       id: "ai",
@@ -448,6 +460,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         codes.push(`${feat.id}:read`, `${feat.id}:write`, `${feat.id}:delete`);
       } else if (feat.type === "crud_partial") {
         codes.push(`${feat.id}:read`, `${feat.id}:write`);
+      } else if (feat.type === "call_monitor") {
+        codes.push("call_monitor:listen", "call_monitor:whisper", "call_monitor:barge");
       } else {
         const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
         codes.push(accessKey);
@@ -1158,8 +1172,91 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                         <span>Erişim İzni</span>
                                       </button>
                                     )}
+
+                                    {feat.type === "call_monitor" && (
+                                      <>
+                                        {/* Fısıldama / Dinleme */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission("call_monitor:listen")}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes("call_monitor:listen")
+                                              ? `${lightBg} ${text} ${border}`
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Headphones size={10} />
+                                          <span>Fısıldama (Dinleme)</span>
+                                        </button>
+
+                                        {/* Sufle Verme */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission("call_monitor:whisper")}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes("call_monitor:whisper")
+                                              ? `${lightBg} ${text} ${border}`
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <Mic size={10} />
+                                          <span>Sufle Verme</span>
+                                        </button>
+
+                                        {/* Araya Girme */}
+                                        <button
+                                          type="button"
+                                          onClick={() => togglePermission("call_monitor:barge")}
+                                          className={`px-2.5 py-1.5 rounded-xl border text-[9px] font-bold transition-all flex items-center gap-1.5 ${
+                                            selectedPermissions.includes("call_monitor:barge")
+                                              ? `${lightBg} ${text} ${border}`
+                                              : "bg-white dark:bg-slate-900 text-slate-450 border-slate-200 dark:border-slate-800 hover:bg-slate-50"
+                                          }`}
+                                        >
+                                          <PhoneCall size={10} />
+                                          <span>Araya Girme</span>
+                                        </button>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
+
+                                {/* Nested Sub-Options for AI Fısıldama Yönetimi (ai_whisper) */}
+                                {feat.id === "ai_whisper" && (
+                                  <div className="mt-1 pt-3 border-t border-slate-200/70 dark:border-slate-800/80 space-y-2">
+                                    <span className="text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
+                                      Canlı Çağrı Müdahale Yetkileri (AI Temsilciler & İnsan Temsilciler)
+                                    </span>
+                                    <div className="flex flex-wrap gap-2">
+                                      {CALL_MONITOR_PERMS.map((monItem) => {
+                                        const isMonSelected = selectedPermissions.includes(monItem.id);
+                                        return (
+                                          <button
+                                            key={monItem.id}
+                                            type="button"
+                                            onClick={() => togglePermission(monItem.id)}
+                                            className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all flex items-center gap-1.5 text-left ${
+                                              isMonSelected
+                                                ? `${lightBg} ${text} ${border}`
+                                                : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                            }`}
+                                          >
+                                            <div
+                                              className={`w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 ${
+                                                isMonSelected
+                                                  ? `${bg} border-transparent text-white`
+                                                  : "border-slate-300 dark:border-slate-700"
+                                              }`}
+                                            >
+                                              {isMonSelected && <Check size={9} strokeWidth={3} />}
+                                            </div>
+                                            <span>{monItem.name}</span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Nested Sub-Options for Temsilci Çağrı Paneli (call_panel) */}
                                 {feat.id === "call_panel" && hasAccessSelected && (

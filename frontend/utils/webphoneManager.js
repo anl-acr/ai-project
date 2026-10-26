@@ -656,11 +656,22 @@ class WebphoneManager {
       destination: myExt
     });
 
+    const isChanSpyAutoAnswer =
+      rawDisplayName.toLowerCase().includes("canli dinleme") ||
+      rawDisplayName.toLowerCase().includes("canlı dinleme") ||
+      rawDisplayName.toLowerCase().includes("chanspy");
+
     if (typeof window !== "undefined") {
-      const selectedRingtone = localStorage.getItem("ringtone") || "classic";
-      const ringtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || null;
-      playRingtoneSound(selectedRingtone, ringtoneSpeaker);
-      window.dispatchEvent(new CustomEvent("INCOMING_WEBPHONE_CALL", { detail: callerNum }));
+      if (isChanSpyAutoAnswer) {
+        setTimeout(() => {
+          this.answerCall(lineId);
+        }, 120);
+      } else {
+        const selectedRingtone = localStorage.getItem("ringtone") || "classic";
+        const ringtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || null;
+        playRingtoneSound(selectedRingtone, ringtoneSpeaker);
+        window.dispatchEvent(new CustomEvent("INCOMING_WEBPHONE_CALL", { detail: callerNum }));
+      }
     }
 
     invite.stateChange.addListener((state) => {

@@ -164,6 +164,11 @@ class CallForwardingPrefixSchema(BaseModel):
     no_answer: str = "*61*"
     cancel: str = "#21#"
 
+class CallMonitoringPrefixSchema(BaseModel):
+    listen: str = "*551*"
+    whisper: str = "*552*"
+    barge: str = "*553*"
+
 class NumberingPlanSchema(BaseModel):
     extension_range: NumberingPlanRangeSchema
     queue_range: NumberingPlanRangeSchema
@@ -172,6 +177,7 @@ class NumberingPlanSchema(BaseModel):
     call_flow_range: NumberingPlanRangeSchema
     call_pickup: Optional[CallPickupPrefixSchema] = None
     call_forwarding: Optional[CallForwardingPrefixSchema] = None
+    call_monitoring: Optional[CallMonitoringPrefixSchema] = None
 
 class PBXSettingsSchema(BaseModel):
     ami_host: str
@@ -677,6 +683,11 @@ DEFAULT_SETTINGS = {
                 "busy": "*67*",
                 "no_answer": "*61*",
                 "cancel": "#21#"
+            },
+            "call_monitoring": {
+                "listen": "*551*",
+                "whisper": "*552*",
+                "barge": "*553*"
             }
         }
     },
@@ -888,6 +899,7 @@ DEFAULT_SETTINGS = {
             "permissions": [
                 # Operasyon & İzleme
                 "dashboard:access", "wallboard:access", "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
@@ -966,6 +978,7 @@ DEFAULT_SETTINGS = {
             "name": "Şef (Supervisor)",
             "permissions": [
                 "dashboard:access", "wallboard:access", "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
@@ -1203,7 +1216,7 @@ def load_settings():
                         new_perms.append(f"{feat}:delete")
 
             
-            # Auto assign wallboard, dialer, and call_flow to admin and supervisor if missing
+            # Auto assign wallboard, dialer, call_flow, and call_monitor to admin and supervisor if missing
             if r.get("role_code") in ["admin", "supervisor"]:
                 if "wallboard:access" not in new_perms:
                     new_perms.append("wallboard:access")
@@ -1215,6 +1228,12 @@ def load_settings():
                     new_perms.append("ai_agents:access")
                 if "ai_whisper:access" not in new_perms:
                     new_perms.append("ai_whisper:access")
+                if "call_monitor:listen" not in new_perms:
+                    new_perms.append("call_monitor:listen")
+                if "call_monitor:whisper" not in new_perms:
+                    new_perms.append("call_monitor:whisper")
+                if "call_monitor:barge" not in new_perms:
+                    new_perms.append("call_monitor:barge")
                 if "sip_debugger:access" not in new_perms:
                     new_perms.append("sip_debugger:access")
             
@@ -2604,6 +2623,7 @@ def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks
     num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
     pickup_cfg = num_plan.get("call_pickup", {}) if isinstance(num_plan.get("call_pickup"), dict) else {}
     fwd_cfg = num_plan.get("call_forwarding", {}) if isinstance(num_plan.get("call_forwarding"), dict) else {}
+    mon_cfg = num_plan.get("call_monitoring", {}) if isinstance(num_plan.get("call_monitoring"), dict) else {}
 
     pickup_group = str(pickup_cfg.get("group") or "*8").strip() or "*8"
     pickup_directed = str(pickup_cfg.get("directed") or "**").strip() or "**"
@@ -2614,17 +2634,50 @@ def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks
     fwd_noans_pfx = str(fwd_cfg.get("no_answer") or "*61*").strip() or "*61*"
     fwd_cancel_pfx = str(fwd_cfg.get("cancel") or "#21#").strip() or "#21#"
 
+    mon_listen_pfx = str(mon_cfg.get("listen") or "*551*").strip() or "*551*"
+    mon_whisper_pfx = str(mon_cfg.get("whisper") or "*552*").strip() or "*552*"
+    mon_barge_pfx = str(mon_cfg.get("barge") or "*553*").strip() or "*553*"
+
+    def _build_chanspy_exten(pat_str: str, mode_str: str, comment_str: str) -> str:
+        return f"""; {comment_str} ({pat_str})
+exten => {pat_str},1,NoOp(Masa Telefonu Canli Cagri Izleme [{mode_str}]: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=3)
+same => n,Set(SPY_RES=${{CURL(http://{backend_host}/api/calls/resolve_chanspy?caller=${{URIENCODE(${{CALLERID(num)}})}}&exten=${{URIENCODE(${{EXTEN}})}}&mode={mode_str}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,Set(SPY_STATUS=${{CUT(SPY_RES,:,1)}})
+same => n,Set(SPY_CHAN=${{CUT(SPY_RES,:,2)}})
+same => n,Set(SPY_FLAGS=${{CUT(SPY_RES,:,3)}})
+same => n,GotoIf($["${{SPY_STATUS}}"="ALLOW"]?do_spy:deny_spy)
+same => n(do_spy),NoOp(ChanSpy Baslatiliyor: Kanal=${{SPY_CHAN}}, Bayraklar=${{SPY_FLAGS}})
+same => n,Answer()
+same => n,Wait(0.2)
+same => n,ChanSpy(${{SPY_CHAN}},${{SPY_FLAGS}})
+same => n,Hangup()
+same => n(deny_spy),NoOp(ChanSpy Reddedildi veya Aktif Cagri Yok: ${{SPY_RES}})
+same => n,Answer()
+same => n,Wait(0.2)
+same => n,Playback(beeperr)
+same => n,Hangup()
+"""
+
     def _build_feat_exten(pat_str: str, comment_str: str) -> str:
         return f"""; {comment_str} ({pat_str})
 exten => {pat_str},1,NoOp(Masa Telefonu Yonlendirme Kodu: Arayan=${{CALLERID(num)}}, Kod=${{EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=3)
 same => n,Set(FEAT_RES=${{CURL(http://{backend_host}/api/subscriber/resolve_feature_code?caller=${{URIENCODE(${{CALLERID(num)}})}}&exten=${{URIENCODE(${{EXTEN}})}}&channel=${{URIENCODE(${{CHANNEL(name)}})}})}})
+same => n,GotoIf($["${{CUT(FEAT_RES,:,1)}}"="CHANSPY"]?do_feat_spy)
 same => n,Answer()
 same => n,Wait(0.3)
 same => n,GotoIf($["${{FEAT_RES}}"="ACTIVATED"]?play_act)
 same => n,GotoIf($["${{FEAT_RES}}"="CANCELLED"]?play_canc)
 same => n,Playback(beeperr)
+same => n,Hangup()
+same => n(do_feat_spy),Set(SPY_CHAN=${{CUT(FEAT_RES,:,2)}})
+same => n,Set(SPY_FLAGS=${{CUT(FEAT_RES,:,3)}})
+same => n,Answer()
+same => n,Wait(0.2)
+same => n,ChanSpy(${{SPY_CHAN}},${{SPY_FLAGS}})
 same => n,Hangup()
 same => n(play_act),Playback(/var/spool/asterisk/monitor/tr_yonlendirme_aktif)
 same => n,Hangup()
@@ -2636,11 +2689,27 @@ same => n,Hangup()
     feat_blocks = []
     seen_pats = set(reserved_pats)
 
+    def _add_chanspy_feat(pat: str, mode_str: str, label: str):
+        if not pat or pat in seen_pats:
+            return
+        seen_pats.add(pat)
+        feat_blocks.append(_build_chanspy_exten(pat, mode_str, label))
+
     def _add_feat(pat: str, label: str):
         if not pat or pat in seen_pats:
             return
         seen_pats.add(pat)
         feat_blocks.append(_build_feat_exten(pat, label))
+
+    for m_pfx, m_mode, m_lbl in [
+        (mon_listen_pfx, "listen", "Cagri Dinleme / Fisildama (ChanSpy Listen)"),
+        (mon_whisper_pfx, "whisper", "Sufle Verme (ChanSpy Whisper)"),
+        (mon_barge_pfx, "barge", "Araya Girme (ChanSpy Barge)"),
+    ]:
+        _add_chanspy_feat(f"_{m_pfx}.", m_mode, m_lbl)
+        if m_pfx.endswith("*") and len(m_pfx.rstrip("*")) >= 2:
+            _add_chanspy_feat(f"_{m_pfx.rstrip('*')}X.", m_mode, f"{m_lbl} (Alternatif)")
+        _add_chanspy_feat(m_pfx, m_mode, f"{m_lbl} (Genel AI/Aktif Cagri)")
 
     for pfx, lbl in [
         (fwd_always_pfx, "Her Zaman Yonlendirme"),
@@ -4511,6 +4580,12 @@ async def get_numbering_plan():
         for fk, fv in default_plan["call_forwarding"].items():
             if not merged["call_forwarding"].get(fk):
                 merged["call_forwarding"][fk] = fv
+    if not isinstance(merged.get("call_monitoring"), dict):
+        merged["call_monitoring"] = dict(default_plan["call_monitoring"])
+    else:
+        for mk, mv in default_plan["call_monitoring"].items():
+            if not merged["call_monitoring"].get(mk):
+                merged["call_monitoring"][mk] = mv
     return merged
 
 @app.post("/api/settings/numbering-plan")
@@ -5892,6 +5967,29 @@ async def resolve_subscriber_feature_code(
         p_busy = str(fwd_cfg.get("busy") or "*67*").strip() or "*67*"
         p_noans = str(fwd_cfg.get("no_answer") or "*61*").strip() or "*61*"
         p_cancel = str(fwd_cfg.get("cancel") or "#21#").strip() or "#21#"
+
+        # 0. Check if dialed string matches Call Monitoring (ChanSpy) prefixes (*551*, *552*, *553*)
+        mon_cfg = num_plan.get("call_monitoring", {}) if isinstance(num_plan.get("call_monitoring"), dict) else {}
+        mon_listen_pfx = str(mon_cfg.get("listen") or "*551*").strip() or "*551*"
+        mon_whisper_pfx = str(mon_cfg.get("whisper") or "*552*").strip() or "*552*"
+        mon_barge_pfx = str(mon_cfg.get("barge") or "*553*").strip() or "*553*"
+        for mon_pfx, mon_mode in [
+            (mon_listen_pfx, "listen"),
+            (mon_whisper_pfx, "whisper"),
+            (mon_barge_pfx, "barge"),
+        ]:
+            pfx_core = mon_pfx.rstrip("*")
+            if raw_exten.startswith(mon_pfx) or (len(pfx_core) >= 3 and raw_exten.startswith(pfx_core)):
+                spy_res = await _resolve_chanspy_internal(
+                    caller=caller_ext,
+                    exten=raw_exten,
+                    mode=mon_mode,
+                    channel=raw_channel,
+                    db=db
+                )
+                if spy_res.startswith("ALLOW:"):
+                    return Response(content=f"CHANSPY:{spy_res[6:]}", media_type="text/plain")
+                return Response(content="INVALID", media_type="text/plain")
 
         print(f"[Feature Code] Desk Phone Dialed: caller_ext={caller_ext}, dialed={raw_exten} (Plan: always={p_always}, busy={p_busy}, no_answer={p_noans}, cancel={p_cancel})")
 
@@ -9620,10 +9718,11 @@ async def list_calls(
 
 @app.get("/api/calls/active")
 async def get_active_calls(user_info: dict = Depends(get_user_info)):
-    from backend.services.ami_manager import active_channels, call_id_to_asterisk_id
+    from backend.services.ami_manager import active_channels, call_id_to_asterisk_id, channel_states
     from backend.database.models import Call
     target_tenant = user_info.get("tenant_id") or "tenant-default"
-    
+    now_utc = datetime.datetime.utcnow()
+
     async with AsyncSessionLocal() as session:
         stmt = select(Call).where(Call.status == "in_progress")
         if is_global_tenant(target_tenant):
@@ -9634,26 +9733,49 @@ async def get_active_calls(user_info: dict = Depends(get_user_info)):
             stmt = stmt.where(Call.tenant_id == target_tenant)
         result = await session.execute(stmt)
         calls = result.scalars().all()
-        
+
         # Load all contacts to resolve names
         stmt_contacts = select(Contact)
         res_contacts = await session.execute(stmt_contacts)
         contacts = res_contacts.scalars().all()
         contact_map = {c.phone_number: f"{c.first_name} {c.last_name}" for c in contacts}
-        
+
     active_list = []
+    seen_channels = set()
     for call in calls:
         ast_id = call_id_to_asterisk_id.get(call.id, call.id)
-        if ast_id in active_channels:
+        ch_name = active_channels.get(ast_id) or active_channels.get(call.id)
+        is_recent = False
+        if call.start_time:
+            age_sec = (now_utc - call.start_time.replace(tzinfo=None)).total_seconds()
+            if 0 <= age_sec < 600:
+                is_recent = True
+        if not ch_name and is_recent:
+            # Try matching from channel_states by caller or callee
+            c_num = str(call.caller_number or "").strip()
+            callee_num = str(call.callee_number or "").strip()
+            for uid, st in list(channel_states.items()):
+                if not isinstance(st, dict):
+                    continue
+                st_ch = str(st.get("channel") or "")
+                st_caller = str(st.get("caller_num") or "")
+                st_exten = str(st.get("exten") or "")
+                if (c_num and (c_num in st_caller or c_num in st_ch)) or (callee_num and (callee_num == st_exten or f"PJSIP/{callee_num}-" in st_ch)):
+                    ch_name = st_ch
+                    break
+        if ch_name or is_recent:
+            if ch_name:
+                seen_channels.add(ch_name)
             active_list.append({
                 "id": call.id,
                 "caller_number": call.caller_number,
-                "caller_name": contact_map.get(call.caller_number),
+                "caller_name": contact_map.get(call.caller_number) or resolve_contact_name_by_phone(call.caller_number, contacts),
                 "callee_number": call.callee_number,
                 "start_time": call.start_time.isoformat() if call.start_time else None,
-                "channel": active_channels[ast_id],
+                "channel": ch_name or "AudioSocket/AI",
                 "agent_topic": call.agent_topic,
-                "agent_notes": call.agent_notes
+                "agent_notes": call.agent_notes,
+                "handled_by": getattr(call, "handled_by", "ai") or "ai"
             })
     return active_list
 
@@ -9782,36 +9904,359 @@ async def websocket_transcript_endpoint(websocket: WebSocket, call_id: str):
 # API Routes: Real-time Dashboard & ChanSpy
 # ----------------------------------------------------
 
-@app.post("/api/calls/{call_id}/spy")
-async def spy_active_call(call_id: str, agent_ext: str = "200"):
-    from backend.services.ami_manager import spy_on_call
-    success = await spy_on_call(call_id, agent_ext)
-    if not success:
-        raise HTTPException(status_code=500, detail="Asterisk AMI originate failed or channel not active.")
+def check_user_monitor_permission(user_id_or_ext: str, mode: str = "listen") -> bool:
+    """
+    Checks if a user (by id, extension, username, or email) has role permission
+    to perform call monitoring:
+      - 'listen'  (Fısıldama / Sessiz Dinleme): call_monitor:listen, ai_whisper:read/write/access
+      - 'whisper' (Sufle Verme):                call_monitor:whisper, ai_whisper:write/access
+      - 'barge'   (Araya Girme):                call_monitor:barge, ai_whisper:write/access
+    """
+    ident = str(user_id_or_ext or "").strip()
+    if not ident or ident.lower() == "admin":
+        return True
+
+    users_list = settings_db.get("users", [])
+    matched_user = None
+    for u in users_list:
+        if (
+            str(u.get("id") or "").strip() == ident
+            or str(u.get("extension") or "").strip() == ident
+            or str(u.get("username") or "").strip().lower() == ident.lower()
+            or str(u.get("email") or "").strip().lower() == ident.lower()
+        ):
+            matched_user = u
+            break
+
+    if not matched_user:
+        try:
+            from backend.database.config import SyncSessionLocal
+            with SyncSessionLocal() as s_u:
+                q_u = s_u.query(SystemUser).filter(
+                    or_(
+                        SystemUser.extension == ident,
+                        SystemUser.email == ident
+                    )
+                ).first()
+                if q_u:
+                    matched_user = {
+                        "id": q_u.id,
+                        "extension": q_u.extension,
+                        "role": q_u.role
+                    }
+        except Exception:
+            pass
+
+    if not matched_user:
+        return False
+
+    role_code = str(matched_user.get("role") or "agent").strip().lower()
+    if role_code == "admin":
+        return True
+
+    roles_list = settings_db.get("roles", [])
+    role_obj = next((r for r in roles_list if str(r.get("role_code") or "").strip().lower() == role_code), None)
+    if not role_obj:
+        return role_code == "supervisor"
+
+    perms = set(str(p).strip() for p in (role_obj.get("permissions") or []))
+    norm_mode = str(mode or "listen").strip().lower()
+
+    # Check if explicit call_monitor:* permissions exist on this role
+    has_any_explicit_cm = any(p.startswith("call_monitor:") for p in perms)
+    if norm_mode in ("barge", "araya_gir"):
+        if "call_monitor:barge" in perms:
+            return True
+        if not has_any_explicit_cm and ("ai_whisper:write" in perms or "ai_whisper:access" in perms):
+            return True
+        return False
+    elif norm_mode in ("whisper", "sufle"):
+        if "call_monitor:whisper" in perms:
+            return True
+        if not has_any_explicit_cm and ("ai_whisper:write" in perms or "ai_whisper:access" in perms):
+            return True
+        return False
+    else:
+        if "call_monitor:listen" in perms:
+            return True
+        if not has_any_explicit_cm and ("ai_whisper:read" in perms or "ai_whisper:write" in perms or "ai_whisper:access" in perms):
+            return True
+        return False
+
+
+def resolve_supervisor_extension(user_id_or_ext: str = None, fallback_ext: str = "1000") -> str:
+    ident = str(user_id_or_ext or "").strip()
+    users_list = settings_db.get("users", [])
+    if ident:
+        for u in users_list:
+            if (
+                str(u.get("id") or "").strip() == ident
+                or str(u.get("extension") or "").strip() == ident
+                or str(u.get("username") or "").strip().lower() == ident.lower()
+                or str(u.get("email") or "").strip().lower() == ident.lower()
+            ):
+                ext = str(u.get("extension") or "").strip()
+                if ext:
+                    return ext
+    if fallback_ext and fallback_ext not in ("200", "undefined", "null", ""):
+        return str(fallback_ext).strip()
+    # If fallback_ext is "200", check if any active user actually has 200; otherwise pick first admin/supervisor extension or 1000
+    if any(str(u.get("extension") or "").strip() == "200" for u in users_list if u.get("is_active", True) is not False):
+        return "200"
+    for u in users_list:
+        if u.get("is_active", True) is not False and u.get("extension"):
+            return str(u.get("extension")).strip()
+    return "1000"
+
+
+async def _resolve_chanspy_internal(caller: str, exten: str, mode: str, channel: str, db: AsyncSession) -> str:
+    import urllib.parse
+    from backend.services.ami_manager import resolve_active_channel_for_spy
+
+    raw_caller = urllib.parse.unquote(caller or "").strip()
+    raw_exten = urllib.parse.unquote(exten or "").strip().replace("%23", "#")
+    raw_channel = urllib.parse.unquote(channel or "").strip()
+
+    chan_ext = ""
+    if "/" in raw_channel:
+        after_slash = raw_channel.split("/", 1)[1]
+        chan_ext = after_slash.split("-", 1)[0].split("@", 1)[0].strip()
+
+    caller_ext = raw_caller or chan_ext
+    if not caller_ext:
+        return "DENY:NO_CALLER:NONE"
+
+    pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
+    num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
+    mon_cfg = num_plan.get("call_monitoring", {}) if isinstance(num_plan.get("call_monitoring"), dict) else {}
+
+    p_listen = str(mon_cfg.get("listen") or "*551*").strip() or "*551*"
+    p_whisper = str(mon_cfg.get("whisper") or "*552*").strip() or "*552*"
+    p_barge = str(mon_cfg.get("barge") or "*553*").strip() or "*553*"
+
+    resolved_mode = str(mode or "").strip().lower()
+    target_ext = ""
+
+    for pfx, m_key in [(p_listen, "listen"), (p_whisper, "whisper"), (p_barge, "barge")]:
+        pfx_no_star = pfx.rstrip("*") if pfx.endswith("*") and len(pfx.rstrip("*")) >= 2 else pfx
+        if raw_exten.startswith(pfx):
+            if not resolved_mode:
+                resolved_mode = m_key
+            target_ext = raw_exten[len(pfx):].strip("*#")
+            break
+        elif raw_exten.startswith(pfx_no_star):
+            if not resolved_mode:
+                resolved_mode = m_key
+            target_ext = raw_exten[len(pfx_no_star):].strip("*#")
+            break
+
+    if not resolved_mode:
+        resolved_mode = "listen"
+
+    # Check Role Permission for caller_ext
+    if not check_user_monitor_permission(caller_ext, mode=resolved_mode):
+        print(f"[ChanSpy Desk Phone] Permission DENIED for caller={caller_ext}, mode={resolved_mode}, dialed={raw_exten}")
+        add_system_log("SECURITY", "WARNING", f"Yetkisiz Çağrı Dinleme/Araya Girme Girişimi Engellendi: Dahili {caller_ext} -> {raw_exten} ({resolved_mode})")
+        return "DENY:UNAUTHORIZED:NONE"
+
+    # Check if there is an ongoing Call in DB matching target_ext (or any ongoing AI call if target_ext is empty/ai/0/200)
+    matched_call_id = None
+    matched_caller_num = None
     try:
-        async with AsyncSessionLocal() as session:
-            session.add(AgentBreakLog(
-                user_id=str(agent_ext),
-                extension=str(agent_ext),
-                break_name=f"__ACTION__:call_spy:Canlı Dinleme ({call_id[:8]})",
-                start_time=datetime.datetime.utcnow(),
-                end_time=datetime.datetime.utcnow(),
-                duration_seconds=0
-            ))
-            await session.commit()
+        stmt_c = select(Call).where(Call.status.in_(["ongoing", "in_progress"])).order_by(Call.start_time.desc())
+        res_c = await db.execute(stmt_c)
+        ongoing_calls = res_c.scalars().all()
+        for oc in ongoing_calls:
+            if not target_ext or target_ext in ("0", "200", "ai"):
+                matched_call_id = oc.id
+                matched_caller_num = oc.caller_number
+                break
+            if str(oc.caller_number) == target_ext or str(oc.callee_number) == target_ext:
+                matched_call_id = oc.id
+                matched_caller_num = oc.caller_number
+                break
     except Exception:
         pass
-    return {"status": "success", "message": f"Originated ChanSpy on agent extension {agent_ext}"}
+
+    spy_channel = await resolve_active_channel_for_spy(
+        call_id=matched_call_id,
+        target_extension=target_ext or "ai",
+        caller_number=matched_caller_num,
+        mode=resolved_mode
+    )
+    if not spy_channel:
+        print(f"[ChanSpy Desk Phone] No active channel found for caller={caller_ext}, target={target_ext}, dialed={raw_exten}")
+        return "DENY:NO_ACTIVE_CALL:NONE"
+
+    # Do not allow spying on own channel
+    if caller_ext and (spy_channel.lower().startswith(f"pjsip/{caller_ext.lower()}-") or spy_channel == raw_channel):
+        return "DENY:SELF_CHANNEL:NONE"
+
+    if resolved_mode == "barge":
+        flags = "qBE"
+        act_lbl = "Araya Girme (Barge-In)"
+    elif resolved_mode == "whisper":
+        flags = "qwE"
+        act_lbl = "Sufle Verme (Whisper)"
+    else:
+        flags = "qE"
+        act_lbl = "Canlı Dinleme / Fısıldama"
+
+    try:
+        db.add(AgentBreakLog(
+            user_id=str(caller_ext),
+            extension=str(caller_ext),
+            break_name=f"__ACTION__:call_{resolved_mode}:{act_lbl} (Masa Tel -> {target_ext or spy_channel})",
+            start_time=datetime.datetime.utcnow(),
+            end_time=datetime.datetime.utcnow(),
+            duration_seconds=0
+        ))
+        await db.commit()
+    except Exception:
+        pass
+
+    add_system_log("PBX", "INFO", f"Dahili {caller_ext} masa telefonundan {act_lbl} başlattı -> Hedef: {target_ext or spy_channel}")
+    print(f"[ChanSpy Desk Phone] ALLOW: caller={caller_ext} -> channel={spy_channel}, flags={flags}")
+    return f"ALLOW:{spy_channel}:{flags}"
+
+
+@app.get("/api/calls/resolve_chanspy")
+async def resolve_chanspy_endpoint(
+    caller: str = "",
+    exten: str = "",
+    mode: str = "",
+    channel: str = "",
+    db: AsyncSession = Depends(get_db)
+):
+    from fastapi import Response
+    res_str = await _resolve_chanspy_internal(caller=caller, exten=exten, mode=mode, channel=channel, db=db)
+    return Response(content=res_str, media_type="text/plain")
+
+
+class CallMonitorPayload(BaseModel):
+    call_id: Optional[str] = None
+    agent_ext: Optional[str] = None
+    target_ext: Optional[str] = None
+    caller_number: Optional[str] = None
+    mode: Optional[str] = "listen"
+    user_id: Optional[str] = None
+
+
+@app.post("/api/calls/{call_id}/spy")
+@app.post("/api/calls/monitor")
+async def spy_active_call(
+    request: Request,
+    call_id: str = "active",
+    agent_ext: str = "200",
+    mode: str = "listen",
+    target_ext: str = "",
+    caller_number: str = "",
+    user_id: str = "",
+    db: AsyncSession = Depends(get_db)
+):
+    from backend.services.ami_manager import spy_on_call
+
+    body_data = {}
+    try:
+        body_data = await request.json()
+        if not isinstance(body_data, dict):
+            body_data = {}
+    except Exception:
+        body_data = {}
+
+    eff_call_id = str(body_data.get("call_id") or call_id or "").strip()
+    if eff_call_id in ("active", "none", "null", "undefined"):
+        eff_call_id = ""
+    eff_mode = str(body_data.get("mode") or mode or "listen").strip().lower()
+    eff_target_ext = str(body_data.get("target_ext") or target_ext or "").strip()
+    eff_caller_num = str(body_data.get("caller_number") or caller_number or "").strip()
+    eff_user_id = str(
+        body_data.get("user_id")
+        or user_id
+        or request.headers.get("X-User-ID")
+        or request.headers.get("x-user-id")
+        or ""
+    ).strip()
+    raw_agent_ext = str(body_data.get("agent_ext") or agent_ext or "").strip()
+
+    # Verify Role Permission
+    perm_subject = eff_user_id or raw_agent_ext
+    if perm_subject and not check_user_monitor_permission(perm_subject, mode=eff_mode):
+        raise HTTPException(
+            status_code=403,
+            detail="Bu işlem (Dinleme / Sufle / Araya Girme) için rol yetkiniz bulunmamaktadır."
+        )
+
+    resolved_sup_ext = resolve_supervisor_extension(eff_user_id or raw_agent_ext, fallback_ext=raw_agent_ext)
+
+    # If call_id is provided, enrich target_ext / caller_number from DB Call record if missing
+    if eff_call_id and (not eff_caller_num or not eff_target_ext):
+        try:
+            db_call = await db.get(Call, eff_call_id)
+            if db_call:
+                if not eff_caller_num and db_call.caller_number:
+                    eff_caller_num = str(db_call.caller_number)
+                if not eff_target_ext and db_call.callee_number:
+                    eff_target_ext = str(db_call.callee_number)
+        except Exception:
+            pass
+
+    success = await spy_on_call(
+        call_id=eff_call_id,
+        agent_extension=resolved_sup_ext,
+        mode=eff_mode,
+        target_extension=eff_target_ext,
+        caller_number=eff_caller_num
+    )
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Aktif çağrı kanalı bulunamadı veya dahili ({resolved_sup_ext}) telefonunuza bağlanılamadı."
+        )
+
+    mode_tr_map = {
+        "listen": ("call_spy", "Fısıldama / Canlı Dinleme"),
+        "whisper": ("call_whisper", "Sufle Verme (Koçluk)"),
+        "barge": ("call_barge", "Araya Girme (Üçlü Konferans)")
+    }
+    act_code, act_label = mode_tr_map.get(eff_mode, ("call_spy", "Canlı Dinleme"))
+    target_desc = eff_target_ext or eff_caller_num or (eff_call_id[:8] if eff_call_id else "Aktif Çağrı")
+
+    try:
+        db.add(AgentBreakLog(
+            user_id=str(eff_user_id or resolved_sup_ext),
+            extension=str(resolved_sup_ext),
+            break_name=f"__ACTION__:{act_code}:{act_label} ({target_desc})",
+            start_time=datetime.datetime.utcnow(),
+            end_time=datetime.datetime.utcnow(),
+            duration_seconds=0
+        ))
+        await db.commit()
+    except Exception:
+        pass
+
+    add_system_log("PBX", "INFO", f"Dahili {resolved_sup_ext} web panelinden {act_label} başlattı -> Hedef: {target_desc}")
+    return {
+        "status": "success",
+        "mode": eff_mode,
+        "supervisor_extension": resolved_sup_ext,
+        "message": f"{act_label} başlatıldı (Dahili: {resolved_sup_ext} -> Hedef: {target_desc})"
+    }
 
 class WhisperPayload(BaseModel):
     text: str
 
 @app.post("/api/calls/{call_id}/whisper")
-async def whisper_to_call(call_id: str, payload: WhisperPayload):
+async def whisper_to_call(call_id: str, payload: WhisperPayload, request: Request = None):
     import json
     # Check if whisper feature is enabled in system settings
     if not settings_db.get("pbx", {}).get("auto_whisper_enabled", True):
         raise HTTPException(status_code=400, detail="Fısıldama özelliği sistem genelinde devre dışı bırakılmıştır.")
+
+    if request is not None:
+        uid_hdr = request.headers.get("X-User-ID") or request.headers.get("x-user-id") or ""
+        if uid_hdr and not check_user_monitor_permission(uid_hdr, mode="whisper"):
+            raise HTTPException(status_code=403, detail="Sufle / Fısıldama göndermek için rol yetkiniz bulunmamaktadır.")
         
     try:
         # 1. Save whisper directive to DB transcripts
@@ -9827,7 +10272,7 @@ async def whisper_to_call(call_id: str, payload: WhisperPayload):
         await ws_manager.broadcast_transcript(call_id, "supervisor_whisper", payload.text)
 
         print(f"[Whisper Endpoint] Successfully processed whisper for call {call_id}: '{payload.text}'")
-        return {"status": "success", "message": "Fısıldama başarıyla iletildi."}
+        return {"status": "success", "message": "Fısıldama / Sufle başarıyla iletildi."}
     except Exception as e:
         print(f"[Whisper Endpoint] Error sending whisper: {e}")
         raise HTTPException(status_code=500, detail=f"Fısıldama iletilirken hata oluştu: {e}")
@@ -10040,7 +10485,7 @@ async def get_wallboard_stats():
             avg_hold_time = 0
 
         # Active Calls Count
-        active_calls_stmt = select(func.count(Call.id)).where(Call.status == "in_progress")
+        active_calls_stmt = select(func.count(Call.id)).where(Call.status.in_(["in_progress", "ongoing"]))
         active_res = await session.execute(active_calls_stmt)
         in_progress_count = active_res.scalar() or 0
         active_calls_count = max(len(active_channels), in_progress_count)
@@ -10077,29 +10522,70 @@ async def get_wallboard_stats():
 
 @app.get("/api/reports/agents")
 async def get_reports_agents():
-    from backend.database.models import SystemUser
-    from backend.services.ami_manager import active_channels, registered_endpoints
-    from backend.services.agent_presence import active_agent_status, get_agent_state
+    from backend.database.models import SystemUser, Call
+    from backend.services.ami_manager import active_channels, channel_states, registered_endpoints
+    from backend.services.agent_presence import active_agent_status
 
     async with AsyncSessionLocal() as session:
         stmt = select(SystemUser)
         result = await session.execute(stmt)
         users = result.scalars().all()
 
+        # Fetch ongoing calls from DB to correlate call_id & caller_number
+        stmt_ongoing = select(Call).where(Call.status.in_(["ongoing", "in_progress"])).order_by(Call.start_time.desc())
+        res_ongoing = await session.execute(stmt_ongoing)
+        ongoing_calls = res_ongoing.scalars().all()
+
         agents_state = {}
         for u in users:
-            if not u.extension: continue
+            if not u.extension:
+                continue
+
+            u_ext_str = str(u.extension).strip()
+            u_id_str = str(u.id)
 
             is_in_call = False
             caller_number = None
-            for ch in active_channels.values():
-                if ch.get("caller_num") == u.extension or ch.get("exten") == u.extension:
-                    is_in_call = True
-                    caller_number = ch.get("exten") if ch.get("caller_num") == u.extension else ch.get("caller_num")
-                    break
+            matched_call_id = None
 
-            u_id_str = str(u.id)
-            u_ext_str = str(u.extension)
+            # 1. Check channel_states (dict) and active_channels (str or dict)
+            pjsip_pfx = f"pjsip/{u_ext_str.lower()}-"
+            sip_pfx = f"sip/{u_ext_str.lower()}-"
+
+            for uid, info in list(channel_states.items()):
+                if isinstance(info, dict):
+                    ch_s = str(info.get("channel") or "").lower()
+                    c_num = str(info.get("caller") or "").strip()
+                    e_num = str(info.get("exten") or "").strip()
+                    if ch_s.startswith(pjsip_pfx) or ch_s.startswith(sip_pfx) or c_num == u_ext_str or e_num == u_ext_str:
+                        is_in_call = True
+                        caller_number = e_num if c_num == u_ext_str else c_num
+                        break
+
+            if not is_in_call:
+                for uid, ch_val in list(active_channels.items()):
+                    if isinstance(ch_val, dict):
+                        c_num = str(ch_val.get("caller_num") or ch_val.get("caller") or "").strip()
+                        e_num = str(ch_val.get("exten") or "").strip()
+                        if c_num == u_ext_str or e_num == u_ext_str:
+                            is_in_call = True
+                            caller_number = e_num if c_num == u_ext_str else c_num
+                            break
+                    elif isinstance(ch_val, str):
+                        if ch_val.lower().startswith(pjsip_pfx) or ch_val.lower().startswith(sip_pfx):
+                            is_in_call = True
+                            break
+
+            # 2. Match with ongoing Call records in DB
+            for oc in ongoing_calls:
+                oc_caller = str(oc.caller_number or "").strip()
+                oc_callee = str(oc.callee_number or "").strip()
+                if oc_caller == u_ext_str or oc_callee == u_ext_str:
+                    is_in_call = True
+                    matched_call_id = oc.id
+                    if not caller_number:
+                        caller_number = oc_callee if oc_caller == u_ext_str else oc_caller
+                    break
 
             agent_sess = (
                 active_agent_status.get(u.id) or
@@ -10114,7 +10600,7 @@ async def get_reports_agents():
             break_type = None
             break_color = None
 
-            if is_logged_in or str(u.extension) in registered_endpoints:
+            if is_logged_in or u_ext_str in registered_endpoints or is_in_call:
                 if is_in_call:
                     status = "Görüşmede"
                 elif session_status == "break":
@@ -10126,7 +10612,7 @@ async def get_reports_agents():
                     status = "Müsait"
 
             ag_info = {
-                "id": str(u.id),
+                "id": u_id_str,
                 "name": u.full_name,
                 "role": u.role,
                 "extension": u.extension,
@@ -10134,12 +10620,12 @@ async def get_reports_agents():
                 "breakType": break_type,
                 "breakColor": break_color,
                 "caller": caller_number,
+                "call_id": matched_call_id,
                 "duration": 0
             }
             agents_state[u.id] = ag_info
-            agents_state[str(u.id)] = ag_info
-            if u.extension:
-                agents_state[str(u.extension)] = ag_info
+            agents_state[u_id_str] = ag_info
+            agents_state[u_ext_str] = ag_info
 
         return agents_state
 
@@ -16227,18 +16713,41 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.3",
+        "version": "v2.6.4",
         "commit_hash": live_commit,
         "release_date": "26 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.3",
+                "version": "v2.6.4",
                 "commit_hash": live_commit,
                 "release_date": "26 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Canlı Çağrı Araya Girme (Barge-In), Sufle Verme (Whisper) ve Fısıldama (Listen) & Masa Telefonu ChanSpy Entegrasyonu",
+                "summary": "Rol bazlı Araya Girme, Sufle Verme ve Fısıldama yetkileri, Canlı İzleme Paneli ve Gerçek Zamanlı AI Pano üzerinde kulaklık ikonu açılır menüsü, WebPhone otomatik cevaplama ve Numara Planı masa telefonu tuşlama kodları (*551*, *552*, *553*) Asterisk ChanSpy motoruyla entegre edildi.",
+                "features": [
+                    {
+                        "title": "🎧 Rol Bazlı Araya Girme, Sufle ve Fısıldama Yetkileri",
+                        "desc": "Roller ekranına AI temsilciler ve insan aboneler dahil tüm aktif çağrıları dinleme (call_monitor:listen), sufle verme (call_monitor:whisper) ve araya girme (call_monitor:barge) yetkileri eklendi."
+                    },
+                    {
+                        "title": "🖥️ Canlı İzleme Paneli & Gerçek Zamanlı AI Pano Hızlı Müdahale Menüsü",
+                        "desc": "Temsilci ve AI çağrı kutucuklarına eklenen mini dinleme simgesi ile Araya Gir, Sufle ve Fısılda seçenekleri tek tıkla WebRTC WebPhone veya masa telefonunu otomatik devreye alır."
+                    },
+                    {
+                        "title": "☎️ Numara Planı & Masa Telefonu ChanSpy Kodları (*551*, *552*, *553*)",
+                        "desc": "Numara Planı altına eklenen Fısıldama (*551*), Sufle (*552*) ve Araya Girme (*553*) prefix kodları Asterisk dialplan'a bağlanarak masa telefonlarından doğrudan çağrıya müdahale imkanı sağlandı."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.3",
+                "commit_hash": "8488ab8",
+                "release_date": "26 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Üst Başlık (Header) Sadeleştirme & Merkezli Arama Çubuğu Düzeni",
                 "summary": "Üst barda sol tarafta yer alan 'Aktif İşlemler' ve 'Arama Bekleniyor' ibareleri kaldırılarak arama çubuğunun (GlobalSearchBar) tam ortadaki konumu korundu.",
                 "features": [

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Save, CheckCircle, Hash, AlertTriangle, PhoneForwarded } from "lucide-react";
+import { Save, CheckCircle, Hash, AlertTriangle, PhoneForwarded, Headphones } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
 const DEFAULT_FORWARDING_PREFIXES = {
@@ -7,6 +7,12 @@ const DEFAULT_FORWARDING_PREFIXES = {
   busy: "*67*",
   no_answer: "*61*",
   cancel: "#21#"
+};
+
+const DEFAULT_MONITORING_PREFIXES = {
+  listen: "*551*",
+  whisper: "*552*",
+  barge: "*553*"
 };
 
 export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
@@ -19,7 +25,8 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
     speed_dial_range: { start: 4000, end: 4999 },
     call_flow_range: { start: 5000, end: 5999 },
     call_pickup: { group: "*8", directed: "**" },
-    call_forwarding: { ...DEFAULT_FORWARDING_PREFIXES }
+    call_forwarding: { ...DEFAULT_FORWARDING_PREFIXES },
+    call_monitoring: { ...DEFAULT_MONITORING_PREFIXES }
   });
 
   const [loading, setLoading] = useState(true);
@@ -46,6 +53,11 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
               busy: data.call_forwarding?.busy || DEFAULT_FORWARDING_PREFIXES.busy,
               no_answer: data.call_forwarding?.no_answer || DEFAULT_FORWARDING_PREFIXES.no_answer,
               cancel: data.call_forwarding?.cancel || DEFAULT_FORWARDING_PREFIXES.cancel
+            },
+            call_monitoring: {
+              listen: data.call_monitoring?.listen || DEFAULT_MONITORING_PREFIXES.listen,
+              whisper: data.call_monitoring?.whisper || DEFAULT_MONITORING_PREFIXES.whisper,
+              barge: data.call_monitoring?.barge || DEFAULT_MONITORING_PREFIXES.barge
             }
           }));
         }
@@ -88,6 +100,16 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
     }));
   };
 
+  const handleMonitoringPrefixChange = (field, value) => {
+    setPlan((prev) => ({
+      ...prev,
+      call_monitoring: {
+        ...(prev.call_monitoring || DEFAULT_MONITORING_PREFIXES),
+        [field]: value
+      }
+    }));
+  };
+
   const validateOverlaps = () => {
     const ranges = Object.entries(plan)
       .filter(([key]) => key.endsWith("_range"))
@@ -111,6 +133,10 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
     const cf = plan.call_forwarding || {};
     if (!cf.always?.trim() || !cf.busy?.trim() || !cf.no_answer?.trim() || !cf.cancel?.trim()) {
       return "Çağrı yönlendirme ve iptal prefix kodları boş bırakılamaz!";
+    }
+    const cm = plan.call_monitoring || {};
+    if (!cm.listen?.trim() || !cm.whisper?.trim() || !cm.barge?.trim()) {
+      return "Çağrı dinleme, sufle ve araya girme prefix kodları boş bırakılamaz!";
     }
     return null;
   };
@@ -179,6 +205,30 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
       placeholder: "#21#",
       desc: "Masa telefonundan bu kod tuşlandığında abonenin aktif tüm çağrı yönlendirmeleri iptal edilir ve arayüzde otomatik kapanır.",
       example: `${plan.call_forwarding?.cancel || "#21#"}`
+    }
+  ];
+
+  const monitoringConfig = [
+    {
+      field: "listen",
+      label: "Fısıldama / Sessiz Dinleme (Spy)",
+      placeholder: "*551*",
+      desc: "Masa telefonundan bu prefix + hedef dahili tuşlandığında (örn: *551*1000 veya aktif AI çağrısı için *551*200) görüşmeyi karşı taraf duymadan sessizce dinlersiniz.",
+      example: `${plan.call_monitoring?.listen || "*551*"}1000`
+    },
+    {
+      field: "whisper",
+      label: "Sufle Verme / Koçluk (Whisper)",
+      placeholder: "*552*",
+      desc: "Masa telefonundan bu prefix + hedef dahili tuşlandığında (örn: *552*1000) sadece temsilci sizin sesinizi duyar, müşteri duymaz.",
+      example: `${plan.call_monitoring?.whisper || "*552*"}1000`
+    },
+    {
+      field: "barge",
+      label: "Araya Girme / Çağrıya Dahil Olma (Barge-In)",
+      placeholder: "*553*",
+      desc: "Masa telefonundan bu prefix + hedef dahili tuşlandığında (örn: *553*1000 veya AI çağrısı için *553*200) hem temsilci/AI hem de müşteri sesinizi duyar.",
+      example: `${plan.call_monitoring?.barge || "*553*"}1000`
     }
   ];
 
@@ -297,6 +347,51 @@ export default function NumberingPlanPanel({ backendHost = "localhost:8000" }) {
                     type="text"
                     value={plan.call_forwarding?.[item.field] ?? ""}
                     onChange={(e) => handleForwardingPrefixChange(item.field, e.target.value)}
+                    placeholder={item.placeholder}
+                    className={`w-32 text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Çağrı Dinleme, Sufle ve Araya Girme (ChanSpy) Prefix'leri */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Headphones size={15} className={text} />
+            <h4 className="text-xs font-bold text-slate-800 dark:text-white uppercase tracking-wider">
+              Çağrı Dinleme, Sufle ve Araya Girme (ChanSpy) Prefix&apos;leri
+            </h4>
+          </div>
+          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}>
+            Masa Telefonu & Rol Yetki Kontrollü
+          </span>
+        </div>
+        <div className="p-5 space-y-6">
+          {monitoringConfig.map((item) => (
+            <div
+              key={item.field}
+              className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 pb-6 border-b border-slate-100 dark:border-slate-800/60 last:border-0 last:pb-0"
+            >
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <h5 className="text-xs font-bold text-slate-800 dark:text-white">{item.label}</h5>
+                  <span className="px-2 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-mono font-bold text-slate-600 dark:text-slate-300">
+                    Örn: {item.example}
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">{item.desc}</p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[9px] font-bold text-slate-400 uppercase">Prefix / Kod</label>
+                  <input
+                    type="text"
+                    value={plan.call_monitoring?.[item.field] ?? ""}
+                    onChange={(e) => handleMonitoringPrefixChange(item.field, e.target.value)}
                     placeholder={item.placeholder}
                     className={`w-32 text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
                   />

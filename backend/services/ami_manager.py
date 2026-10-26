@@ -330,39 +330,201 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
         print(f"[AMI] Transfer sirasinda hata olustu: {e}")
         return False
 
-async def spy_on_call(call_id: str, agent_extension: str) -> bool:
+async def resolve_active_channel_for_spy(
+    call_id: str = None,
+    target_extension: str = None,
+    caller_number: str = None,
+    mode: str = "listen"
+) -> str:
     """
-    AMI command to Originate a call to the agent extension,
+    Resolves the exact active Asterisk channel name for ChanSpy.
+    Supports both human extension calls (PJSIP/1000-xxxx) and AI Agent calls (AudioSocket on inbound trunk/extension channel).
+    When mode == 'whisper' (Sufle) and a human agent leg (PJSIP/<target_ext>-...) exists, prefers that leg so only the agent hears the supervisor.
+    """
+    import re
+    manager = await get_ami_manager()
+    target_ext_clean = str(target_extension or "").strip()
+    call_id_clean = str(call_id or "").strip()
+    caller_digits = re.sub(r"\D", "", str(caller_number or ""))
+    caller_last10 = caller_digits[-10:] if len(caller_digits) >= 10 else caller_digits
+
+    ast_id = call_id_to_asterisk_id.get(call_id_clean, call_id_clean) if call_id_clean else ""
+
+    # 1. If target_extension is a specific human extension (e.g. 1000), check if there is a direct PJSIP/<ext>- channel first
+    if target_ext_clean and target_ext_clean not in ("ai", "all", "0", "200") and not target_ext_clean.startswith("agent-"):
+        pjsip_pfx = f"pjsip/{target_ext_clean.lower()}-"
+        sip_pfx = f"sip/{target_ext_clean.lower()}-"
+        for uid, info in list(channel_states.items()):
+            ch = str(info.get("channel") or "") if isinstance(info, dict) else str(info or "")
+            if ch.lower().startswith(pjsip_pfx) or ch.lower().startswith(sip_pfx):
+                return ch
+        for uid, ch_val in list(active_channels.items()):
+            ch = str(ch_val.get("channel") or "") if isinstance(ch_val, dict) else str(ch_val or "")
+            if ch.lower().startswith(pjsip_pfx) or ch.lower().startswith(sip_pfx):
+                return ch
+
+    # 2. Check by call_id / ast_id in active_channels & channel_states
+    if ast_id:
+        ch_val = active_channels.get(ast_id)
+        if ch_val:
+            ch = str(ch_val.get("channel") or "") if isinstance(ch_val, dict) else str(ch_val or "")
+            if ch:
+                return ch
+        for k, v in list(active_channels.items()):
+            if k in ast_id or ast_id in k or (call_id_clean and (k in call_id_clean or call_id_clean in k)):
+                ch = str(v.get("channel") or "") if isinstance(v, dict) else str(v or "")
+                if ch:
+                    return ch
+
+    # 3. Check channel_states by caller or exten matching target_extension or caller_number
+    for uid, info in list(channel_states.items()):
+        if not isinstance(info, dict):
+            continue
+        ch = str(info.get("channel") or "")
+        c_num = str(info.get("caller") or "").strip()
+        e_num = str(info.get("exten") or "").strip()
+        if not ch:
+            continue
+        if target_ext_clean and (c_num == target_ext_clean or e_num == target_ext_clean):
+            return ch
+        if caller_last10:
+            c_dig = re.sub(r"\D", "", c_num)[-10:]
+            e_dig = re.sub(r"\D", "", e_num)[-10:]
+            if caller_last10 in (c_dig, e_dig):
+                return ch
+
+    # 4. Query Asterisk AMI CoreShowChannels live as authoritative fallback (critical for AI Agent AudioSocket calls & Desk Phones)
+    if manager:
+        try:
+            res = await manager.send_action({"Action": "CoreShowChannels"})
+            fallback_audio_ch = ""
+            any_up_ch = ""
+            for r in _iter_ami_responses(res):
+                if not hasattr(r, "get"):
+                    continue
+                ch = str(r.get("Channel") or "").strip()
+                if not ch or ch.lower().startswith(" local/"):
+                    continue
+                uid = str(r.get("Uniqueid") or "").strip()
+                app_name = str(r.get("Application") or "").strip().lower()
+                app_data = str(r.get("ApplicationData") or "").strip()
+                cid_num = str(r.get("CallerIDNum") or "").strip()
+                conn_num = str(r.get("ConnectedLineNum") or "").strip()
+                exten_num = str(r.get("Exten") or "").strip()
+
+                # Keep active_channels synced
+                if uid and ch and app_name != "chanspy":
+                    active_channels[uid] = ch
+
+                if app_name == "chanspy":
+                    continue
+
+                # Match by exact call_id in AudioSocket ApplicationData (e.g. "uuid,127.0.0.1:9092")
+                if call_id_clean and call_id_clean in app_data:
+                    return ch
+
+                # Match by Uniqueid
+                if ast_id and uid and (uid == ast_id or uid in ast_id or ast_id in uid):
+                    return ch
+
+                # Match by target_extension on PJSIP/<ext>-
+                if target_ext_clean:
+                    if ch.lower().startswith(f"pjsip/{target_ext_clean.lower()}-") or ch.lower().startswith(f"sip/{target_ext_clean.lower()}-"):
+                        return ch
+                    if target_ext_clean in (cid_num, conn_num, exten_num):
+                        return ch
+
+                # Match by caller_number last 10 digits
+                if caller_last10:
+                    cid_last10 = re.sub(r"\D", "", cid_num)[-10:]
+                    conn_last10 = re.sub(r"\D", "", conn_num)[-10:]
+                    if caller_last10 in (cid_last10, conn_last10):
+                        return ch
+
+                if app_name == "audiosocket" and not fallback_audio_ch:
+                    fallback_audio_ch = ch
+                if not any_up_ch:
+                    any_up_ch = ch
+
+            # If spying on AI Agent (or generic active call) and an AudioSocket channel is active, return it
+            if fallback_audio_ch and (not target_ext_clean or target_ext_clean in ("ai", "200", "0") or target_ext_clean.startswith("agent-") or call_id_clean):
+                return fallback_audio_ch
+            if any_up_ch and len(active_channels) == 1:
+                return any_up_ch
+        except Exception as ex:
+            print(f"[AMI] resolve_active_channel_for_spy CoreShowChannels error: {ex}")
+
+    # 5. Final fallback if only 1 channel is in active_channels
+    if len(active_channels) == 1:
+        only_val = list(active_channels.values())[0]
+        return str(only_val.get("channel") if isinstance(only_val, dict) else only_val or "")
+
+    return ""
+
+
+async def spy_on_call(
+    call_id: str,
+    agent_extension: str,
+    mode: str = "listen",
+    target_extension: str = None,
+    caller_number: str = None
+) -> bool:
+    """
+    AMI command to Originate a call to the supervisor's extension,
     connecting them to ChanSpy on the target call's active channel.
+    Modes:
+      - 'listen'  (Fısılda / Sessiz Dinle): ChanSpy flags 'qE'
+      - 'whisper' (Sufle Verme):            ChanSpy flags 'qwE'
+      - 'barge'   (Araya Girme):            ChanSpy flags 'qBE'
     """
     manager = await get_ami_manager()
     if not manager:
         print("[AMI] Hata: AMI baglantisi kurulamadigi icin ChanSpy baslatilamadi.")
         return False
 
-    ast_id = call_id_to_asterisk_id.get(call_id, call_id)
-    channel_name = active_channels.get(ast_id)
+    norm_mode = str(mode or "listen").strip().lower()
+    if norm_mode in ("barge", "araya_gir", "conference"):
+        norm_mode = "barge"
+        chanspy_flags = "qBE"
+        caller_label = "Canli Dinleme (Araya Gir)"
+    elif norm_mode in ("whisper", "sufle", "coach"):
+        norm_mode = "whisper"
+        chanspy_flags = "qwE"
+        caller_label = "Canli Dinleme (Sufle)"
+    else:
+        norm_mode = "listen"
+        chanspy_flags = "qE"
+        caller_label = "Canli Dinleme (Fisilda)"
+
+    channel_name = await resolve_active_channel_for_spy(
+        call_id=call_id,
+        target_extension=target_extension,
+        caller_number=caller_number,
+        mode=norm_mode
+    )
     if not channel_name:
-        print(f"[AMI] Hata: UniqueID {call_id} (Asterisk ID: {ast_id}) için aktif kanal adi bulunamadi.")
+        print(f"[AMI] Hata: CallID={call_id}, TargetExt={target_extension} icin aktif kanal adi bulunamadi.")
         return False
 
-    print(f"[AMI] ChanSpy baslatiliyor -> Agent: {agent_extension} spys on Channel: {channel_name}")
+    target_num_display = str(target_extension or caller_number or (call_id[:6] if call_id else "Cagri")).strip()
+    print(f"[AMI] ChanSpy ({norm_mode} / {chanspy_flags}) baslatiliyor -> Supervisor: {agent_extension} -> Channel: {channel_name}")
 
-    # Send Originate action
     action = {
         'Action': 'Originate',
         'Channel': f'PJSIP/{agent_extension}',
         'Application': 'ChanSpy',
-        'Data': f'{channel_name},qE',
+        'Data': f'{channel_name},{chanspy_flags}',
+        'CallerID': f'"{caller_label}" <{target_num_display}>',
+        'Variable': f'__CHANSPY_MODE={norm_mode},PJSIP_HEADER(add,Call-Info)=<sip:127.0.0.1>;answer-after=0,PJSIP_HEADER(add,Alert-Info)=<http://127.0.0.1>;info=alert-autoanswer',
         'Async': 'true'
     }
-    
+
     try:
         response = await manager.send_action(action)
         res_item = response[0] if isinstance(response, list) and len(response) > 0 else response
         resp_val = res_item.get('Response') if hasattr(res_item, 'get') else getattr(res_item, 'Response', None)
         if resp_val == 'Success':
-            print(f"[AMI] ChanSpy basariyla tetiklendi: {call_id}")
+            print(f"[AMI] ChanSpy ({norm_mode}) basariyla tetiklendi: {call_id} -> {channel_name}")
             return True
         else:
             print(f"[AMI] ChanSpy basarisiz (Asterisk Red): {response}")
