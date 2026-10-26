@@ -331,6 +331,21 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const availableCount = users.filter((u) => {
+    const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
+    return st?.status === "Müsait";
+  }).length;
+
+  const busyCount = users.filter((u) => {
+    const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
+    return st?.status === "Görüşmede" || st?.status === "Meşgul";
+  }).length + activeCallsList.length;
+
+  const breakCount = users.filter((u) => {
+    const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
+    return st?.status === "Molada";
+  }).length;
+
   if (!authorized) {
     return (
       <div className="h-full w-full flex items-center justify-center p-6 bg-slate-50 dark:bg-slate-950">
@@ -434,495 +449,397 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
         </form>
       )}
 
-      {/* Main 2-Column Responsive Dashboard Grid (8 cols / 4 cols) */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 w-full">
+      {/* Full Width Wallboard Content */}
+      <div className="w-full space-y-6">
         
-        {/* Left Side: Metrics Grid & Agents Grid (8/12 Columns) */}
-        <div className="xl:col-span-8 space-y-6">
+        {/* Primary Wallboard Statistics Grid (5 KPI Cards) */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
           
-          {/* Primary Wallboard Statistics Grid */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            
-            {/* Card 1: Queue Callers */}
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">SIRADA BEKLEYEN</span>
-                <div className="p-2 bg-rose-50 dark:bg-rose-950/20 text-primary rounded-xl">
-                  <Users size={14} />
-                </div>
+          {/* Card 1: Queue Callers (Sırada Bekleyen) */}
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">SIRADA BEKLEYEN</span>
+              <div className="p-2 bg-rose-50 dark:bg-rose-950/20 text-rose-500 rounded-xl">
+                <Users size={14} />
               </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono w-8 text-left">{queueCount}</span>
-                <span className="text-[9px] font-bold text-slate-400 uppercase">Kişi</span>
-              </div>
-              {queueCount > 0 && (
-                <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-rose-500 to-pink-500 animate-pulse" />
-              )}
             </div>
-
-            {/* Card 2: AI Resolutions */}
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">AI BAŞARILI ÇÖZÜM</span>
-                <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-primary rounded-xl">
-                  <CheckCircle2 size={14} />
-                </div>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono w-14 text-left">{aiResolvedCount}</span>
-                <span className="text-[9px] font-bold text-slate-400 uppercase">Çağrı</span>
-              </div>
-              <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">{queueCount}</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Kişi</span>
             </div>
-
-            {/* Card 3: Concurrent Active Calls */}
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">AKTİF GÖRÜŞME</span>
-                <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 text-primary rounded-xl">
-                  <PhoneCall size={14} />
-                </div>
-              </div>
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono w-8 text-left">{activeCallsCount}</span>
-                <span className="text-[9px] font-bold text-slate-455 dark:text-slate-500 uppercase">Kanal / 10</span>
-              </div>
-              <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-indigo-500 to-violet-500" />
-            </div>
-
-            {/* Card 4: Service Level & Wait Time */}
-            <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">SERVİS SEVİYESİ</span>
-                <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-primary rounded-xl">
-                  <Clock size={14} />
-                </div>
-              </div>
-              <div className="flex items-baseline gap-1.5 justify-between">
-                <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono w-16 text-left">{serviceLevel}%</span>
-                <span className="text-[8px] font-extrabold text-slate-450 dark:text-slate-500 uppercase bg-slate-50 dark:bg-slate-950/50 px-1 py-0.5 rounded border border-slate-100 dark:border-slate-850/60 shrink-0">
-                  {avgHoldTime}s
-                </span>
-              </div>
-              <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 to-orange-500" />
-            </div>
-
+            <span className={`absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-rose-500 to-pink-500 ${queueCount > 0 ? "animate-pulse" : "opacity-60"}`} />
           </div>
 
-          {/* Temsilci & AI Agent Meşguliyet Durumları Grid */}
-          <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <div className="flex items-center gap-2">
-                <Volume2 size={15} className="text-violet-500" />
-                <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">Temsilci & AI Çağrı Meşguliyet Durumları</h4>
+          {/* Card 2: AI Resolutions (AI Başarılı Çözüm) */}
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">AI BAŞARILI ÇÖZÜM</span>
+              <div className="p-2 bg-violet-50 dark:bg-violet-950/20 text-violet-500 rounded-xl">
+                <CheckCircle2 size={14} />
               </div>
-              <span className="px-2.5 py-1 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 text-[9px] font-extrabold text-slate-500 uppercase tracking-wide">
-                Kayıtlı: {users.length} Temsilci {activeCallsList.length > 0 ? `• ${activeCallsList.length} Aktif Çağrı` : ""}
-              </span>
             </div>
-
-            {users.length === 0 && activeCallsList.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-505 italic">Temsilci bulunamadı.</div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {/* Active AI Calls Cards */}
-                {activeCallsList.map((ac) => {
-                  const cardId = `ai-call-${ac.id}`;
-                  const isMenuOpen = openMenuCardId === cardId;
-                  const callerDisplay = ac.caller_name
-                    ? `${ac.caller_name} (${ac.caller_number})`
-                    : (ac.caller_number || "Bilinmeyen Numara");
-
-                  return (
-                    <div
-                      key={cardId}
-                      className="p-3.5 bg-purple-50/40 dark:bg-purple-950/20 border border-purple-200/80 dark:border-purple-900/40 rounded-2xl flex items-center justify-between gap-2 shadow-inner relative"
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="relative shrink-0">
-                          <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/50 border border-purple-200 dark:border-purple-800 flex items-center justify-center text-purple-600 dark:text-purple-300">
-                            <Bot size={20} />
-                          </div>
-                          <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
-                            <span className="relative flex h-2.5 w-2.5">
-                              <span className="absolute inline-flex h-full w-full rounded-full opacity-75 bg-purple-500 animate-ping"></span>
-                              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-purple-600"></span>
-                            </span>
-                          </span>
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">
-                            AI Asistan ({ac.callee_number || "200"})
-                          </p>
-                          <p className="text-[9px] font-bold text-purple-600 dark:text-purple-400 truncate mt-0.5">
-                            {callerDisplay}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className="px-1.5 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase bg-purple-100/80 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800">
-                          AI Görüşmede
-                        </span>
-
-                        {canMonitorAny && (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuCardId(isMenuOpen ? null : cardId);
-                              }}
-                              title="Çağrıya Müdahale Et (Araya Gir / Sufle / Fısılda)"
-                              className={`h-7 w-7 rounded-lg border flex items-center justify-center transition-all ${
-                                isMenuOpen
-                                  ? `${bg} text-white border-transparent shadow-sm`
-                                  : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-purple-400"
-                              }`}
-                            >
-                              <Headphones size={13} />
-                            </button>
-
-                            {isMenuOpen && (
-                              <div
-                                onClick={(e) => e.stopPropagation()}
-                                className="absolute right-0 top-8 z-40 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 animate-in fade-in zoom-in-95 duration-150"
-                              >
-                                {monitorPerms.barge && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleTriggerMonitor({
-                                        mode: "barge",
-                                        callId: ac.id,
-                                        targetExt: ac.callee_number || "200",
-                                        callerNumber: ac.caller_number,
-                                        label: `AI Çağrısı (${callerDisplay})`,
-                                        isAiCall: true
-                                      })
-                                    }
-                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
-                                  >
-                                    <PhoneCall size={12} className="text-rose-500 shrink-0" />
-                                    <span>Araya Gir</span>
-                                  </button>
-                                )}
-                                {monitorPerms.whisper && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleTriggerMonitor({
-                                        mode: "whisper",
-                                        callId: ac.id,
-                                        targetExt: ac.callee_number || "200",
-                                        callerNumber: ac.caller_number,
-                                        label: `AI Çağrısı (${callerDisplay})`,
-                                        isAiCall: true
-                                      })
-                                    }
-                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
-                                  >
-                                    <Mic size={12} className="text-amber-500 shrink-0" />
-                                    <span>Sufle</span>
-                                  </button>
-                                )}
-                                {monitorPerms.listen && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleTriggerMonitor({
-                                        mode: "listen",
-                                        callId: ac.id,
-                                        targetExt: ac.callee_number || "200",
-                                        callerNumber: ac.caller_number,
-                                        label: `AI Çağrısı (${callerDisplay})`,
-                                        isAiCall: true
-                                      })
-                                    }
-                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
-                                  >
-                                    <Headphones size={12} className="text-indigo-500 shrink-0" />
-                                    <span>Fısılda</span>
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Human Agents Cards */}
-                {users.map((u) => {
-                  const state = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)] || { status: "Çevrimdışı", duration: 0 };
-                  const cardId = `user-${u.id}`;
-                  const isMenuOpen = openMenuCardId === cardId;
-
-                  let statusBorder = "border-slate-200/70 dark:border-slate-800/80";
-                  let dotColor = "bg-slate-400";
-                  let radarPulse = null;
-                  let detailsText = `Dahili: ${u.extension}`;
-
-                  if (state.status === "Müsait") {
-                    statusBorder = "border-emerald-200/80 dark:border-emerald-900/30";
-                    dotColor = "bg-primary";
-                    radarPulse = "bg-emerald-450 animate-ping";
-                  } else if (state.status === "Görüşmede") {
-                    statusBorder = "border-indigo-200/80 dark:border-indigo-900/30";
-                    dotColor = "bg-primary";
-                    radarPulse = "bg-primary animate-ping";
-                    detailsText = `${state.caller || "Aktif Çağrı"} (${formatSeconds(state.duration)})`;
-                  } else if (state.status === "Molada") {
-                    statusBorder = "border-orange-200/80 dark:border-orange-900/30";
-                    dotColor = "bg-orange-500";
-                    detailsText = `${state.breakType || "Mola"}`;
-                  }
-
-                  return (
-                    <div
-                      key={u.id}
-                      className={`p-3.5 bg-slate-50/50 dark:bg-slate-950/20 border rounded-2xl flex items-center justify-between gap-2 shadow-inner relative ${statusBorder}`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="relative shrink-0">
-                          <img
-                            src={u.avatar || "https://api.dicebear.com/7.x/avataaars/svg"}
-                            alt={u.full_name}
-                            className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/40"
-                          />
-                          <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
-                            <span className="relative flex h-2.5 w-2.5">
-                              {radarPulse && <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${radarPulse}`}></span>}
-                              <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${dotColor}`}></span>
-                            </span>
-                          </span>
-                        </div>
-
-                        <div className="min-w-0 flex-1">
-                          <p className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">{u.full_name}</p>
-                          <p className="text-[9px] font-bold text-slate-450 dark:text-slate-500 truncate mt-0.5 flex items-center gap-1">
-                            {state.status === "Molada" && (
-                              <span
-                                style={{ backgroundColor: state.breakColor || "#f97316" }}
-                                className="w-1.5 h-1.5 rounded-full shrink-0"
-                              />
-                            )}
-                            {detailsText}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        <span className={`px-1.5 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0 ${
-                          state.status === "Müsait" 
-                            ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100"
-                            : state.status === "Görüşmede"
-                              ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100"
-                              : state.status === "Molada"
-                                ? "bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-455 border-orange-100"
-                                : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200"
-                        }`}>
-                          {state.status}
-                        </span>
-
-                        {canMonitorAny && (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuCardId(isMenuOpen ? null : cardId);
-                              }}
-                              title="Dinleme / Müdahale Seçenekleri (Araya Gir - Sufle - Fısılda)"
-                              className={`h-7 w-7 rounded-lg border flex items-center justify-center transition-all ${
-                                isMenuOpen
-                                  ? `${bg} text-white border-transparent shadow-sm`
-                                  : state.status === "Görüşmede"
-                                    ? `${lightBg} ${text} ${borderLight} hover:opacity-90`
-                                    : "bg-white dark:bg-slate-900 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 border-slate-200 dark:border-slate-800"
-                              }`}
-                            >
-                              <Headphones size={13} />
-                            </button>
-
-                            {isMenuOpen && (
-                              <div
-                                onClick={(e) => e.stopPropagation()}
-                                className="absolute right-0 top-8 z-40 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 animate-in fade-in zoom-in-95 duration-150"
-                              >
-                                {monitorPerms.barge && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleTriggerMonitor({
-                                        mode: "barge",
-                                        callId: state.call_id || "active",
-                                        targetExt: String(u.extension || ""),
-                                        callerNumber: state.caller || "",
-                                        label: `${u.full_name} (${u.extension})`
-                                      })
-                                    }
-                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
-                                  >
-                                    <PhoneCall size={12} className="text-rose-500 shrink-0" />
-                                    <span>Araya Gir</span>
-                                  </button>
-                                )}
-                                {monitorPerms.whisper && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleTriggerMonitor({
-                                        mode: "whisper",
-                                        callId: state.call_id || "active",
-                                        targetExt: String(u.extension || ""),
-                                        callerNumber: state.caller || "",
-                                        label: `${u.full_name} (${u.extension})`
-                                      })
-                                    }
-                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
-                                  >
-                                    <Mic size={12} className="text-amber-500 shrink-0" />
-                                    <span>Sufle</span>
-                                  </button>
-                                )}
-                                {monitorPerms.listen && (
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleTriggerMonitor({
-                                        mode: "listen",
-                                        callId: state.call_id || "active",
-                                        targetExt: String(u.extension || ""),
-                                        callerNumber: state.caller || "",
-                                        label: `${u.full_name} (${u.extension})`
-                                      })
-                                    }
-                                    className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
-                                  >
-                                    <Headphones size={12} className="text-indigo-500 shrink-0" />
-                                    <span>Fısılda</span>
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">{aiResolvedCount}</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Çağrı</span>
+            </div>
+            <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-violet-500 to-indigo-500" />
           </div>
 
-          {/* Animated Waveform Section */}
-          <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <Activity size={15} className="text-violet-500" />
-              <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">Canlı Santral Trafik Akışı</h4>
-            </div>
-            <div className="h-24 bg-slate-50 dark:bg-slate-950 rounded-2xl border border-slate-200/60 dark:border-slate-900 flex items-center justify-center overflow-hidden relative">
-              <svg className="w-full h-full text-violet-500/10 dark:text-violet-500/5" viewBox="0 0 400 100" preserveAspectRatio="none">
-                <path d="M 0 50 C 50 30, 80 70, 120 40 C 160 10, 200 90, 250 50 C 300 10, 350 70, 400 50 L 400 100 L 0 100 Z" fill="currentColor" />
-              </svg>
-              <div className="absolute inset-0 flex items-center justify-around px-8">
-                {[...Array(24)].map((_, i) => {
-                  const height = 10 + Math.floor(Math.random() * 45);
-                  const delay = i * 0.05;
-                  return (
-                    <div
-                      key={i}
-                      style={{
-                        height: `${height}px`,
-                        animationDelay: `${delay}s`,
-                        animationDuration: `${1.2 + Math.random()}s`
-                      }}
-                      className="w-1 bg-gradient-to-t from-violet-600 to-pink-500 rounded-full animate-bounce shrink-0"
-                    />
-                  );
-                })}
+          {/* Card 3: Available Agents (Müsait) */}
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">MÜSAİT</span>
+              <div className="p-2 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500 rounded-xl">
+                <ShieldCheck size={14} />
               </div>
             </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">{availableCount}</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Temsilci</span>
+            </div>
+            <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-emerald-500 to-teal-500" />
+          </div>
+
+          {/* Card 4: Busy / On Call Agents (Meşgul) */}
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">MEŞGUL</span>
+              <div className="p-2 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 rounded-xl">
+                <PhoneCall size={14} />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">{busyCount}</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Görüşmede</span>
+            </div>
+            <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-indigo-500 to-blue-500" />
+          </div>
+
+          {/* Card 5: On Break Agents (Molada) */}
+          <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden group">
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest">MOLADA</span>
+              <div className="p-2 bg-amber-50 dark:bg-amber-950/20 text-amber-500 rounded-xl">
+                <Clock size={14} />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">{breakCount}</span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Temsilci</span>
+            </div>
+            <span className="absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r from-amber-500 to-orange-500" />
           </div>
 
         </div>
 
-        {/* Right Side: Operational Log Feeds & Queue Alerts (4/12 Columns) */}
-        <div className="xl:col-span-4 space-y-6">
-          
-          {/* SLA Alerts & Target Panel */}
-          <div className="p-6 bg-gradient-to-tr from-white to-slate-50 dark:from-slate-900 dark:to-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4">
-            <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-850/60 pb-3">
-              <ShieldCheck size={16} className="text-violet-500" />
-              <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">Hedef & Eşik Durumu</h4>
+        {/* Temsilci & AI Çağrı Meşguliyet Durumları Grid - Full Remaining Space */}
+        <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4 min-h-[420px]">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
+            <div className="flex items-center gap-2">
+              <Volume2 size={15} className="text-violet-500" />
+              <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">Temsilci & AI Çağrı Meşguliyet Durumları</h4>
             </div>
-
-            <div className="space-y-3">
-              {/* SLA Target Item */}
-              <div className="flex justify-between items-center p-3 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-xl">
-                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">SLA HEDEFİ</span>
-                <span className="text-[10px] font-extrabold text-slate-800 dark:text-white">%90 Hedef (Kritik %80)</span>
-              </div>
-
-              {/* Waiting Duration Threshold */}
-              <div className="flex justify-between items-center p-3 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800 rounded-xl">
-                <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase">EŞİK SÜRESİ</span>
-                <span className="text-[10px] font-extrabold text-slate-800 dark:text-white">Maks: 30 Saniye</span>
-              </div>
-
-              {/* Queue Status Alert Banner */}
-              {queueCount > 3 ? (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 text-primary dark:text-rose-455 rounded-xl flex items-center gap-2 animate-pulse">
-                  <AlertCircle size={14} className="shrink-0" />
-                  <span className="text-[10px] font-bold">Kritik Yoğunluk! Sırada bekleyen {queueCount} kişi var.</span>
-                </div>
-              ) : (
-                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200/50 text-primary dark:text-emerald-450 rounded-xl flex items-center gap-2">
-                  <ShieldCheck size={14} className="shrink-0" />
-                  <span className="text-[10px] font-bold">Kuyruk durumu normal, hat meşguliyeti dengeli.</span>
-                </div>
-              )}
-            </div>
+            <span className="px-2.5 py-1 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 text-[9px] font-extrabold text-slate-500 uppercase tracking-wide">
+              Kayıtlı: {users.length} Temsilci {activeCallsList.length > 0 ? `• ${activeCallsList.length} Aktif Çağrı` : ""}
+            </span>
           </div>
 
-          {/* Operational Log Feed Panel */}
-          <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
-              <div className="flex items-center gap-2">
-                <Monitor size={15} className="text-violet-500" />
-                <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">Çağrı Olay Günlüğü</h4>
-              </div>
-              <span className="flex h-2 w-2 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-              </span>
-            </div>
+          {users.length === 0 && activeCallsList.length === 0 ? (
+            <div className="py-12 text-center text-xs text-slate-505 italic">Temsilci bulunamadı.</div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {/* Active AI Calls Cards */}
+              {activeCallsList.map((ac) => {
+                const cardId = `ai-call-${ac.id}`;
+                const isMenuOpen = openMenuCardId === cardId;
+                const callerDisplay = ac.caller_name
+                  ? `${ac.caller_name} (${ac.caller_number})`
+                  : (ac.caller_number || "Bilinmeyen Numara");
 
-            {/* Scrollable logs stream */}
-            <div className="space-y-3 max-h-[260px] overflow-y-auto pr-1">
-              {eventLogs.map((log) => (
-                <div
-                  key={log.id}
-                  className="p-3 bg-slate-50/50 dark:bg-slate-950/20 border border-slate-200/50 dark:border-slate-850/60 rounded-2xl space-y-1.5 animate-in fade-in duration-200"
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[8px] font-black font-mono text-slate-400 uppercase">{log.time}</span>
-                    <span className={`px-1.5 py-0.5 rounded border text-[7px] font-extrabold uppercase ${getLogTypeBadge(log.type)}`}>
-                      {log.type}
-                    </span>
+                return (
+                  <div
+                    key={cardId}
+                    className="p-3.5 bg-purple-50/40 dark:bg-purple-950/20 border border-purple-200/80 dark:border-purple-900/40 rounded-2xl flex items-center justify-between gap-2 shadow-inner relative"
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="relative shrink-0">
+                        <div className="w-10 h-10 rounded-xl bg-purple-100 dark:bg-purple-900/50 border border-purple-200 dark:border-purple-800 flex items-center justify-center text-purple-600 dark:text-purple-300">
+                          <Bot size={20} />
+                        </div>
+                        <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
+                          <span className="relative flex h-2.5 w-2.5">
+                            <span className="absolute inline-flex h-full w-full rounded-full opacity-75 bg-purple-500 animate-ping"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-purple-600"></span>
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">
+                          AI Asistan ({ac.callee_number || "200"})
+                        </p>
+                        <p className="text-[9px] font-bold text-purple-600 dark:text-purple-400 truncate mt-0.5">
+                          {callerDisplay}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className="px-1.5 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase bg-purple-100/80 dark:bg-purple-950/50 text-purple-700 dark:text-purple-300 border-purple-200 dark:border-purple-800">
+                        AI Görüşmede
+                      </span>
+
+                      {canMonitorAny && (
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuCardId(isMenuOpen ? null : cardId);
+                            }}
+                            title="Çağrıya Müdahale Et (Araya Gir / Sufle / Fısılda)"
+                            className={`h-7 w-7 rounded-lg border flex items-center justify-center transition-all ${
+                              isMenuOpen
+                                ? `${bg} text-white border-transparent shadow-sm`
+                                : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-purple-400"
+                            }`}
+                          >
+                            <Headphones size={13} />
+                          </button>
+
+                          {isMenuOpen && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="absolute right-0 top-8 z-40 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 animate-in fade-in zoom-in-95 duration-150"
+                            >
+                              {monitorPerms.barge && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleTriggerMonitor({
+                                      mode: "barge",
+                                      callId: ac.id,
+                                      targetExt: ac.callee_number || "200",
+                                      callerNumber: ac.caller_number,
+                                      label: `AI Çağrısı (${callerDisplay})`,
+                                      isAiCall: true
+                                    })
+                                  }
+                                  className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                >
+                                  <PhoneCall size={12} className="text-rose-500 shrink-0" />
+                                  <span>Araya Gir</span>
+                                </button>
+                              )}
+                              {monitorPerms.whisper && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleTriggerMonitor({
+                                      mode: "whisper",
+                                      callId: ac.id,
+                                      targetExt: ac.callee_number || "200",
+                                      callerNumber: ac.caller_number,
+                                      label: `AI Çağrısı (${callerDisplay})`,
+                                      isAiCall: true
+                                    })
+                                  }
+                                  className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                >
+                                  <Mic size={12} className="text-amber-500 shrink-0" />
+                                  <span>Sufle</span>
+                                </button>
+                              )}
+                              {monitorPerms.listen && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleTriggerMonitor({
+                                      mode: "listen",
+                                      callId: ac.id,
+                                      targetExt: ac.callee_number || "200",
+                                      callerNumber: ac.caller_number,
+                                      label: `AI Çağrısı (${callerDisplay})`,
+                                      isAiCall: true
+                                    })
+                                  }
+                                  className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                >
+                                  <Headphones size={12} className="text-indigo-500 shrink-0" />
+                                  <span>Fısılda</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <p className="text-[10px] text-slate-700 dark:text-slate-350 leading-relaxed font-semibold">
-                    {log.text}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
+                );
+              })}
 
+              {/* Human Agents Cards */}
+              {users.map((u) => {
+                const state = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)] || { status: "Çevrimdışı", duration: 0 };
+                const cardId = `user-${u.id}`;
+                const isMenuOpen = openMenuCardId === cardId;
+
+                let statusBorder = "border-slate-200/70 dark:border-slate-800/80";
+                let dotColor = "bg-slate-400";
+                let radarPulse = null;
+                let detailsText = `Dahili: ${u.extension}`;
+
+                if (state.status === "Müsait") {
+                  statusBorder = "border-emerald-200/80 dark:border-emerald-900/30";
+                  dotColor = "bg-primary";
+                  radarPulse = "bg-emerald-450 animate-ping";
+                } else if (state.status === "Görüşmede") {
+                  statusBorder = "border-indigo-200/80 dark:border-indigo-900/30";
+                  dotColor = "bg-primary";
+                  radarPulse = "bg-primary animate-ping";
+                  detailsText = `${state.caller || "Aktif Çağrı"} (${formatSeconds(state.duration)})`;
+                } else if (state.status === "Molada") {
+                  statusBorder = "border-orange-200/80 dark:border-orange-900/30";
+                  dotColor = "bg-orange-500";
+                  detailsText = `${state.breakType || "Mola"}`;
+                }
+
+                return (
+                  <div
+                    key={u.id}
+                    className={`p-3.5 bg-slate-50/50 dark:bg-slate-950/20 border rounded-2xl flex items-center justify-between gap-2 shadow-inner relative ${statusBorder}`}
+                  >
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <div className="relative shrink-0">
+                        <img
+                          src={u.avatar || "https://api.dicebear.com/7.x/avataaars/svg"}
+                          alt={u.full_name}
+                          className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/40"
+                        />
+                        <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
+                          <span className="relative flex h-2.5 w-2.5">
+                            {radarPulse && <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${radarPulse}`}></span>}
+                            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${dotColor}`}></span>
+                          </span>
+                        </span>
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">{u.full_name}</p>
+                        <p className="text-[9px] font-bold text-slate-450 dark:text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                          {state.status === "Molada" && (
+                            <span
+                              style={{ backgroundColor: state.breakColor || "#f97316" }}
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                            />
+                          )}
+                          {detailsText}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <span className={`px-1.5 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0 ${
+                        state.status === "Müsait" 
+                          ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100"
+                          : state.status === "Görüşmede"
+                            ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100"
+                            : state.status === "Molada"
+                              ? "bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-455 border-orange-100"
+                              : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200"
+                      }`}>
+                        {state.status}
+                      </span>
+
+                      {canMonitorAny && (
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuCardId(isMenuOpen ? null : cardId);
+                            }}
+                            title="Dinleme / Müdahale Seçenekleri (Araya Gir - Sufle - Fısılda)"
+                            className={`h-7 w-7 rounded-lg border flex items-center justify-center transition-all ${
+                              isMenuOpen
+                                ? `${bg} text-white border-transparent shadow-sm`
+                                : state.status === "Görüşmede"
+                                  ? `${lightBg} ${text} ${borderLight} hover:opacity-90`
+                                  : "bg-white dark:bg-slate-900 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 border-slate-200 dark:border-slate-800"
+                            }`}
+                          >
+                            <Headphones size={13} />
+                          </button>
+
+                          {isMenuOpen && (
+                            <div
+                              onClick={(e) => e.stopPropagation()}
+                              className="absolute right-0 top-8 z-40 w-36 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl py-1 animate-in fade-in zoom-in-95 duration-150"
+                            >
+                              {monitorPerms.barge && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleTriggerMonitor({
+                                      mode: "barge",
+                                      callId: state.call_id || "active",
+                                      targetExt: String(u.extension || ""),
+                                      callerNumber: state.caller || "",
+                                      label: `${u.full_name} (${u.extension})`
+                                    })
+                                  }
+                                  className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                >
+                                  <PhoneCall size={12} className="text-rose-500 shrink-0" />
+                                  <span>Araya Gir</span>
+                                </button>
+                              )}
+                              {monitorPerms.whisper && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleTriggerMonitor({
+                                      mode: "whisper",
+                                      callId: state.call_id || "active",
+                                      targetExt: String(u.extension || ""),
+                                      callerNumber: state.caller || "",
+                                      label: `${u.full_name} (${u.extension})`
+                                    })
+                                  }
+                                  className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                >
+                                  <Mic size={12} className="text-amber-500 shrink-0" />
+                                  <span>Sufle</span>
+                                </button>
+                              )}
+                              {monitorPerms.listen && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleTriggerMonitor({
+                                      mode: "listen",
+                                      callId: state.call_id || "active",
+                                      targetExt: String(u.extension || ""),
+                                      callerNumber: state.caller || "",
+                                      label: `${u.full_name} (${u.extension})`
+                                    })
+                                  }
+                                  className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-2 transition-colors"
+                                >
+                                  <Headphones size={12} className="text-indigo-500 shrink-0" />
+                                  <span>Fısılda</span>
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
       </div>

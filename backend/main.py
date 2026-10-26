@@ -16713,18 +16713,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.4",
+        "version": "v2.6.5",
         "commit_hash": live_commit,
         "release_date": "26 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.4",
+                "version": "v2.6.5",
                 "commit_hash": live_commit,
                 "release_date": "26 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Canlı İzleme Paneli (Wallboard) Tam Genişlik Düzeni & Müsait / Meşgul / Molada Özet Kartları",
+                "summary": "Canlı İzleme Paneli'nden Hedef & Eşik Durumu, Çağrı Olay Günlüğü ve Canlı Santral Trafik Akışı panelleri kaldırıldı; Sırada Bekleyen ve AI Başarılı Çözüm kartlarının yanına Müsait, Meşgul ve Molada kartları eklendi, Temsilci & AI Çağrı Meşguliyet Durumları alanı tam genişliğe çıkarıldı.",
+                "features": [
+                    {
+                        "title": "📊 5'li Canlı Özet KPI Kartları (Sırada Bekleyen, AI Başarılı Çözüm, Müsait, Meşgul, Molada)",
+                        "desc": "Canlı İzleme Paneli üst barında anlık Sırada Bekleyen, AI Başarılı Çözüm, Müsait Temsilci, Meşgul (Görüşmede) ve Molada Temsilci sayıları yan yana gösterilir."
+                    },
+                    {
+                        "title": "🖥️ Tam Genişlik Temsilci & AI Çağrı Meşguliyet Izgarası",
+                        "desc": "Gereksiz yan ve alt grafik panelleri kaldırılarak kalan tüm ekran alanı Temsilci & AI Çağrı Meşguliyet Durumları kartlarına tahsis edildi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.4",
+                "commit_hash": "2a63429",
+                "release_date": "26 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Canlı Çağrı Araya Girme (Barge-In), Sufle Verme (Whisper) ve Fısıldama (Listen) & Masa Telefonu ChanSpy Entegrasyonu",
                 "summary": "Rol bazlı Araya Girme, Sufle Verme ve Fısıldama yetkileri, Canlı İzleme Paneli ve Gerçek Zamanlı AI Pano üzerinde kulaklık ikonu açılır menüsü, WebPhone otomatik cevaplama ve Numara Planı masa telefonu tuşlama kodları (*551*, *552*, *553*) Asterisk ChanSpy motoruyla entegre edildi.",
                 "features": [
