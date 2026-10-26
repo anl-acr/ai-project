@@ -170,11 +170,81 @@ stunaddr=stun.l.google.com:19302
                 if net_clean:
                     nat_lines += f"local_net={net_clean}\n"
 
+        trunks_list = sdata.get("trunks", []) if isinstance(sdata, dict) else []
+
+        import re
+        def _sanitize_t_name(nm):
+            c = re.sub(r"[^a-zA-Z0-9_\-.]", "_", str(nm or "trunk").strip())
+            return c or "trunk"
+
+        def _norm_codecs(t_obj):
+            valid_c = {"alaw", "ulaw", "g722", "g729", "opus", "gsm", "ilbc", "h264", "vp8", "g726", "slin", "speex"}
+            rl = t_obj.get("codecs")
+            if isinstance(rl, str):
+                try:
+                    rl = json.loads(rl)
+                except Exception:
+                    rl = [x.strip() for x in rl.split(",") if x.strip()]
+            out_c = []
+            if isinstance(rl, list) and rl:
+                for it in rl:
+                    cc = str(it or "").strip().lower()
+                    if cc in ("g711", "g.711"):
+                        for sb in ("alaw", "ulaw"):
+                            if sb not in out_c:
+                                out_c.append(sb)
+                    elif cc in valid_c and cc not in out_c:
+                        out_c.append(cc)
+            if not out_c:
+                leg = str(t_obj.get("codec") or "alaw,ulaw,g722,g729").strip()
+                for pt in leg.split(","):
+                    pp = pt.strip().lower()
+                    if pp in ("g711", "g.711"):
+                        for sb in ("alaw", "ulaw"):
+                            if sb not in out_c:
+                                out_c.append(sb)
+                    elif pp in valid_c and pp not in out_c:
+                        out_c.append(pp)
+            return ",".join(out_c or ["alaw", "ulaw", "g722", "g729"])
+
+        def _parse_sh(t_obj):
+            rw = t_obj.get("sip_headers")
+            if isinstance(rw, str):
+                try:
+                    rw = json.loads(rw)
+                except Exception:
+                    rw = {}
+            return rw if isinstance(rw, dict) else {}
+
+        custom_global_ua = ""
+        for t in trunks_list:
+            if t.get("is_active", True) is False:
+                continue
+            ua_v = str(_parse_sh(t).get("user_agent") or "").strip()
+            if ua_v:
+                custom_global_ua = ua_v
+                break
+
+        global_ua_block = f"[global]\ntype=global\nuser_agent={custom_global_ua}\nmax_forwards=70\n\n" if custom_global_ua else ""
+        has_tls_trunk = any(str(t.get("protocol") or "").lower() == "tls" and (t.get("is_active", True) is not False) for t in trunks_list)
+        tls_block = ""
+        if has_tls_trunk or os.path.exists("/etc/asterisk/keys/asterisk.pem"):
+            tls_block = f"""[transport-tls]
+type=transport
+protocol=tls
+bind=0.0.0.0:5061
+cert_file=/etc/asterisk/keys/asterisk.pem
+priv_key_file=/etc/asterisk/keys/webphone_privkey.pem
+method=tlsv1_2
+verify_server=no
+verify_client=no
+{nat_lines}"""
+
         pjsip_custom_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE DAHILI AYARLARI
 ; ==========================================
 
-[transport-udp]
+{global_ua_block}[transport-udp]
 type=transport
 protocol=udp
 bind=0.0.0.0
@@ -184,7 +254,7 @@ type=transport
 protocol=tcp
 bind=0.0.0.0
 {nat_lines}
-[transport-ws]
+{tls_block}[transport-ws]
 type=transport
 protocol=ws
 bind=0.0.0.0:8088
@@ -209,6 +279,196 @@ outbound_auth=908503607390-auth
 aors=908503607390-aor
 
 """
+        for t in trunks_list:
+            if t.get("is_active", True) is False:
+                continue
+            raw_name = t.get("trunk_name") or t.get("name") or "trunk"
+            name = _sanitize_t_name(raw_name)
+            host = str(t.get("host") or "").strip() or "127.0.0.1"
+            port = t.get("port") or 5060
+            did = str(t.get("did_number") or "").strip()
+            protocol = str(t.get("protocol") or "udp").lower()
+            transport = "transport-tls" if protocol == "tls" else ("transport-tcp" if protocol == "tcp" else "transport-udp")
+            t_type = str(t.get("trunk_type") or "register").lower()
+            if t_type == "ip":
+                t_type = "peer"
+            username = str(t.get("username") or "").strip()
+            password = str(t.get("password") or "").strip()
+            allow_codecs = _norm_codecs(t)
+            sh = _parse_sh(t)
+            realm = str(sh.get("realm") or "").strip()
+            in_caller_hdr = str(sh.get("inbound_caller_header") or "default").strip()
+            out_from_user = str(sh.get("outbound_from_user") or "default").strip()
+            out_from_user_custom = str(sh.get("outbound_from_user_custom") or "").strip()
+            out_diversion = str(sh.get("outbound_diversion") or "none").strip()
+            out_rpid = str(sh.get("outbound_rpid") or "none").strip()
+            out_pai = str(sh.get("outbound_pai") or "none").strip()
+
+            send_rpid = "yes" if out_rpid != "none" else "no"
+            send_pai = "yes" if out_pai != "none" else "no"
+            send_diversion = "yes" if out_diversion != "none" else "no"
+            trust_id_in = "yes" if in_caller_hdr in ("rpid", "pai", "ppi", "default") else "no"
+
+            endpoint_from_user = ""
+            if out_from_user == "trunk_username" and username:
+                endpoint_from_user = username
+            elif out_from_user == "trunk_did" and did:
+                endpoint_from_user = did
+            elif out_from_user == "custom" and out_from_user_custom:
+                endpoint_from_user = out_from_user_custom
+            elif t_type == "register" and out_from_user == "default" and username:
+                endpoint_from_user = username
+
+            endpoint_from_domain = realm if realm else (host if t_type in ("register", "peer") and host != "127.0.0.1" else "")
+            realm_line = f"realm={realm}\n" if realm else ""
+            contact_user_line = f"contact_user={did}\n" if did else ""
+
+            pjsip_custom_content += f"\n; --- TRUNK: {raw_name} ({t_type}) ---\n"
+            if t_type == "register":
+                pjsip_custom_content += f"""[{name}-auth]
+type=auth
+auth_type=userpass
+username={username}
+password={password}
+{realm_line}
+[{name}-reg]
+type=registration
+transport={transport}
+outbound_auth={name}-auth
+server_uri=sip:{host}:{port}
+client_uri=sip:{username}@{host}:{port}
+retry_interval=60
+expiration=3600
+auth_rejection_permanent=no
+{contact_user_line}
+[{name}-aor]
+type=aor
+contact=sip:{host}:{port}
+qualify_frequency=60
+
+[{name}]
+type=endpoint
+transport={transport}
+context=from-trunk-{name}
+disallow=all
+allow={allow_codecs}
+aors={name}-aor
+outbound_auth={name}-auth
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_rpid={send_rpid}
+send_pai={send_pai}
+send_diversion={send_diversion}
+trust_id_inbound={trust_id_in}
+"""
+                if endpoint_from_user:
+                    pjsip_custom_content += f"from_user={endpoint_from_user}\n"
+                if endpoint_from_domain:
+                    pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
+                if did:
+                    pjsip_custom_content += f"callerid={did} <{did}>\n"
+                pjsip_custom_content += f"\n[{name}-identify]\ntype=identify\nendpoint={name}\nmatch={host}\n\n"
+            elif t_type == "peer":
+                pjsip_custom_content += f"""[{name}-aor]
+type=aor
+contact=sip:{host}:{port}
+qualify_frequency=60
+
+[{name}]
+type=endpoint
+transport={transport}
+context=from-trunk-{name}
+disallow=all
+allow={allow_codecs}
+aors={name}-aor
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_rpid={send_rpid}
+send_pai={send_pai}
+send_diversion={send_diversion}
+trust_id_inbound={trust_id_in}
+"""
+                if endpoint_from_user:
+                    pjsip_custom_content += f"from_user={endpoint_from_user}\n"
+                if endpoint_from_domain:
+                    pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
+                if did:
+                    pjsip_custom_content += f"callerid={did} <{did}>\n"
+                pjsip_custom_content += f"\n[{name}-identify]\ntype=identify\nendpoint={name}\nmatch={host}\n\n"
+            elif t_type == "account":
+                acc_user = username or name
+                pjsip_custom_content += f"""[{name}-auth]
+type=auth
+auth_type=userpass
+username={acc_user}
+password={password}
+{realm_line}
+[{name}-aor]
+type=aor
+max_contacts=5
+remove_existing=yes
+qualify_frequency=30
+
+[{name}]
+type=endpoint
+transport={transport}
+context=from-trunk-{name}
+disallow=all
+allow={allow_codecs}
+auth={name}-auth
+outbound_auth={name}-auth
+aors={name}-aor
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_rpid={send_rpid}
+send_pai={send_pai}
+send_diversion={send_diversion}
+trust_id_inbound={trust_id_in}
+"""
+                if endpoint_from_user:
+                    pjsip_custom_content += f"from_user={endpoint_from_user}\n"
+                if endpoint_from_domain:
+                    pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
+                if did:
+                    pjsip_custom_content += f"callerid={did} <{did}>\n"
+                pjsip_custom_content += "\n"
+                if acc_user and acc_user != name:
+                    pjsip_custom_content += f"""[{acc_user}]
+type=aor
+max_contacts=5
+remove_existing=yes
+qualify_frequency=30
+
+[{acc_user}]
+type=endpoint
+transport={transport}
+context=from-trunk-{name}
+disallow=all
+allow={allow_codecs}
+auth={name}-auth
+outbound_auth={name}-auth
+aors={acc_user}
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_rpid={send_rpid}
+send_pai={send_pai}
+send_diversion={send_diversion}
+trust_id_inbound={trust_id_in}
+"""
+                    if endpoint_from_user:
+                        pjsip_custom_content += f"from_user={endpoint_from_user}\n"
+                    if endpoint_from_domain:
+                        pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
+                    pjsip_custom_content += "\n"
+
         has_1000_in_users = any(str(u.get("extension") or "").strip() == "1000" and (u.get("is_active", True) is not False) for u in users_list)
         if not has_1000_in_users:
             pjsip_custom_content += f"""
@@ -423,6 +683,76 @@ same => n,Hangup()
 ; Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında, İptal Kodu) Prefix'leri
 {dynamic_feature_dialplan}"""
 
+    header_map = {
+        "from": "From",
+        "contact": "Contact",
+        "rpid": "Remote-Party-ID",
+        "pai": "P-Asserted-Identity",
+        "ppi": "P-Preferred-Identity",
+        "to": "To",
+        "diversion": "Diversion",
+        "p_called_party_id": "P-Called-Party-ID",
+    }
+    import re
+    import json
+    trunk_in_blocks = []
+    seen_tnames = set()
+    for t in (sdata.get("trunks", []) if isinstance(sdata, dict) else []):
+        if t.get("is_active", True) is False:
+            continue
+        rname = t.get("trunk_name") or t.get("name") or "trunk"
+        tname = re.sub(r"[^a-zA-Z0-9_\-.]", "_", str(rname).strip()) or "trunk"
+        if tname in seen_tnames:
+            continue
+        seen_tnames.add(tname)
+        sh = t.get("sip_headers") or {}
+        if isinstance(sh, str):
+            try:
+                sh = json.loads(sh)
+            except Exception:
+                sh = {}
+        in_caller = str(sh.get("inbound_caller_header") or "default").strip().lower()
+        in_callee = str(sh.get("inbound_callee_header") or "default").strip().lower()
+        maxptime = str(sh.get("maxptime") or "").strip()
+        limit_enabled = bool(t.get("call_limit_enabled", False))
+        limit_dir = str(t.get("call_limit_direction") or "both").strip().lower()
+        try:
+            max_ch = max(1, int(t.get("max_channels") or 30))
+        except Exception:
+            max_ch = 30
+        caller_hdr_name = header_map.get(in_caller, "")
+        callee_hdr_name = header_map.get(in_callee, "")
+        t_lines = [f"; --- INBOUND CONTEXT FOR TRUNK: {rname} ({tname}) ---", f"[from-trunk-{tname}]"]
+        for ext_pat in ("_X.", "_+X.", "s"):
+            t_lines.append(f"exten => {ext_pat},1,NoOp(Trunk [{tname}] Gelen Arama: Exten=${{EXTEN}} Caller=${{CALLERID(num)}})")
+            t_lines.append(f"same => n,Set(__INBOUND_TRUNK_NAME={tname})")
+            if maxptime:
+                t_lines.append(f"same => n,Set(__SIP_MAXPTIME={maxptime})")
+            if caller_hdr_name:
+                t_lines.append(f"same => n,Set(RAW_IN_CALLER=${{PJSIP_HEADER(read,{caller_hdr_name})}})")
+                t_lines.append("same => n,Set(PARSED_CALLER=${CUT(CUT(CUT(RAW_IN_CALLER,@,1),:,2),>,1)})")
+                t_lines.append("same => n,Set(CALLERID(num)=${IF($[\"${PARSED_CALLER}\" != \"\"]?${PARSED_CALLER}:${CALLERID(num)})})")
+            if callee_hdr_name:
+                t_lines.append(f"same => n,Set(RAW_IN_CALLEE=${{PJSIP_HEADER(read,{callee_hdr_name})}})")
+                t_lines.append("same => n,Set(PARSED_CALLEE=${CUT(CUT(CUT(RAW_IN_CALLEE,@,1),:,2),>,1)})")
+                t_lines.append("same => n,Set(RESOLVED_DID=${IF($[\"${PARSED_CALLEE}\" != \"\"]?${PARSED_CALLEE}:${EXTEN})})")
+            else:
+                t_lines.append("same => n,Set(RESOLVED_DID=${EXTEN})")
+            t_lines.append("same => n,Set(__ORIG_CALLER_NUM=${CALLERID(num)})")
+            t_lines.append("same => n,Set(__ORIG_CALLER_NAME=${CALLERID(name)})")
+            if limit_enabled and limit_dir in ("both", "inbound"):
+                t_lines.append(f"same => n,Set(GROUP(trunk_limit)={tname})")
+                t_lines.append(f"same => n,GotoIf($[${{GROUP_COUNT({tname}@trunk_limit)}} > {max_ch}]?limit_exceeded)")
+            t_lines.append("same => n,Goto(default,${RESOLVED_DID},1)")
+            if limit_enabled and limit_dir in ("both", "inbound"):
+                t_lines.append(f"same => n(limit_exceeded),NoOp(TRUNK CAGRI LIMITI ASILDI [{tname}]: Max={max_ch})")
+                t_lines.append("same => n,Busy(5)")
+                t_lines.append("same => n,Hangup(17)")
+            t_lines.append("")
+        trunk_in_blocks.append("\n".join(t_lines))
+
+    trunk_inbound_str = "\n".join(trunk_in_blocks)
+
     ext_content = """; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN EXTENSIONS (DIALPLAN) AYARLARI
 ; ==========================================
@@ -435,6 +765,22 @@ include => default
 
 [from-sip]
 include => default
+
+__TRUNK_INBOUND_BLOCK__
+
+[trunk-outbound-headers]
+exten => s,1,NoOp(Trunk Giden SIP Basliklari Uygulanıyor: Trunk=${OUT_TRUNK_NAME})
+same => n,GotoIf($["${OUT_HDR_DIVERSION}" = ""]?chk_rpid)
+same => n,Set(PJSIP_HEADER(add,Diversion)=${OUT_HDR_DIVERSION})
+same => n(chk_rpid),GotoIf($["${OUT_HDR_RPID}" = ""]?chk_pai)
+same => n,Set(PJSIP_HEADER(add,Remote-Party-ID)=${OUT_HDR_RPID})
+same => n(chk_pai),GotoIf($["${OUT_HDR_PAI}" = ""]?chk_ppi)
+same => n,Set(PJSIP_HEADER(add,P-Asserted-Identity)=${OUT_HDR_PAI})
+same => n(chk_ppi),GotoIf($["${OUT_HDR_PPI}" = ""]?chk_ptime)
+same => n,Set(PJSIP_HEADER(add,P-Preferred-Identity)=${OUT_HDR_PPI})
+same => n(chk_ptime),GotoIf($["${OUT_MAXPTIME}" = ""]?done_hdrs)
+same => n,Set(PJSIP_HEADER(add,X-Maxptime)=${OUT_MAXPTIME})
+same => n(done_hdrs),Return()
 
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
@@ -516,7 +862,7 @@ __WEBRTC_FEATURES_BLOCK__
 
 ; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
 exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${CALLERID(num)}, Aranan=${EXTEN})"""
-    ext_content = ext_content.replace("__WEBRTC_FEATURES_BLOCK__", webrtc_header_and_features) + """
+    ext_content = ext_content.replace("__TRUNK_INBOUND_BLOCK__", trunk_inbound_str).replace("__WEBRTC_FEATURES_BLOCK__", webrtc_header_and_features) + """
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${CURL(http://127.0.0.1:8000/api/acl/check_outbound_call?caller=${CALLERID(num)}&callee=${EXTEN}&channel=${URIENCODE(${CHANNEL(name)})}&via=${URIENCODE(${PJSIP_HEADER(read,Via)})})})
@@ -530,9 +876,32 @@ same => n,Set(__CALL_UUID=${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_
 same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_id=${CALL_UUID}&did=${EXTEN}&caller=${CALLERID(num)}&asterisk_id=${UNIQUEID})})
 same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
-same => n,Set(CALLERID(num)=908503607390)
-same => n,Set(CALLERID(name)=908503607390)
 same => n,Set(DIAL_NUM=${IF($["${EXTEN:0:1}"="0"]?90${EXTEN:1}:${EXTEN})})
+same => n,Set(OUT_CFG=${CURL(http://127.0.0.1:8000/api/trunks/resolve_outbound_dial?caller=${URIENCODE(${CALLERID(num)})}&caller_name=${URIENCODE(${CALLERID(name)})}&callee=${URIENCODE(${EXTEN})}&dial_num=${URIENCODE(${DIAL_NUM})}&orig_caller=${URIENCODE(${ORIG_CALLER_NUM})}&orig_name=${URIENCODE(${ORIG_CALLER_NAME})})})
+same => n,GotoIf($["${CUT(OUT_CFG,|,1)}" = "ALLOW"]?apply_out_cfg:fallback_out_dial)
+same => n(apply_out_cfg),Set(__OUT_TRUNK_NAME=${CUT(OUT_CFG,|,2)})
+same => n,Set(OUT_LIMIT_EN=${CUT(OUT_CFG,|,3)})
+same => n,Set(OUT_MAX_CH=${CUT(OUT_CFG,|,4)})
+same => n,Set(OUT_CID_NUM=${CUT(OUT_CFG,|,5)})
+same => n,Set(OUT_CID_NAME=${CUT(OUT_CFG,|,6)})
+same => n,Set(OUT_DIAL_STR=${CUT(OUT_CFG,|,7)})
+same => n,Set(__OUT_HDR_DIVERSION=${CUT(OUT_CFG,|,8)})
+same => n,Set(__OUT_HDR_RPID=${CUT(OUT_CFG,|,9)})
+same => n,Set(__OUT_HDR_PAI=${CUT(OUT_CFG,|,10)})
+same => n,Set(__OUT_HDR_PPI=${CUT(OUT_CFG,|,11)})
+same => n,Set(__OUT_MAXPTIME=${CUT(OUT_CFG,|,12)})
+same => n,GotoIf($["${OUT_LIMIT_EN}" != "1"]?set_out_cid)
+same => n,Set(GROUP(trunk_limit)=${OUT_TRUNK_NAME})
+same => n,GotoIf($[${GROUP_COUNT(${OUT_TRUNK_NAME}@trunk_limit)} > ${OUT_MAX_CH}]?out_limit_exceeded)
+same => n(set_out_cid),Set(CALLERID(num)=${IF($["${OUT_CID_NUM}" != ""]?${OUT_CID_NUM}:908503607390)})
+same => n,Set(CALLERID(name)=${IF($["${OUT_CID_NAME}" != ""]?${OUT_CID_NAME}:${CALLERID(num)})})
+same => n,Dial(${OUT_DIAL_STR},60,rb(trunk-outbound-headers^s^1))
+same => n,Hangup()
+same => n(out_limit_exceeded),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${OUT_TRUNK_NAME} Max=${OUT_MAX_CH})
+same => n,Busy(5)
+same => n,Hangup(17)
+same => n(fallback_out_dial),Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
 same => n,Dial(PJSIP/Operator_Trunk/sip:${DIAL_NUM}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 

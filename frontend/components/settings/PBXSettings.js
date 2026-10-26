@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { 
   PhoneCall, 
   Save, 
@@ -18,15 +19,270 @@ import {
   Shield,
   AlertTriangle,
   Download,
-  Upload
+  Upload,
+  Settings,
+  Sliders,
+  FileCode2,
+  RefreshCw,
+  Copy,
+  Check,
+  Eye,
+  EyeOff,
+  ChevronRight,
+  ChevronLeft,
+  ChevronUp,
+  ChevronDown,
+  ToggleLeft,
+  ToggleRight
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 
+const SYSTEM_CODECS = [
+  { id: "alaw", label: "G.711 A-Law (alaw)" },
+  { id: "ulaw", label: "G.711 µ-Law (ulaw)" },
+  { id: "g722", label: "G.722 HD Geniş Bant (g722)" },
+  { id: "g729", label: "G.729 Düşük Bant (g729)" },
+  { id: "opus", label: "Opus Yüksek Kalite (opus)" },
+  { id: "gsm", label: "GSM (gsm)" },
+  { id: "ilbc", label: "iLBC (ilbc)" },
+  { id: "h264", label: "H.264 Video (h264)" },
+  { id: "vp8", label: "VP8 Video (vp8)" }
+];
+
+const DEFAULT_SIP_HEADERS = {
+  inbound_caller_header: "default",
+  inbound_callee_header: "default",
+  outbound_from_user: "default",
+  outbound_from_user_custom: "",
+  outbound_from_name: "ext_name",
+  outbound_from_name_custom: "",
+  outbound_diversion: "none",
+  outbound_diversion_custom: "",
+  outbound_rpid: "none",
+  outbound_rpid_custom: "",
+  outbound_pai: "none",
+  outbound_pai_custom: "",
+  outbound_ppi: "none",
+  outbound_ppi_custom: "",
+  user_agent: "AIDA-PBX",
+  realm: "asterisk",
+  maxptime: 20
+};
+
+const MAXPTIME_OPTIONS = Array.from({ length: 29 }, (_, idx) => (idx + 2) * 10); // 20, 30, 40, ..., 300
+
+function generateSipUsernameStr() {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const all = upper + lower + digits;
+  let res = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+  ];
+  for (let i = 3; i < 8; i++) {
+    res.push(all[Math.floor(Math.random() * all.length)]);
+  }
+  return res.sort(() => Math.random() - 0.5).join("");
+}
+
+function generateSipPasswordStr() {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnopqrstuvwxyz";
+  const digits = "23456789";
+  const specials = "!@#$%^&*_-+=";
+  const all = upper + lower + digits + specials;
+  let pass = [
+    upper[Math.floor(Math.random() * upper.length)],
+    lower[Math.floor(Math.random() * lower.length)],
+    digits[Math.floor(Math.random() * digits.length)],
+    specials[Math.floor(Math.random() * specials.length)],
+  ];
+  for (let i = 4; i < 16; i++) {
+    pass.push(all[Math.floor(Math.random() * all.length)]);
+  }
+  return pass.sort(() => Math.random() - 0.5).join("");
+}
+
+function CodecDualListBox({ selectedIds = [], onChange, theme }) {
+  const [leftSelected, setLeftSelected] = useState([]);
+  const [rightSelected, setRightSelected] = useState([]);
+
+  const availableItems = SYSTEM_CODECS.filter((item) => !selectedIds.includes(item.id));
+  const selectedItems = selectedIds
+    .map((id) => SYSTEM_CODECS.find((item) => item.id === id) || { id, label: id })
+    .filter(Boolean);
+
+  const toggleLeft = (id) => {
+    setLeftSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const toggleRight = (id) => {
+    setRightSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const moveRight = () => {
+    if (!leftSelected.length) return;
+    const next = [...selectedIds, ...leftSelected.filter((id) => !selectedIds.includes(id))];
+    onChange(next);
+    setLeftSelected([]);
+  };
+
+  const moveLeft = () => {
+    if (!rightSelected.length) return;
+    const next = selectedIds.filter((id) => !rightSelected.includes(id));
+    onChange(next);
+    setRightSelected([]);
+  };
+
+  const moveUp = () => {
+    if (rightSelected.length !== 1) return;
+    const id = rightSelected[0];
+    const idx = selectedIds.indexOf(id);
+    if (idx <= 0) return;
+    const next = [...selectedIds];
+    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+    onChange(next);
+  };
+
+  const moveDown = () => {
+    if (rightSelected.length !== 1) return;
+    const id = rightSelected[0];
+    const idx = selectedIds.indexOf(id);
+    if (idx === -1 || idx >= selectedIds.length - 1) return;
+    const next = [...selectedIds];
+    [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+    onChange(next);
+  };
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="grid grid-cols-11 gap-2 items-center">
+        {/* Left Box: Available Codecs */}
+        <div className="col-span-5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/60 dark:bg-slate-950/60 overflow-hidden flex flex-col h-56">
+          <div className="px-3 py-2 border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-100/70 dark:bg-slate-900/70 flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            <span>Müsait Kodekler</span>
+            <span>{availableItems.length}</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
+            {availableItems.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-[11px] text-slate-400 italic px-2 text-center">
+                Tüm kodekler seçildi
+              </div>
+            ) : (
+              availableItems.map((item) => {
+                const isSel = leftSelected.includes(item.id);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => toggleLeft(item.id)}
+                    onDoubleClick={() => {
+                      if (!selectedIds.includes(item.id)) onChange([...selectedIds, item.id]);
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-all flex items-center justify-between select-none ${
+                      isSel
+                        ? `${theme.lightBg} ${theme.text} font-bold border ${theme.borderLight}`
+                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* Center Controls */}
+        <div className="col-span-1 flex flex-col items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={moveRight}
+            disabled={!leftSelected.length}
+            className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-35 transition-all"
+            title="Seçilenleri Ekle"
+          >
+            <ChevronRight size={15} />
+          </button>
+          <button
+            type="button"
+            onClick={moveLeft}
+            disabled={!rightSelected.length}
+            className="p-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-35 transition-all"
+            title="Seçilenleri Çıkar"
+          >
+            <ChevronLeft size={15} />
+          </button>
+          <div className="h-2" />
+          <button
+            type="button"
+            onClick={moveUp}
+            disabled={rightSelected.length !== 1}
+            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-35 transition-all"
+            title="Önceliği Yukarı Taşı"
+          >
+            <ChevronUp size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={moveDown}
+            disabled={rightSelected.length !== 1}
+            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-35 transition-all"
+            title="Önceliği Aşağı Taşı"
+          >
+            <ChevronDown size={14} />
+          </button>
+        </div>
+
+        {/* Right Box: Selected Codecs */}
+        <div className="col-span-5 border border-slate-200 dark:border-slate-800 rounded-xl bg-slate-50/60 dark:bg-slate-950/60 overflow-hidden flex flex-col h-56">
+          <div className="px-3 py-2 border-b border-slate-200/80 dark:border-slate-800/80 bg-slate-100/70 dark:bg-slate-900/70 flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+            <span>Seçili Kodekler (Öncelik Sıralı)</span>
+            <span>{selectedItems.length}</span>
+          </div>
+          <div className="flex-1 overflow-y-auto p-1.5 space-y-1">
+            {selectedItems.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-[11px] text-slate-400 italic px-2 text-center">
+                Seçili kodek yok (Varsayılan alaw, ulaw kullanılır)
+              </div>
+            ) : (
+              selectedItems.map((item, idx) => {
+                const isSel = rightSelected.includes(item.id);
+                return (
+                  <div
+                    key={item.id}
+                    onClick={() => toggleRight(item.id)}
+                    onDoubleClick={() => {
+                      onChange(selectedIds.filter((id) => id !== item.id));
+                    }}
+                    className={`px-2.5 py-1.5 rounded-lg text-xs cursor-pointer transition-all flex items-center justify-between select-none ${
+                      isSel
+                        ? `${theme.lightBg} ${theme.text} font-bold border ${theme.borderLight}`
+                        : "text-slate-700 dark:text-slate-300 hover:bg-slate-200/60 dark:hover:bg-slate-800/60"
+                    }`}
+                  >
+                    <span className="truncate">
+                      <span className="text-[10px] font-mono opacity-60 mr-1.5">{idx + 1}.</span>
+                      {item.label}
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost:8000" }) {
-  const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = useTheme();
+  const theme = useTheme();
+  const { bg, hover, text, border, ring, lightBg, lightText, borderLight, colorCode } = theme;
   // PBX & AMI Config States
   const [settings, setSettings] = useState({
     ami_host: "127.0.0.1",
@@ -45,6 +301,11 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
   const [pbxSuccess, setPbxSuccess] = useState(false);
   const [loading, setLoading] = useState({ pbx: false, trunks: false });
   const [trunkError, setTrunkError] = useState("");
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (trunkError) {
@@ -64,23 +325,32 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
 
   // Popup Modal States
   const [showModal, setShowModal] = useState(false);
-  const [modalStep, setModalStep] = useState(1); // 1: Choose Type, 2: Fill Details
-  const [newTrunk, setNewTrunk] = useState({
-    trunk_type: "register", // register, peer
+  const [activeModalTab, setActiveModalTab] = useState("general"); // general, advanced, sip_headers
+  const [showTrunkPassword, setShowTrunkPassword] = useState(false);
+  const [copiedField, setCopiedField] = useState(null);
+
+  const getDefaultNewTrunk = () => ({
+    trunk_type: "register", // register, peer, account
     trunk_name: "",
     host: "",
     username: "",
     password: "",
     port: 5060,
     did_number: "",
-    protocol: "udp", // udp, tcp
+    protocol: "udp", // udp, tcp, tls
     greeting_prompt: "",
-    transfer_target_type: "extension", // extension, queue, custom
+    transfer_target_type: "extension",
     transfer_target: "200",
-    codec: "G711",
+    codec: "alaw,ulaw,g722,g729",
+    codecs: ["alaw", "ulaw", "g722", "g729"],
+    call_limit_enabled: false,
+    call_limit_direction: "both", // both, outbound, inbound
     max_channels: 30,
-    is_active: true
+    is_active: true,
+    sip_headers: { ...DEFAULT_SIP_HEADERS }
   });
+
+  const [newTrunk, setNewTrunk] = useState(getDefaultNewTrunk);
 
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -174,6 +444,51 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     setNewTrunk((prev) => ({ ...prev, [name]: value }));
   };
 
+  const handleSipHeaderChange = (key, value) => {
+    setNewTrunk((prev) => ({
+      ...prev,
+      sip_headers: {
+        ...DEFAULT_SIP_HEADERS,
+        ...(prev.sip_headers || {}),
+        [key]: value
+      }
+    }));
+  };
+
+  const handleTrunkTypeChange = (typeVal) => {
+    setNewTrunk((prev) => {
+      const updated = { ...prev, trunk_type: typeVal };
+      if (typeVal === "account") {
+        if (!updated.username) updated.username = generateSipUsernameStr();
+        if (!updated.password) updated.password = generateSipPasswordStr();
+      }
+      return updated;
+    });
+  };
+
+  const copyToClipboard = (textVal, fieldKey) => {
+    if (!textVal) return;
+    navigator.clipboard.writeText(textVal);
+    setCopiedField(fieldKey);
+    setTimeout(() => setCopiedField(null), 2000);
+  };
+
+  const parseCodecsArray = (trunkObj) => {
+    if (Array.isArray(trunkObj?.codecs) && trunkObj.codecs.length > 0) {
+      return trunkObj.codecs.map((c) => String(c).toLowerCase().trim()).filter(Boolean);
+    }
+    const rawStr = String(trunkObj?.codec || "alaw,ulaw,g722,g729");
+    if (rawStr.toUpperCase() === "G711") return ["alaw", "ulaw"];
+    if (rawStr.toUpperCase() === "G729") return ["g729", "alaw", "ulaw"];
+    if (rawStr.toUpperCase() === "G722") return ["g722", "alaw", "ulaw"];
+    if (rawStr.toUpperCase() === "OPUS") return ["opus", "g722", "alaw", "ulaw"];
+    const parts = rawStr
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean);
+    return parts.length > 0 ? parts : ["alaw", "ulaw", "g722", "g729"];
+  };
+
   const handlePbxSave = async (e) => {
     e.preventDefault();
     setLoading((prev) => ({ ...prev, pbx: true }));
@@ -196,40 +511,88 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     }
   };
 
-  // Add Trunk Submit
+  // Add / Update Trunk Submit
   const handleAddTrunk = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
     setTrunkError("");
 
     if (!newTrunk.trunk_name || !newTrunk.trunk_name.trim()) {
-      setTrunkError("Lütfen bağlantı (Trunk) adını giriniz.");
+      setTrunkError("Lütfen dış hat ismini giriniz.");
+      setActiveModalTab("general");
       return;
     }
 
     const tName = newTrunk.trunk_name.trim();
+    const tType = (newTrunk.trunk_type || "register").toLowerCase();
+
+    if ((tType === "register" || tType === "peer") && (!newTrunk.host || !String(newTrunk.host).trim())) {
+      setTrunkError("Lütfen Host IP adresini veya sunucu adresini giriniz.");
+      setActiveModalTab("general");
+      return;
+    }
+
+    if (tType === "register" && (!newTrunk.username || !String(newTrunk.username).trim())) {
+      setTrunkError("Register tipi dış hat için Kullanıcı Adı zorunludur.");
+      setActiveModalTab("general");
+      return;
+    }
+
+    if (tType === "account" && (!newTrunk.username || !String(newTrunk.username).trim())) {
+      setTrunkError("Account tipi dış hat için Kullanıcı Adı zorunludur.");
+      setActiveModalTab("general");
+      return;
+    }
 
     // Client-side duplicate check by Trunk Name
     const dupTrunk = (trunks || []).find(
-      t => String(t.trunk_name || "").trim().toLowerCase() === tName.toLowerCase() && (!newTrunk.id || String(t.id) !== String(newTrunk.id))
+      (t) =>
+        String(t.trunk_name || "").trim().toLowerCase() === tName.toLowerCase() &&
+        (!newTrunk.id || String(t.id) !== String(newTrunk.id))
     );
     if (dupTrunk) {
       setTrunkError(`'${tName}' isimli Dış Hat (Trunk) zaten mevcut. Lütfen farklı bir isim giriniz.`);
+      setActiveModalTab("general");
       return;
     }
+
+    const normalizedCodecs =
+      Array.isArray(newTrunk.codecs) && newTrunk.codecs.length > 0
+        ? newTrunk.codecs
+        : ["alaw", "ulaw", "g722", "g729"];
+
+    const payload = {
+      ...newTrunk,
+      trunk_name: tName,
+      trunk_type: tType,
+      host: tType === "account" ? (newTrunk.host || "dynamic") : String(newTrunk.host || "").trim(),
+      port: Number(newTrunk.port) || 5060,
+      protocol: (newTrunk.protocol || "udp").toLowerCase(),
+      codecs: normalizedCodecs,
+      codec: normalizedCodecs.join(","),
+      call_limit_enabled: Boolean(newTrunk.call_limit_enabled),
+      call_limit_direction: newTrunk.call_limit_direction || "both",
+      max_channels: Number(newTrunk.max_channels) || 30,
+      sip_headers: {
+        ...DEFAULT_SIP_HEADERS,
+        ...(newTrunk.sip_headers || {}),
+        maxptime: Number(newTrunk.sip_headers?.maxptime) || 20
+      }
+    };
 
     setLoading((prev) => ({ ...prev, trunks: true }));
 
     try {
       const url = `${API_BASE}/api/settings/trunks`;
-      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+      const activeTenantId =
+        typeof window !== "undefined" ? localStorage.getItem("active_tenant_id") || "tenant-default" : "tenant-default";
       const res = await fetch(url, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
           "X-User-ID": localStorage.getItem("current_user_id") || "admin",
           "X-Tenant-ID": activeTenantId
         },
-        body: JSON.stringify({ ...newTrunk, trunk_name: tName, max_channels: Number(newTrunk.max_channels) || 30 })
+        body: JSON.stringify(payload)
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
@@ -239,6 +602,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
         } else {
           fetchTrunks();
         }
+        fetchTrunkStatuses();
       } else {
         setTrunkError(data.detail || "Dış hat kaydedilirken bir hata oluştu.");
       }
@@ -253,29 +617,47 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
   const closeModal = () => {
     setTrunkError("");
     setShowModal(false);
-    setModalStep(1);
-    setNewTrunk({
-      trunk_type: "register",
-      trunk_name: "",
-      host: "",
-      username: "",
-      password: "",
-      port: 5060,
-      did_number: "",
-      protocol: "udp",
-      greeting_prompt: "",
-      transfer_target_type: "extension",
-      transfer_target: "200",
-      codec: "G711",
-      max_channels: 30,
-      is_active: true
-    });
+    setActiveModalTab("general");
+    setShowTrunkPassword(false);
+    setNewTrunk(getDefaultNewTrunk());
+  };
+
+  const openAddTrunkModal = () => {
+    setTrunkError("");
+    setActiveModalTab("general");
+    setShowTrunkPassword(false);
+    setNewTrunk(getDefaultNewTrunk());
+    setShowModal(true);
   };
 
   const handleEditTrunk = (t) => {
     setTrunkError("");
-    setNewTrunk({ ...t, max_channels: t.max_channels || 30 });
-    setModalStep(2); // Skip Step 1 since type is chosen
+    const parsedCodecs = parseCodecsArray(t);
+    let parsedHeaders = { ...DEFAULT_SIP_HEADERS };
+    if (t.sip_headers && typeof t.sip_headers === "object") {
+      parsedHeaders = { ...DEFAULT_SIP_HEADERS, ...t.sip_headers };
+    } else if (typeof t.sip_headers === "string" && t.sip_headers.trim()) {
+      try {
+        parsedHeaders = { ...DEFAULT_SIP_HEADERS, ...JSON.parse(t.sip_headers) };
+      } catch (e) {}
+    }
+
+    setNewTrunk({
+      ...getDefaultNewTrunk(),
+      ...t,
+      trunk_type: (t.trunk_type || "register").toLowerCase(),
+      protocol: (t.protocol || "udp").toLowerCase(),
+      port: t.port || 5060,
+      codecs: parsedCodecs,
+      codec: parsedCodecs.join(","),
+      call_limit_enabled: Boolean(t.call_limit_enabled),
+      call_limit_direction: t.call_limit_direction || "both",
+      max_channels: t.max_channels || 30,
+      is_active: t.is_active !== false,
+      sip_headers: parsedHeaders
+    });
+    setActiveModalTab("general");
+    setShowTrunkPassword(false);
     setShowModal(true);
   };
 
@@ -317,7 +699,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
       "Kullanıcı Adı": t.username || "",
       "Şifre": t.password || "",
       "Caller ID (DID)": t.did_number || "",
-      "Codec": t.codec || "G711",
+      "Codec": Array.isArray(t.codecs) ? t.codecs.join(",") : (t.codec || "alaw,ulaw,g722,g729"),
       "Aktif": t.is_active !== false ? "Evet" : "Hayır"
     }));
 
@@ -344,14 +726,16 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
         for (const row of data) {
           const trunk_name = String(row["Hat Adı"] || row["Trunk Adı"] || "").trim();
           if (!trunk_name) continue;
-          const trunk_type = String(row["Tür"] || "register").trim().toLowerCase() === "peer" ? "peer" : "register";
-          const protocol = String(row["Protokol"] || "udp").trim().toLowerCase() === "tcp" ? "tcp" : "udp";
+          const rawType = String(row["Tür"] || "register").trim().toLowerCase();
+          const trunk_type = ["register", "peer", "account"].includes(rawType) ? rawType : "register";
+          const rawProto = String(row["Protokol"] || "udp").trim().toLowerCase();
+          const protocol = ["udp", "tcp", "tls"].includes(rawProto) ? rawProto : "udp";
           const host = String(row["Sunucu (Host)"] || row["Host"] || "").trim();
           const port = parseInt(row["Port"], 10) || 5060;
           const username = String(row["Kullanıcı Adı"] || "").trim();
           const password = String(row["Şifre"] || "").trim();
           const did_number = String(row["Caller ID (DID)"] || row["DID"] || "").trim();
-          const codec = String(row["Codec"] || "G711").trim();
+          const codec = String(row["Codec"] || "alaw,ulaw,g722,g729").trim();
           const is_active = String(row["Aktif"] || "Evet").trim().toLowerCase() !== "hayır";
 
           const existing = trunks.find(t => t.trunk_name && t.trunk_name.toLowerCase() === trunk_name.toLowerCase());
@@ -394,11 +778,40 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
   const filteredTrunks = trunks.filter((t) => {
     const query = searchQuery.toLowerCase();
     return (
-      t.trunk_name.toLowerCase().includes(query) ||
+      (t.trunk_name && t.trunk_name.toLowerCase().includes(query)) ||
       (t.did_number && t.did_number.toLowerCase().includes(query)) ||
-      (t.host && t.host.toLowerCase().includes(query))
+      (t.host && t.host.toLowerCase().includes(query)) ||
+      (t.username && t.username.toLowerCase().includes(query))
     );
   });
+
+  const OUTBOUND_FROM_USER_OPTIONS = [
+    { value: "default", label: "Varsayılan" },
+    { value: "ext_number", label: "İç Hat Arayan No" },
+    { value: "trunk_username", label: "Dış Hat Kullanıcı Adı" },
+    { value: "trunk_did", label: "Hat Görünen Numara" },
+    { value: "ext_callerid", label: "İç Hattaki Görünen Numarası" },
+    { value: "outbound_rule_cid", label: "Giden Arama Kuralı Numarası" },
+    { value: "orig_caller", label: "İlk Arayan No" },
+    { value: "custom", label: "Özel" }
+  ];
+
+  const OUTBOUND_FROM_NAME_OPTIONS = [
+    { value: "ext_name", label: "İç Hat Arayan No Adı" },
+    { value: "trunk_name", label: "Hat Görünen No Adı" },
+    { value: "orig_caller_name", label: "İlk Arayan Adı" },
+    { value: "custom", label: "Özel" }
+  ];
+
+  const OUTBOUND_IDENTITY_HEADER_OPTIONS = [
+    { value: "none", label: "Yok" },
+    { value: "ext_number", label: "İç Hat Arayan No" },
+    { value: "trunk_username", label: "Dış Hat Kullanıcı Adı" },
+    { value: "trunk_did", label: "Hat Görünen Numara" },
+    { value: "outbound_route_cid", label: "Giden Rota Görünen Numara" },
+    { value: "orig_caller", label: "İlk Arayan No" },
+    { value: "custom", label: "Özel" }
+  ];
 
   return (
     <div className="flex flex-col gap-8 text-slate-800 dark:text-slate-100 w-full">
@@ -412,7 +825,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
             <div>
               <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">DIŞ HAT ENTEGRASYONU (SIP TRUNKS)</h3>
               <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5 font-medium">
-                Operatör dış hat (SIP Trunk) tanımlarını, did numaralarını ve codec tercihlerini yapılandırın.
+                Operatör dış hat (SIP Trunk) tanımlarını, PJSIP parametrelerini, kodek ve SIP başlıklarını yapılandırın.
               </p>
             </div>
           </div>
@@ -455,11 +868,8 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
             </button>
 
             <button
-              onClick={() => {
-                setModalStep(1);
-                setShowModal(true);
-              }}
-              className={`p-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center justify-center h-8 w-8 shrink-0`}
+              onClick={openAddTrunkModal}
+              className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm"
               title="Yeni Dış Hat Ekle"
             >
               <Plus size={16} />
@@ -632,7 +1042,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
               {/* List Table */}
               {trunks.length === 0 ? (
                 <div className="text-center py-16 text-slate-400 dark:text-slate-500 text-xs font-semibold">
-                  Kayıtlı dış hat bağlantısı bulunmuyor. "Dış Hat Ekle" butonuna basarak yeni bir SIP hattı bağlayabilirsiniz.
+                  Kayıtlı dış hat bağlantısı bulunmuyor. Sağ üstteki "+" butonuna basarak yeni bir SIP hattı bağlayabilirsiniz.
                 </div>
               ) : filteredTrunks.length === 0 ? (
                 <div className="text-center py-16 text-slate-400 dark:text-slate-500 text-xs font-semibold">
@@ -645,12 +1055,12 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                       <tr className="border-b border-slate-200 dark:border-slate-800 text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">
                         <th className="py-2.5 w-16 text-center">Durum</th>
                         <th className="py-2.5">Hat Adı</th>
-                        <th className="py-2.5">Tür</th>
-                        <th className="py-2.5">Protokol</th>
-                        <th className="py-2.5">Sunucu / Port</th>
-                        <th className="py-2.5">Caller ID (DID)</th>
-                        <th className="py-2.5 text-center">Kapasite</th>
-                        <th className="py-2.5">Codec</th>
+                        <th className="py-2.5">Dış Hat Tipi</th>
+                        <th className="py-2.5">Taşıma</th>
+                        <th className="py-2.5">Host / Kullanıcı</th>
+                        <th className="py-2.5">Görünür Numara</th>
+                        <th className="py-2.5 text-center">Çağrı Kısıtlama</th>
+                        <th className="py-2.5">Kodekler</th>
                         <th className="py-2.5 text-right">İşlem</th>
                       </tr>
                     </thead>
@@ -658,6 +1068,8 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                       {filteredTrunks.map((t) => {
                         const isActive = t.is_active !== false;
                         const status = isActive ? (trunkStatuses[t.id] || "inactive") : "passive";
+                        const tType = (t.trunk_type || "register").toLowerCase();
+                        const codecList = parseCodecsArray(t);
                         return (
                           <tr key={t.id} className="border-b border-slate-100 dark:border-slate-850 hover:bg-slate-50/40 dark:hover:bg-slate-950/20 transition-colors">
                             <td className="py-3 text-center">
@@ -686,17 +1098,40 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                             </td>
                             <td className="py-3 font-bold text-slate-800 dark:text-white">{t.trunk_name}</td>
                             <td className="py-3">
-                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold ${
-                                t.trunk_type === "register" ? "bg-purple-50 dark:bg-purple-900/30 text-primary dark:text-primary border border-purple-100 dark:border-purple-800/30" : "bg-blue-50 dark:bg-blue-900/30 text-primary dark:text-blue-400 border border-blue-100 dark:border-blue-800/30"
+                              <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase ${
+                                tType === "register"
+                                  ? "bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 border border-purple-100 dark:border-purple-800/30"
+                                  : tType === "account"
+                                  ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border border-emerald-100 dark:border-emerald-800/30"
+                                  : "bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-800/30"
                               }`}>
-                                {t.trunk_type === "register" ? "REGISTER" : "PEER"}
+                                {tType === "register" ? "REGISTER" : tType === "account" ? "ACCOUNT" : "PEER"}
                               </span>
                             </td>
-                            <td className="py-3 uppercase font-mono text-[10px]">{t.protocol || "udp"}</td>
-                            <td className="py-3 font-mono text-[10px] text-slate-450 dark:text-slate-550">{t.host}:{t.port}</td>
-                            <td className="py-3 font-mono text-slate-800 dark:text-slate-200">{t.did_number}</td>
-                            <td className="py-3 text-center font-bold text-slate-700 dark:text-slate-300">{t.max_channels || 30} Kanal</td>
-                            <td className="py-3 font-bold text-slate-700 dark:text-slate-350">{t.codec || "G711"}</td>
+                            <td className="py-3 uppercase font-mono text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                              {(t.protocol || "udp").toUpperCase()}
+                            </td>
+                            <td className="py-3 font-mono text-[10px] text-slate-500 dark:text-slate-400">
+                              {tType === "account" ? (
+                                <span title="Account Kullanıcı Adı">{t.username || "-"}</span>
+                              ) : (
+                                <span>{t.host}:{t.port || 5060}</span>
+                              )}
+                            </td>
+                            <td className="py-3 font-mono text-slate-800 dark:text-slate-200">{t.did_number || "-"}</td>
+                            <td className="py-3 text-center">
+                              {t.call_limit_enabled ? (
+                                <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/50 text-[10px] font-bold">
+                                  {t.max_channels || 30} Kanal ({t.call_limit_direction === "outbound" ? "Giden" : t.call_limit_direction === "inbound" ? "Gelen" : "Giden/Gelen"})
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-medium">Limitsiz ({t.max_channels || 30})</span>
+                              )}
+                            </td>
+                            <td className="py-3 font-mono text-[10px] font-bold text-slate-700 dark:text-slate-300">
+                              {codecList.slice(0, 4).join(", ")}
+                              {codecList.length > 4 ? ` +${codecList.length - 4}` : ""}
+                            </td>
                             <td className="py-3 text-right">
                               <div className="flex justify-end gap-1.5">
                                 <button
@@ -727,260 +1162,855 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
         )}
       </div>
 
-      {/* POPUP MODAL: Add Trunk Step-by-Step */}
-      {showModal && (
-        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full text-slate-850 dark:text-white shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      {/* POPUP MODAL: Left-Tabbed SIP Trunk Configuration Modal */}
+      {mounted && showModal && createPortal(
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4 animate-in fade-in duration-200">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-5xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
             
             {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-550/5 dark:bg-slate-950/20">
-              <h3 className="font-bold text-xs uppercase tracking-wider flex items-center gap-2 text-slate-800 dark:text-white">
-                <Cable size={16} className="text-primary dark:text-blue-400" />
-                {newTrunk.id ? "Dış Hat Düzenle" : "Dış Hat (SIP Trunk) Ekle"}
-              </h3>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className={`p-2 ${lightBg} ${text} rounded-xl`}>
+                  <Cable size={18} />
+                </div>
+                <div>
+                  <h4 className="font-bold text-sm text-slate-800 dark:text-white">
+                    {newTrunk.id ? `Dış Hat Düzenle: ${newTrunk.trunk_name}` : "Yeni Dış Hat (SIP Trunk) Tanımla"}
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Tüm teknik parametreler kaydedildiği anda Asterisk PJSIP ve Dialplan motoruna birebir işlenir
+                  </p>
+                </div>
+              </div>
               <button
+                type="button"
                 onClick={closeModal}
-                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 dark:text-slate-550 transition"
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-200/50 dark:hover:bg-slate-800 transition-colors"
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
 
-            {/* Step 1: Choose Trunk Type */}
-            {modalStep === 1 && (
-              <div className="p-6 flex flex-col gap-5">
-                <p className="text-xs text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Hat bağlantı türünü seçin:</p>
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Register Option */}
-                  <label className={`flex flex-col p-4 border rounded-xl cursor-pointer hover:border-purple-500 transition-all ${
-                    newTrunk.trunk_type === "register" ? "bg-purple-50 dark:bg-purple-950/20 border-purple-300 dark:border-purple-800" : "bg-slate-50/50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="trunk_type"
-                      checked={newTrunk.trunk_type === "register"}
-                      onChange={() => setNewTrunk((prev) => ({ ...prev, trunk_type: "register" }))}
-                      className="hidden"
-                    />
-                    <span className="font-bold text-sm text-primary dark:text-purple-400">Register Trunk</span>
-                    <span className="text-[10px] text-slate-500 mt-2 leading-relaxed font-medium">Operatör tarafından verilen kullanıcı adı ve şifre ile kayıt olan hatlar.</span>
-                  </label>
-
-                  {/* Peer Option */}
-                  <label className={`flex flex-col p-4 border rounded-xl cursor-pointer hover:border-blue-500 transition-all ${
-                    newTrunk.trunk_type === "peer" ? "bg-blue-50 dark:bg-blue-950/20 border-blue-300 dark:border-blue-800" : "bg-slate-50/50 dark:bg-slate-950/50 border-slate-200 dark:border-slate-800"
-                  }`}>
-                    <input
-                      type="radio"
-                      name="trunk_type"
-                      checked={newTrunk.trunk_type === "peer"}
-                      onChange={() => setNewTrunk((prev) => ({ ...prev, trunk_type: "peer" }))}
-                      className="hidden"
-                    />
-                    <span className="font-bold text-sm text-primary dark:text-blue-400">Peer Trunk</span>
-                    <span className="text-[10px] text-slate-500 mt-2 leading-relaxed font-medium">IP bazlı yetkilendirme ile çalışan, şifresiz direkt hat bağlantıları.</span>
-                  </label>
+            {/* Error Banner */}
+            {trunkError && (
+              <div className="mx-6 mt-4 p-3 bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900/50 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle size={15} className="shrink-0" />
+                  <span>{trunkError}</span>
                 </div>
-
                 <button
-                  onClick={() => setModalStep(2)}
-                  className={`mt-2 flex items-center justify-center gap-1.5 px-4 py-2 ${bg} ${hover} text-white transition rounded-xl font-bold text-xs self-end shadow-md shadow-${colorCode}-500/15`}
+                  type="button"
+                  onClick={() => setTrunkError("")}
+                  className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 rounded-lg"
                 >
-                  İleri <ArrowRight size={14} />
+                  <X size={14} />
                 </button>
               </div>
             )}
 
-            {/* Step 2: Fill Details Form */}
-            {modalStep === 2 && (
-              <form onSubmit={handleAddTrunk} className="p-5 flex flex-col gap-4">
-                {trunkError && (
-                  <div className="p-3 bg-rose-50 dark:bg-rose-950/20 border border-rose-200 dark:border-rose-900/40 rounded-xl text-rose-600 dark:text-rose-400 text-xs font-semibold flex items-center justify-between animate-in fade-in duration-200">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle size={14} className="shrink-0" />
-                      <span>{trunkError}</span>
-                    </div>
+            {/* Modal Body with Left Vertical Tabs */}
+            <form onSubmit={handleAddTrunk} className="flex flex-1 overflow-hidden">
+              {/* Left Sidebar Navigation */}
+              <div className="w-56 border-r border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 p-3 flex flex-col gap-1.5 shrink-0 overflow-y-auto">
+                {[
+                  { id: "general", label: "Genel", desc: "Tip, Host, Kimlik & Taşıma", icon: Settings },
+                  { id: "advanced", label: "Gelişmiş", desc: "Kodek & Çağrı Kısıtlama", icon: Sliders },
+                  { id: "sip_headers", label: "SIP Başlıkları", desc: "Gelen/Giden PJSIP Başlıkları", icon: FileCode2 }
+                ].map((tab) => {
+                  const Icon = tab.icon;
+                  const active = activeModalTab === tab.id;
+                  return (
                     <button
+                      key={tab.id}
                       type="button"
-                      onClick={() => setTrunkError("")}
-                      className="p-1 text-rose-400 hover:text-rose-600 dark:hover:text-rose-200 transition-colors rounded-lg shrink-0"
-                      title="Kapat"
+                      onClick={() => setActiveModalTab(tab.id)}
+                      className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left transition-all ${
+                        active
+                          ? `${bg} text-white font-bold shadow-sm`
+                          : "text-slate-600 dark:text-slate-400 hover:bg-slate-200/50 dark:hover:bg-slate-800/60"
+                      }`}
                     >
-                      <X size={14} />
+                      <Icon size={15} className="shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-xs leading-tight truncate">{tab.label}</div>
+                        <div className={`text-[9px] truncate mt-0.5 ${active ? "text-white/80" : "text-slate-400 dark:text-slate-500"}`}>
+                          {tab.desc}
+                        </div>
+                      </div>
                     </button>
-                  </div>
-                )}
+                  );
+                })}
+              </div>
 
+              {/* Right Content Area */}
+              <div className="flex-1 p-6 overflow-y-auto space-y-6">
                 
-                {/* Info Text */}
-                <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wide border-b border-slate-100 dark:border-slate-800 pb-1.5 flex items-center gap-1">
-                  <span>Hat Türü:</span>
-                  <span className={newTrunk.trunk_type === "register" ? "text-primary dark:text-purple-400" : "text-primary dark:text-blue-400"}>
-                    {newTrunk.trunk_type.toUpperCase()} TRUNK
-                  </span>
-                </p>
+                {/* TAB 1: GENEL */}
+                {activeModalTab === "general" && (
+                  <div className="space-y-5">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <div>
+                        <h5 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">
+                          Genel Dış Hat Bilgileri
+                        </h5>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Dış hat bağlantı tipini (Register, Peer veya Account) ve temel iletişim parametrelerini belirleyin.
+                        </p>
+                      </div>
 
-                {/* Trunk Name */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Bağlantı (Trunk) Adı</label>
-                  <input
-                    type="text"
-                    name="trunk_name"
-                    value={newTrunk.trunk_name}
-                    onChange={handleNewTrunkChange}
-                    placeholder="Örn: Operator_Hatti"
-                    required
-                    className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
-                  />
-                </div>
+                      {/* Aktif / Pasif Switch */}
+                      <div className="flex items-center gap-2.5 bg-slate-50 dark:bg-slate-950 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                          Durum: {newTrunk.is_active !== false ? "Aktif" : "Pasif"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setNewTrunk((prev) => ({ ...prev, is_active: prev.is_active === false ? true : false }))}
+                          className={`transition-colors ${newTrunk.is_active !== false ? "text-emerald-500" : "text-slate-400"}`}
+                          title="Aktif / Pasif Değiştir"
+                        >
+                          {newTrunk.is_active !== false ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                        </button>
+                      </div>
+                    </div>
 
-                {/* Server Host & Port */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="col-span-2 flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SIP Sunucu IP / Host</label>
-                    <input
-                      type="text"
-                      name="host"
-                      value={newTrunk.host}
-                      onChange={handleNewTrunkChange}
-                      placeholder="sip.operator.com"
-                      required
-                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
-                    />
+                    {/* İsim & Dış Hat Tipi */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1.5">
+                          İsim *
+                        </label>
+                        <input
+                          type="text"
+                          name="trunk_name"
+                          value={newTrunk.trunk_name}
+                          onChange={handleNewTrunkChange}
+                          placeholder="Örn: Operator_Trunk"
+                          className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1.5">
+                          Dış Hat Tipi *
+                        </label>
+                        <select
+                          name="trunk_type"
+                          value={newTrunk.trunk_type || "register"}
+                          onChange={(e) => handleTrunkTypeChange(e.target.value)}
+                          className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white font-semibold focus:outline-none focus:border-primary"
+                        >
+                          <option value="register">Register (Operatöre Kayıt Olan Hat)</option>
+                          <option value="peer">Peer (IP Tabanlı Doğrudan Bağlantı)</option>
+                          <option value="account">Account (Santrala Kayıt Olan Dış Cihaz/Hat)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* CONDITIONAL FIELDS BY TRUNK TYPE */}
+                    {newTrunk.trunk_type === "register" && (
+                      <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
+                        <div className="text-[11px] font-bold text-purple-600 dark:text-purple-400 uppercase tracking-wider">
+                          Register Bağlantı Parametreleri
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div className="md:col-span-2">
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Host IP *
+                            </label>
+                            <input
+                              type="text"
+                              name="host"
+                              value={newTrunk.host || ""}
+                              onChange={handleNewTrunkChange}
+                              placeholder="Örn: sip.operator.com veya 185.x.x.x"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Port *
+                            </label>
+                            <input
+                              type="number"
+                              name="port"
+                              value={newTrunk.port ?? 5060}
+                              onChange={handleNewTrunkChange}
+                              placeholder="5060"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Kullanıcı Adı *
+                            </label>
+                            <input
+                              type="text"
+                              name="username"
+                              value={newTrunk.username || ""}
+                              onChange={handleNewTrunkChange}
+                              placeholder="Operatör SIP Kullanıcı Adı"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Parola (SIP Şifresi)
+                            </label>
+                            <div className="relative flex items-center">
+                              <input
+                                type={showTrunkPassword ? "text" : "password"}
+                                name="password"
+                                value={newTrunk.password || ""}
+                                onChange={handleNewTrunkChange}
+                                placeholder="Operatör SIP Şifresi"
+                                className="w-full pl-3 pr-10 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowTrunkPassword((v) => !v)}
+                                className="absolute right-2.5 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                title={showTrunkPassword ? "Gizle" : "Göster"}
+                              >
+                                {showTrunkPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Taşıma (Transport) *
+                            </label>
+                            <select
+                              name="protocol"
+                              value={(newTrunk.protocol || "udp").toLowerCase()}
+                              onChange={handleNewTrunkChange}
+                              className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            >
+                              <option value="udp">UDP</option>
+                              <option value="tcp">TCP</option>
+                              <option value="tls">TLS</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Görünür Numara (DID / Caller ID)
+                            </label>
+                            <input
+                              type="text"
+                              name="did_number"
+                              value={newTrunk.did_number || ""}
+                              onChange={handleNewTrunkChange}
+                              placeholder="Örn: 908503607390"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {newTrunk.trunk_type === "peer" && (
+                      <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
+                        <div className="text-[11px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider">
+                          Peer Bağlantı Parametreleri
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Host IP *
+                            </label>
+                            <input
+                              type="text"
+                              name="host"
+                              value={newTrunk.host || ""}
+                              onChange={handleNewTrunkChange}
+                              placeholder="Örn: 195.x.x.x veya sip.peer.com"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Port *
+                            </label>
+                            <input
+                              type="number"
+                              name="port"
+                              value={newTrunk.port ?? 5060}
+                              onChange={handleNewTrunkChange}
+                              placeholder="5060"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Taşıma (Transport) *
+                            </label>
+                            <select
+                              name="protocol"
+                              value={(newTrunk.protocol || "udp").toLowerCase()}
+                              onChange={handleNewTrunkChange}
+                              className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            >
+                              <option value="udp">UDP</option>
+                              <option value="tcp">TCP</option>
+                              <option value="tls">TLS</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Görünür Numara (Opsiyonel DID / Caller ID)
+                            </label>
+                            <input
+                              type="text"
+                              name="did_number"
+                              value={newTrunk.did_number || ""}
+                              onChange={handleNewTrunkChange}
+                              placeholder="Örn: 908503607390"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {newTrunk.trunk_type === "account" && (
+                      <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
+                        <div className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
+                          Account Bağlantı Parametreleri (Santrala Kayıt Olacak Dış Hat / Gateway)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          {/* Auto-generated SIP Username with Refresh + Copy */}
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Kullanıcı Adı *
+                            </label>
+                            <div className="flex items-center gap-1.5">
+                              <input
+                                type="text"
+                                name="username"
+                                value={newTrunk.username || ""}
+                                onChange={handleNewTrunkChange}
+                                className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(newTrunk.username, "account_user")}
+                                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white transition shrink-0"
+                                title="Kullanıcı Adını Kopyala"
+                              >
+                                {copiedField === "account_user" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setNewTrunk((prev) => ({ ...prev, username: generateSipUsernameStr() }))}
+                                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white transition shrink-0"
+                                title="Yeni Kullanıcı Adı Oluştur"
+                              >
+                                <RefreshCw size={14} />
+                              </button>
+                            </div>
+                          </div>
+
+                          {/* Transport */}
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Taşıma (Transport) *
+                            </label>
+                            <select
+                              name="protocol"
+                              value={(newTrunk.protocol || "udp").toLowerCase()}
+                              onChange={handleNewTrunkChange}
+                              className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            >
+                              <option value="udp">UDP</option>
+                              <option value="tcp">TCP</option>
+                              <option value="tls">TLS</option>
+                            </select>
+                          </div>
+
+                          {/* Auto-generated SIP Password with Show/Hide + Refresh + Copy */}
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Parola *
+                            </label>
+                            <div className="flex items-center gap-1.5">
+                              <div className="relative flex-1">
+                                <input
+                                  type={showTrunkPassword ? "text" : "password"}
+                                  name="password"
+                                  value={newTrunk.password || ""}
+                                  onChange={handleNewTrunkChange}
+                                  className="w-full pl-3 pr-8 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setShowTrunkPassword((v) => !v)}
+                                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                                  title={showTrunkPassword ? "Gizle" : "Göster"}
+                                >
+                                  {showTrunkPassword ? <EyeOff size={13} /> : <Eye size={13} />}
+                                </button>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => copyToClipboard(newTrunk.password, "account_pass")}
+                                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white transition shrink-0"
+                                title="Parolayı Kopyala"
+                              >
+                                {copiedField === "account_pass" ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setNewTrunk((prev) => ({ ...prev, password: generateSipPasswordStr() }))}
+                                className="p-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white transition shrink-0"
+                                title="Yeni Parola Oluştur"
+                              >
+                                <RefreshCw size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                              Görünür Numara (Opsiyonel DID / Caller ID)
+                            </label>
+                            <input
+                              type="text"
+                              name="did_number"
+                              value={newTrunk.did_number || ""}
+                              onChange={handleNewTrunkChange}
+                              placeholder="Örn: 908503607390"
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <div className="col-span-1 flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SIP Port</label>
-                    <input
-                      type="number"
-                      name="port"
-                      value={newTrunk.port}
-                      onChange={handleNewTrunkChange}
-                      required
-                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
-                    />
-                  </div>
-                </div>
+                )}
 
-                {/* Auth Username / Password (Only for register trunks) */}
-                {newTrunk.trunk_type === "register" && (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SIP Kullanıcı Adı</label>
-                      <input
-                        type="text"
-                        name="username"
-                        value={newTrunk.username}
-                        onChange={handleNewTrunkChange}
-                        required
-                        className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
+                {/* TAB 2: GELİŞMİŞ */}
+                {activeModalTab === "advanced" && (
+                  <div className="space-y-6">
+                    {/* Kodek Ayarları */}
+                    <div className="space-y-3">
+                      <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
+                        <h5 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">
+                          Kodek Ayarları
+                        </h5>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Sol listedeki sistem kodeklerinden kullanmak istediklerinizi sağ tarafa aktarın ve öncelik sırasını belirleyin.
+                        </p>
+                      </div>
+
+                      <CodecDualListBox
+                        selectedIds={Array.isArray(newTrunk.codecs) ? newTrunk.codecs : parseCodecsArray(newTrunk)}
+                        onChange={(nextCodecs) =>
+                          setNewTrunk((prev) => ({
+                            ...prev,
+                            codecs: nextCodecs,
+                            codec: nextCodecs.join(",")
+                          }))
+                        }
+                        theme={theme}
                       />
                     </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">SIP Şifre</label>
-                      <input
-                        type="password"
-                        name="password"
-                        value={newTrunk.password}
-                        onChange={handleNewTrunkChange}
-                        required
-                        className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500"
-                      />
+
+                    {/* Çağrı Kısıtlama */}
+                    <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h5 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">
+                            Çağrı Kısıtlama
+                          </h5>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            Bu dış hat üzerinden geçebilecek maksimum eş zamanlı çağrı kapasitesini sınırlandırın (Asterisk GROUP_COUNT).
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                            {newTrunk.call_limit_enabled ? "Aktif" : "Pasif"}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setNewTrunk((prev) => ({ ...prev, call_limit_enabled: !prev.call_limit_enabled }))
+                            }
+                            className={`transition-colors ${newTrunk.call_limit_enabled ? "text-emerald-500" : "text-slate-400"}`}
+                          >
+                            {newTrunk.call_limit_enabled ? <ToggleRight size={28} /> : <ToggleLeft size={28} />}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                            Giden / Gelen Arama Yönü
+                          </label>
+                          <select
+                            value={newTrunk.call_limit_direction || "both"}
+                            onChange={(e) =>
+                              setNewTrunk((prev) => ({ ...prev, call_limit_direction: e.target.value }))
+                            }
+                            disabled={!newTrunk.call_limit_enabled}
+                            className="w-full px-3 py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white disabled:opacity-50"
+                          >
+                            <option value="both">Giden ve Gelen Arama</option>
+                            <option value="outbound">Sadece Giden Arama</option>
+                            <option value="inbound">Sadece Gelen Arama</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                            Maksimum Eş Zamanlı Çağrı
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            max="1000"
+                            name="max_channels"
+                            value={newTrunk.max_channels ?? 30}
+                            onChange={handleNewTrunkChange}
+                            disabled={!newTrunk.call_limit_enabled}
+                            className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white disabled:opacity-50"
+                          />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Caller ID (DID Number), Protocol & Channel Limit */}
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Caller ID / DID</label>
-                    <input
-                      type="text"
-                      name="did_number"
-                      value={newTrunk.did_number}
-                      onChange={handleNewTrunkChange}
-                      placeholder="0850XXXXXXX"
-                      required
-                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
-                    />
+                {/* TAB 3: SIP BAŞLIKLARI */}
+                {activeModalTab === "sip_headers" && (
+                  <div className="space-y-6">
+                    {/* Alt Başlık 1: Gelen Parametreler */}
+                    <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
+                      <div className="border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                        <h5 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">
+                          Gelen Parametreler
+                        </h5>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Operatörden gelen çağrılarda Arayan (Caller) ve Aranan (Callee/DID) numaranın hangi SIP başlığından okunacağını seçin.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                            Arayan Numara
+                          </label>
+                          <select
+                            value={newTrunk.sip_headers?.inbound_caller_header || "default"}
+                            onChange={(e) => handleSipHeaderChange("inbound_caller_header", e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            <option value="default">Sistem Ayarı (Varsayılan)</option>
+                            <option value="from">From</option>
+                            <option value="contact">Contact</option>
+                            <option value="rpid">Remote-Party-ID</option>
+                            <option value="pai">P-Asserted-Identity</option>
+                            <option value="ppi">P-Preferred-Identity</option>
+                          </select>
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                            Aranan Numara
+                          </label>
+                          <select
+                            value={newTrunk.sip_headers?.inbound_callee_header || "default"}
+                            onChange={(e) => handleSipHeaderChange("inbound_callee_header", e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            <option value="default">Sistem Ayarı (Varsayılan)</option>
+                            <option value="to">To</option>
+                            <option value="invite">INVITE</option>
+                            <option value="diversion">Diversion</option>
+                            <option value="p_called_party_id">P-Called-Party-ID</option>
+                            <option value="rpid">Remote-Party-ID</option>
+                            <option value="pai">P-Asserted-Identity</option>
+                            <option value="ppi">P-Preferred-Identity</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Alt Başlık 2: Giden Parametreler */}
+                    <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
+                      <div className="border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                        <h5 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">
+                          Giden Parametreler
+                        </h5>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          Dış hata gönderilen INVITE paketlerindeki From, Diversion, RPID, PAI ve PPI başlık değerlerini yapılandırın.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {/* 1. Kullanıcı Bölümünden */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block">
+                            Kullanıcı Bölümünden
+                          </label>
+                          <select
+                            value={newTrunk.sip_headers?.outbound_from_user || "default"}
+                            onChange={(e) => handleSipHeaderChange("outbound_from_user", e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            {OUTBOUND_FROM_USER_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          {newTrunk.sip_headers?.outbound_from_user === "custom" && (
+                            <input
+                              type="text"
+                              value={newTrunk.sip_headers?.outbound_from_user_custom || ""}
+                              onChange={(e) => handleSipHeaderChange("outbound_from_user_custom", e.target.value)}
+                              placeholder="Özel kullanıcı değeri giriniz..."
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                            />
+                          )}
+                        </div>
+
+                        {/* 2. Görünen Ad Bölümünden */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block">
+                            Görünen Ad Bölümünden
+                          </label>
+                          <select
+                            value={newTrunk.sip_headers?.outbound_from_name || "ext_name"}
+                            onChange={(e) => handleSipHeaderChange("outbound_from_name", e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            {OUTBOUND_FROM_NAME_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          {newTrunk.sip_headers?.outbound_from_name === "custom" && (
+                            <input
+                              type="text"
+                              value={newTrunk.sip_headers?.outbound_from_name_custom || ""}
+                              onChange={(e) => handleSipHeaderChange("outbound_from_name_custom", e.target.value)}
+                              placeholder="Özel görünen ad giriniz..."
+                              className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                            />
+                          )}
+                        </div>
+
+                        {/* 3. Diversion */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block">
+                            Diversion
+                          </label>
+                          <select
+                            value={newTrunk.sip_headers?.outbound_diversion || "none"}
+                            onChange={(e) => handleSipHeaderChange("outbound_diversion", e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            {OUTBOUND_IDENTITY_HEADER_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          {newTrunk.sip_headers?.outbound_diversion === "custom" && (
+                            <input
+                              type="text"
+                              value={newTrunk.sip_headers?.outbound_diversion_custom || ""}
+                              onChange={(e) => handleSipHeaderChange("outbound_diversion_custom", e.target.value)}
+                              placeholder="Özel Diversion değeri giriniz..."
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                            />
+                          )}
+                        </div>
+
+                        {/* 4. Remote-Party-ID */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block">
+                            Remote-Party-ID
+                          </label>
+                          <select
+                            value={newTrunk.sip_headers?.outbound_rpid || "none"}
+                            onChange={(e) => handleSipHeaderChange("outbound_rpid", e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            {OUTBOUND_IDENTITY_HEADER_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          {newTrunk.sip_headers?.outbound_rpid === "custom" && (
+                            <input
+                              type="text"
+                              value={newTrunk.sip_headers?.outbound_rpid_custom || ""}
+                              onChange={(e) => handleSipHeaderChange("outbound_rpid_custom", e.target.value)}
+                              placeholder="Özel Remote-Party-ID değeri giriniz..."
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                            />
+                          )}
+                        </div>
+
+                        {/* 5. P-Asserted-Identity */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block">
+                            P-Asserted-Identity
+                          </label>
+                          <select
+                            value={newTrunk.sip_headers?.outbound_pai || "none"}
+                            onChange={(e) => handleSipHeaderChange("outbound_pai", e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            {OUTBOUND_IDENTITY_HEADER_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          {newTrunk.sip_headers?.outbound_pai === "custom" && (
+                            <input
+                              type="text"
+                              value={newTrunk.sip_headers?.outbound_pai_custom || ""}
+                              onChange={(e) => handleSipHeaderChange("outbound_pai_custom", e.target.value)}
+                              placeholder="Özel P-Asserted-Identity değeri giriniz..."
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                            />
+                          )}
+                        </div>
+
+                        {/* 6. P-Preferred-Identity */}
+                        <div className="space-y-2">
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block">
+                            P-Preferred-Identity
+                          </label>
+                          <select
+                            value={newTrunk.sip_headers?.outbound_ppi || "none"}
+                            onChange={(e) => handleSipHeaderChange("outbound_ppi", e.target.value)}
+                            className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            {OUTBOUND_IDENTITY_HEADER_OPTIONS.map((opt) => (
+                              <option key={opt.value} value={opt.value}>
+                                {opt.label}
+                              </option>
+                            ))}
+                          </select>
+                          {newTrunk.sip_headers?.outbound_ppi === "custom" && (
+                            <input
+                              type="text"
+                              value={newTrunk.sip_headers?.outbound_ppi_custom || ""}
+                              onChange={(e) => handleSipHeaderChange("outbound_ppi_custom", e.target.value)}
+                              placeholder="Özel P-Preferred-Identity değeri giriniz..."
+                              className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                            />
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Alt Başlık 3: Diğer Ayarlar */}
+                    <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/80 dark:border-slate-800/80 space-y-4">
+                      <div className="border-b border-slate-200/60 dark:border-slate-800/60 pb-2">
+                        <h5 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">
+                          Diğer Ayarlar
+                        </h5>
+                        <p className="text-[11px] text-slate-400 mt-0.5">
+                          SIP User-Agent, kimlik doğrulama Realm alanı ve RTP paketleme süresi (Maxptime) parametreleri.
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                            User-Agent
+                          </label>
+                          <input
+                            type="text"
+                            value={newTrunk.sip_headers?.user_agent ?? "AIDA-PBX"}
+                            onChange={(e) => handleSipHeaderChange("user_agent", e.target.value)}
+                            placeholder="Örn: AIDA-PBX"
+                            className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                            Realm
+                          </label>
+                          <input
+                            type="text"
+                            value={newTrunk.sip_headers?.realm ?? "asterisk"}
+                            onChange={(e) => handleSipHeaderChange("realm", e.target.value)}
+                            placeholder="Örn: asterisk"
+                            className="w-full px-3 py-2 text-xs font-mono rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                            Maxptime
+                          </label>
+                          <select
+                            value={Number(newTrunk.sip_headers?.maxptime) || 20}
+                            onChange={(e) => handleSipHeaderChange("maxptime", Number(e.target.value))}
+                            className="w-full px-3 py-2 text-xs font-mono font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white"
+                          >
+                            {MAXPTIME_OPTIONS.map((val) => (
+                              <option key={val} value={val}>
+                                {val}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Protokol</label>
-                    <select
-                      name="protocol"
-                      value={newTrunk.protocol}
-                      onChange={handleNewTrunkChange}
-                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-700 dark:text-slate-350 focus:outline-none focus:border-blue-500"
-                    >
-                      <option value="udp">UDP (Önerilen)</option>
-                      <option value="tcp">TCP</option>
-                    </select>
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Kanal Limiti</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="1000"
-                      name="max_channels"
-                      value={newTrunk.max_channels ?? 30}
-                      onChange={handleNewTrunkChange}
-                      required
-                      className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-800 dark:text-slate-200 focus:outline-none focus:border-blue-500 font-mono"
-                    />
-                  </div>
-                </div>
+                )}
 
-
-                {/* CODEC SELECTION */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-455 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Tercih Edilen Codec</label>
-                  <select
-                    name="codec"
-                    value={newTrunk.codec || "G711"}
-                    onChange={handleNewTrunkChange}
-                    className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-700 dark:text-slate-350 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="G711">G.711 (alaw / ulaw)</option>
-                    <option value="G729">G.729 (Sıkıştırılmış Düşük Bant)</option>
-                    <option value="Opus">Opus (Yüksek Kaliteli Ses)</option>
-                    <option value="G722">G.722 (Geniş Bant HD Ses)</option>
-                  </select>
-                </div>
-
-                {/* HAT AKTİF / PASİF DURUMU */}
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] text-slate-450 dark:text-slate-400 font-bold uppercase tracking-wider text-primary dark:text-blue-400">Hat Durumu</label>
-                  <select
-                    name="is_active"
-                    value={newTrunk.is_active === undefined ? "true" : String(newTrunk.is_active)}
-                    onChange={(e) => setNewTrunk((prev) => ({ ...prev, is_active: e.target.value === "true" }))}
-                    className="px-3 py-1.5 bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-850 rounded-xl text-xs text-slate-700 dark:text-slate-350 focus:outline-none focus:border-blue-500"
-                  >
-                    <option value="true">Aktif (Kayıt İstekleri Gönderilir)</option>
-                    <option value="false">Pasif (Bağlantı Devre Dışı Bırakılır)</option>
-                  </select>
-                </div>
-
-                {/* Form Buttons */}
-                <div className="flex justify-between border-t border-slate-100 dark:border-slate-855 pt-4 mt-2">
+                {/* Modal Footer Actions */}
+                <div className="flex items-center justify-end gap-2.5 pt-4 border-t border-slate-100 dark:border-slate-800">
                   <button
                     type="button"
-                    onClick={() => setModalStep(1)}
-                    className="px-4 py-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 transition rounded-xl font-bold text-xs"
+                    onClick={closeModal}
+                    className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                   >
-                    Geri
+                    Vazgeç
                   </button>
                   <button
                     type="submit"
-                    className={`flex items-center gap-1.5 px-5 py-2 ${bg} ${hover} transition rounded-xl font-bold text-xs text-white shadow-md shadow-${colorCode}-500/15`}
+                    disabled={loading.trunks}
+                    className={`flex items-center gap-1.5 px-5 py-2 ${bg} ${hover} text-white rounded-xl text-xs font-bold shadow-md transition-all disabled:opacity-50`}
                   >
-                    <Save size={14} /> Kaydet ve Ekle
+                    <Save size={14} />
+                    {loading.trunks ? "Kaydediliyor..." : newTrunk.id ? "Değişiklikleri Kaydet" : "Dış Hattı Oluştur"}
                   </button>
                 </div>
-              </form>
-            )}
+              </div>
+            </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Confirm Delete Modal */}

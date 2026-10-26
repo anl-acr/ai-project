@@ -400,19 +400,25 @@ class RoleSchema(BaseModel):
 
 class TrunkSettingsSchema(BaseModel):
     id: Optional[int] = None
-    trunk_type: str # register, peer
+    trunk_type: str = "register" # register, peer, account
     trunk_name: str
-    host: str
+    host: Optional[str] = ""
     username: Optional[str] = None
     password: Optional[str] = None
     port: int = 5060
-    did_number: str
-    protocol: str = "udp" # udp, tcp
+    did_number: Optional[str] = ""
+    protocol: str = "udp" # udp, tcp, tls
     greeting_prompt: Optional[str] = None
     transfer_target_type: str = "extension" # extension, queue, custom
     transfer_target: str = "200"
-    codec: str = "G711" # G711, G729, Opus, G722
+    codec: str = "alaw,ulaw,g722,g729"
+    codecs: Optional[List[str]] = ["alaw", "ulaw", "g722", "g729"]
+    call_limit_enabled: Optional[bool] = False
+    call_limit_direction: Optional[str] = "both" # both, outbound, inbound
+    max_channels: Optional[int] = 30
+    sip_headers: Optional[Dict[str, Any]] = {}
     is_active: bool = True
+
 
 class SmartCallbackSettingsSchema(BaseModel):
     enabled: bool
@@ -1750,6 +1756,59 @@ def is_suspicious_or_fraud_outbound_number(callee: str, allow_international: boo
     return False, "OK"
 
 
+def _normalize_trunk_codecs(t: dict) -> str:
+    valid_codecs = {"alaw", "ulaw", "g722", "g729", "opus", "gsm", "ilbc", "h264", "vp8", "g726", "slin", "speex"}
+    raw_list = t.get("codecs")
+    if isinstance(raw_list, str):
+        try:
+            import json
+            raw_list = json.loads(raw_list)
+        except Exception:
+            raw_list = [x.strip() for x in raw_list.split(",") if x.strip()]
+    out = []
+    if isinstance(raw_list, list) and len(raw_list) > 0:
+        for item in raw_list:
+            c = str(item or "").strip().lower()
+            if c in ("g711", "g.711"):
+                for sub in ("alaw", "ulaw"):
+                    if sub not in out:
+                        out.append(sub)
+            elif c in valid_codecs and c not in out:
+                out.append(c)
+    if not out:
+        legacy = str(t.get("codec") or "alaw,ulaw,g722,g729").strip()
+        for part in legacy.split(","):
+            p = part.strip().lower()
+            if p in ("g711", "g.711"):
+                for sub in ("alaw", "ulaw"):
+                    if sub not in out:
+                        out.append(sub)
+            elif p in valid_codecs and p not in out:
+                out.append(p)
+    if not out:
+        out = ["alaw", "ulaw", "g722", "g729"]
+    return ",".join(out)
+
+
+def _parse_trunk_sip_headers(t: dict) -> dict:
+    raw = t.get("sip_headers")
+    if isinstance(raw, str):
+        try:
+            import json
+            raw = json.loads(raw)
+        except Exception:
+            raw = {}
+    if not isinstance(raw, dict):
+        raw = {}
+    return raw
+
+
+def _sanitize_trunk_name(name: str) -> str:
+    import re
+    clean = re.sub(r"[^a-zA-Z0-9_\-.]", "_", str(name or "trunk").strip())
+    return clean or "trunk"
+
+
 def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = None):
     # Fetch Users and Trunks from Database (with fallback to settings_db)
     users_list = []
@@ -1773,6 +1832,16 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
         users_list = settings_db.get("users", [])
     if not trunks_list:
         trunks_list = settings_db.get("trunks", [])
+
+    # Merge any extra fields from settings_db["trunks"] if DB columns were newly added
+    disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in settings_db.get("trunks", [])}
+    for t in trunks_list:
+        tk = str(t.get("trunk_name") or t.get("id") or "")
+        dt = disk_trunks_map.get(tk)
+        if dt:
+            for extra_k in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
+                if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
+                    t[extra_k] = dt.get(extra_k)
 
     nat_cfg = settings_db.get("nat", {})
     nat_enabled = nat_cfg.get("enabled", False)
@@ -1803,11 +1872,55 @@ def regenerate_pjsip_custom_conf(background_tasks: Optional[BackgroundTasks] = N
 
     has_1000_in_users = any(str(u.get("extension") or "").strip() == "1000" and (u.get("is_active", True) is not False) for u in users_list)
 
+    # Check if any active trunk sets a custom User-Agent
+    custom_global_ua = ""
+    for t in trunks_list:
+        if t.get("is_active", True) is False:
+            continue
+        sh = _parse_trunk_sip_headers(t)
+        ua_val = str(sh.get("user_agent") or "").strip()
+        if ua_val:
+            custom_global_ua = ua_val
+            break
+
+    global_ua_block = ""
+    if custom_global_ua:
+        global_ua_block = f"""[global]
+type=global
+user_agent={custom_global_ua}
+max_forwards=70
+
+"""
+
+    tls_transport_block = ""
+    has_tls_trunk = any(str(t.get("protocol") or "").lower() == "tls" and (t.get("is_active", True) is not False) for t in trunks_list)
+    if has_tls_trunk or os.path.exists("/etc/asterisk/keys/asterisk.pem"):
+        tls_transport_block = f"""[transport-tls]
+type=transport
+protocol=tls
+bind=0.0.0.0:5061
+cert_file=/etc/asterisk/keys/asterisk.pem
+priv_key_file=/etc/asterisk/keys/webphone_privkey.pem
+method=tlsv1_2
+verify_server=no
+verify_client=no
+{nat_lines}"""
+
+    has_explicit_operator_trunk = any(
+        _sanitize_trunk_name(t.get("trunk_name") or t.get("name") or "") == "Operator_Trunk" and (t.get("is_active", True) is not False)
+        for t in trunks_list
+    )
+    primary_trunk_ref = next(
+        (t for t in trunks_list if (t.get("is_active", True) is not False) and str(t.get("trunk_name") or "") == "908503607390"),
+        next((t for t in trunks_list if (t.get("is_active", True) is not False)), None)
+    )
+    op_trunk_codecs = _normalize_trunk_codecs(primary_trunk_ref) if primary_trunk_ref else "ulaw,alaw,g722,g729"
+
     conf_content = f"""; ==========================================
 ; DINAMIK OLARAK OLUŞTURULAN SIP TRUNK VE TRANSPORT AYARLARI
 ; ==========================================
 
-[transport-udp]
+{global_ua_block}[transport-udp]
 type=transport
 protocol=udp
 bind=0.0.0.0
@@ -1817,7 +1930,7 @@ type=transport
 protocol=tcp
 bind=0.0.0.0
 {nat_lines}
-[transport-ws]
+{tls_transport_block}[transport-ws]
 type=transport
 protocol=ws
 bind=0.0.0.0:8088
@@ -1827,13 +1940,15 @@ type=transport
 protocol=wss
 bind=0.0.0.0:8089
 {nat_lines}
-
+"""
+    if not has_explicit_operator_trunk:
+        conf_content += f"""
 ; --- OPERATOR TRUNK (OUTBOUND LINK) ---
 [Operator_Trunk]
 type=endpoint
 context=default
 disallow=all
-allow=ulaw,alaw,g722,g729
+allow={op_trunk_codecs}
 direct_media=no
 rtp_symmetric=yes
 force_rport=yes
@@ -1885,62 +2000,219 @@ remove_existing=yes
             t_name = t.get("trunk_name") or t.get("name") or "trunk"
             print(f"[Asterisk Config] Pasif trunk atlandi: {t_name}")
             continue
-        name = t.get("trunk_name") or t.get("name") or "trunk"
-        host = t.get("host", "127.0.0.1")
-        port = t.get("port", 5060)
-        did = t.get("did_number", "")
-        protocol = t.get("protocol", "udp")
-        transport = "transport-tcp" if protocol == "tcp" else "transport-udp"
-        t_type = t.get("trunk_type", "ip")
-        
-        conf_content += f"\n; --- TRUNK: {name} ---\n"
-        
+        raw_name = t.get("trunk_name") or t.get("name") or "trunk"
+        name = _sanitize_trunk_name(raw_name)
+        host = str(t.get("host") or "").strip() or "127.0.0.1"
+        port = t.get("port") or 5060
+        did = str(t.get("did_number") or "").strip()
+        protocol = str(t.get("protocol") or "udp").lower()
+        if protocol == "tls":
+            transport = "transport-tls"
+        elif protocol == "tcp":
+            transport = "transport-tcp"
+        else:
+            transport = "transport-udp"
+
+        t_type = str(t.get("trunk_type") or "register").lower()
+        if t_type == "ip":
+            t_type = "peer"
+
+        username = str(t.get("username") or "").strip()
+        password = str(t.get("password") or "").strip()
+        allow_codecs = _normalize_trunk_codecs(t)
+        sip_hdrs = _parse_trunk_sip_headers(t)
+
+        realm = str(sip_hdrs.get("realm") or "").strip()
+        user_agent = str(sip_hdrs.get("user_agent") or "").strip()
+        maxptime = str(sip_hdrs.get("maxptime") or "").strip()
+        in_caller_hdr = str(sip_hdrs.get("inbound_caller_header") or "default").strip()
+        out_from_user = str(sip_hdrs.get("outbound_from_user") or "default").strip()
+        out_from_user_custom = str(sip_hdrs.get("outbound_from_user_custom") or "").strip()
+        out_diversion = str(sip_hdrs.get("outbound_diversion") or "none").strip()
+        out_rpid = str(sip_hdrs.get("outbound_rpid") or "none").strip()
+        out_pai = str(sip_hdrs.get("outbound_pai") or "none").strip()
+
+        send_rpid = "yes" if out_rpid != "none" else "no"
+        send_pai = "yes" if out_pai != "none" else "no"
+        send_diversion = "yes" if out_diversion != "none" else "no"
+        trust_id_in = "yes" if in_caller_hdr in ("rpid", "pai", "ppi", "default") else "no"
+
+        # Resolve static from_user for PJSIP endpoint if applicable
+        endpoint_from_user = ""
+        if out_from_user == "trunk_username" and username:
+            endpoint_from_user = username
+        elif out_from_user == "trunk_did" and did:
+            endpoint_from_user = did
+        elif out_from_user == "custom" and out_from_user_custom:
+            endpoint_from_user = out_from_user_custom
+        elif t_type == "register" and out_from_user == "default" and username:
+            endpoint_from_user = username
+
+        endpoint_from_domain = realm if realm else (host if t_type in ("register", "peer") and host != "127.0.0.1" else "")
+        realm_line = f"realm={realm}\n" if realm else ""
+        contact_user_line = f"contact_user={did}\n" if did else ""
+
+        conf_content += f"\n; --- TRUNK: {raw_name} (Type={t_type}, Transport={protocol.upper()}, Codecs={allow_codecs}{f', Maxptime={maxptime}' if maxptime else ''}{f', UA={user_agent}' if user_agent else ''}) ---\n"
+
         if t_type == "register":
             conf_content += f"""[{name}-auth]
 type=auth
 auth_type=userpass
-username={t.get('username','')}
-password={t.get('password','')}
-
+username={username}
+password={password}
+{realm_line}
 [{name}-reg]
 type=registration
 transport={transport}
 outbound_auth={name}-auth
 server_uri=sip:{host}:{port}
-client_uri=sip:{t.get('username','')}@{host}:{port}
+client_uri=sip:{username}@{host}:{port}
 retry_interval=60
-
-"""
-
-        conf_content += f"""[{name}-aor]
+expiration=3600
+auth_rejection_permanent=no
+{contact_user_line}
+[{name}-aor]
 type=aor
 contact=sip:{host}:{port}
+qualify_frequency=60
 
 [{name}]
 type=endpoint
 transport={transport}
-context=from-trunk
+context=from-trunk-{name}
 disallow=all
-allow=ulaw,alaw,g722,g729
+allow={allow_codecs}
 aors={name}-aor
+outbound_auth={name}-auth
 direct_media=no
 force_rport=yes
 rewrite_contact=yes
 rtp_symmetric=yes
+send_rpid={send_rpid}
+send_pai={send_pai}
+send_diversion={send_diversion}
+trust_id_inbound={trust_id_in}
 """
-        if t_type == "register":
-            conf_content += f"""outbound_auth={name}-auth
-from_user={t.get('username','')}
-from_domain={host}
+            if endpoint_from_user:
+                conf_content += f"from_user={endpoint_from_user}\n"
+            if endpoint_from_domain:
+                conf_content += f"from_domain={endpoint_from_domain}\n"
+            if did:
+                conf_content += f"callerid={did} <{did}>\n"
 
-"""
-            
-        conf_content += f"""[{name}-identify]
+            conf_content += f"""
+[{name}-identify]
 type=identify
 endpoint={name}
 match={host}
 
 """
+        elif t_type == "peer":
+            conf_content += f"""[{name}-aor]
+type=aor
+contact=sip:{host}:{port}
+qualify_frequency=60
+
+[{name}]
+type=endpoint
+transport={transport}
+context=from-trunk-{name}
+disallow=all
+allow={allow_codecs}
+aors={name}-aor
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_rpid={send_rpid}
+send_pai={send_pai}
+send_diversion={send_diversion}
+trust_id_inbound={trust_id_in}
+"""
+            if endpoint_from_user:
+                conf_content += f"from_user={endpoint_from_user}\n"
+            if endpoint_from_domain:
+                conf_content += f"from_domain={endpoint_from_domain}\n"
+            if did:
+                conf_content += f"callerid={did} <{did}>\n"
+
+            conf_content += f"""
+[{name}-identify]
+type=identify
+endpoint={name}
+match={host}
+
+"""
+        elif t_type == "account":
+            acc_user = username or name
+            conf_content += f"""[{name}-auth]
+type=auth
+auth_type=userpass
+username={acc_user}
+password={password}
+{realm_line}
+[{name}-aor]
+type=aor
+max_contacts=5
+remove_existing=yes
+qualify_frequency=30
+
+[{name}]
+type=endpoint
+transport={transport}
+context=from-trunk-{name}
+disallow=all
+allow={allow_codecs}
+auth={name}-auth
+outbound_auth={name}-auth
+aors={name}-aor
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_rpid={send_rpid}
+send_pai={send_pai}
+send_diversion={send_diversion}
+trust_id_inbound={trust_id_in}
+"""
+            if endpoint_from_user:
+                conf_content += f"from_user={endpoint_from_user}\n"
+            if endpoint_from_domain:
+                conf_content += f"from_domain={endpoint_from_domain}\n"
+            if did:
+                conf_content += f"callerid={did} <{did}>\n"
+            conf_content += "\n"
+
+            if acc_user and acc_user != name:
+                conf_content += f"""[{acc_user}]
+type=aor
+max_contacts=5
+remove_existing=yes
+qualify_frequency=30
+
+[{acc_user}]
+type=endpoint
+transport={transport}
+context=from-trunk-{name}
+disallow=all
+allow={allow_codecs}
+auth={name}-auth
+outbound_auth={name}-auth
+aors={acc_user}
+direct_media=no
+force_rport=yes
+rewrite_contact=yes
+rtp_symmetric=yes
+send_rpid={send_rpid}
+send_pai={send_pai}
+send_diversion={send_diversion}
+trust_id_inbound={trust_id_in}
+"""
+                if endpoint_from_user:
+                    conf_content += f"from_user={endpoint_from_user}\n"
+                if endpoint_from_domain:
+                    conf_content += f"from_domain={endpoint_from_domain}\n"
+                conf_content += "\n"
 
     conf_content += "\n; ==========================================\n"
     conf_content += "; DINAMIK OLARAK OLUŞTURULAN KULLANICI (DAHILI) AYARLARI\n"
@@ -2218,12 +2490,115 @@ def regenerate_queues_conf(background_tasks: Optional[BackgroundTasks] = None):
     else:
         run_queue_reload()
 
+def _build_trunk_inbound_contexts(trunks_list: list) -> str:
+    header_map = {
+        "from": "From",
+        "contact": "Contact",
+        "rpid": "Remote-Party-ID",
+        "pai": "P-Asserted-Identity",
+        "ppi": "P-Preferred-Identity",
+        "to": "To",
+        "diversion": "Diversion",
+        "p_called_party_id": "P-Called-Party-ID",
+    }
+    blocks = []
+    seen_names = set()
+    for t in trunks_list:
+        is_act = t.get("is_active") if "is_active" in t else True
+        if not is_act:
+            continue
+        raw_name = t.get("trunk_name") or t.get("name") or "trunk"
+        name = _sanitize_trunk_name(raw_name)
+        if name in seen_names:
+            continue
+        seen_names.add(name)
+
+        sip_hdrs = _parse_trunk_sip_headers(t)
+        in_caller = str(sip_hdrs.get("inbound_caller_header") or "default").strip().lower()
+        in_callee = str(sip_hdrs.get("inbound_callee_header") or "default").strip().lower()
+        maxptime = str(sip_hdrs.get("maxptime") or "").strip()
+
+        limit_enabled = bool(t.get("call_limit_enabled", False))
+        limit_dir = str(t.get("call_limit_direction") or "both").strip().lower()
+        try:
+            max_ch = max(1, int(t.get("max_channels") or 30))
+        except Exception:
+            max_ch = 30
+
+        caller_hdr_name = header_map.get(in_caller, "")
+        callee_hdr_name = header_map.get(in_callee, "")
+
+        lines = [f"; --- INBOUND CONTEXT FOR TRUNK: {raw_name} ({name}) ---", f"[from-trunk-{name}]"]
+        for ext_pat in ("_X.", "_+X.", "s"):
+            lines.append(f"exten => {ext_pat},1,NoOp(Trunk [{name}] Gelen Arama: Exten=${{EXTEN}} Caller=${{CALLERID(num)}})")
+            lines.append(f"same => n,Set(__INBOUND_TRUNK_NAME={name})")
+            if maxptime:
+                lines.append(f"same => n,Set(__SIP_MAXPTIME={maxptime})")
+
+            # 1. Inbound Caller Number Header Extraction
+            if caller_hdr_name:
+                lines.append(f"same => n,Set(RAW_IN_CALLER=${{PJSIP_HEADER(read,{caller_hdr_name})}})")
+                lines.append("same => n,Set(PARSED_CALLER=${CUT(CUT(CUT(RAW_IN_CALLER,@,1),:,2),>,1)})")
+                lines.append("same => n,Set(CALLERID(num)=${IF($[\"${PARSED_CALLER}\" != \"\"]?${PARSED_CALLER}:${CALLERID(num)})})")
+
+            # 2. Inbound Callee Number (DID) Header Extraction
+            if callee_hdr_name:
+                lines.append(f"same => n,Set(RAW_IN_CALLEE=${{PJSIP_HEADER(read,{callee_hdr_name})}})")
+                lines.append("same => n,Set(PARSED_CALLEE=${CUT(CUT(CUT(RAW_IN_CALLEE,@,1),:,2),>,1)})")
+                lines.append("same => n,Set(RESOLVED_DID=${IF($[\"${PARSED_CALLEE}\" != \"\"]?${PARSED_CALLEE}:${EXTEN})})")
+            else:
+                lines.append("same => n,Set(RESOLVED_DID=${EXTEN})")
+
+            # Preserve original caller for forwarding / outbound headers
+            lines.append("same => n,Set(__ORIG_CALLER_NUM=${CALLERID(num)})")
+            lines.append("same => n,Set(__ORIG_CALLER_NAME=${CALLERID(name)})")
+
+            # 3. Call Limit Check (Inbound / Both)
+            if limit_enabled and limit_dir in ("both", "inbound"):
+                lines.append(f"same => n,Set(GROUP(trunk_limit)={name})")
+                lines.append(f"same => n,NoOp(Trunk [{name}] Aktif Kanal: ${{GROUP_COUNT({name}@trunk_limit)}} / {max_ch})")
+                lines.append(f"same => n,GotoIf($[${{GROUP_COUNT({name}@trunk_limit)}} > {max_ch}]?limit_exceeded)")
+
+            lines.append("same => n,Goto(default,${RESOLVED_DID},1)")
+            if limit_enabled and limit_dir in ("both", "inbound"):
+                lines.append(f"same => n(limit_exceeded),NoOp(TRUNK CAGRI LIMITI ASILDI [{name}]: Max={max_ch})")
+                lines.append("same => n,Busy(5)")
+                lines.append("same => n,Hangup(17)")
+            lines.append("")
+
+        blocks.append("\n".join(lines))
+    return "\n".join(blocks)
+
+
 def regenerate_extensions_custom_conf(background_tasks: Optional[BackgroundTasks] = None):
     is_docker = os.path.exists("/.dockerenv") or os.getenv("IS_DOCKER", "false").lower() == "true"
     default_backend_host = "host.docker.internal:8000" if is_docker else "127.0.0.1:8000"
     default_audiosocket_host = "host.docker.internal:9092" if is_docker else "127.0.0.1:9092"
     backend_host = os.getenv("BACKEND_HOST", default_backend_host)
     audiosocket_host = os.getenv("AUDIOSOCKET_HOST", default_audiosocket_host)
+
+    trunks_list = []
+    try:
+        from backend.database.config import SyncSessionLocal
+        from backend.database.models import Trunk
+        with SyncSessionLocal() as session:
+            db_trunks = session.query(Trunk).all()
+            for t in db_trunks:
+                trunks_list.append({col.name: getattr(t, col.name) for col in Trunk.__table__.columns})
+    except Exception:
+        pass
+    if not trunks_list:
+        trunks_list = settings_db.get("trunks", [])
+    disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in settings_db.get("trunks", [])}
+    for t in trunks_list:
+        tk = str(t.get("trunk_name") or t.get("id") or "")
+        dt = disk_trunks_map.get(tk)
+        if dt:
+            for extra_k in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
+                if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
+                    t[extra_k] = dt.get(extra_k)
+
+    trunk_inbound_contexts = _build_trunk_inbound_contexts(trunks_list)
 
     pbx_cfg = settings_db.get("pbx", {}) if isinstance(settings_db.get("pbx"), dict) else {}
     num_plan = pbx_cfg.get("numbering_plan", {}) if isinstance(pbx_cfg.get("numbering_plan"), dict) else {}
@@ -2301,6 +2676,22 @@ include => default
 
 [from-sip]
 include => default
+
+{trunk_inbound_contexts}
+
+[trunk-outbound-headers]
+exten => s,1,NoOp(Trunk Giden SIP Basliklari Uygulanıyor: Trunk=${{OUT_TRUNK_NAME}})
+same => n,GotoIf($["${{OUT_HDR_DIVERSION}}" = ""]?chk_rpid)
+same => n,Set(PJSIP_HEADER(add,Diversion)=${{OUT_HDR_DIVERSION}})
+same => n(chk_rpid),GotoIf($["${{OUT_HDR_RPID}}" = ""]?chk_pai)
+same => n,Set(PJSIP_HEADER(add,Remote-Party-ID)=${{OUT_HDR_RPID}})
+same => n(chk_pai),GotoIf($["${{OUT_HDR_PAI}}" = ""]?chk_ppi)
+same => n,Set(PJSIP_HEADER(add,P-Asserted-Identity)=${{OUT_HDR_PAI}})
+same => n(chk_ppi),GotoIf($["${{OUT_HDR_PPI}}" = ""]?chk_ptime)
+same => n,Set(PJSIP_HEADER(add,P-Preferred-Identity)=${{OUT_HDR_PPI}})
+same => n(chk_ptime),GotoIf($["${{OUT_MAXPTIME}}" = ""]?done_hdrs)
+same => n,Set(PJSIP_HEADER(add,X-Maxptime)=${{OUT_MAXPTIME}})
+same => n(done_hdrs),Return()
 
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
@@ -2412,9 +2803,32 @@ same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
-same => n,Set(CALLERID(num)=908503607390)
-same => n,Set(CALLERID(name)=908503607390)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
+same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
+same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?apply_out_cfg:fallback_out_dial)
+same => n(apply_out_cfg),Set(__OUT_TRUNK_NAME=${{CUT(OUT_CFG,|,2)}})
+same => n,Set(OUT_LIMIT_EN=${{CUT(OUT_CFG,|,3)}})
+same => n,Set(OUT_MAX_CH=${{CUT(OUT_CFG,|,4)}})
+same => n,Set(OUT_CID_NUM=${{CUT(OUT_CFG,|,5)}})
+same => n,Set(OUT_CID_NAME=${{CUT(OUT_CFG,|,6)}})
+same => n,Set(OUT_DIAL_STR=${{CUT(OUT_CFG,|,7)}})
+same => n,Set(__OUT_HDR_DIVERSION=${{CUT(OUT_CFG,|,8)}})
+same => n,Set(__OUT_HDR_RPID=${{CUT(OUT_CFG,|,9)}})
+same => n,Set(__OUT_HDR_PAI=${{CUT(OUT_CFG,|,10)}})
+same => n,Set(__OUT_HDR_PPI=${{CUT(OUT_CFG,|,11)}})
+same => n,Set(__OUT_MAXPTIME=${{CUT(OUT_CFG,|,12)}})
+same => n,GotoIf($["${{OUT_LIMIT_EN}}" != "1"]?set_out_cid)
+same => n,Set(GROUP(trunk_limit)=${{OUT_TRUNK_NAME}})
+same => n,GotoIf($[${{GROUP_COUNT(${{OUT_TRUNK_NAME}}@trunk_limit)}} > ${{OUT_MAX_CH}}]?out_limit_exceeded)
+same => n(set_out_cid),Set(CALLERID(num)=${{IF($["${{OUT_CID_NUM}}" != ""]?${{OUT_CID_NUM}}:908503607390)}})
+same => n,Set(CALLERID(name)=${{IF($["${{OUT_CID_NAME}}" != ""]?${{OUT_CID_NAME}}:${{CALLERID(num)}})}})
+same => n,Dial(${{OUT_DIAL_STR}},60,rb(trunk-outbound-headers^s^1))
+same => n,Hangup()
+same => n(out_limit_exceeded),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${{OUT_TRUNK_NAME}} Max=${{OUT_MAX_CH}})
+same => n,Busy(5)
+same => n,Hangup(17)
+same => n(fallback_out_dial),Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
 same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
@@ -2625,27 +3039,224 @@ async def delete_trunk(trunk_id: int, background_tasks: BackgroundTasks, user_in
     regenerate_pjsip_custom_conf(background_tasks)
     return {"status": "success", "message": "SIP Trunk başarıyla silindi."}
 
-@app.get("/api/settings/trunks/status")
-async def get_trunks_status():
-    status_dict = {}
-    for t in settings_db["trunks"]:
-        host = t["host"]
-        port = t["port"]
-        trunk_id = t["id"]
-        
+@app.get("/api/trunks/resolve_outbound_dial", response_class=PlainTextResponse)
+async def resolve_outbound_dial_endpoint(
+    caller: str = "",
+    caller_name: str = "",
+    callee: str = "",
+    dial_num: str = "",
+    orig_caller: str = "",
+    orig_name: str = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Asterisk giden aramalarda (webrtc_agents _0. vb.) seçili Dış Hat (Trunk) üzerindeki:
+    - Çağrı Kısıtlama (call_limit_enabled, call_limit_direction, max_channels)
+    - Giden SIP Başlıkları (From User, From Display Name, Diversion, Remote-Party-ID, P-Asserted-Identity, P-Preferred-Identity)
+    - Diğer Ayarlar (Realm, Maxptime)
+    değerlerini bire bir hesaplayarak Asterisk Dialplan'a pipe (|) ayracıyla döner.
+    Format: ALLOW|TRUNK_SAFE_NAME|LIMIT_EN|MAX_CH|CID_NUM|CID_NAME|DIAL_STR|DIVERSION|RPID|PAI|PPI|MAXPTIME
+    """
+    try:
+        trunks_list = []
+        users_list = []
         try:
-            # DNS cozunurlugu ve port erisilebilirligi kontrol edilir
-            ip = socket.gethostbyname(host)
+            res_t = await db.execute(select(Trunk).order_by(Trunk.id))
+            for row in res_t.scalars().all():
+                trunks_list.append({c.name: getattr(row, c.name) for c in row.__table__.columns})
+            res_u = await db.execute(select(SystemUser))
+            for row in res_u.scalars().all():
+                users_list.append({c.name: getattr(row, c.name) for c in row.__table__.columns})
+        except Exception:
+            pass
+        if not trunks_list:
+            trunks_list = settings_db.get("trunks", [])
+        if not users_list:
+            users_list = settings_db.get("users", [])
+
+        disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in settings_db.get("trunks", [])}
+        for t in trunks_list:
+            tk = str(t.get("trunk_name") or t.get("id") or "")
+            dt = disk_trunks_map.get(tk)
+            if dt:
+                for extra_k in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
+                    if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
+                        t[extra_k] = dt.get(extra_k)
+
+        active_trunks = [t for t in trunks_list if t.get("is_active", True) is not False]
+        if not active_trunks:
+            return f"ALLOW|Operator_Trunk|0|30|908503607390|908503607390|PJSIP/Operator_Trunk/sip:{dial_num or callee}@ikonsip.com:5060|||||"
+
+        # Check outbound rules to see if a specific trunk or outbound rule caller_id matches
+        outbound_rules = settings_db.get("outbound_rules", [])
+        matched_rule = None
+        selected_trunk = None
+        for rule in outbound_rules:
+            if rule.get("is_active", True) is False:
+                continue
+            r_trunks = rule.get("trunks") or []
+            if r_trunks:
+                first_t_name = str(r_trunks[0]).strip()
+                cand = next((t for t in active_trunks if str(t.get("trunk_name")) == first_t_name or str(t.get("id")) == first_t_name), None)
+                if cand:
+                    selected_trunk = cand
+                    matched_rule = rule
+                    break
+
+        if not selected_trunk:
+            selected_trunk = next((t for t in active_trunks if str(t.get("trunk_name")) == "908503607390"), active_trunks[0])
+
+        raw_t_name = selected_trunk.get("trunk_name") or "Operator_Trunk"
+        safe_t_name = _sanitize_trunk_name(raw_t_name)
+        t_type = str(selected_trunk.get("trunk_type") or "register").lower()
+        t_host = str(selected_trunk.get("host") or "").strip() or "ikonsip.com"
+        t_port = int(selected_trunk.get("port") or 5060)
+        t_user = str(selected_trunk.get("username") or "").strip()
+        t_did = str(selected_trunk.get("did_number") or "").strip() or t_user or "908503607390"
+
+        # Find calling user
+        caller_clean = str(caller or "").strip()
+        user_obj = next((u for u in users_list if str(u.get("extension") or "").strip() == caller_clean), None)
+        ext_number = caller_clean or "1000"
+        ext_name = (user_obj.get("full_name") or user_obj.get("username") or caller_name or ext_number) if user_obj else (caller_name or ext_number)
+        ext_callerid = str((user_obj.get("outbound_caller_id") or user_obj.get("caller_id") or user_obj.get("did_number") or t_did) if user_obj else t_did).strip()
+        rule_cid = str((matched_rule.get("caller_id") or matched_rule.get("outbound_caller_id") or t_did) if matched_rule else t_did).strip()
+        orig_num = str(orig_caller or "").strip() or ext_number
+        orig_nm = str(orig_name or "").strip() or ext_name
+
+        sip_hdrs = _parse_trunk_sip_headers(selected_trunk)
+        realm = str(sip_hdrs.get("realm") or "").strip()
+        domain = realm or (t_host if t_host != "127.0.0.1" else "ikonsip.com")
+        maxptime = str(sip_hdrs.get("maxptime") or "").strip()
+
+        def _resolve_num_val(mode: str, custom_val: str, default_val: str) -> str:
+            m = str(mode or "default").strip().lower()
+            if m == "ext_number":
+                return ext_number
+            if m == "trunk_username":
+                return t_user or t_did
+            if m == "trunk_did":
+                return t_did
+            if m == "ext_callerid":
+                return ext_callerid
+            if m in ("outbound_rule_cid", "outbound_route_cid"):
+                return rule_cid
+            if m == "orig_caller":
+                return orig_num
+            if m == "custom":
+                return str(custom_val or "").strip() or default_val
+            return default_val
+
+        # 1. Outbound From User (CID Number)
+        out_from_user_mode = str(sip_hdrs.get("outbound_from_user") or "default").strip()
+        out_from_user_custom = str(sip_hdrs.get("outbound_from_user_custom") or "").strip()
+        cid_num = _resolve_num_val(out_from_user_mode, out_from_user_custom, t_did)
+
+        # 2. Outbound From Display Name (CID Name)
+        out_from_name_mode = str(sip_hdrs.get("outbound_from_name") or "trunk_name").strip().lower()
+        out_from_name_custom = str(sip_hdrs.get("outbound_from_name_custom") or "").strip()
+        if out_from_name_mode == "ext_name":
+            cid_name = ext_name
+        elif out_from_name_mode == "trunk_name":
+            cid_name = t_did or raw_t_name
+        elif out_from_name_mode == "orig_caller_name":
+            cid_name = orig_nm
+        elif out_from_name_mode == "custom":
+            cid_name = out_from_name_custom or cid_num
+        else:
+            cid_name = cid_num
+
+        # 3. Diversion, Remote-Party-ID, P-Asserted-Identity, P-Preferred-Identity
+        def _build_sip_uri_hdr(mode_key: str, custom_key: str, suffix: str = "") -> str:
+            m = str(sip_hdrs.get(mode_key) or "none").strip().lower()
+            if not m or m == "none":
+                return ""
+            val = _resolve_num_val(m, str(sip_hdrs.get(custom_key) or ""), t_did)
+            if not val:
+                return ""
+            return f"<sip:{val}@{domain}>{suffix}"
+
+        div_hdr = _build_sip_uri_hdr("outbound_diversion", "outbound_diversion_custom", ";reason=unconditional")
+        rpid_hdr = _build_sip_uri_hdr("outbound_rpid", "outbound_rpid_custom", ";party=calling;privacy=off;screen=no")
+        pai_hdr = _build_sip_uri_hdr("outbound_pai", "outbound_pai_custom", "")
+        ppi_hdr = _build_sip_uri_hdr("outbound_ppi", "outbound_ppi_custom", "")
+
+        # 4. Call Limit Check (Outbound / Both)
+        limit_enabled = bool(selected_trunk.get("call_limit_enabled", False))
+        limit_dir = str(selected_trunk.get("call_limit_direction") or "both").strip().lower()
+        limit_en_flag = "1" if (limit_enabled and limit_dir in ("both", "outbound")) else "0"
+        try:
+            max_ch = max(1, int(selected_trunk.get("max_channels") or 30))
+        except Exception:
+            max_ch = 30
+
+        # 5. Dial Target String
+        target_num = dial_num or callee
+        if t_type == "account":
+            dial_str = f"PJSIP/{target_num}@{safe_t_name}"
+        elif raw_t_name == "908503607390" or safe_t_name == "Operator_Trunk":
+            dial_str = f"PJSIP/Operator_Trunk/sip:{target_num}@{t_host}:{t_port}"
+        else:
+            dial_str = f"PJSIP/{safe_t_name}/sip:{target_num}@{t_host}:{t_port}"
+
+        # Clean pipe characters to prevent CUT misalignment
+        parts = [
+            "ALLOW",
+            safe_t_name.replace("|", ""),
+            limit_en_flag,
+            str(max_ch),
+            cid_num.replace("|", ""),
+            cid_name.replace("|", ""),
+            dial_str.replace("|", ""),
+            div_hdr.replace("|", ""),
+            rpid_hdr.replace("|", ""),
+            pai_hdr.replace("|", ""),
+            ppi_hdr.replace("|", ""),
+            maxptime.replace("|", ""),
+        ]
+        return "|".join(parts)
+    except Exception as e:
+        print(f"[Resolve Outbound Dial Warning]: {e}")
+        return f"ALLOW|Operator_Trunk|0|30|908503607390|908503607390|PJSIP/Operator_Trunk/sip:{dial_num or callee}@ikonsip.com:5060|||||"
+
+
+@app.get("/api/settings/trunks/status")
+async def get_trunks_status(db: AsyncSession = Depends(get_db)):
+    status_dict = {}
+    trunks_list = []
+    try:
+        res = await db.execute(select(Trunk).order_by(Trunk.id))
+        for row in res.scalars().all():
+            trunks_list.append({c.name: getattr(row, c.name) for c in row.__table__.columns})
+    except Exception:
+        pass
+    if not trunks_list:
+        trunks_list = settings_db.get("trunks", [])
+
+    for t in trunks_list:
+        trunk_id = t.get("id")
+        if t.get("is_active", True) is False:
+            status_dict[trunk_id] = "inactive"
+            continue
+        t_type = str(t.get("trunk_type") or "register").lower()
+        if t_type == "account":
+            status_dict[trunk_id] = "active"
+            continue
+        host = str(t.get("host") or "").strip()
+        if not host:
+            status_dict[trunk_id] = "inactive"
+            continue
+        try:
+            socket.gethostbyname(host)
             if host == "sip.operator.com":
-                # Mock sunucu durumu test icin 'trying' veya 'active' dondurur
                 status_dict[trunk_id] = "trying"
             else:
-                # Gercek host cozunurse varsayilan olarak active dondurulur
                 status_dict[trunk_id] = "active"
         except Exception:
             status_dict[trunk_id] = "inactive"
-            
+
     return status_dict
+
 
 @app.get("/api/settings/channels")
 @app.get("/settings/channels")
@@ -13850,6 +14461,11 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs JSON DEFAULT '[\"alaw\", \"ulaw\", \"g722\", \"g729\"]';",
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_direction VARCHAR DEFAULT 'both';",
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS sip_headers JSON DEFAULT '{}';",
+                "ALTER TABLE trunks ALTER COLUMN host DROP NOT NULL;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
                 "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;"
             ]
@@ -15422,6 +16038,7 @@ async def get_queue_survey_reports(
 @app.get("/settings/trunks")
 async def new_list_trunks(request: Request, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
+    disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in settings_db.get("trunks", [])}
     try:
         if target_tenant in ["all", "global"]:
             stmt = select(Trunk).order_by(Trunk.id)
@@ -15431,7 +16048,17 @@ async def new_list_trunks(request: Request, user_info: dict = Depends(get_user_i
             stmt = select(Trunk).where(Trunk.tenant_id == target_tenant).order_by(Trunk.id)
         result = await db.execute(stmt)
         trunks = result.scalars().all()
-        return [{c.name: getattr(t, c.name) for c in t.__table__.columns} for t in trunks]
+        out_rows = []
+        for t in trunks:
+            row_d = {c.name: getattr(t, c.name) for c in t.__table__.columns}
+            tk = str(row_d.get("trunk_name") or row_d.get("id") or "")
+            dt = disk_trunks_map.get(tk)
+            if dt:
+                for extra_k in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
+                    if row_d.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
+                        row_d[extra_k] = dt.get(extra_k)
+            out_rows.append(row_d)
+        return out_rows
     except Exception as e:
         print(f"[List Trunks DB Warning]: {e}")
 
@@ -15455,7 +16082,6 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
 
     out = []
 
-
     try:
         res_existing = await db.execute(select(Trunk))
         existing_trunks_db = res_existing.scalars().all()
@@ -15466,6 +16092,8 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
 
         for item in items_list:
             data = item.model_dump() if hasattr(item, "model_dump") else (item.copy() if isinstance(item, dict) else {})
+            if isinstance(data.get("codecs"), list) and data.get("codecs"):
+                data["codec"] = ",".join([str(c).strip() for c in data["codecs"] if str(c).strip()])
             filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
 
             if "port" in filtered_data:
@@ -15492,8 +16120,8 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
             else:
                 if not filtered_data.get("trunk_name"):
                     filtered_data["trunk_name"] = "Yeni_Trunk"
-                if not filtered_data.get("host"):
-                    filtered_data["host"] = "127.0.0.1"
+                if filtered_data.get("host") is None:
+                    filtered_data["host"] = "" if filtered_data.get("trunk_type") == "account" else "127.0.0.1"
                 if not filtered_data.get("did_number"):
                     filtered_data["did_number"] = ""
                 if not filtered_data.get("transfer_target"):
@@ -15512,6 +16140,8 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
         current_trunks = list(settings_db.get("trunks", []))
         for item in items_list:
             data = item.model_dump() if hasattr(item, "model_dump") else (item.copy() if isinstance(item, dict) else {})
+            if isinstance(data.get("codecs"), list) and data.get("codecs"):
+                data["codec"] = ",".join([str(c).strip() for c in data["codecs"] if str(c).strip()])
             if not data.get("id"):
                 data["id"] = (max([t.get("id", 0) for t in current_trunks] or [0])) + 1
             existing_idx = next((i for i, t in enumerate(current_trunks) if t.get("id") == data.get("id") or t.get("trunk_name") == data.get("trunk_name")), None)
@@ -15523,12 +16153,22 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
 
     settings_db["needs_apply"] = True
     settings_db["trunks"] = out
+    try:
+        save_settings(settings_db)
+    except Exception as e_save:
+        print(f"[Save Trunk settings.json Warning]: {e_save}")
+
+    try:
+        regenerate_pjsip_custom_conf(background_tasks)
+        regenerate_extensions_custom_conf(background_tasks)
+    except Exception as e_ast:
+        print(f"[Save Trunk Asterisk Regeneration Warning]: {e_ast}")
 
     return {"status": "success", "trunks": out}
 
 @app.delete("/api/settings/trunks/{trunk_id}")
 @app.delete("/settings/trunks/{trunk_id}")
-async def new_delete_trunk(trunk_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+async def new_delete_trunk(trunk_id: int, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
         res = await db.execute(select(Trunk).where(Trunk.id == trunk_id))
         t = res.scalars().first()
@@ -15548,7 +16188,8 @@ async def new_delete_trunk(trunk_id: int, user_info: dict = Depends(get_user_inf
             pass
 
         try:
-            regenerate_pjsip_custom_conf()
+            regenerate_pjsip_custom_conf(background_tasks)
+            regenerate_extensions_custom_conf(background_tasks)
         except Exception as e_ast:
             print(f"[Trunk Delete Config Regeneration Warning]: {e_ast}")
 
@@ -15556,6 +16197,7 @@ async def new_delete_trunk(trunk_id: int, user_info: dict = Depends(get_user_inf
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"SIP Trunk silinirken hata oluştu: {str(e)}")
+
 
 
 @app.get("/api/settings/needs-apply")
@@ -15585,18 +16227,41 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.1",
+        "version": "v2.6.2",
         "commit_hash": live_commit,
         "release_date": "26 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.1",
+                "version": "v2.6.2",
                 "commit_hash": live_commit,
                 "release_date": "26 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Dış Hat Tanımları (SIP Trunks) 3 Sekmeli Teknik Konfigürasyon & Birebir Asterisk PJSIP/Dialplan Senkronizasyonu",
+                "summary": "Santral > Dış Hat Tanımları ekranı Genel (Register/Peer/Account), Gelişmiş (Kodek DualListBox & Çağrı Kısıtlama) ve SIP Başlıkları (Gelen/Giden PJSIP Header & User-Agent/Realm/Maxptime) sekmeleriyle yenilendi ve Asterisk PJSIP motoruna birebir bağlandı.",
+                "features": [
+                    {
+                        "title": "🔌 Register, Peer ve Account Dış Hat Tipleri & TLS Taşıma Desteği",
+                        "desc": "Genel sekmesine Register, Peer ve Account dış hat tipleri, UDP/TCP/TLS taşıma protokolleri ve Account tipi için otomatik SIP kullanıcı adı/parola üretici eklendi."
+                    },
+                    {
+                        "title": "🎚️ Kodek Öncelik Listesi (DualListBox) & Eş Zamanlı Çağrı Kısıtlama",
+                        "desc": "Gelişmiş sekmesinde sistem kodeklerini seçip öncelik sıralaması yapabilme ve Asterisk GROUP_COUNT tabanlı Gelen/Giden eş zamanlı çağrı limiti kontrolü sağlandı."
+                    },
+                    {
+                        "title": "📑 Gelen & Giden SIP Başlıkları (From, Diversion, RPID, PAI, PPI, User-Agent, Realm, Maxptime)",
+                        "desc": "SIP Başlıkları sekmesindeki tüm gelen/giden başlık kuralları ve özel (custom) değerler PJSIP_HEADER pre-dial handler ile Asterisk'e birebir işlendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.1",
+                "commit_hash": "b7b044f",
+                "release_date": "26 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "WhatsApp 'Giriş Kodu' İki Faktörlü Doğrulama (Ücretsiz 24 Saat Penceresi & 5 Dk Geçerli Kod)",
                 "summary": "Kullanıcı WhatsApp hattımıza 'Giriş Kodu' mesajı gönderdiğinde sistem numarayı otomatik tanır ve 5 dakika (300 saniye) geçerli 6 haneli 2FA doğrulama kodunu %100 ücretsiz olarak yanıtlar.",
                 "features": [
@@ -16121,6 +16786,7 @@ async def apply_settings_endpoint(background_tasks: BackgroundTasks, user_info: 
     save_settings(settings_db)
     regenerate_pjsip_custom_conf(background_tasks)
     regenerate_queues_conf(background_tasks)
+    regenerate_extensions_custom_conf(background_tasks)
     return {"status": "success", "message": "Değişiklikler başarıyla uygulandı."}
 
 import asyncio

@@ -268,20 +268,25 @@ class Trunk(Base):
     __tablename__ = "trunks"
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     tenant_id = Column(String, default="tenant-default", index=True)
-    trunk_type = Column(String, nullable=False, default="register") # register, peer
+    trunk_type = Column(String, nullable=False, default="register") # register, peer, account
     trunk_name = Column(String, nullable=False)
-    host = Column(String, nullable=False)
+    host = Column(String, nullable=True, default="")
     username = Column(String, nullable=True)
     password = Column(String, nullable=True)
     port = Column(Integer, default=5060)
     did_number = Column(String, nullable=True, default="")
-    protocol = Column(String, default="udp")
+    protocol = Column(String, default="udp") # udp, tcp, tls
     greeting_prompt = Column(String, nullable=True)
     transfer_target_type = Column(String, default="extension")
     transfer_target = Column(String, nullable=True, default="200")
-    codec = Column(String, default="G711")
+    codec = Column(String, default="alaw,ulaw,g722,g729")
+    codecs = Column(JSON, default=lambda: ["alaw", "ulaw", "g722", "g729"])
+    call_limit_enabled = Column(Boolean, default=False)
+    call_limit_direction = Column(String, default="both") # both, outbound, inbound
     max_channels = Column(Integer, default=30)
+    sip_headers = Column(JSON, default=dict)
     is_active = Column(Boolean, default=True)
+
 
 class PBXQueue(Base):
     __tablename__ = "pbx_queues"
