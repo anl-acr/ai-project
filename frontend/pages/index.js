@@ -2528,10 +2528,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.6.2 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.6.3 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
-            <span>{isSidebarCollapsed ? "v2.6.2" : "v2.6.2 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.6.3" : "v2.6.3 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -2559,25 +2559,9 @@ export default function Home() {
         {/* Top Header Navbar */}
         {!isEditingCallFlow && (
         <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-8 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 min-w-[260px]">
             {((currentUser?.username === "admin" || currentUser?.id === "admin") || (typeof window !== "undefined" && (localStorage.getItem("current_user_id") === "admin" || sessionStorage.getItem("current_user_id") === "admin"))) && (
-              <>
-                <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
-                <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
-              </>
-            )}
-            <span className="text-slate-400 dark:text-slate-500 font-bold text-xs tracking-wider">AKTİF İŞLEMLER</span>
-            <div className="h-4 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
-            {activeCallId ? (
-              <span className="flex items-center gap-1.5 text-xs text-primary dark:text-amber-400 font-semibold bg-amber-50 dark:bg-amber-950/20 px-3 py-1 rounded-full border border-amber-200/50 dark:border-amber-800/40 shrink-0">
-                <span className="h-1.5 w-1.5 rounded-full bg-primary dark:bg-amber-400 animate-ping"></span>
-                Görüşme Aktif
-              </span>
-            ) : (
-              <span className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5 bg-slate-100/80 dark:bg-slate-800/60 px-3 py-1 rounded-full border border-slate-200/60 dark:border-slate-800/40 shrink-0">
-                <span className="h-1.5 w-1.5 rounded-full bg-slate-400 dark:bg-slate-500"></span>
-                Arama Bekleniyor
-              </span>
+              <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             )}
           </div>
 

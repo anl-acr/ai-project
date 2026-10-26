@@ -16227,18 +16227,33 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.2",
+        "version": "v2.6.3",
         "commit_hash": live_commit,
         "release_date": "26 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.2",
+                "version": "v2.6.3",
                 "commit_hash": live_commit,
                 "release_date": "26 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Üst Başlık (Header) Sadeleştirme & Merkezli Arama Çubuğu Düzeni",
+                "summary": "Üst barda sol tarafta yer alan 'Aktif İşlemler' ve 'Arama Bekleniyor' ibareleri kaldırılarak arama çubuğunun (GlobalSearchBar) tam ortadaki konumu korundu.",
+                "features": [
+                    {
+                        "title": "✨ Üst Başlık (Header) Sadeleştirme",
+                        "desc": "Sol üstteki 'AKTİF İŞLEMLER' ve 'Arama Bekleniyor' etiketleri kaldırıldı; arama kutusu (Ctrl+K) mevcut merkezi konumunda sabit tutuldu."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.2",
+                "commit_hash": "fe95e31",
+                "release_date": "26 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Dış Hat Tanımları (SIP Trunks) 3 Sekmeli Teknik Konfigürasyon & Birebir Asterisk PJSIP/Dialplan Senkronizasyonu",
                 "summary": "Santral > Dış Hat Tanımları ekranı Genel (Register/Peer/Account), Gelişmiş (Kodek DualListBox & Çağrı Kısıtlama) ve SIP Başlıkları (Gelen/Giden PJSIP Header & User-Agent/Realm/Maxptime) sekmeleriyle yenilendi ve Asterisk PJSIP motoruna birebir bağlandı.",
                 "features": [
