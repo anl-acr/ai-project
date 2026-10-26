@@ -10461,6 +10461,14 @@ async def get_wallboard_stats():
         ai_res = await session.execute(ai_resolved_stmt)
         ai_resolved_count = ai_res.scalar() or 0
 
+        # Missed / Unanswered calls today
+        missed_stmt = select(func.count(Call.id)).where(
+            Call.start_time >= today_start_utc,
+            Call.status.in_(["no_answer", "missed", "failed", "busy", "cancelled"])
+        )
+        missed_res = await session.execute(missed_stmt)
+        missed_calls_count = missed_res.scalar() or 0
+
         # Service Level (percentage of answered calls out of total today calls)
         if total_today_calls > 0:
             service_level = (ai_resolved_count / total_today_calls) * 100.0
@@ -10477,7 +10485,7 @@ async def get_wallboard_stats():
 
         if completed_calls:
             durations = [
-                (c.end_time - c.start_time).total_seconds()
+                max(0, (c.end_time - c.start_time).total_seconds())
                 for c in completed_calls if c.end_time and c.start_time
             ]
             avg_hold_time = round(sum(durations) / len(durations)) if durations else 0
@@ -10515,16 +10523,54 @@ async def get_wallboard_stats():
             "queueCount": queue_count,
             "aiResolvedCount": ai_resolved_count,
             "activeCallsCount": active_calls_count,
+            "missedCallsCount": missed_calls_count,
+            "totalTodayCalls": total_today_calls,
             "avgHoldTime": avg_hold_time,
             "serviceLevel": round(service_level, 1),
             "recentLogs": recent_logs
         }
+
+@app.get("/api/wallboard/layout")
+async def get_user_wallboard_layout(
+    user_id: Optional[str] = None,
+    user_info: dict = Depends(get_user_info)
+):
+    tenant_id = user_info.get("tenant_id") or "tenant-default"
+    uid = str(user_id or user_info.get("user_id") or "admin").strip() or "admin"
+    layouts = settings_db.get("wallboard_layouts")
+    if not isinstance(layouts, dict):
+        layouts = {}
+    key = f"{tenant_id}:{uid}"
+    saved = layouts.get(key) or layouts.get(uid) or None
+    return {"status": "success", "layout": saved}
+
+@app.post("/api/wallboard/layout")
+async def save_user_wallboard_layout(
+    payload: dict,
+    user_info: dict = Depends(get_user_info)
+):
+    tenant_id = user_info.get("tenant_id") or "tenant-default"
+    uid = str(payload.get("user_id") or user_info.get("user_id") or "admin").strip() or "admin"
+    layout_data = payload.get("layout")
+    if not isinstance(layout_data, dict):
+        raise HTTPException(status_code=400, detail="Geçersiz layout verisi.")
+    if not isinstance(settings_db.get("wallboard_layouts"), dict):
+        settings_db["wallboard_layouts"] = {}
+    key = f"{tenant_id}:{uid}"
+    settings_db["wallboard_layouts"][key] = layout_data
+    settings_db["wallboard_layouts"][uid] = layout_data
+    save_settings(settings_db)
+    return {"status": "success", "layout": layout_data}
 
 @app.get("/api/reports/agents")
 async def get_reports_agents():
     from backend.database.models import SystemUser, Call
     from backend.services.ami_manager import active_channels, channel_states, registered_endpoints
     from backend.services.agent_presence import active_agent_status
+    import datetime
+
+    now_utc = datetime.datetime.utcnow()
+    today_start_utc = (now_utc + datetime.timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=3)
 
     async with AsyncSessionLocal() as session:
         stmt = select(SystemUser)
@@ -10535,6 +10581,20 @@ async def get_reports_agents():
         stmt_ongoing = select(Call).where(Call.status.in_(["ongoing", "in_progress"])).order_by(Call.start_time.desc())
         res_ongoing = await session.execute(stmt_ongoing)
         ongoing_calls = res_ongoing.scalars().all()
+
+        # Fetch today's calls to compute per-agent daily call counts
+        stmt_today = select(Call).where(Call.start_time >= today_start_utc)
+        res_today = await session.execute(stmt_today)
+        today_calls = res_today.scalars().all()
+
+        ext_call_counts = {}
+        for tc in today_calls:
+            c_from = str(tc.caller_number or "").strip()
+            c_to = str(tc.callee_number or "").strip()
+            if c_from:
+                ext_call_counts[c_from] = ext_call_counts.get(c_from, 0) + 1
+            if c_to and c_to != c_from:
+                ext_call_counts[c_to] = ext_call_counts.get(c_to, 0) + 1
 
         agents_state = {}
         for u in users:
@@ -10547,6 +10607,7 @@ async def get_reports_agents():
             is_in_call = False
             caller_number = None
             matched_call_id = None
+            call_duration = 0
 
             # 1. Check channel_states (dict) and active_channels (str or dict)
             pjsip_pfx = f"pjsip/{u_ext_str.lower()}-"
@@ -10583,6 +10644,8 @@ async def get_reports_agents():
                 if oc_caller == u_ext_str or oc_callee == u_ext_str:
                     is_in_call = True
                     matched_call_id = oc.id
+                    if oc.start_time:
+                        call_duration = max(0, int((now_utc - oc.start_time.replace(tzinfo=None)).total_seconds()))
                     if not caller_number:
                         caller_number = oc_callee if oc_caller == u_ext_str else oc_caller
                     break
@@ -10599,6 +10662,7 @@ async def get_reports_agents():
             status = "Çevrimdışı"
             break_type = None
             break_color = None
+            status_duration = call_duration
 
             if is_logged_in or u_ext_str in registered_endpoints or is_in_call:
                 if is_in_call:
@@ -10608,6 +10672,9 @@ async def get_reports_agents():
                     curr_b = agent_sess.get("current_break") or {}
                     break_type = curr_b.get("name", "Mola")
                     break_color = curr_b.get("color", "#f97316")
+                    b_start = agent_sess.get("break_start_time")
+                    if isinstance(b_start, datetime.datetime):
+                        status_duration = max(0, int((now_utc - b_start.replace(tzinfo=None)).total_seconds()))
                 else:
                     status = "Müsait"
 
@@ -10621,7 +10688,8 @@ async def get_reports_agents():
                 "breakColor": break_color,
                 "caller": caller_number,
                 "call_id": matched_call_id,
-                "duration": 0
+                "duration": status_duration,
+                "callsToday": ext_call_counts.get(u_ext_str, 0)
             }
             agents_state[u.id] = ag_info
             agents_state[u_id_str] = ag_info
@@ -16713,18 +16781,41 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.6",
+        "version": "v2.6.7",
         "commit_hash": live_commit,
         "release_date": "26 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.6",
+                "version": "v2.6.7",
                 "commit_hash": live_commit,
                 "release_date": "26 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Kişiselleştirilebilir Canlı İzleme Paneli (Wallboard Studio) & Hazır Şablonlar",
+                "summary": "Her kullanıcının Canlı İzleme Paneli'ni kendi çalışma tarzına göre tasarlayıp kaydedebileceği Wallboard Tasarım Stüdyosu, hazır görünüm şablonları, sürükle-bırak modül/sayaç yönetimi, temsilci kart yoğunluğu/filtreleme ve kişisel alarm eşikleri eklendi.",
+                "features": [
+                    {
+                        "title": "🎨 Kişisel Wallboard Tasarım Stüdyosu & Kullanıcı Bazlı Kayıt",
+                        "desc": "Kullanıcılar 'Paneli Özelleştir' menüsünden KPI kartlarını ve ana widget modüllerini açıp kapatabilir, sürükle-bırak ile sıralayabilir ve genişliklerini (1/3, 1/2, 2/3, Tam) ayarlayarak kendi hesaplarına özel kaydedebilir."
+                    },
+                    {
+                        "title": "🧩 Yeni Seçilebilir Modüller (Aktif Görüşmeler, Kuyruk Tablosu, Liderlik & Mola Takibi)",
+                        "desc": "Temsilci & AI Meşguliyet Panosu'nun yanı sıra Canlı Aktif Görüşmeler Listesi, Canlı Kuyruk (ACD) Durum Tablosu, Günün En'leri Performans Sıralaması ve Canlı Mola Takip Kutusu modülleri eklendi."
+                    },
+                    {
+                        "title": "⚡ Hazır Şablonlar, Kart Yoğunluğu (Mini/Normal/Detay) & Kişisel Alarm Eşikleri",
+                        "desc": "Tek tıkla geçiş yapılabilen Standart, Süpervizör, Kuyruk & Çağrı ve Kompakt şablonlar; temsilci durum filtreleri ve kişisel bekleme/SL/mola süresi görsel alarm eşikleri eklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.6",
+                "commit_hash": "9a7d1e8",
+                "release_date": "26 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Canlı İzleme Paneli (Wallboard) Servis Seviyesi (SL) Kartı Eklemesi (6'lı KPI Satırı)",
                 "summary": "Canlı İzleme Paneli üst KPI satırına Servis Seviyesi (SL %) ve ortalama bekleme süresi kutucuğu tekrar eklendi (Sırada Bekleyen, AI Başarılı Çözüm, Servis Seviyesi, Müsait, Meşgul, Molada).",
                 "features": [
