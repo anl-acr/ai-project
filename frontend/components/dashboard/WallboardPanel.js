@@ -31,7 +31,10 @@ import {
   Search,
   AlertTriangle,
   Layers,
-  Palette
+  Palette,
+  Shield,
+  LogOut,
+  Play
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
@@ -1154,9 +1157,14 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     whisper: true,
     barge: true
   });
+  const [isSupervisor, setIsSupervisor] = useState(false);
+  const [isSuperAdmin, setIsSuperAdmin] = useState(false);
+  const [supManagedUsers, setSupManagedUsers] = useState([]);
+  const [supManagedQueues, setSupManagedQueues] = useState([]);
 
-  // Dropdown & Toast states for Call Monitoring (Araya Gir / Sufle / Fısılda)
+  // Dropdown & Toast states for Call Monitoring (Araya Gir / Sufle / Fısılda) & Supervisor State Control
   const [openMenuCardId, setOpenMenuCardId] = useState(null);
+  const [openSupMenuCardId, setOpenSupMenuCardId] = useState(null);
   const [monitorStatus, setMonitorStatus] = useState(null);
   const [monitorLoadingId, setMonitorLoadingId] = useState(null);
   const [aiWhisperTargetCall, setAiWhisperTargetCall] = useState(null);
@@ -1191,6 +1199,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     const handleClickOutside = (e) => {
       if (menuContainerRef.current && !menuContainerRef.current.contains(e.target)) {
         setOpenMenuCardId(null);
+        setOpenSupMenuCardId(null);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -1267,6 +1276,10 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
       if (uidStr.toLowerCase() === "admin") {
         setAuthorized(true);
+        setIsSupervisor(true);
+        setIsSuperAdmin(true);
+        setSupManagedUsers([]);
+        setSupManagedQueues([]);
         setMonitorPerms({ listen: true, whisper: true, barge: true });
         return;
       }
@@ -1276,6 +1289,8 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
       );
       if (!currentUser) {
         setAuthorized(true);
+        setIsSupervisor(true);
+        setIsSuperAdmin(true);
         setMonitorPerms({ listen: true, whisper: true, barge: true });
         return;
       }
@@ -1284,17 +1299,35 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
         setCurrentUserExt(String(currentUser.extension));
       }
 
+      const mUsers = Array.isArray(currentUser.managed_users)
+        ? currentUser.managed_users.map((x) => String(x))
+        : [];
+      const mQueues = Array.isArray(currentUser.managed_queues)
+        ? currentUser.managed_queues.map((x) => String(x))
+        : [];
+      setSupManagedUsers(mUsers);
+      setSupManagedQueues(mQueues);
+
       const currentRole = rolesList.find(
         (r) => String(r.role_code || "").toLowerCase() === String(currentUser.role || "").toLowerCase()
       );
       if (!currentRole || String(currentRole.role_code).toLowerCase() === "admin") {
         setAuthorized(true);
+        setIsSupervisor(true);
+        setIsSuperAdmin(true);
         setMonitorPerms({ listen: true, whisper: true, barge: true });
         return;
       }
 
+      setIsSuperAdmin(false);
       const perms = Array.isArray(currentRole.permissions) ? currentRole.permissions : [];
-      const hasAccess = perms.includes("wallboard:access") || perms.includes("wallboard");
+      const hasSupPerm =
+        String(currentRole.role_code || "").toLowerCase() === "supervisor" ||
+        perms.includes("supervisor:access") ||
+        perms.includes("supervisor");
+      setIsSupervisor(hasSupPerm);
+
+      const hasAccess = hasSupPerm || perms.includes("wallboard:access") || perms.includes("wallboard");
       setAuthorized(hasAccess);
 
       const hasLegacyAiWhisper =
@@ -1523,6 +1556,65 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
+  const handleSupervisorAgentAction = async (targetUser, actionType, breakObj = null) => {
+    setOpenSupMenuCardId(null);
+    setOpenMenuCardId(null);
+    if (!targetUser) return;
+
+    // Supervisors cannot perform Login
+    if (actionType === "login") return;
+
+    const uName = targetUser.full_name || targetUser.name || `Dahili ${targetUser.extension}`;
+    try {
+      const payload = {
+        user_id: String(targetUser.id),
+        extension: String(targetUser.extension || ""),
+        is_logged_in: actionType !== "logout",
+        status: actionType === "logout" ? "offline" : actionType === "break" ? "break" : "online",
+        current_break: actionType === "break" ? breakObj : null
+      };
+
+      const res = await fetch(`${API_BASE}/api/agent/status`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": currentUserId || "admin"
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (res.ok) {
+        const actionDesc =
+          actionType === "logout"
+            ? "Oturumu Kapatıldı (Logout)"
+            : actionType === "break"
+              ? `Molaya Çıkarıldı (${breakObj?.name || "Mola"})`
+              : "Moladan Döndürüldü (Müsait)";
+        setMonitorStatus({
+          type: "success",
+          text: `Supervizor Müdahalesi: ${uName} (${targetUser.extension}) → ${actionDesc}`
+        });
+        const agentsRes = await fetch(`${API_BASE}/api/reports/agents`, { cache: "no-store" });
+        if (agentsRes.ok) {
+          const agentsData = await agentsRes.json();
+          setAgentsState(agentsData);
+        }
+      } else {
+        setMonitorStatus({
+          type: "error",
+          text: `${uName} temsilci durumu güncellenemedi.`
+        });
+      }
+    } catch (err) {
+      setMonitorStatus({
+        type: "error",
+        text: "Sunucu bağlantı hatası oluştu."
+      });
+    } finally {
+      setTimeout(() => setMonitorStatus(null), 5000);
+    }
+  };
+
   const formatSeconds = (sec) => {
     const s = Math.max(0, Math.floor(Number(sec) || 0));
     const hrs = Math.floor(s / 3600);
@@ -1534,7 +1626,27 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
-  const loggedInUsers = users.filter((u) => {
+  const scopedQueues =
+    !isSuperAdmin && isSupervisor && supManagedQueues.length > 0
+      ? queues.filter(
+          (q) =>
+            supManagedQueues.includes(String(q.id)) ||
+            supManagedQueues.includes(String(q.name)) ||
+            supManagedQueues.includes(String(q.queue_name)) ||
+            supManagedQueues.includes(String(q.extension))
+        )
+      : queues;
+
+  const scopedUsers =
+    !isSuperAdmin && isSupervisor && supManagedUsers.length > 0
+      ? users.filter(
+          (u) =>
+            supManagedUsers.includes(String(u.id)) ||
+            supManagedUsers.includes(String(u.extension))
+        )
+      : users;
+
+  const loggedInUsers = scopedUsers.filter((u) => {
     const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
     return Boolean(st?.is_logged_in) && st?.status && st.status !== "Çevrimdışı";
   });
@@ -2229,12 +2341,93 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                   {state.status}
                                 </span>
 
+                                {isSupervisor && (
+                                  <div className="relative">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuCardId(null);
+                                        setOpenSupMenuCardId(openSupMenuCardId === cardId ? null : cardId);
+                                      }}
+                                      title="Supervizor Durum Müdahalesi (Mola / Müsait / Logout)"
+                                      className={`h-7 w-7 rounded-lg border flex items-center justify-center transition-all ${
+                                        openSupMenuCardId === cardId
+                                          ? `${bg} text-white border-transparent shadow-sm`
+                                          : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-400"
+                                      }`}
+                                    >
+                                      <Shield size={13} />
+                                    </button>
+
+                                    {openSupMenuCardId === cardId && (
+                                      <div
+                                        onClick={(e) => e.stopPropagation()}
+                                        className="absolute right-0 top-8 z-50 w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-2xl py-1.5 animate-in fade-in zoom-in-95 duration-150"
+                                      >
+                                        <div className="px-3 py-1 border-b border-slate-100 dark:border-slate-800 text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
+                                          Durum Müdahalesi
+                                        </div>
+
+                                        {state.status === "Molada" && (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSupervisorAgentAction(u, "online")}
+                                            className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-center gap-2 transition-colors"
+                                          >
+                                            <Play size={12} className="shrink-0" />
+                                            <span>Moladan Döndür (Müsait)</span>
+                                          </button>
+                                        )}
+
+                                        <div className="px-3 pt-1.5 pb-0.5 text-[9px] font-bold text-slate-400 uppercase">
+                                          Molaya Çıkar
+                                        </div>
+                                        {(breaks && breaks.length > 0
+                                          ? breaks
+                                          : [
+                                              { id: "default_1", name: "Kısa Mola" },
+                                              { id: "default_2", name: "Yemek Molası" },
+                                              { id: "default_3", name: "İhtiyaç Molası" }
+                                            ]
+                                        ).map((b) => (
+                                          <button
+                                            key={b.id || b.name}
+                                            type="button"
+                                            onClick={() =>
+                                              handleSupervisorAgentAction(u, "break", {
+                                                id: b.id || b.name,
+                                                name: b.name
+                                              })
+                                            }
+                                            className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-slate-700 dark:text-slate-200 hover:bg-amber-50 dark:hover:bg-amber-950/30 flex items-center gap-2 transition-colors"
+                                          >
+                                            <Coffee size={12} className="text-amber-500 shrink-0" />
+                                            <span className="truncate">{b.name}</span>
+                                          </button>
+                                        ))}
+
+                                        <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                                        <button
+                                          type="button"
+                                          onClick={() => handleSupervisorAgentAction(u, "logout")}
+                                          className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2 transition-colors"
+                                        >
+                                          <LogOut size={12} className="shrink-0" />
+                                          <span>Oturumu Kapat (Logout)</span>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+
                                 {canMonitorAny && (
                                   <div className="relative">
                                     <button
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation();
+                                        setOpenSupMenuCardId(null);
                                         setOpenMenuCardId(isMenuOpen ? null : cardId);
                                       }}
                                       title="Dinleme / Müdahale Seçenekleri (Araya Gir - Sufle - Fısılda)"
@@ -2557,11 +2750,11 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                       </h4>
                     </div>
                     <span className="px-2 py-0.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 text-[9px] font-extrabold">
-                      {queues.length} Kuyruk
+                      {scopedQueues.length} Kuyruk
                     </span>
                   </div>
 
-                  {queues.length === 0 ? (
+                  {scopedQueues.length === 0 ? (
                     <div className="py-10 text-center text-xs text-slate-400 italic">Tanımlı çağrı kuyruğu bulunamadı.</div>
                   ) : (
                     <div className="overflow-x-auto">
@@ -2576,7 +2769,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
-                          {queues.map((q) => {
+                          {scopedQueues.map((q) => {
                             const memberList = Array.isArray(q.members) ? q.members : [];
                             const qUsers = loggedInUsers.filter(
                               (u) =>
@@ -2761,16 +2954,29 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                 </p>
                               </div>
                             </div>
-                            <div className="text-right shrink-0">
-                              <span
-                                className={`font-mono text-xs font-black ${
-                                  exceeded ? "text-rose-600 dark:text-rose-400 animate-pulse" : "text-slate-700 dark:text-slate-200"
-                                }`}
-                              >
-                                {formatSeconds(liveBrkSec)}
-                              </span>
-                              {exceeded && (
-                                <p className="text-[8px] font-extrabold text-rose-500 uppercase">Süre Aşıldı</p>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <div className="text-right">
+                                <span
+                                  className={`font-mono text-xs font-black ${
+                                    exceeded ? "text-rose-600 dark:text-rose-400 animate-pulse" : "text-slate-700 dark:text-slate-200"
+                                  }`}
+                                >
+                                  {formatSeconds(liveBrkSec)}
+                                </span>
+                                {exceeded && (
+                                  <p className="text-[8px] font-extrabold text-rose-500 uppercase">Süre Aşıldı</p>
+                                )}
+                              </div>
+                              {isSupervisor && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSupervisorAgentAction(u, "online")}
+                                  title="Moladan Döndür (Müsait Yap)"
+                                  className="px-2 py-1 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-[9px] font-extrabold flex items-center gap-1 shadow-sm transition-colors"
+                                >
+                                  <Play size={10} />
+                                  <span>Döndür</span>
+                                </button>
                               )}
                             </div>
                           </div>

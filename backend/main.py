@@ -386,6 +386,8 @@ class UserSchema(BaseModel):
     two_factor_method: Optional[str] = "google_auth"
     two_factor_secret: Optional[str] = None
     two_factor_enrolled: Optional[bool] = False
+    managed_users: Optional[List[Union[int, str]]] = []
+    managed_queues: Optional[List[Union[int, str]]] = []
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -1136,9 +1138,19 @@ def load_settings():
 
             db_users = session.query(SystemUser).order_by(SystemUser.id).all()
             if db_users:
+                disk_u_map = {str(du.get("id")): du for du in db.get("users", []) if isinstance(du, dict) and du.get("id") is not None}
                 users_list = []
                 for u in db_users:
-                    users_list.append({col.name: getattr(u, col.name) for col in SystemUser.__table__.columns})
+                    u_dict = {col.name: getattr(u, col.name) for col in SystemUser.__table__.columns}
+                    du = disk_u_map.get(str(u_dict.get("id")))
+                    if du:
+                        if not u_dict.get("managed_users") and du.get("managed_users"):
+                            u_dict["managed_users"] = du.get("managed_users")
+                        if not u_dict.get("managed_queues") and du.get("managed_queues"):
+                            u_dict["managed_queues"] = du.get("managed_queues")
+                    u_dict["managed_users"] = u_dict.get("managed_users") if isinstance(u_dict.get("managed_users"), list) else []
+                    u_dict["managed_queues"] = u_dict.get("managed_queues") if isinstance(u_dict.get("managed_queues"), list) else []
+                    users_list.append(u_dict)
                 db["users"] = users_list
 
             db_roles = session.query(SystemRole).order_by(SystemRole.id).all()
@@ -1220,6 +1232,8 @@ def load_settings():
             if r.get("role_code") in ["admin", "supervisor"]:
                 if "wallboard:access" not in new_perms:
                     new_perms.append("wallboard:access")
+                if "supervisor:access" not in new_perms:
+                    new_perms.append("supervisor:access")
                 if "dialer:access" not in new_perms:
                     new_perms.append("dialer:access")
                 if "call_flow:access" not in new_perms:
@@ -15097,6 +15111,8 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_method VARCHAR DEFAULT 'google_auth';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_secret VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_users JSON DEFAULT '[]';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs JSON DEFAULT '[\"alaw\", \"ulaw\", \"g722\", \"g729\"]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_enabled BOOLEAN DEFAULT FALSE;",
@@ -15599,10 +15615,23 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["two_factor_secret"] = disk_u.get("two_factor_secret")
             if not u.get("two_factor_enrolled") and disk_u.get("two_factor_enrolled"):
                 u["two_factor_enrolled"] = disk_u.get("two_factor_enrolled")
+            if not u.get("managed_users") and disk_u.get("managed_users"):
+                u["managed_users"] = disk_u.get("managed_users")
+            if not u.get("managed_queues") and disk_u.get("managed_queues"):
+                u["managed_queues"] = disk_u.get("managed_queues")
         if u.get("two_factor_method") == "app" or not u.get("two_factor_method"):
             u["two_factor_method"] = "google_auth"
         u["two_factor_enabled"] = bool(u.get("two_factor_enabled", False))
         u["two_factor_enrolled"] = bool(u.get("two_factor_enrolled", False))
+        for mk in ("managed_users", "managed_queues"):
+            mval = u.get(mk)
+            if isinstance(mval, str) and mval.strip().startswith("["):
+                try:
+                    u[mk] = json.loads(mval)
+                except Exception:
+                    u[mk] = []
+            elif not isinstance(mval, list):
+                u[mk] = []
         for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
             fval = u.get(fk)
             if isinstance(fval, str) and fval.strip().startswith("{"):
@@ -15665,7 +15694,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         new_users_out = []
         changes = []
         valid_keys = {c.name for c in SystemUser.__table__.columns}
-        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions"}
+        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues"}
         saved_payload_by_ext = {}
         saved_payload_by_id = {}
 
@@ -15694,6 +15723,11 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 data["two_factor_secret"] = generate_totp_secret()
             if not data.get("two_factor_enrolled") and prev_disk.get("two_factor_enrolled"):
                 data["two_factor_enrolled"] = True
+
+            if data.get("managed_users") is None:
+                data["managed_users"] = (getattr(target_user, "managed_users", None) if target_user else None) or prev_disk.get("managed_users") or []
+            if data.get("managed_queues") is None:
+                data["managed_queues"] = (getattr(target_user, "managed_queues", None) if target_user else None) or prev_disk.get("managed_queues") or []
 
             if ext_str:
                 saved_payload_by_ext[ext_str] = data
@@ -15788,7 +15822,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_password"] = p_match.get("sip_password")
                         if p_match.get("sip_username"):
                             u_dict["sip_username"] = p_match.get("sip_username")
-                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled"):
+                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "managed_users", "managed_queues"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")

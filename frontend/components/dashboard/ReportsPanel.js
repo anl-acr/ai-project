@@ -1437,10 +1437,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
 
+  const [supManagedUsers, setSupManagedUsers] = useState([]);
+  const [supManagedQueues, setSupManagedQueues] = useState([]);
+
   const fetchUsersAndAiAgents = async () => {
     try {
       const protocol = window.location.protocol;
       const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+      const storedUid = typeof window !== "undefined" ? String(localStorage.getItem("current_user_id") || "admin") : "admin";
       const [uRes, aiRes, tRes, tsRes, qRes, irRes, wfRes] = await Promise.all([
         fetch(`${protocol}//${backendHost}/api/settings/users`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/ai-agents`, { headers: { "X-Tenant-ID": activeTenantId } }),
@@ -1450,9 +1454,35 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         fetch(`${protocol}//${backendHost}/api/settings/inbound_rules`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/call-flow/workflows`, { headers: { "X-Tenant-ID": activeTenantId } })
       ]);
+
+      let allUsers = [];
+      let mUsers = [];
+      let mQueues = [];
+
       if (uRes.ok) {
         const uData = await uRes.json();
-        setUsers(Array.isArray(uData) ? uData : (uData?.users || []));
+        allUsers = Array.isArray(uData) ? uData : (uData?.users || []);
+        if (storedUid.toLowerCase() !== "admin") {
+          const curUser = allUsers.find(
+            (u) => String(u.id) === storedUid || String(u.extension) === storedUid
+          );
+          if (curUser && String(curUser.role || "").toLowerCase() !== "admin") {
+            mUsers = Array.isArray(curUser.managed_users) ? curUser.managed_users.map(String) : [];
+            mQueues = Array.isArray(curUser.managed_queues) ? curUser.managed_queues.map(String) : [];
+          }
+        }
+        setSupManagedUsers(mUsers);
+        setSupManagedQueues(mQueues);
+
+        if (mUsers.length > 0) {
+          setUsers(
+            allUsers.filter(
+              (u) => mUsers.includes(String(u.id)) || mUsers.includes(String(u.extension))
+            )
+          );
+        } else {
+          setUsers(allUsers);
+        }
       }
       if (aiRes.ok) {
         const aiData = await aiRes.json();
@@ -1468,7 +1498,20 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       }
       if (qRes.ok) {
         const qData = await qRes.json();
-        setQueues(Array.isArray(qData) ? qData : (qData?.queues || []));
+        const allQueues = Array.isArray(qData) ? qData : (qData?.queues || []);
+        if (mQueues.length > 0) {
+          setQueues(
+            allQueues.filter(
+              (q) =>
+                mQueues.includes(String(q.id)) ||
+                mQueues.includes(String(q.name)) ||
+                mQueues.includes(String(q.queue_name)) ||
+                mQueues.includes(String(q.extension))
+            )
+          );
+        } else {
+          setQueues(allQueues);
+        }
       }
       if (irRes.ok) {
         const irData = await irRes.json();
@@ -2736,6 +2779,39 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (filterAgentsSelected.length > 0 || filterConversant !== "All") {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
+    }
+
+    // 5b. Supervisor Managed Users Filter
+    if (supManagedUsers.length > 0 && users.length > 0) {
+      const conversantNorm = normalizeAgentName(getConversant(c));
+      const calleeStr = String(c.callee_number || "").trim();
+      const callerStr = String(c.caller_number || "").trim();
+      const matchedSupUser = users.some((u) => {
+        const uNameNorm = normalizeAgentName(u.full_name || u.name || u.username || "");
+        const uExt = String(u.extension || "").trim();
+        const uId = String(u.id || "").trim();
+        return (
+          (uNameNorm && conversantNorm && (conversantNorm === uNameNorm || conversantNorm.includes(uNameNorm))) ||
+          (uExt && (calleeStr === uExt || callerStr === uExt || conversantNorm.includes(uExt))) ||
+          (uId && supManagedUsers.includes(uId) && String(c.agent_id || "") === uId)
+        );
+      });
+      if (!matchedSupUser) return false;
+    }
+
+    // 5c. Supervisor Managed Queues Filter
+    if (supManagedQueues.length > 0) {
+      const qInfo = resolveCallQueueInfo(c);
+      const qMatch =
+        supManagedQueues.includes(String(qInfo.queueId)) ||
+        supManagedQueues.includes(String(qInfo.queueName)) ||
+        queues.some(
+          (q) =>
+            String(q.extension) === String(qInfo.queueId) ||
+            String(q.id) === String(qInfo.queueId) ||
+            String(q.name) === String(qInfo.queueName)
+        );
+      if (!qMatch) return false;
     }
 
     // 6. Date Range Filter
@@ -5654,6 +5730,22 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       events: ag.events || []
                     }))
                     .filter((ag) => {
+                      if (supManagedUsers.length > 0 && users.length > 0) {
+                        const agNorm = normalizeAgentName(ag.agent_name);
+                        const agExt = String(ag.extension || "").trim();
+                        const agId = String(ag.agent_id || "").trim();
+                        const inScope = users.some((u) => {
+                          const uNorm = normalizeAgentName(u.full_name || u.name || u.username || "");
+                          const uExt = String(u.extension || "").trim();
+                          const uId = String(u.id || "").trim();
+                          return (
+                            (uId && (agId === uId || agId === `user-${uId}`)) ||
+                            (uExt && agExt === uExt) ||
+                            (uNorm && agNorm && (agNorm === uNorm || agNorm.includes(uNorm)))
+                          );
+                        });
+                        if (!inScope) return false;
+                      }
                       if (selectedTimelineAgent !== "All" && normalizeAgentName(ag.agent_name) !== normalizeAgentName(selectedTimelineAgent) && ag.extension !== selectedTimelineAgent && ag.agent_id !== selectedTimelineAgent) {
                         return false;
                       }

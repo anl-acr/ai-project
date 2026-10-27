@@ -90,6 +90,7 @@ const SYSTEM_FEATURES = [
   // 1. Operasyon ve İzleme
   { id: "dashboard", name: "Gerçek Zamanlı AI Pano", icon: Activity, type: "access", color: "purple" },
   { id: "wallboard", name: "Canlı İzleme Paneli", icon: Monitor, type: "access", color: "indigo" },
+  { id: "supervisor", name: "Supervizor (Canlı Durum Müdahale & Ekip/Kuyruk Yönetimi)", icon: Shield, type: "access", color: "indigo" },
   { id: "call_monitor", name: "Araya Girme, Sufle ve Fısıldama (Canlı Çağrı Müdahale)", icon: Headphones, type: "call_monitor", color: "amber" },
   { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: PhoneCall, type: "access", color: "emerald" },
   { id: "omnichannel", name: "Ortak Gelen Kutusu", icon: MessageSquare, type: "access", color: "purple" },
@@ -366,7 +367,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "operations",
       name: "Operasyon ve İzleme",
       icon: Activity,
-      items: ["dashboard", "wallboard", "call_monitor", "call_panel", "omnichannel", "api_budgets"]
+      items: ["dashboard", "wallboard", "supervisor", "call_monitor", "call_panel", "omnichannel", "api_budgets"]
     },
     {
       id: "ai",

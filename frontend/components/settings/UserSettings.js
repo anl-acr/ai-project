@@ -289,6 +289,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [selectedLocation, setSelectedLocation] = useState("");
   const [selectedDepartment, setSelectedDepartment] = useState("");
 
+  // Supervisor Management Filter Fields
+  const [managedUsers, setManagedUsers] = useState([]);
+  const [managedQueues, setManagedQueues] = useState([]);
+  const [supUserSearch, setSupUserSearch] = useState("");
+  const [supQueueSearch, setSupQueueSearch] = useState("");
+
   const safeFetch = async (path, options = {}) => {
     const apiBase = getApiBaseUrl(backendHost);
     const url = path.startsWith("http") ? path : `${apiBase}${path}`;
@@ -849,6 +855,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setActiveProfile("available");
     setUserProfiles(normalizeUserProfiles(null));
     setSelectedProfileTab("available");
+    setManagedUsers([]);
+    setManagedQueues([]);
+    setSupUserSearch("");
+    setSupQueueSearch("");
   };
 
   const openAddModal = () => {
@@ -945,6 +955,18 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setActiveProfile(resolvedActiveProf);
     setSelectedProfileTab(resolvedActiveProf);
     setUserProfiles(normalizeUserProfiles(u.profiles));
+
+    let parsedManagedUsers = u.managed_users;
+    if (typeof parsedManagedUsers === "string") {
+      try { parsedManagedUsers = JSON.parse(parsedManagedUsers); } catch (e) { parsedManagedUsers = []; }
+    }
+    setManagedUsers(Array.isArray(parsedManagedUsers) ? parsedManagedUsers.map(String) : []);
+
+    let parsedManagedQueues = u.managed_queues;
+    if (typeof parsedManagedQueues === "string") {
+      try { parsedManagedQueues = JSON.parse(parsedManagedQueues); } catch (e) { parsedManagedQueues = []; }
+    }
+    setManagedQueues(Array.isArray(parsedManagedQueues) ? parsedManagedQueues.map(String) : []);
 
     setShowModal(true);
   };
@@ -1061,7 +1083,9 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       location_id: selectedLocation || null,
       department_id: selectedDepartment || null,
       active_profile: activeProfile || "available",
-      profiles: userProfiles
+      profiles: userProfiles,
+      managed_users: managedUsers,
+      managed_queues: managedQueues
     };
 
     setSubmitting(true);
@@ -1237,6 +1261,15 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
         )}
     </div>
   );
+
+  const selectedRoleObj = (Array.isArray(systemRoles) ? systemRoles : []).find(
+    (r) => String(r.role_code || "").toLowerCase() === String(role || "").toLowerCase()
+  );
+  const selectedRolePerms = Array.isArray(selectedRoleObj?.permissions) ? selectedRoleObj.permissions : [];
+  const hasSupervisorPerm =
+    String(role || "").toLowerCase() === "supervisor" ||
+    selectedRolePerms.includes("supervisor:access") ||
+    selectedRolePerms.includes("supervisor");
 
   return (
     <div className="w-full space-y-6">
@@ -1695,6 +1728,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             <ImageIcon size={16} />
                             Avatar Seçimi
                         </button>
+                        {hasSupervisorPerm && (
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab("supervisor_filter")}
+                                className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'supervisor_filter' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                            >
+                                <Shield size={16} />
+                                Rapor & Yönetim Filtresi
+                            </button>
+                        )}
                         {isAdmin && (
                             <button
                                 type="button"
@@ -2886,6 +2929,215 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             Kullanıcıyı farklı bir tenant'a aktardığınızda, kullanıcı yalnızca o tenant'a ait dahili hatları, çağrı verilerini ve müşteri panelini görüntüleyebilecektir.
                                         </p>
                                     </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB: RAPOR & YÖNETİM FİLTRESİ (SUPERVIZOR) */}
+                        {activeTab === "supervisor_filter" && hasSupervisorPerm && (
+                            <div className="space-y-6 animate-in fade-in duration-300">
+                                <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                                    <h5 className="text-xs font-bold text-slate-700 dark:text-white flex items-center gap-2">
+                                        <Shield size={16} className={text} />
+                                        Supervizor Rapor & Yönetim Filtresi
+                                    </h5>
+                                    <p className="text-[11px] text-slate-400 mt-1">
+                                        Bu supervizor kullanıcısının Canlı İzleme Panelinde müdahale edebileceği ve Raporlarda görüntüleyebileceği temsilcileri ve kuyrukları seçin.
+                                    </p>
+                                </div>
+
+                                {/* 1. Yönetebileceği Temsilciler */}
+                                <div className="p-4 bg-slate-50/70 dark:bg-slate-900/50 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-3">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                        <div>
+                                            <h6 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                                <Users size={14} className={text} />
+                                                Yönetebileceği Kullanıcılar / Temsilciler
+                                                <span className={`px-2 py-0.5 text-[10px] rounded-full ${lightBg} ${text} font-extrabold`}>
+                                                    {managedUsers.length} Seçili
+                                                </span>
+                                            </h6>
+                                            <p className="text-[10px] text-slate-400 mt-0.5">
+                                                Seçim yapıldığında supervizor yalnızca seçili temsilcileri izler, yönetir ve raporlarını görür.
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => setManagedUsers((Array.isArray(users) ? users : []).map(u => String(u.id)))}
+                                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 transition-colors"
+                                            >
+                                                Tümünü Seç
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setManagedUsers([])}
+                                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-rose-600 transition-colors"
+                                            >
+                                                Temizle
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="relative">
+                                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            placeholder="İsim veya dahili numara ile filtrele..."
+                                            value={supUserSearch}
+                                            onChange={(e) => setSupUserSearch(e.target.value)}
+                                            className="w-full text-xs pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                        />
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-52 overflow-y-auto pr-1">
+                                        {(Array.isArray(users) ? users : [])
+                                            .filter(u => {
+                                                if (!supUserSearch.trim()) return true;
+                                                const q = supUserSearch.toLowerCase();
+                                                return (
+                                                    String(u.name || "").toLowerCase().includes(q) ||
+                                                    String(u.extension || "").toLowerCase().includes(q) ||
+                                                    String(u.email || "").toLowerCase().includes(q)
+                                                );
+                                            })
+                                            .map(u => {
+                                                const uid = String(u.id);
+                                                const isChecked = managedUsers.includes(uid);
+                                                return (
+                                                    <label
+                                                        key={uid}
+                                                        onClick={() => {
+                                                            setManagedUsers(prev =>
+                                                                prev.includes(uid) ? prev.filter(x => x !== uid) : [...prev, uid]
+                                                            );
+                                                        }}
+                                                        className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer select-none transition-all ${
+                                                            isChecked
+                                                                ? `${lightBg} ${border} shadow-sm`
+                                                                : "bg-white dark:bg-slate-950 border-slate-200/80 dark:border-slate-800 hover:border-slate-300"
+                                                        }`}
+                                                    >
+                                                        <div className="flex items-center gap-2.5 min-w-0">
+                                                            <div className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                                                                isChecked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                                                            }`}>
+                                                                {isChecked && <Check size={11} strokeWidth={3} />}
+                                                            </div>
+                                                            <div className="min-w-0">
+                                                                <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                                                    {u.name}
+                                                                </div>
+                                                                <div className="text-[10px] text-slate-400 font-medium truncate">
+                                                                    Dahili: {u.extension || "-"} • {u.role || "agent"}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </label>
+                                                );
+                                            })}
+                                    </div>
+                                </div>
+
+                                {/* 2. Yönetebileceği Kuyruklar */}
+                                <div className="p-4 bg-slate-50/70 dark:bg-slate-900/50 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-3">
+                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                        <div>
+                                            <h6 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                                                <PhoneCall size={14} className={text} />
+                                                Yönetebileceği Çağrı Kuyrukları (ACD)
+                                                <span className={`px-2 py-0.5 text-[10px] rounded-full ${lightBg} ${text} font-extrabold`}>
+                                                    {managedQueues.length} Seçili
+                                                </span>
+                                            </h6>
+                                            <p className="text-[10px] text-slate-400 mt-0.5">
+                                                Seçim yapıldığında Canlı İzleme kuyruk kartları ve Raporlardaki kuyruk verileri bu seçimle filtrelenir.
+                                            </p>
+                                        </div>
+                                        <div className="flex items-center gap-1.5 shrink-0">
+                                            <button
+                                                type="button"
+                                                onClick={() => setManagedQueues((Array.isArray(queuesList) ? queuesList : []).map(q => String(q.id || q.name || q.queue_name)))}
+                                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 transition-colors"
+                                            >
+                                                Tümünü Seç
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setManagedQueues([])}
+                                                className="px-2.5 py-1 text-[10px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-rose-600 transition-colors"
+                                            >
+                                                Temizle
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="relative">
+                                        <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                        <input
+                                            type="text"
+                                            placeholder="Kuyruk adı veya numarası ile filtrele..."
+                                            value={supQueueSearch}
+                                            onChange={(e) => setSupQueueSearch(e.target.value)}
+                                            className="w-full text-xs pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                        />
+                                    </div>
+
+                                    {(Array.isArray(queuesList) ? queuesList : []).length === 0 ? (
+                                        <div className="p-4 text-center text-xs text-slate-400 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                                            Sistemde tanımlı çağrı kuyruğu bulunamadı.
+                                        </div>
+                                    ) : (
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 max-h-48 overflow-y-auto pr-1">
+                                            {(Array.isArray(queuesList) ? queuesList : [])
+                                                .filter(q => {
+                                                    if (!supQueueSearch.trim()) return true;
+                                                    const s = supQueueSearch.toLowerCase();
+                                                    return (
+                                                        String(q.name || q.queue_name || "").toLowerCase().includes(s) ||
+                                                        String(q.extension || "").toLowerCase().includes(s)
+                                                    );
+                                                })
+                                                .map(q => {
+                                                    const qKey = String(q.id || q.name || q.queue_name);
+                                                    const qName = q.name || q.queue_name || qKey;
+                                                    const isChecked = managedQueues.includes(qKey) || managedQueues.includes(String(qName));
+                                                    return (
+                                                        <label
+                                                            key={qKey}
+                                                            onClick={() => {
+                                                                setManagedQueues(prev =>
+                                                                    prev.includes(qKey)
+                                                                        ? prev.filter(x => x !== qKey && x !== String(qName))
+                                                                        : [...prev, qKey]
+                                                                );
+                                                            }}
+                                                            className={`flex items-center justify-between p-2.5 rounded-xl border cursor-pointer select-none transition-all ${
+                                                                isChecked
+                                                                    ? `${lightBg} ${border} shadow-sm`
+                                                                    : "bg-white dark:bg-slate-950 border-slate-200/80 dark:border-slate-800 hover:border-slate-300"
+                                                            }`}
+                                                        >
+                                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                                <div className={`w-4 h-4 rounded flex items-center justify-center border shrink-0 ${
+                                                                    isChecked ? `${bg} border-transparent text-white` : "border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900"
+                                                                }`}>
+                                                                    {isChecked && <Check size={11} strokeWidth={3} />}
+                                                                </div>
+                                                                <div className="min-w-0">
+                                                                    <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                                                        {qName}
+                                                                    </div>
+                                                                    <div className="text-[10px] text-slate-400 font-medium truncate">
+                                                                        Kuyruk No: {q.extension || "-"}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                })}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
