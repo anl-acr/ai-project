@@ -92,6 +92,7 @@ import LiveDashboardPanel from "../components/dashboard/LiveDashboardPanel";
 import SystemStatusPanel from "../components/dashboard/SystemStatusPanel";
 import AgentSessionCard from "../components/phone/AgentSessionCard";
 import AgentPanel, { ALL_TABS as CALL_PANEL_ALL_TABS, loadCallPanelPrefs, saveCallPanelPrefs, DEFAULT_CALL_PANEL_PREFS } from "../components/callcenter/AgentPanel";
+import { CallPanelAgentsAppearanceSettings } from "../components/callcenter/tabs/AgentQueuePeersTab";
 import WallboardPanel, { WallboardStudioSettings } from "../components/dashboard/WallboardPanel";
 import DialerSettings from "../components/settings/DialerSettings";
 import CallFlowEditor from "../components/settings/CallFlowEditor";
@@ -3317,7 +3318,13 @@ export default function Home() {
                         </div>
                       </div>
 
-                      {/* 2. Temsilci Çağrı Paneli Seçeneklerinin Sıralaması */}
+                      {/* 2. Temsilciler Sekmesi Kutucuk Boyutu, Sıralama & Durum/Mola Renkleri */}
+                      <CallPanelAgentsAppearanceSettings
+                        backendHost={backendHost}
+                        currentUserId={currentUser?.id || currentUser?.extension || "admin"}
+                      />
+
+                      {/* 3. Temsilci Çağrı Paneli Seçeneklerinin Sıralaması */}
                       <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div>

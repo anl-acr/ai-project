@@ -10,15 +10,380 @@ import {
   LogIn,
   LogOut,
   RefreshCw,
-  Headphones
+  Headphones,
+  ShieldCheck,
+  Search,
+  X,
+  Volume2,
+  Palette,
+  RotateCcw
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { loadCallPanelPrefs } from "../AgentPanel";
 import {
   DEFAULT_STATUS_COLORS,
+  COLOR_SWATCHES,
   hexToRgba,
   normalizeWallboardLayout
 } from "../../dashboard/WallboardPanel";
+
+/**
+ * CallPanelAgentsAppearanceSettings:
+ * Rendered inside Profile Settings -> "Çağrı Paneli" tab so users can customize
+ * agent card density (Kompakt / Standart / Detaylı), sort order, and status/break box colors.
+ */
+export function CallPanelAgentsAppearanceSettings({
+  backendHost = "localhost:8000",
+  currentUserId = "admin"
+}) {
+  const { bg, text, lightBg, borderLight } = useTheme();
+  const [agentCardDensity, setAgentCardDensity] = useState("standard");
+  const [agentSortBy, setAgentSortBy] = useState("status");
+  const [statusColors, setStatusColors] = useState({ ...DEFAULT_STATUS_COLORS, breakColors: {} });
+  const [systemBreaks, setSystemBreaks] = useState([]);
+
+  const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : "";
+  const effectiveUid = String(
+    currentUserId || (typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null) || "admin"
+  );
+
+  useEffect(() => {
+    try {
+      const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
+      if (localRaw) {
+        const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+        setAgentCardDensity(norm.agentCardDensity || "standard");
+        setAgentSortBy(norm.agentSortBy || "status");
+        setStatusColors(norm.statusColors);
+      }
+    } catch (e) {}
+
+    fetch(`${API_BASE}/api/settings/breaks`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((bData) => {
+        const list = Array.isArray(bData) ? bData : bData?.breaks || [];
+        setSystemBreaks(list);
+      })
+      .catch(() => {});
+
+    fetch(`${API_BASE}/api/wallboard/layout?user_id=${encodeURIComponent(effectiveUid)}`, {
+      headers: { "X-User-ID": effectiveUid }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((resData) => {
+        if (resData?.layout) {
+          const norm = normalizeWallboardLayout(resData.layout);
+          setAgentCardDensity(norm.agentCardDensity || "standard");
+          setAgentSortBy(norm.agentSortBy || "status");
+          setStatusColors(norm.statusColors);
+          if (typeof window !== "undefined") {
+            localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(norm));
+          }
+        }
+      })
+      .catch(() => {});
+  }, [effectiveUid, API_BASE]);
+
+  const syncAppearance = (patch = {}) => {
+    let existing = {};
+    try {
+      const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
+      if (localRaw) existing = JSON.parse(localRaw) || {};
+    } catch (e) {}
+
+    const payload = {
+      ...existing,
+      agentCardDensity: patch.agentCardDensity ?? agentCardDensity,
+      agentSortBy: patch.agentSortBy ?? agentSortBy,
+      statusColors: patch.statusColors ?? statusColors
+    };
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(payload));
+      window.dispatchEvent(new CustomEvent("wallboard-layout-updated", { detail: payload }));
+    }
+
+    fetch(`${API_BASE}/api/wallboard/layout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-ID": effectiveUid
+      },
+      body: JSON.stringify({
+        user_id: effectiveUid,
+        layout: payload
+      })
+    }).catch(() => {});
+  };
+
+  return (
+    <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-4">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Palette size={15} className={text} />
+          <div>
+            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+              Temsilciler Sekmesi Kutucuk Yapısı &amp; Durum Renkleri
+            </h5>
+            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+              Canlı İzleme Paneli ile uyumlu temsilci kutucuk boyutunu, sıralamayı ve durum/mola renklerini özelleştirin.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const resetColors = { ...DEFAULT_STATUS_COLORS, breakColors: {} };
+            setAgentCardDensity("standard");
+            setAgentSortBy("status");
+            setStatusColors(resetColors);
+            syncAppearance({
+              agentCardDensity: "standard",
+              agentSortBy: "status",
+              statusColors: resetColors
+            });
+          }}
+          className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 shrink-0"
+        >
+          <RotateCcw size={11} />
+          <span>Varsayılan Renk &amp; Boyut</span>
+        </button>
+      </div>
+
+      {/* Kart Boyutu & Sıralama */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
+        <div className="space-y-1.5">
+          <label className="block text-[10px] font-bold text-slate-500">
+            Temsilci Kutucuk Boyutu / Detay Seviyesi
+          </label>
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              { id: "compact", label: "Kompakt (Mini)" },
+              { id: "standard", label: "Standart" },
+              { id: "detailed", label: "Detaylı (+Sayaç)" }
+            ].map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => {
+                  setAgentCardDensity(d.id);
+                  syncAppearance({ agentCardDensity: d.id });
+                }}
+                className={`py-2 px-2.5 rounded-xl text-[10px] font-extrabold border transition-all ${
+                  agentCardDensity === d.id
+                    ? `${bg} text-white border-transparent shadow-sm`
+                    : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-[10px] font-bold text-slate-500">
+            Temsilci Sıralama Ölçütü
+          </label>
+          <select
+            value={agentSortBy}
+            onChange={(e) => {
+              setAgentSortBy(e.target.value);
+              syncAppearance({ agentSortBy: e.target.value });
+            }}
+            className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none"
+          >
+            <option value="status">Duruma Göre (Görüşmede &gt; Müsait &gt; Molada)</option>
+            <option value="calls_desc">Bugün En Çok Çağrı Alan</option>
+            <option value="name">İsme Göre (A-Z)</option>
+            <option value="extension">Dahili Numarasına Göre</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Durum Kutucuğu Renkleri */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 pt-1">
+        {[
+          {
+            key: "available",
+            title: "Login / Müsait",
+            subtitle: "Çağrı Bekleyen",
+            badge: "MÜSAİT",
+            defaultHex: DEFAULT_STATUS_COLORS.available
+          },
+          {
+            key: "busy",
+            title: "Meşgul / Çağrıda",
+            subtitle: "Aktif Görüşmede",
+            badge: "MEŞGUL",
+            defaultHex: DEFAULT_STATUS_COLORS.busy
+          },
+          {
+            key: "break",
+            title: "Molada (Genel)",
+            subtitle: "Varsayılan Mola",
+            badge: "MOLADA",
+            defaultHex: DEFAULT_STATUS_COLORS.break
+          },
+          {
+            key: "autoBreak",
+            title: "Otomatik Mola",
+            subtitle: "Çağrı Kaçırma / Kopma",
+            badge: "OTO MOLA",
+            defaultHex: DEFAULT_STATUS_COLORS.autoBreak
+          }
+        ].map((item) => {
+          const currentHex = statusColors?.[item.key] || item.defaultHex;
+          return (
+            <div
+              key={item.key}
+              style={{
+                backgroundColor: hexToRgba(currentHex, 0.10),
+                borderColor: hexToRgba(currentHex, 0.55)
+              }}
+              className="p-3 rounded-2xl border space-y-2.5 transition-all"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span
+                    style={{ backgroundColor: currentHex }}
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                  />
+                  <div className="truncate">
+                    <p className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">{item.title}</p>
+                    <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 truncate">{item.subtitle}</p>
+                  </div>
+                </div>
+                <span
+                  style={{
+                    backgroundColor: hexToRgba(currentHex, 0.18),
+                    borderColor: hexToRgba(currentHex, 0.5),
+                    color: currentHex
+                  }}
+                  className="px-1.5 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0"
+                >
+                  {item.badge}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-1.5 pt-1.5 border-t border-slate-200/50 dark:border-slate-800/50">
+                <div className="flex flex-wrap items-center gap-1">
+                  {COLOR_SWATCHES.slice(0, 6).map((sw) => (
+                    <button
+                      key={sw.hex}
+                      type="button"
+                      title={sw.label}
+                      onClick={() => {
+                        const next = { ...statusColors, [item.key]: sw.hex };
+                        setStatusColors(next);
+                        syncAppearance({ statusColors: next });
+                      }}
+                      style={{ backgroundColor: sw.hex }}
+                      className={`w-3.5 h-3.5 rounded-full border transition-transform ${
+                        currentHex.toLowerCase() === sw.hex.toLowerCase()
+                          ? "scale-125 ring-2 ring-slate-800 dark:ring-white border-white"
+                          : "border-black/10 hover:scale-110"
+                      }`}
+                    />
+                  ))}
+                </div>
+
+                <label
+                  title="Özel Renk Seç"
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"
+                >
+                  <input
+                    type="color"
+                    value={currentHex}
+                    onChange={(e) => {
+                      const next = { ...statusColors, [item.key]: e.target.value };
+                      setStatusColors(next);
+                      syncAppearance({ statusColors: next });
+                    }}
+                    className="w-3.5 h-3.5 rounded border-0 p-0 bg-transparent cursor-pointer"
+                  />
+                  <span className="text-[8px] font-mono font-bold text-slate-600 dark:text-slate-300 uppercase">
+                    {currentHex}
+                  </span>
+                </label>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Mola Türlerine Özel Renkler */}
+      {systemBreaks.length > 0 && (
+        <div className="pt-2 border-t border-slate-200/60 dark:border-slate-800 space-y-2">
+          <span className="text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
+            Mola Türlerine Özel Renkler
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {systemBreaks.map((b) => {
+              const bIdStr = String(b.id ?? "");
+              const bNameStr = String(b.name || "").trim();
+              const bcMap = statusColors?.breakColors || {};
+              const customHex = (bIdStr && bcMap[bIdStr]) || (bNameStr && bcMap[bNameStr]) || "";
+              const effectiveHex = customHex || statusColors?.break || DEFAULT_STATUS_COLORS.break;
+
+              const handleSetBreakColor = (newHex) => {
+                const nextBreakColors = { ...(statusColors?.breakColors || {}) };
+                if (bIdStr) nextBreakColors[bIdStr] = newHex;
+                if (bNameStr) nextBreakColors[bNameStr] = newHex;
+                const next = { ...statusColors, breakColors: nextBreakColors };
+                setStatusColors(next);
+                syncAppearance({ statusColors: next });
+              };
+
+              return (
+                <div
+                  key={b.id || b.name}
+                  style={{
+                    backgroundColor: hexToRgba(effectiveHex, 0.08),
+                    borderColor: hexToRgba(effectiveHex, 0.45)
+                  }}
+                  className="p-2.5 rounded-xl border flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      style={{ backgroundColor: effectiveHex }}
+                      className="w-2.5 h-2.5 rounded-full shrink-0"
+                    />
+                    <span className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
+                      {b.name}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {COLOR_SWATCHES.slice(0, 5).map((sw) => (
+                      <button
+                        key={sw.hex}
+                        type="button"
+                        title={sw.label}
+                        onClick={() => handleSetBreakColor(sw.hex)}
+                        style={{ backgroundColor: sw.hex }}
+                        className={`w-3.5 h-3.5 rounded-full border transition-transform ${
+                          effectiveHex.toLowerCase() === sw.hex.toLowerCase()
+                            ? "scale-125 ring-2 ring-slate-800 dark:ring-white border-white"
+                            : "border-black/10 hover:scale-110"
+                        }`}
+                      />
+                    ))}
+                    <input
+                      type="color"
+                      value={effectiveHex}
+                      onChange={(e) => handleSetBreakColor(e.target.value)}
+                      className="w-4 h-4 rounded border-0 p-0 bg-transparent cursor-pointer"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function AgentQueuePeersTab({ backendHost, currentUser, callPanelPerms, panelPrefs }) {
   const { bg, hover, text, border, lightBg, borderLight } = useTheme();
@@ -32,9 +397,12 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
   const [selectedQueueId, setSelectedQueueId] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [localPrefs, setLocalPrefs] = useState(() => panelPrefs || loadCallPanelPrefs(currentUser));
   const [statusColors, setStatusColors] = useState(() => ({ ...DEFAULT_STATUS_COLORS, breakColors: {} }));
+  const [agentCardDensity, setAgentCardDensity] = useState("standard");
+  const [agentSortBy, setAgentSortBy] = useState("status");
 
   const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
   const API_BASE = `${typeof window !== "undefined" ? window.location.protocol : "http:"}//${host}`;
@@ -53,13 +421,15 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
     }
   }, [panelPrefs, currentUser]);
 
-  // Load Wallboard status colors so agent cards use the exact same color logic
+  // Load Wallboard layout & status colors so agent cards use the exact same box density, sort & colors
   useEffect(() => {
     try {
       const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
       if (localRaw) {
         const norm = normalizeWallboardLayout(JSON.parse(localRaw));
         setStatusColors(norm.statusColors);
+        setAgentCardDensity(norm.agentCardDensity || "standard");
+        setAgentSortBy(norm.agentSortBy || "status");
       }
     } catch (e) {}
 
@@ -71,6 +441,8 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
         if (resData?.layout) {
           const norm = normalizeWallboardLayout(resData.layout);
           setStatusColors(norm.statusColors);
+          setAgentCardDensity(norm.agentCardDensity || "standard");
+          setAgentSortBy(norm.agentSortBy || "status");
         }
       })
       .catch(() => {});
@@ -79,6 +451,8 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
       if (e?.detail) {
         const norm = normalizeWallboardLayout(e.detail);
         setStatusColors(norm.statusColors);
+        setAgentCardDensity(norm.agentCardDensity || "standard");
+        setAgentSortBy(norm.agentSortBy || "status");
       }
     };
     window.addEventListener("wallboard-layout-updated", handleLayoutUpdated);
@@ -86,7 +460,11 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
   }, [effectiveUid, API_BASE]);
 
   const viewMode = localPrefs?.viewMode === "box" ? "box" : "list";
-  const boxSize = localPrefs?.boxSize === "small" ? "small" : "large";
+  // Support both Wallboard density ("compact" | "standard" | "detailed") and CallPanel boxSize ("small" | "large")
+  const effectiveDensity =
+    localPrefs?.boxSize === "small" && agentCardDensity === "standard"
+      ? "compact"
+      : agentCardDensity || "standard";
 
   const fetchQueuePeers = async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -130,6 +508,17 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
     return Number(agent.status_duration_seconds || 0);
   };
 
+  const formatSeconds = (sec) => {
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const secs = s % 60;
+    if (hrs > 0) {
+      return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
+
   const formatDurationText = (totalSec) => {
     const sec = Math.max(0, Math.floor(Number(totalSec || 0)));
     const hrs = Math.floor(sec / 3600);
@@ -157,28 +546,51 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
     window.dispatchEvent(new CustomEvent("TRIGGER_CALL", { detail: String(ext) }));
   };
 
-  // Only show logged-in agents (matching Canlı İzleme Paneli / Wallboard logic)
+  // Strictly show only logged-in agents (matching Canlı İzleme Paneli)
   const loggedInAgents = data.agents.filter(
     (agent) => agent.status !== "offline" && agent.is_logged_in !== false
   );
 
-  const filteredAgents = loggedInAgents.filter((agent) => {
-    if (selectedQueueId !== "all") {
-      const inQueue = Array.isArray(agent.queues) && agent.queues.some((q) => String(q.id) === String(selectedQueueId));
-      if (!inQueue) return false;
-    }
-    if (statusFilter !== "all" && agent.status !== statusFilter) {
-      return false;
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      const nameMatch = (agent.name || "").toLowerCase().includes(q);
-      const extMatch = String(agent.extension || "").toLowerCase().includes(q);
-      const queueMatch = Array.isArray(agent.queues) && agent.queues.some((qu) => (qu.name || "").toLowerCase().includes(q));
-      return nameMatch || extMatch || queueMatch;
-    }
-    return true;
-  });
+  const statusPriority = {
+    busy: 1,
+    available: 2,
+    acw: 3,
+    break: 4
+  };
+
+  const filteredAgents = loggedInAgents
+    .filter((agent) => {
+      if (selectedQueueId !== "all") {
+        const inQueue = Array.isArray(agent.queues) && agent.queues.some((q) => String(q.id) === String(selectedQueueId));
+        if (!inQueue) return false;
+      }
+      if (statusFilter !== "all" && agent.status !== statusFilter) {
+        return false;
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const nameMatch = (agent.name || "").toLowerCase().includes(q);
+        const extMatch = String(agent.extension || "").toLowerCase().includes(q);
+        const queueMatch = Array.isArray(agent.queues) && agent.queues.some((qu) => (qu.name || "").toLowerCase().includes(q));
+        return nameMatch || extMatch || queueMatch;
+      }
+      return true;
+    })
+    .sort((a, b) => {
+      if (agentSortBy === "calls_desc") {
+        return (Number(b.total_calls) || 0) - (Number(a.total_calls) || 0);
+      }
+      if (agentSortBy === "name") {
+        return String(a.name || "").localeCompare(String(b.name || ""), "tr");
+      }
+      if (agentSortBy === "extension") {
+        return String(a.extension || "").localeCompare(String(b.extension || ""), undefined, { numeric: true });
+      }
+      const pA = statusPriority[a.status] || 99;
+      const pB = statusPriority[b.status] || 99;
+      if (pA !== pB) return pA - pB;
+      return String(a.name || "").localeCompare(String(b.name || ""), "tr");
+    });
 
   const counts = {
     all: loggedInAgents.length,
@@ -199,7 +611,9 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
       const hex = colors.busy || DEFAULT_STATUS_COLORS.busy;
       return {
         hex,
+        badgeLabel: "Görüşmede",
         title: agent.active_call_with ? `Meşgul (${agent.active_call_with})` : "Meşgul (Çağrıda)",
+        detailsText: `${agent.active_call_with || "Aktif Çağrı"} (${formatSeconds(liveSec)})`,
         durationPhrase: `${durText} süredir meşgul`
       };
     }
@@ -207,13 +621,15 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
     if (agent.status === "acw") {
       return {
         hex: "#8b5cf6",
+        badgeLabel: "ACW / İşlemde",
         title: "ACW / İşlemde",
+        detailsText: `Çağrı Sonrası İşlem (${formatSeconds(liveSec)})`,
         durationPhrase: `${durText} süredir işlemde`
       };
     }
 
     if (agent.status === "break") {
-      const bReason = agent.break_reason || agent.break_name || "";
+      const bReason = agent.break_reason || agent.break_name || "Mola";
       const isAuto =
         Boolean(agent.is_auto_break) ||
         String(bReason).toLowerCase().startsWith("otomatik mola") ||
@@ -223,7 +639,9 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
       if (isAuto) {
         return {
           hex: colors.autoBreak || DEFAULT_STATUS_COLORS.autoBreak,
+          badgeLabel: "Otomatik Mola",
           title: bReason || "Otomatik Mola",
+          detailsText: `${bReason || "Otomatik Mola"} (${formatSeconds(liveSec)})`,
           durationPhrase: `${durText} süredir otomatik molada`
         };
       }
@@ -240,126 +658,160 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
 
       return {
         hex: resolvedBreakHex,
+        badgeLabel: "Molada",
         title: bReason ? `Molada (${bReason})` : "Molada",
+        detailsText: `${bReason} (${formatSeconds(liveSec)})`,
         durationPhrase: `${durText} süredir molada`
       };
     }
 
     return {
       hex: colors.available || DEFAULT_STATUS_COLORS.available,
+      badgeLabel: "Müsait",
       title: "Müsait",
+      detailsText: `Dahili: ${agent.extension} (${formatSeconds(liveSec)})`,
       durationPhrase: `${durText} süredir müsait`
     };
   };
 
+  const gridColsClass =
+    effectiveDensity === "compact"
+      ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3"
+      : effectiveDensity === "detailed"
+        ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-3 gap-4"
+        : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4";
+
   return (
     <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-6 overflow-y-auto">
       <div className="max-w-6xl mx-auto space-y-5">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2.5">
-            <Headphones size={22} className={text} />
-            <h2 className="text-xl font-bold text-slate-800 dark:text-white">
-              Kuyruk Temsilcileri
-            </h2>
-            <span className="px-2.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-extrabold text-slate-500 uppercase">
-              {counts.all} Aktif (Login) Temsilci
-            </span>
-          </div>
-        </div>
-
-        {/* Summary KPI Strip (Only Logged-In Statuses: Aktif, Müsait, Meşgul, Molada) */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {/* Wallboard-style KPI Counter Cards Grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {/* Card 1: Aktif (Login) Temsilci */}
           <button
+            type="button"
             onClick={() => setStatusFilter("all")}
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
+            className={`p-4 bg-white dark:bg-slate-900 border rounded-2xl shadow-sm space-y-2 relative overflow-hidden text-left transition-all ${
               statusFilter === "all"
-                ? `${lightBg} ${border} shadow-sm`
-                : `bg-white dark:bg-slate-900 ${borderLight}`
+                ? `${border} ring-2 ring-primary/20`
+                : "border-slate-200 dark:border-slate-800"
             }`}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Aktif Temsilci</p>
-            <p className="text-2xl font-black text-slate-800 dark:text-white mt-1">{counts.all}</p>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest truncate">
+                AKTİF TEMSİLCİ
+              </span>
+              <div className={`p-2 rounded-xl shrink-0 ${lightBg} ${text}`}>
+                <Users size={14} />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">
+                {counts.all}
+              </span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Login</span>
+            </div>
+            <span className={`absolute bottom-0 inset-x-0 h-1 ${bg}`} />
           </button>
 
+          {/* Card 2: Müsait */}
           <button
+            type="button"
             onClick={() => setStatusFilter("available")}
             style={
               statusFilter === "available"
-                ? {
-                    backgroundColor: hexToRgba(availHex, 0.12),
-                    borderColor: hexToRgba(availHex, 0.55)
-                  }
+                ? { borderColor: availHex, boxShadow: `0 0 0 2px ${hexToRgba(availHex, 0.2)}` }
                 : undefined
             }
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
-              statusFilter === "available" ? "shadow-sm" : `bg-white dark:bg-slate-900 ${borderLight}`
-            }`}
+            className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden text-left transition-all"
           >
-            <p
-              style={{ color: availHex }}
-              className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5"
-            >
-              <span style={{ backgroundColor: availHex }} className="w-2 h-2 rounded-full"></span>
-              Müsait
-            </p>
-            <p style={{ color: availHex }} className="text-2xl font-black mt-1">
-              {counts.available}
-            </p>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest truncate">
+                MÜSAİT
+              </span>
+              <div
+                style={{
+                  backgroundColor: hexToRgba(availHex, 0.14),
+                  color: availHex
+                }}
+                className="p-2 rounded-xl shrink-0"
+              >
+                <ShieldCheck size={14} />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">
+                {counts.available}
+              </span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Temsilci</span>
+            </div>
             <span style={{ backgroundColor: availHex }} className="absolute bottom-0 inset-x-0 h-1" />
           </button>
 
+          {/* Card 3: Meşgul */}
           <button
+            type="button"
             onClick={() => setStatusFilter("busy")}
             style={
               statusFilter === "busy"
-                ? {
-                    backgroundColor: hexToRgba(busyHex, 0.12),
-                    borderColor: hexToRgba(busyHex, 0.55)
-                  }
+                ? { borderColor: busyHex, boxShadow: `0 0 0 2px ${hexToRgba(busyHex, 0.2)}` }
                 : undefined
             }
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
-              statusFilter === "busy" ? "shadow-sm" : `bg-white dark:bg-slate-900 ${borderLight}`
-            }`}
+            className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden text-left transition-all"
           >
-            <p
-              style={{ color: busyHex }}
-              className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5"
-            >
-              <span style={{ backgroundColor: busyHex }} className="w-2 h-2 rounded-full animate-ping"></span>
-              Meşgul
-            </p>
-            <p style={{ color: busyHex }} className="text-2xl font-black mt-1">
-              {counts.busy}
-            </p>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest truncate">
+                MEŞGUL
+              </span>
+              <div
+                style={{
+                  backgroundColor: hexToRgba(busyHex, 0.14),
+                  color: busyHex
+                }}
+                className="p-2 rounded-xl shrink-0"
+              >
+                <PhoneCall size={14} />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">
+                {counts.busy}
+              </span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Görüşmede</span>
+            </div>
             <span style={{ backgroundColor: busyHex }} className="absolute bottom-0 inset-x-0 h-1" />
           </button>
 
+          {/* Card 4: Molada */}
           <button
+            type="button"
             onClick={() => setStatusFilter("break")}
             style={
               statusFilter === "break"
-                ? {
-                    backgroundColor: hexToRgba(breakHex, 0.12),
-                    borderColor: hexToRgba(breakHex, 0.55)
-                  }
+                ? { borderColor: breakHex, boxShadow: `0 0 0 2px ${hexToRgba(breakHex, 0.2)}` }
                 : undefined
             }
-            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
-              statusFilter === "break" ? "shadow-sm" : `bg-white dark:bg-slate-900 ${borderLight}`
-            }`}
+            className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-2 relative overflow-hidden text-left transition-all"
           >
-            <p
-              style={{ color: breakHex }}
-              className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5"
-            >
-              <span style={{ backgroundColor: breakHex }} className="w-2 h-2 rounded-full"></span>
-              Molada
-            </p>
-            <p style={{ color: breakHex }} className="text-2xl font-black mt-1">
-              {counts.break}
-            </p>
+            <div className="flex items-center justify-between">
+              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest truncate">
+                MOLADA
+              </span>
+              <div
+                style={{
+                  backgroundColor: hexToRgba(breakHex, 0.14),
+                  color: breakHex
+                }}
+                className="p-2 rounded-xl shrink-0"
+              >
+                <Clock size={14} />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl font-black text-slate-850 dark:text-white tracking-tight font-mono">
+                {counts.break}
+              </span>
+              <span className="text-[9px] font-bold text-slate-400 uppercase">Temsilci</span>
+            </div>
             <span style={{ backgroundColor: breakHex }} className="absolute bottom-0 inset-x-0 h-1" />
           </button>
         </div>
@@ -394,337 +846,205 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
           </div>
         )}
 
-        {/* Agents Display: Liste vs Büyük Kutucuk vs Küçük Kutucuk */}
+        {/* Main Agents Box Container (Identical to WallboardPanel's Temsilci Meşguliyet Durumları) */}
         {viewMode === "box" ? (
-          loading && filteredAgents.length === 0 ? (
-            <div className={`p-12 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl text-center text-xs text-slate-400`}>
-              <RefreshCw size={22} className="animate-spin mx-auto mb-2 text-primary" />
-              Temsilci bilgileri yükleniyor...
-            </div>
-          ) : filteredAgents.length === 0 ? (
-            <div className={`p-12 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl text-center text-xs text-slate-400`}>
-              <Users size={28} className="mx-auto mb-2 opacity-40" />
-              {loggedInAgents.length === 0
-                ? "Şu anda çağrı merkezi oturumu açmış (Login) aktif temsilci bulunmuyor."
-                : "Seçilen filtreye uygun aktif temsilci bulunamadı."}
-            </div>
-          ) : boxSize === "small" ? (
-            /* KÜÇÜK KUTUCUK GÖRÜNÜMÜ (Canlı İzleme Renk Mantığı) */
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-              {filteredAgents.map((agent) => {
-                const liveSec = getLiveDurationSeconds(agent);
-                const meta = getStatusMeta(agent, liveSec);
-                const activeHex = meta.hex;
-                const isSelf =
-                  Boolean(agent.is_me || agent.is_self) ||
-                  (myExtension && String(agent.extension) === myExtension) ||
-                  (myUserId && String(agent.id) === myUserId);
+          <div className="p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4 min-h-[380px]">
+            {/* Widget Header with Right-Aligned Magnifying Glass Search Icon */}
+            <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/60 pb-3.5">
+              <div className="flex items-center gap-2">
+                <Volume2 size={15} className={text} />
+                <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">
+                  Temsilci Çağrı Meşguliyet Durumları
+                </h4>
+                <span className="px-2 py-0.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 text-[9px] font-extrabold text-slate-500 uppercase">
+                  {statusFilter === "all" && !searchQuery.trim()
+                    ? `${loggedInAgents.length} Aktif Temsilci`
+                    : `${filteredAgents.length}/${loggedInAgents.length} Aktif Temsilci`}
+                </span>
+              </div>
 
-                return (
-                  <div
-                    key={`${agent.id}-${agent.extension}`}
-                    style={{
-                      backgroundColor: hexToRgba(activeHex, 0.10),
-                      borderColor: hexToRgba(activeHex, 0.60),
-                      boxShadow: `0 4px 14px -4px ${hexToRgba(activeHex, 0.18)}`
-                    }}
-                    className="p-3.5 border rounded-2xl transition-all flex flex-col justify-between gap-2.5"
-                  >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <div className="relative shrink-0">
-                          <div
-                            style={{
-                              backgroundColor: hexToRgba(activeHex, 0.18),
-                              color: activeHex
-                            }}
-                            className="w-8 h-8 rounded-xl flex items-center justify-center font-extrabold text-xs border border-white/40 dark:border-slate-800"
-                          >
-                            {(agent.name || "T").charAt(0).toUpperCase()}
-                          </div>
-                          {canSeeStatus && (
-                            <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
-                              <span className="relative flex h-2.5 w-2.5">
-                                <span
-                                  style={{ backgroundColor: activeHex }}
-                                  className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
-                                />
-                                <span
-                                  style={{ backgroundColor: activeHex }}
-                                  className="relative inline-flex rounded-full h-2.5 w-2.5"
-                                />
-                              </span>
-                            </span>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-xs font-extrabold text-slate-800 dark:text-white truncate flex items-center gap-1">
-                            <span className="truncate">{agent.name}</span>
-                            {isSelf && (
-                              <span className={`text-[9px] px-1 py-0.2 rounded font-bold shrink-0 ${lightBg} ${text}`}>
-                                Siz
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-300">
-                            Dahili: {agent.extension}
-                          </div>
-                        </div>
-                      </div>
-                      {!isSelf && agent.extension && (
-                        <button
-                          onClick={() => handleCallAgent(agent.extension)}
-                          className={`w-7 h-7 rounded-lg flex items-center justify-center text-white shrink-0 shadow-sm ${bg} ${hover}`}
-                          title={`${agent.name} (${agent.extension}) Ara`}
-                        >
-                          <PhoneCall size={12} />
-                        </button>
-                      )}
-                    </div>
-
-                    {(canSeeStatus || canSeeDuration) && (
-                      <div className="space-y-1">
-                        {canSeeStatus && (
-                          <span
-                            style={{
-                              backgroundColor: hexToRgba(activeHex, 0.18),
-                              borderColor: hexToRgba(activeHex, 0.50),
-                              color: activeHex
-                            }}
-                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase border max-w-full truncate"
-                          >
-                            <span
-                              style={{ backgroundColor: activeHex }}
-                              className="w-1.5 h-1.5 rounded-full shrink-0"
-                            />
-                            <span className="truncate">{meta.title}</span>
-                          </span>
-                        )}
-                        {canSeeDuration && (
-                          <div className="flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate">
-                            <Clock size={10} className="shrink-0" />
-                            <span className="truncate">{formatDurationText(liveSec)}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {canSeeCallCounts && (
-                      <div className="grid grid-cols-4 gap-1 pt-1.5 border-t border-slate-200/60 dark:border-slate-800/70 text-center">
-                        <div className="p-1 rounded-lg bg-white/70 dark:bg-slate-900/70">
-                          <div className="text-[8px] font-bold text-slate-400">TOP</div>
-                          <div className="text-[11px] font-black text-slate-800 dark:text-white">{agent.total_calls || 0}</div>
-                        </div>
-                        <div className="p-1 rounded-lg bg-emerald-500/15">
-                          <div className="text-[8px] font-bold text-emerald-600">GEL</div>
-                          <div className="text-[11px] font-black text-emerald-600">{agent.inbound_calls || 0}</div>
-                        </div>
-                        <div className="p-1 rounded-lg bg-blue-500/15">
-                          <div className="text-[8px] font-bold text-blue-600">GİD</div>
-                          <div className="text-[11px] font-black text-blue-600">{agent.outbound_calls || 0}</div>
-                        </div>
-                        <div className="p-1 rounded-lg bg-rose-500/15">
-                          <div className="text-[8px] font-bold text-rose-600">KAÇ</div>
-                          <div className="text-[11px] font-black text-rose-600">{agent.missed_calls || 0}</div>
-                        </div>
-                      </div>
-                    )}
-
-                    {canSeeLoginLogout && (
-                      <div className="flex items-center justify-between text-[9px] font-mono text-slate-500 dark:text-slate-300 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
-                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">Giriş: {agent.login_time || "-"}</span>
-                        <span>Çıkış: {agent.logout_time || "-"}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            /* BÜYÜK KUTUCUK GÖRÜNÜMÜ (Canlı İzleme Renk Mantığı) */
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {filteredAgents.map((agent) => {
-                const liveSec = getLiveDurationSeconds(agent);
-                const meta = getStatusMeta(agent, liveSec);
-                const activeHex = meta.hex;
-                const isSelf =
-                  Boolean(agent.is_me || agent.is_self) ||
-                  (myExtension && String(agent.extension) === myExtension) ||
-                  (myUserId && String(agent.id) === myUserId);
-
-                return (
-                  <div
-                    key={`${agent.id}-${agent.extension}`}
-                    style={{
-                      backgroundColor: hexToRgba(activeHex, 0.10),
-                      borderColor: hexToRgba(activeHex, 0.60),
-                      boxShadow: `0 4px 14px -4px ${hexToRgba(activeHex, 0.18)}`
-                    }}
-                    className="p-5 border rounded-2xl transition-all flex flex-col justify-between gap-4"
-                  >
-                    {/* Card Top: Avatar, Name, Extension, Call Button */}
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="relative shrink-0">
-                          <div
-                            style={{
-                              backgroundColor: hexToRgba(activeHex, 0.18),
-                              color: activeHex
-                            }}
-                            className="w-12 h-12 rounded-2xl flex items-center justify-center font-extrabold text-base border border-white/40 dark:border-slate-800"
-                          >
-                            {(agent.name || "T").charAt(0).toUpperCase()}
-                          </div>
-                          {canSeeStatus && (
-                            <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
-                              <span className="relative flex h-2.5 w-2.5">
-                                <span
-                                  style={{ backgroundColor: activeHex }}
-                                  className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
-                                />
-                                <span
-                                  style={{ backgroundColor: activeHex }}
-                                  className="relative inline-flex rounded-full h-2.5 w-2.5"
-                                />
-                              </span>
-                            </span>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="font-extrabold text-base text-slate-800 dark:text-white flex items-center gap-1.5 truncate">
-                            <span className="truncate">{agent.name}</span>
-                            {isSelf && (
-                              <span className={`text-[10px] px-2 py-0.5 rounded-md font-bold shrink-0 ${lightBg} ${text}`}>
-                                Siz
-                              </span>
-                            )}
-                          </div>
-                          <div className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 mt-0.5">
-                            Dahili: {agent.extension}
-                          </div>
-                          {Array.isArray(agent.queues) && agent.queues.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-1.5">
-                              {agent.queues.map((q) => (
-                                <span
-                                  key={q.id}
-                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300"
-                                >
-                                  {q.name}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {!isSelf && agent.extension && (
-                        <button
-                          onClick={() => handleCallAgent(agent.extension)}
-                          className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white shadow-sm transition-all shrink-0 ${bg} ${hover}`}
-                          title={`${agent.name} (${agent.extension}) dahilisini ara`}
-                        >
-                          <PhoneCall size={14} />
-                          Ara
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Live Status & Duration Banner */}
-                    {(canSeeStatus || canSeeDuration) && (
-                      <div
-                        style={{
-                          backgroundColor: hexToRgba(activeHex, 0.12),
-                          borderColor: hexToRgba(activeHex, 0.35)
+              {/* Right-aligned Magnifying Glass Icon */}
+              <div className="flex items-center gap-1.5">
+                {(isSearchOpen || searchQuery) && (
+                  <div className="relative flex items-center animate-in fade-in duration-150">
+                    <input
+                      type="text"
+                      autoFocus
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="İsim veya dahili..."
+                      className="pl-2.5 pr-6 py-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[10px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none w-36"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSearchQuery("");
+                          setIsSearchOpen(false);
                         }}
-                        className="p-3 rounded-xl border flex items-center justify-between gap-2"
+                        className="absolute right-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white"
                       >
-                        {canSeeStatus && (
-                          <span
-                            style={{
-                              backgroundColor: hexToRgba(activeHex, 0.20),
-                              borderColor: hexToRgba(activeHex, 0.55),
-                              color: activeHex
-                            }}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-extrabold uppercase border"
-                          >
-                            <span className="relative flex h-2 w-2">
-                              <span
-                                style={{ backgroundColor: activeHex }}
-                                className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
-                              />
-                              <span
-                                style={{ backgroundColor: activeHex }}
-                                className="relative inline-flex rounded-full h-2 w-2"
-                              />
-                            </span>
-                            {meta.title}
-                          </span>
-                        )}
-                        {canSeeDuration && (
-                          <div className="flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-slate-200">
-                            <Clock size={13} className="shrink-0 opacity-70" />
-                            <span>{meta.durationPhrase}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Call Counts Grid */}
-                    {canSeeCallCounts && (
-                      <div className="grid grid-cols-4 gap-2">
-                        <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 text-center">
-                          <p className="text-[10px] font-bold text-slate-400 uppercase">Toplam</p>
-                          <p className="text-base font-black text-slate-800 dark:text-white mt-0.5">{agent.total_calls || 0}</p>
-                        </div>
-                        <div className="p-2 rounded-xl bg-emerald-500/15 text-center">
-                          <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Gelen</p>
-                          <p className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{agent.inbound_calls || 0}</p>
-                        </div>
-                        <div className="p-2 rounded-xl bg-blue-500/15 text-center">
-                          <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase">Giden</p>
-                          <p className="text-base font-black text-blue-600 dark:text-blue-400 mt-0.5">{agent.outbound_calls || 0}</p>
-                        </div>
-                        <div className="p-2 rounded-xl bg-rose-500/15 text-center">
-                          <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase">Kaçan</p>
-                          <p className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5">{agent.missed_calls || 0}</p>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Footer: Talk/Break & Login/Logout */}
-                    {(canSeeDuration || canSeeLoginLogout) && (
-                      <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
-                        {canSeeDuration && (
-                          <div className="flex items-center gap-3">
-                            <span className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200">
-                              <PhoneCall size={12} className="text-emerald-500" />
-                              {formatDurationText(agent.talk_duration_seconds || 0)}
-                            </span>
-                            <span className="inline-flex items-center gap-1 font-semibold text-amber-600 dark:text-amber-400">
-                              <Coffee size={12} />
-                              {formatDurationText(
-                                (agent.break_duration_seconds || 0) + (agent.status === "break" ? liveSec : 0)
-                              )}
-                            </span>
-                          </div>
-                        )}
-                        {canSeeLoginLogout && (
-                          <div className="flex items-center gap-2.5 font-mono text-[11px]">
-                            <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                              Giriş: {agent.login_time || "-"}
-                            </span>
-                            <span className="text-slate-500 dark:text-slate-300">
-                              Çıkış: {agent.logout_time || "-"}
-                            </span>
-                          </div>
-                        )}
-                      </div>
+                        <X size={11} />
+                      </button>
                     )}
                   </div>
-                );
-              })}
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isSearchOpen && searchQuery) {
+                      setSearchQuery("");
+                    }
+                    setIsSearchOpen(!isSearchOpen);
+                  }}
+                  title="Temsilci Ara"
+                  className={`h-7 w-7 rounded-xl border flex items-center justify-center transition-all ${
+                    isSearchOpen || searchQuery
+                      ? `${bg} text-white border-transparent shadow-sm`
+                      : "bg-slate-50 dark:bg-slate-950 text-slate-500 hover:text-slate-800 dark:hover:text-white border-slate-200/70 dark:border-slate-800"
+                  }`}
+                >
+                  <Search size={13} />
+                </button>
+              </div>
             </div>
-          )
+
+            {loading && filteredAgents.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400">
+                <RefreshCw size={22} className="animate-spin mx-auto mb-2 text-primary" />
+                Temsilci bilgileri yükleniyor...
+              </div>
+            ) : filteredAgents.length === 0 ? (
+              <div className="py-12 text-center text-xs text-slate-400 italic">
+                {loggedInAgents.length === 0
+                  ? "Şu anda çağrı merkezi oturumu açmış (Login) aktif temsilci bulunmuyor."
+                  : "Seçilen filtreye uygun aktif temsilci bulunamadı."}
+              </div>
+            ) : (
+              <div className={`grid ${gridColsClass}`}>
+                {filteredAgents.map((agent) => {
+                  const liveSec = getLiveDurationSeconds(agent);
+                  const meta = getStatusMeta(agent, liveSec);
+                  const activeHex = meta.hex;
+                  const isSelf =
+                    Boolean(agent.is_me || agent.is_self) ||
+                    (myExtension && String(agent.extension) === myExtension) ||
+                    (myUserId && String(agent.id) === myUserId);
+
+                  return (
+                    <div
+                      key={`${agent.id}-${agent.extension}`}
+                      style={{
+                        backgroundColor: hexToRgba(activeHex, 0.10),
+                        borderColor: hexToRgba(activeHex, 0.60),
+                        boxShadow: `0 4px 14px -4px ${hexToRgba(activeHex, 0.18)}`
+                      }}
+                      className={`${
+                        effectiveDensity === "compact" ? "p-2.5" : "p-3.5"
+                      } border rounded-2xl flex flex-col justify-between gap-2 relative transition-all`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                          <div className="relative shrink-0">
+                            <img
+                              src={agent.avatar || "https://api.dicebear.com/7.x/avataaars/svg"}
+                              alt={agent.name}
+                              className={`${
+                                effectiveDensity === "compact" ? "w-8 h-8" : "w-10 h-10"
+                              } rounded-xl bg-white dark:bg-slate-900 border border-slate-200/40 object-cover`}
+                            />
+                            {canSeeStatus && (
+                              <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
+                                <span className="relative flex h-2.5 w-2.5">
+                                  <span
+                                    style={{ backgroundColor: activeHex }}
+                                    className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
+                                  />
+                                  <span
+                                    style={{ backgroundColor: activeHex }}
+                                    className="relative inline-flex rounded-full h-2.5 w-2.5"
+                                  />
+                                </span>
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <p className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">
+                                {agent.name}
+                              </p>
+                              {isSelf && (
+                                <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold shrink-0 ${lightBg} ${text}`}>
+                                  Siz
+                                </span>
+                              )}
+                            </div>
+                            {canSeeDuration && (
+                              <p className="text-[9px] font-bold text-slate-600 dark:text-slate-300 truncate mt-0.5 flex items-center gap-1">
+                                {agent.status === "break" && (
+                                  <span
+                                    style={{ backgroundColor: activeHex }}
+                                    className="w-1.5 h-1.5 rounded-full shrink-0"
+                                  />
+                                )}
+                                {meta.detailsText}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {canSeeStatus && (
+                            <span
+                              style={{
+                                backgroundColor: hexToRgba(activeHex, 0.18),
+                                borderColor: hexToRgba(activeHex, 0.50),
+                                color: activeHex
+                              }}
+                              className="px-2 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0"
+                            >
+                              {meta.badgeLabel}
+                            </span>
+                          )}
+
+                          {!isSelf && agent.extension && (
+                            <button
+                              type="button"
+                              onClick={() => handleCallAgent(agent.extension)}
+                              title={`${agent.name} (${agent.extension}) Dahilisini Ara`}
+                              className={`h-7 w-7 rounded-lg border border-transparent flex items-center justify-center text-white shadow-sm transition-all ${bg} ${hover}`}
+                            >
+                              <PhoneCall size={12} />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      {effectiveDensity === "detailed" && (canSeeCallCounts || canSeeLoginLogout) && (
+                        <div
+                          style={{ borderColor: hexToRgba(activeHex, 0.25) }}
+                          className="pt-2 mt-1 border-t flex flex-wrap items-center justify-between gap-2 text-[9px] font-bold text-slate-600 dark:text-slate-300"
+                        >
+                          <span>
+                            Dahili: {agent.extension}
+                            {canSeeLoginLogout && agent.login_time && agent.login_time !== "-"
+                              ? ` • Giriş: ${agent.login_time}`
+                              : ""}
+                          </span>
+                          {canSeeCallCounts && (
+                            <span className="px-2 py-0.5 rounded-md bg-white/90 dark:bg-slate-900/90 border border-slate-200/60 dark:border-slate-800 font-extrabold text-slate-700 dark:text-slate-200">
+                              Bugün: {agent.total_calls || 0} Çağrı (G:{agent.inbound_calls || 0} • Ç:{agent.outbound_calls || 0})
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         ) : (
           /* LİSTE GÖRÜNÜMÜ (TABLO - Canlı İzleme Renk Mantığı) */
           <div className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm overflow-hidden`}>
@@ -783,15 +1103,11 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                           <td className="py-3.5 px-4">
                             <div className="flex items-center gap-3">
                               <div className="relative">
-                                <div
-                                  style={{
-                                    backgroundColor: hexToRgba(activeHex, 0.18),
-                                    color: activeHex
-                                  }}
-                                  className="w-10 h-10 rounded-xl flex items-center justify-center font-extrabold text-sm"
-                                >
-                                  {(agent.name || "T").charAt(0).toUpperCase()}
-                                </div>
+                                <img
+                                  src={agent.avatar || "https://api.dicebear.com/7.x/avataaars/svg"}
+                                  alt={agent.name}
+                                  className="w-10 h-10 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/40 object-cover"
+                                />
                                 {canSeeStatus && (
                                   <span
                                     style={{ backgroundColor: activeHex }}
