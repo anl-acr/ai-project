@@ -355,6 +355,13 @@ class WebphoneManager {
     const resolvedViaHost = config.viaHost || hostOnly;
     const displayLabel = agentName || this.state.currentUser?.full_name || `Temsilci ${agentExtension}`;
 
+    const customSdhFactory =
+      SIP?.Web?.defaultSessionDescriptionHandlerFactory
+        ? SIP.Web.defaultSessionDescriptionHandlerFactory((constraints) =>
+            this.acquireAudioStreamWithFallback(constraints)
+          )
+        : undefined;
+
     const userAgentOptions = {
       uri,
       contactURI: uri,
@@ -362,6 +369,7 @@ class WebphoneManager {
         server: asteriskWssUrl,
         traceSip: false
       },
+      ...(customSdhFactory ? { sessionDescriptionHandlerFactory: customSdhFactory } : {}),
       sessionDescriptionHandlerFactoryOptions: {
         iceGatheringTimeout: 400,
         peerConnectionConfiguration: {
@@ -722,6 +730,121 @@ class WebphoneManager {
     });
   }
 
+  createSilentFallbackAudioStream() {
+    if (typeof window === "undefined") return null;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return null;
+      if (!this.silentFallbackCtx || this.silentFallbackCtx.state === "closed") {
+        this.silentFallbackCtx = new AudioCtx();
+      }
+      if (this.silentFallbackCtx.state === "suspended") {
+        this.silentFallbackCtx.resume().catch(() => {});
+      }
+      const dst = this.silentFallbackCtx.createMediaStreamDestination();
+      const osc = this.silentFallbackCtx.createOscillator();
+      const gain = this.silentFallbackCtx.createGain();
+      gain.gain.value = 0.00001; // Virtually silent keepalive audio track
+      osc.connect(gain);
+      gain.connect(dst);
+      osc.start();
+      return dst.stream;
+    } catch (e) {
+      console.error("[WebphoneManager] Silent fallback stream error:", e);
+      return null;
+    }
+  }
+
+  async acquireAudioStreamWithFallback(requestedConstraints) {
+    if (typeof window === "undefined") {
+      throw new Error("Tarayıcı ortamı bulunamadı.");
+    }
+
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== "function") {
+      const silent = this.createSilentFallbackAudioStream();
+      if (silent) {
+        this.showNotification(
+          "Güvenli bağlantı (HTTPS) olmadığı için mikrofon açılamadı; arama dinleme moduyla başlatıldı.",
+          "info"
+        );
+        return silent;
+      }
+      throw new Error("Tarayıcı mikrofon API erişimi için HTTPS bağlantısı gereklidir.");
+    }
+
+    const selectedMic = localStorage.getItem("selected_mic") || "";
+    const hasCustomMic = Boolean(selectedMic && selectedMic !== "default");
+
+    // 1. Try with preferred microphone (using ideal instead of exact so stale deviceId never crashes)
+    if (hasCustomMic) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({
+          audio: {
+            deviceId: { ideal: selectedMic },
+            echoCancellation: true,
+            noiseSuppression: true
+          },
+          video: false
+        });
+      } catch (err1) {
+        console.warn("[WebphoneManager] Preferred mic failed, clearing stale selected_mic and retrying default:", err1);
+        try {
+          localStorage.removeItem("selected_mic");
+        } catch (e) {}
+      }
+    }
+
+    // 2. Try default system microphone ({ audio: true })
+    try {
+      return await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true
+        },
+        video: false
+      });
+    } catch (err2) {
+      try {
+        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      } catch (err3) {
+        console.warn("[WebphoneManager] Default getUserMedia failed, using silent fallback stream:", err3);
+        const errName = String(err3?.name || "");
+        const silentStream = this.createSilentFallbackAudioStream();
+        if (silentStream) {
+          if (errName === "NotFoundError" || errName === "DevicesNotFoundError") {
+            this.showNotification(
+              "Bilgisayarda takılı/aktif mikrofon bulunamadı. Arama sessiz mikrofon (dinleme) moduyla başlatıldı.",
+              "info"
+            );
+          } else if (errName === "NotReadableError" || errName === "TrackStartError") {
+            this.showNotification(
+              "Mikrofon başka bir uygulama tarafından kullanılıyor. Arama sessiz mikrofon moduyla başlatıldı.",
+              "info"
+            );
+          } else {
+            this.showNotification(
+              "Mikrofon kaynağına erişilemedi (İşletim sistemi gizlilik ayarlarını kontrol edin). Arama sessiz mikrofonla başlatıldı.",
+              "info"
+            );
+          }
+          return silentStream;
+        }
+        throw err3;
+      }
+    }
+  }
+
+  buildSafeSessionConstraints() {
+    const selectedMic = typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null;
+    const hasValidMic = Boolean(selectedMic && selectedMic !== "default");
+    return {
+      audio: hasValidMic
+        ? { deviceId: { ideal: selectedMic }, echoCancellation: true, noiseSuppression: true }
+        : true,
+      video: false
+    };
+  }
+
   async answerCall(targetLineId = null) {
     const line =
       (targetLineId && this.linesMap.get(targetLineId)) ||
@@ -739,11 +862,7 @@ class WebphoneManager {
         }
       }
 
-      const selectedMic = typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null;
-      const constraints = {
-        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
-        video: false
-      };
+      const constraints = this.buildSafeSessionConstraints();
       await line.session.accept({
         sessionDescriptionHandlerOptions: {
           constraints,
@@ -760,7 +879,7 @@ class WebphoneManager {
       console.error("[WebphoneManager] Answer error:", err);
       this.setCallNotification({
         type: "error",
-        message: "Çağrı yanıtlanamadı. Lütfen mikrofon izinlerinizi kontrol edin."
+        message: `Çağrı yanıtlanamadı (${err?.message || "Bağlantı/Medya hatası"}).`
       });
     }
   }
@@ -777,6 +896,15 @@ class WebphoneManager {
       return;
     }
 
+    // Ensure WebSocket transport is connected before dialing
+    try {
+      if (this.userAgent.transport && typeof this.userAgent.transport.isConnected === "function" && !this.userAgent.transport.isConnected()) {
+        await this.userAgent.transport.connect();
+      }
+    } catch (eTrans) {
+      console.warn("[WebphoneManager] Transport reconnect before makeCall:", eTrans);
+    }
+
     // Place existing active lines on hold when starting a new call
     for (const existing of this.linesMap.values()) {
       if (existing.callStatus === "InCall" && !existing.isOnHold && !this.state.isConferenceActive) {
@@ -791,11 +919,7 @@ class WebphoneManager {
 
     const hostOnly = this.state.webrtcConfig.asteriskWssUrl.split("/")[2].split(":")[0];
     const targetURI = SIP.UserAgent.makeURI(`sip:${cleanTarget}@${hostOnly}`);
-    const selectedMic = typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null;
-    const constraints = {
-      audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
-      video: false
-    };
+    const constraints = this.buildSafeSessionConstraints();
 
     const inviter = new SIP.Inviter(this.userAgent, targetURI, {
       earlyMedia: true,
@@ -941,9 +1065,10 @@ class WebphoneManager {
       this.linesMap.delete(lineId);
       this.syncLinesToState();
       this.applyAllLinesAudioState();
+      const errDetail = err?.message || err?.name || "Bilinmeyen Hata";
       this.setCallNotification({
         type: "error",
-        message: "Arama başlatılamadı. Lütfen mikrofon izninizi ve bağlantınızı kontrol edin."
+        message: `Arama başlatılamadı (${errDetail}).`
       });
     }
   }
@@ -1256,11 +1381,7 @@ class WebphoneManager {
       const ctx = new AudioCtx();
       this.confAudioCtx = ctx;
 
-      const selectedMic = localStorage.getItem("selected_mic") || null;
-      const micStream = await navigator.mediaDevices.getUserMedia({
-        audio: selectedMic ? { deviceId: { exact: selectedMic } } : true,
-        video: false
-      });
+      const micStream = await this.acquireAudioStreamWithFallback();
       this.confMicStream = micStream;
       const micSource = ctx.createMediaStreamSource(micStream);
 
