@@ -459,7 +459,7 @@ async def monitor_system_health_and_notify():
                 )
 
             # 2. Check Asterisk AMI connectivity
-            ami = get_ami_manager()
+            ami = await get_ami_manager()
             ami_ok = bool(ami and getattr(ami, "connected", False))
             if _LAST_AMI_CONNECTED is not None and ami_ok != _LAST_AMI_CONNECTED:
                 if not ami_ok:

@@ -301,7 +301,7 @@ export default function LiveTranslatorPanel({
     }
   };
 
-  // Attach slice-based MediaRecorder to incoming customer WebRTC stream
+  // Attach slice-based MediaRecorder to incoming customer WebRTC stream (Direct WebM streaming, never blocked by AudioContext)
   const attachRecorderToRemoteStream = (remoteStream) => {
     try {
       if (customerCaptureIntervalRef.current) {
@@ -314,60 +314,76 @@ export default function LiveTranslatorPanel({
         } catch (e) {}
       }
 
-      const preferredMime =
+      // Passive WebAudio keepalive consumer so Chromium pulls RTP frames continuously
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx) {
+          const ctx = customerAudioCtxRef.current || new AudioCtx();
+          if (ctx.state === "suspended") {
+            ctx.resume().catch(() => {});
+          }
+          customerAudioCtxRef.current = ctx;
+          const source = ctx.createMediaStreamSource(remoteStream);
+          const keepAliveGain = ctx.createGain();
+          keepAliveGain.gain.value = 0.0001;
+          source.connect(keepAliveGain);
+          keepAliveGain.connect(ctx.destination);
+        }
+      } catch (audioGraphErr) {}
+
+      const mimeType =
         typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
           : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
           ? "audio/webm"
           : "";
 
-      const startCustomerSlice = () => {
+      const recordWindow = () => {
         if (!isListeningCustomerRef.current) return;
-        const currentStream = webphoneManager.getActiveRemoteStream() || remoteStream;
-        if (!currentStream) return;
-        const tracks = currentStream.getAudioTracks();
-        if (!tracks.length || tracks[0].readyState !== "live") return;
+        const liveRemote = webphoneManager.getActiveRemoteStream() || remoteStream;
+        if (!liveRemote) return;
+        const audioTracks = liveRemote.getAudioTracks ? liveRemote.getAudioTracks() : [];
+        if (audioTracks.length === 0) return;
 
         try {
-          const recorder = preferredMime
-            ? new MediaRecorder(currentStream, { mimeType: preferredMime })
-            : new MediaRecorder(currentStream);
-          let chunks = [];
+          const streamForRecorder = new MediaStream([audioTracks[0].clone()]);
+          const chunks = [];
+          const recorder = mimeType
+            ? new MediaRecorder(streamForRecorder, { mimeType })
+            : new MediaRecorder(streamForRecorder);
+          customerMediaRecorderRef.current = recorder;
 
-          recorder.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) chunks.push(e.data);
+          recorder.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size > 0) chunks.push(ev.data);
           };
 
           recorder.onstop = async () => {
+            try {
+              streamForRecorder.getTracks().forEach((t) => t.stop());
+            } catch (e) {}
             if (chunks.length === 0 || isPlayingTtsRef.current || inFlightCustomerReqRef.current) return;
-            const rawBlob = new Blob(chunks, { type: preferredMime || "audio/webm" });
-            chunks = [];
-            if (rawBlob.size < 800) return;
-            const prepared = await convertRecordedBlobToWavOrFallback(rawBlob, 0.0015);
-            if (!prepared) return;
-            await processCustomerAudioBlob(prepared.blob, prepared.mimeType);
+            const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+            if (blob.size < 200) return;
+            await processCustomerAudioBlob(blob, recorder.mimeType || "audio/webm");
           };
 
-          recorder.start();
-          customerMediaRecorderRef.current = recorder;
+          recorder.start(500);
+          setTimeout(() => {
+            if (recorder.state === "recording") {
+              try {
+                recorder.stop();
+              } catch (e) {}
+            }
+          }, 3100);
         } catch (err) {
-          console.warn("[LiveTranslator] Customer MediaRecorder slice warning:", err);
+          console.error("[LiveTranslator] Customer recorder window error:", err);
         }
       };
 
-      startCustomerSlice();
       hasAttachedStreamRef.current = true;
-      console.log("[LiveTranslator] Attached MediaRecorder slice engine to customer WebRTC remote stream");
-
-      customerCaptureIntervalRef.current = setInterval(() => {
-        const rec = customerMediaRecorderRef.current;
-        if (rec && rec.state === "recording") {
-          try {
-            rec.stop();
-          } catch (e) {}
-        }
-        startCustomerSlice();
-      }, 2900);
+      console.log("[LiveTranslator] Attached MediaRecorder (direct WebM) to customer WebRTC remote stream");
+      recordWindow();
+      customerCaptureIntervalRef.current = setInterval(recordWindow, 3300);
 
       setStatusBanner(
         "Çift yönlü canlı tercüman aktif: Müşteri konuşması Türkçeye, sizin Türkçe konuşmanız müşterinin diline anlık çevriliyor..."
@@ -390,31 +406,36 @@ export default function LiveTranslatorPanel({
         } catch (e) {}
       }
 
-      const preferredMime =
+      const mimeType =
         typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
           : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
           ? "audio/webm"
           : "";
 
-      const startAgentSlice = () => {
+      const recordAgentWindow = () => {
         if (!isListeningCustomerRef.current || !autoHandsFreeAgentRef.current || isRecordingAgentRef.current) return;
         const currentLocal = webphoneManager.getActiveLocalStream() || localStream;
         if (!currentLocal) return;
-        const tracks = currentLocal.getAudioTracks();
-        if (!tracks.length || tracks[0].readyState !== "live" || !tracks[0].enabled) return;
+        const tracks = currentLocal.getAudioTracks ? currentLocal.getAudioTracks() : [];
+        if (!tracks.length || !tracks[0].enabled) return;
 
         try {
-          const recorder = preferredMime
-            ? new MediaRecorder(currentLocal, { mimeType: preferredMime })
-            : new MediaRecorder(currentLocal);
-          let chunks = [];
+          const streamForRecorder = new MediaStream([tracks[0].clone()]);
+          const chunks = [];
+          const recorder = mimeType
+            ? new MediaRecorder(streamForRecorder, { mimeType })
+            : new MediaRecorder(streamForRecorder);
+          agentHandsFreeRecorderRef.current = recorder;
 
-          recorder.ondataavailable = (e) => {
-            if (e.data && e.data.size > 0) chunks.push(e.data);
+          recorder.ondataavailable = (ev) => {
+            if (ev.data && ev.data.size > 0) chunks.push(ev.data);
           };
 
           recorder.onstop = async () => {
+            try {
+              streamForRecorder.getTracks().forEach((t) => t.stop());
+            } catch (e) {}
             if (
               chunks.length === 0 ||
               !autoHandsFreeAgentRef.current ||
@@ -424,39 +445,33 @@ export default function LiveTranslatorPanel({
             ) {
               return;
             }
-            const rawBlob = new Blob(chunks, { type: preferredMime || "audio/webm" });
-            chunks = [];
-            if (rawBlob.size < 900) return;
-            const prepared = await convertRecordedBlobToWavOrFallback(rawBlob, 0.004);
-            if (!prepared) return;
+            const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+            if (blob.size < 400) return;
             inFlightAgentReqRef.current = true;
             try {
-              await translateAndSpeakAgentAudioToCustomer(prepared.blob, prepared.mimeType, "", true);
+              await translateAndSpeakAgentAudioToCustomer(blob, recorder.mimeType || "audio/webm", "", true);
             } finally {
               inFlightAgentReqRef.current = false;
             }
           };
 
-          recorder.start();
-          agentHandsFreeRecorderRef.current = recorder;
+          recorder.start(500);
+          setTimeout(() => {
+            if (recorder.state === "recording") {
+              try {
+                recorder.stop();
+              } catch (e) {}
+            }
+          }, 3200);
         } catch (err) {
           console.warn("[LiveTranslator] Agent hands-free slice warning:", err);
         }
       };
 
-      startAgentSlice();
       hasAttachedLocalStreamRef.current = true;
       console.log("[LiveTranslator] Attached hands-free MediaRecorder to agent WebRTC microphone stream");
-
-      agentHandsFreeIntervalRef.current = setInterval(() => {
-        const rec = agentHandsFreeRecorderRef.current;
-        if (rec && rec.state === "recording") {
-          try {
-            rec.stop();
-          } catch (e) {}
-        }
-        startAgentSlice();
-      }, 3100);
+      recordAgentWindow();
+      agentHandsFreeIntervalRef.current = setInterval(recordAgentWindow, 3400);
     } catch (err) {
       console.warn("[LiveTranslator] attachHandsFreeRecorderToLocalStream error:", err);
     }
@@ -563,7 +578,7 @@ export default function LiveTranslatorPanel({
         },
         body: JSON.stringify({
           audio_base64: b64,
-          mime_type: mimeType.split(";")[0] || "audio/wav",
+          mime_type: (mimeType || "audio/webm").split(";")[0],
           direction: "customer_to_agent",
           source_lang: customerLangRef.current || customerLang,
           target_lang: agentLang,
@@ -587,11 +602,15 @@ export default function LiveTranslatorPanel({
         lastCustomerTextRef.current = data.original_text.trim();
       }
 
+      const resolvedDir = data.direction || "customer_to_agent";
+      const resolvedSrc = data.source_lang || data.detected_lang || customerLangRef.current || customerLang;
+      const resolvedTgt = data.target_lang || (resolvedDir === "agent_to_customer" ? (customerLangRef.current || customerLang) : agentLang);
+
       const newItem = {
         id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        direction: "customer_to_agent",
-        sourceLang: data.detected_lang || customerLangRef.current || customerLang,
-        targetLang: agentLang,
+        direction: resolvedDir,
+        sourceLang: resolvedSrc,
+        targetLang: resolvedTgt,
         originalText: data.original_text || "",
         translatedText: data.translated_text || "",
         suggestedReplyTr: data.suggested_reply_tr || "",
@@ -604,7 +623,20 @@ export default function LiveTranslatorPanel({
       emitLiveTurn(newItem);
 
       if (shouldTts && newItem.translatedText) {
-        await playTurkishAudioToAgentHeadset(newItem.ttsAudioBase64, newItem.ttsMimeType, newItem.translatedText);
+        if (resolvedDir === "agent_to_customer" && newItem.ttsAudioBase64) {
+          isPlayingTtsRef.current = true;
+          setPlayingItemId(newItem.id);
+          try {
+            await webphoneManager.playAudioIntoActiveCallLine(newItem.ttsAudioBase64, newItem.ttsMimeType, true);
+          } finally {
+            setPlayingItemId(null);
+            setTimeout(() => {
+              isPlayingTtsRef.current = false;
+            }, 450);
+          }
+        } else {
+          await playTurkishAudioToAgentHeadset(newItem.ttsAudioBase64, newItem.ttsMimeType, newItem.translatedText);
+        }
       }
     } catch (e) {
       console.error("[LiveTranslator] Customer chunk translate error:", e);
@@ -692,8 +724,10 @@ export default function LiveTranslatorPanel({
 
       // Prefer active call's local stream first so we never trigger unnecessary mic permission errors
       const existingCallMic = webphoneManager.getActiveLocalStream();
-      const stream = existingCallMic || (await webphoneManager.acquireAudioStreamWithFallback());
-      agentMicStreamRef.current = existingCallMic ? null : stream;
+      const baseStream = existingCallMic || (await webphoneManager.acquireAudioStreamWithFallback());
+      const tracks = baseStream.getAudioTracks ? baseStream.getAudioTracks() : [];
+      const stream = tracks.length > 0 ? new MediaStream([tracks[0].clone()]) : baseStream;
+      agentMicStreamRef.current = stream;
       agentChunksRef.current = [];
 
       const preferredMime =
@@ -775,17 +809,7 @@ export default function LiveTranslatorPanel({
       return;
     }
 
-    let sendBlob = rawBlob;
-    let sendMime = "audio/webm";
-    if (rawBlob && rawBlob.size > 600) {
-      const prepared = await convertRecordedBlobToWavOrFallback(rawBlob, 0.001);
-      if (prepared) {
-        sendBlob = prepared.blob;
-        sendMime = prepared.mimeType;
-      }
-    }
-
-    await translateAndSpeakAgentAudioToCustomer(sendBlob, sendMime, fallbackStt, false);
+    await translateAndSpeakAgentAudioToCustomer(rawBlob, "audio/webm", fallbackStt, false);
   };
 
   const translateAndSpeakAgentAudioToCustomer = async (blob, mimeType, fallbackStt = "", isHandsFree = false) => {
@@ -802,7 +826,7 @@ export default function LiveTranslatorPanel({
         },
         body: JSON.stringify({
           audio_base64: b64,
-          mime_type: (mimeType || "audio/wav").split(";")[0],
+          mime_type: (mimeType || "audio/webm").split(";")[0],
           direction: "agent_to_customer",
           source_lang: "tr",
           target_lang: activeTargetLang,
@@ -828,11 +852,15 @@ export default function LiveTranslatorPanel({
         lastAgentTextRef.current = data.original_text.trim();
       }
 
+      const resolvedDir = data.direction || "agent_to_customer";
+      const resolvedSrc = data.source_lang || "tr";
+      const resolvedTgt = data.target_lang || activeTargetLang;
+
       const newItem = {
         id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        direction: "agent_to_customer",
-        sourceLang: "tr",
-        targetLang: activeTargetLang,
+        direction: resolvedDir,
+        sourceLang: resolvedSrc,
+        targetLang: resolvedTgt,
         originalText: data.original_text || fallbackStt || "",
         translatedText: data.translated_text || "",
         ttsAudioBase64: data.tts_audio_base64 || "",
@@ -849,7 +877,11 @@ export default function LiveTranslatorPanel({
           `Müşterinin hattına ${selectedCustomerLangObj.flag} sesli çeviri iletiliyor: "${newItem.translatedText}"`
         );
         try {
-          await webphoneManager.playAudioIntoActiveCallLine(newItem.ttsAudioBase64, newItem.ttsMimeType, true);
+          if (resolvedDir === "customer_to_agent") {
+            await playTurkishAudioToAgentHeadset(newItem.ttsAudioBase64, newItem.ttsMimeType, newItem.translatedText);
+          } else {
+            await webphoneManager.playAudioIntoActiveCallLine(newItem.ttsAudioBase64, newItem.ttsMimeType, true);
+          }
         } finally {
           setPlayingItemId(null);
           setTimeout(() => {
