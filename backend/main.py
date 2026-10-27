@@ -13,6 +13,8 @@ from dotenv import load_dotenv
 load_dotenv(os.path.join(BASE_DIR, '.env'))
 import shutil
 import socket
+import base64
+import httpx
 from fastapi import FastAPI, UploadFile, File, Form, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Request, Body
 from fastapi.responses import FileResponse, Response, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -49,7 +51,8 @@ def add_system_log(source: str, level: str, message: str):
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
-from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, SystemSetting, EventLog, QueueSurveyResponse
+from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse
+from backend.services.agent_presence import get_agent_state
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
 from backend.services.license_service import verify_license_key, generate_license_key
 from backend.services.websocket_manager import ws_manager
@@ -14033,6 +14036,7 @@ async def get_intent_analysis_report(
 @app.get("/api/agent/directory")
 async def get_agent_directory(db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints
+    from backend.services.agent_presence import get_agent_state
     settings = load_settings()
     users = settings.get("users", [])
     queues = settings.get("queues", [])
@@ -20212,8 +20216,10 @@ async def _record_bilingual_transcript_turn(call_id: Optional[str], direction: s
 @app.post("/live-translator/translate-audio")
 async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user_info: dict = Depends(get_user_info)):
     raw_b64 = (payload.audio_base64 or "").strip()
-    if "," in raw_b64:
-        raw_b64 = raw_b64.split(",", 1)[1]
+    if ";base64," in raw_b64:
+        raw_b64 = raw_b64.split(";base64,", 1)[1].strip()
+    elif "," in raw_b64:
+        raw_b64 = raw_b64.split(",")[-1].strip()
     fallback_stt = (payload.fallback_stt_text or "").strip()
     if not raw_b64 and not fallback_stt:
         return {"original_text": "", "translated_text": ""}
@@ -20238,8 +20244,10 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     audio_bytes = b""
     if raw_b64:
         try:
-            audio_bytes = base64.b64decode(raw_b64)
-        except Exception:
+            padded_b64 = raw_b64 + ("=" * ((4 - len(raw_b64) % 4) % 4))
+            audio_bytes = base64.b64decode(padded_b64)
+        except Exception as dec_err:
+            print(f"[LiveTranslator B64 Decode Warning]: {dec_err}")
             audio_bytes = b""
 
     print(

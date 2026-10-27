@@ -151,7 +151,11 @@ export default function LiveTranslatorPanel({
       const reader = new FileReader();
       reader.onloadend = () => {
         const res = String(reader.result || "");
-        const b64 = res.includes(",") ? res.split(",")[1] : res;
+        const b64 = res.includes(";base64,")
+          ? res.split(";base64,")[1]
+          : res.includes(",")
+          ? res.split(",").pop()
+          : res;
         resolve(b64);
       };
       reader.onerror = reject;
