@@ -910,7 +910,7 @@ DEFAULT_SETTINGS = {
                 "dashboard:access", "wallboard:access", "supervisor:access",
                 "supervisor:agent_status", "supervisor:agent_logout", "supervisor:scope_filter",
                 "live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter",
-                "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "call_panel:access", "call_panel:listen_records", "call_panel:view_transcripts", "omnichannel:access",
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
@@ -992,7 +992,7 @@ DEFAULT_SETTINGS = {
                 "dashboard:access", "wallboard:access", "supervisor:access",
                 "supervisor:agent_status", "supervisor:agent_logout", "supervisor:scope_filter",
                 "live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter",
-                "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "call_panel:access", "call_panel:listen_records", "call_panel:view_transcripts", "omnichannel:access",
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
@@ -1049,7 +1049,7 @@ DEFAULT_SETTINGS = {
                 "dashboard:access", "call_panel:access", "omnichannel:access",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
-                "call_panel:listen_records", "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
+                "call_panel:listen_records", "call_panel:view_transcripts", "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 "contacts:read", "contacts:write",
                 "calendar:read", "calendar:write",
@@ -1299,6 +1299,8 @@ def load_settings():
                     new_perms.append("canned_responses:delete")
                 if "call_panel:listen_records" not in new_perms:
                     new_perms.append("call_panel:listen_records")
+                if "call_panel:view_transcripts" not in new_perms:
+                    new_perms.append("call_panel:view_transcripts")
             elif r.get("role_code") == "agent":
                 if "canned_responses:read" not in new_perms:
                     new_perms.append("canned_responses:read")
@@ -1408,7 +1410,7 @@ def load_settings():
                 default_cp_subs = [
                     "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                     "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
-                    "call_panel:listen_records", "call_panel:webphone_save_contact", "call_panel:webphone_transfer",
+                    "call_panel:listen_records", "call_panel:view_transcripts", "call_panel:webphone_save_contact", "call_panel:webphone_transfer",
                     "call_panel:webphone_conference", "call_panel:webphone_reject",
                     "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
                 ]
@@ -20216,22 +20218,107 @@ async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, l
     return ""
 
 
-async def _record_bilingual_transcript_turn(call_id: Optional[str], direction: str, original_text: str, translated_text: str, source_lang: str, target_lang: str):
-    if not call_id or call_id == "demo-call-99" or (not translated_text and not original_text):
+async def _record_bilingual_transcript_turn(
+    call_id: Optional[str],
+    direction: str,
+    original_text: str,
+    translated_text: str,
+    source_lang: str,
+    target_lang: str,
+    user_info: Optional[dict] = None
+):
+    orig_clean = (original_text or "").strip()
+    trans_clean = (translated_text or "").strip()
+    if call_id == "demo-call-99" or (not trans_clean and not orig_clean):
         return
     try:
         speaker = "customer" if direction == "customer_to_agent" else "human"
-        clean_line = (translated_text or original_text) if speaker == "customer" else (original_text or translated_text)
-        await ws_manager.broadcast_to_call(
-            call_id,
-            {
-                "type": "transcript",
-                "speaker": speaker,
-                "text": clean_line
-            }
+        src_upper = (source_lang or "").split("-")[0].upper()
+        tgt_upper = (target_lang or "").split("-")[0].upper()
+        is_bilingual = (
+            orig_clean
+            and trans_clean
+            and orig_clean.lower() != trans_clean.lower()
+            and src_upper != tgt_upper
         )
-    except Exception:
-        pass
+        if speaker == "customer":
+            primary_line = trans_clean or orig_clean
+            stored_text = f"{primary_line}\n[[ORIG:{src_upper or 'EN'}]] {orig_clean}" if is_bilingual else primary_line
+        else:
+            primary_line = orig_clean or trans_clean
+            stored_text = f"{primary_line}\n[[TRANS:{tgt_upper or 'EN'}]] {trans_clean}" if is_bilingual else primary_line
+
+        if call_id:
+            await ws_manager.broadcast_to_call(
+                call_id,
+                {
+                    "type": "transcript",
+                    "speaker": speaker,
+                    "text": stored_text
+                }
+            )
+
+        # Persist turn to PostgreSQL transcripts table
+        async with AsyncSessionLocal() as db:
+            resolved_call_id = None
+            if call_id and call_id != "live-webrtc-call":
+                res = await db.execute(select(Call.id).where(Call.id == call_id).limit(1))
+                resolved_call_id = res.scalar_one_or_none()
+
+            if not resolved_call_id:
+                agent_ext = None
+                if user_info:
+                    uid_str = str(user_info.get("user_id") or "").strip().lower()
+                    for u in settings_db.get("users", []):
+                        if (
+                            str(u.get("email") or "").strip().lower() == uid_str
+                            or str(u.get("name") or "").strip().lower() == uid_str
+                            or str(u.get("extension") or "").strip() == uid_str
+                        ):
+                            agent_ext = str(u.get("extension") or "").strip()
+                            break
+                cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=25)
+                if agent_ext:
+                    q = (
+                        select(Call.id)
+                        .where(
+                            and_(
+                                Call.start_time >= cutoff,
+                                or_(
+                                    Call.caller_number == agent_ext,
+                                    Call.callee_number == agent_ext,
+                                    Call.hangup_source == f"pickup:{agent_ext}"
+                                )
+                            )
+                        )
+                        .order_by(Call.start_time.desc())
+                        .limit(1)
+                    )
+                    res = await db.execute(q)
+                    resolved_call_id = res.scalar_one_or_none()
+
+                if not resolved_call_id:
+                    q_any = (
+                        select(Call.id)
+                        .where(Call.start_time >= cutoff)
+                        .order_by(Call.start_time.desc())
+                        .limit(1)
+                    )
+                    res_any = await db.execute(q_any)
+                    resolved_call_id = res_any.scalar_one_or_none()
+
+            if resolved_call_id:
+                db.add(
+                    Transcript(
+                        call_id=resolved_call_id,
+                        speaker=speaker,
+                        text=stored_text,
+                        timestamp=datetime.datetime.utcnow()
+                    )
+                )
+                await db.commit()
+    except Exception as rec_err:
+        print(f"[LiveTranslator Transcript DB Save Warning]: {rec_err}")
 
 
 @app.post("/api/live-translator/translate-audio")
@@ -20407,14 +20494,15 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     if payload.generate_tts and translated_text:
         tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code, user_info=user_info)
 
-    if original_text and translated_text:
+    if original_text or translated_text:
         await _record_bilingual_transcript_turn(
             payload.call_id,
             effective_direction,
             original_text,
             translated_text,
-            src_code,
-            tgt_code
+            detected_lang or src_code,
+            tgt_code,
+            user_info=user_info
         )
 
     return {
@@ -20497,14 +20585,15 @@ async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_i
     if payload.generate_tts and translated_text:
         tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code, user_info=user_info)
 
-    if translated_text:
+    if clean_text or translated_text:
         await _record_bilingual_transcript_turn(
             payload.call_id,
             payload.direction or "customer_to_agent",
             clean_text,
             translated_text,
             src_code,
-            tgt_code
+            tgt_code,
+            user_info=user_info
         )
 
     return {

@@ -45,6 +45,7 @@ export const CALL_PANEL_SUB_GROUPS = [
     title: "Webphone Özellikleri",
     items: [
       { id: "call_panel:listen_records", name: "Ses Kayıt Dinleme" },
+      { id: "call_panel:view_transcripts", name: "Çağrı Transkripti Görüntüleme" },
       { id: "call_panel:webphone_save_contact", name: "Rehbere Kaydı" },
       { id: "call_panel:webphone_transfer", name: "Çağrı Transferi" },
       { id: "call_panel:webphone_conference", name: "Konferans" },

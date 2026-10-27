@@ -3385,25 +3385,50 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   </div>
                 ) : (
                   popupTranscripts.map((turn, index) => {
-                    const isCustomer = turn.speaker === "customer";
-                    const isHuman = turn.speaker === "agent";
-                    
+                    const isCustomer = turn.speaker === "customer" || turn.speaker === "user";
+                    const isAI = turn.speaker === "ai";
+                    const rawStr = String(turn.text || "");
+                    const origMatch = rawStr.match(/^(.*?)\n\[\[ORIG:([A-Z-]+)\]\]\s*(.*)$/s);
+                    const transMatch = !origMatch ? rawStr.match(/^(.*?)\n\[\[TRANS:([A-Z-]+)\]\]\s*(.*)$/s) : null;
+                    const primaryText = origMatch ? origMatch[1].trim() : transMatch ? transMatch[1].trim() : rawStr;
+                    const secondaryText = origMatch ? origMatch[3].trim() : transMatch ? transMatch[3].trim() : "";
+                    const langBadge = origMatch ? `${origMatch[2]} → TR` : transMatch ? `TR → ${transMatch[2]}` : null;
+
                     return (
                       <div key={index} className={`flex ${isCustomer ? "justify-start" : "justify-end"} w-full animate-in fade-in slide-in-from-bottom-2 duration-150`}>
                         <div className={`flex flex-col max-w-[85%] ${isCustomer ? "items-start" : "items-end"}`}>
                           <div
                             className={`px-4 py-2.5 rounded-2xl text-xs leading-relaxed border font-semibold shadow-sm ${
                               isCustomer
-                                ? "bg-slate-50 dark:bg-slate-955 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-tr-none"
-                                : isHuman
-                                ? "bg-emerald-50 dark:bg-emerald-955 border-emerald-100 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-100 rounded-tl-none"
-                                : "bg-purple-50 dark:bg-purple-955 border-purple-100 dark:border-purple-900/50 text-purple-800 dark:text-purple-100 rounded-tl-none"
+                                ? "bg-slate-50 dark:bg-slate-955 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-sm"
+                                : isAI
+                                ? "bg-purple-50 dark:bg-purple-955 border-purple-100 dark:border-purple-900/50 text-purple-800 dark:text-purple-100 rounded-tr-sm"
+                                : "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200/80 dark:border-indigo-800/60 text-slate-800 dark:text-slate-100 rounded-tr-sm"
                             }`}
                           >
-                            <p className="font-bold text-[9px] mb-1 opacity-70 tracking-wider">
-                              {turn.speaker === "ai" ? "YAPAY ZEKA" : isHuman ? "MÜŞTERİ TEMSİLCİSİ" : "MÜŞTERİ"}
-                            </p>
-                            <p className="whitespace-pre-line font-medium">{turn.text}</p>
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <p className={`font-extrabold text-[9px] tracking-wider uppercase flex items-center gap-1 ${
+                                isCustomer
+                                  ? "text-amber-600 dark:text-amber-400"
+                                  : isAI
+                                  ? "text-purple-600 dark:text-purple-400"
+                                  : "text-indigo-600 dark:text-indigo-400"
+                              }`}>
+                                {isAI ? <Bot size={11} /> : <User size={11} />}
+                                {isAI ? "YAPAY ZEKA" : isCustomer ? "MÜŞTERİ" : "MÜŞTERİ TEMSİLCİSİ"}
+                              </p>
+                              {langBadge && (
+                                <span className="inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                  🌐 {langBadge}
+                                </span>
+                              )}
+                            </div>
+                            <p className="whitespace-pre-line font-bold">{primaryText}</p>
+                            {secondaryText && (
+                              <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-1 pt-1 border-t border-slate-200/70 dark:border-slate-800/70 leading-snug">
+                                "{secondaryText}"
+                              </p>
+                            )}
                           </div>
                           <span className="text-[8px] text-slate-400 dark:text-slate-500 mt-1 px-2 font-mono">
                             {formatDate(turn.timestamp)}
@@ -9349,47 +9374,70 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     </div>
                   ) : (
                     transcripts.map((turn, index) => {
-                      const isAI = turn.speaker === "ai" || turn.speaker === "agent";
+                      const isAI = turn.speaker === "ai";
                       const isCustomer = turn.speaker === "customer" || turn.speaker === "user";
-                      const isHuman = turn.speaker === "human";
+                      const rawStr = String(turn.text || "");
+                      const origMatch = rawStr.match(/^(.*?)\n\[\[ORIG:([A-Z-]+)\]\]\s*(.*)$/s);
+                      const transMatch = !origMatch ? rawStr.match(/^(.*?)\n\[\[TRANS:([A-Z-]+)\]\]\s*(.*)$/s) : null;
+                      const primaryText = origMatch ? origMatch[1].trim() : transMatch ? transMatch[1].trim() : rawStr;
+                      const secondaryText = origMatch ? origMatch[3].trim() : transMatch ? transMatch[3].trim() : "";
+                      const langBadge = origMatch ? `${origMatch[2]} → TR` : transMatch ? `TR → ${transMatch[2]}` : null;
 
                       return (
                         <div
                           key={turn.id || index}
                           className={`flex gap-3 max-w-[85%] ${
-                            isCustomer ? "ml-auto flex-row-reverse" : "mr-auto flex-row"
+                            isCustomer ? "mr-auto flex-row" : "ml-auto flex-row-reverse"
                           }`}
                         >
                           {/* Avatar Icon */}
                           <div
                             className={`h-8 w-8 rounded-xl flex items-center justify-center shrink-0 shadow-sm border ${
-                              isAI
+                              isCustomer
+                                ? "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800/60"
+                                : isAI
                                 ? "bg-purple-50 dark:bg-primary/30 text-primary dark:text-purple-400 border-purple-100 dark:border-purple-800"
-                                : isHuman
-                                ? "bg-emerald-50 dark:bg-primary/30 text-primary dark:text-emerald-450 border-emerald-100 dark:border-emerald-800"
-                                : "bg-blue-50 dark:bg-primary/30 text-primary dark:text-blue-450 border-blue-100 dark:border-blue-800"
+                                : "bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 border-indigo-200 dark:border-indigo-800/60"
                             }`}
                           >
                             {isAI ? <Bot size={16} /> : <User size={16} />}
                           </div>
 
                           {/* Message Content Bubble */}
-                          <div className="flex flex-col">
+                          <div className={`flex flex-col ${isCustomer ? "items-start" : "items-end"}`}>
                             <div
                               className={`px-4 py-3 rounded-2xl text-xs leading-relaxed border font-semibold shadow-sm ${
                                 isCustomer
-                                  ? "bg-slate-50 dark:bg-slate-955 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-tr-none"
-                                  : isHuman
-                                  ? "bg-emerald-50 dark:bg-emerald-955 border-emerald-100 dark:border-emerald-900/50 text-emerald-800 dark:text-emerald-100 rounded-tl-none"
-                                  : "bg-purple-50 dark:bg-purple-955 border-purple-100 dark:border-purple-900/50 text-purple-800 dark:text-purple-100 rounded-tl-none"
+                                  ? "bg-white dark:bg-slate-955 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-tl-sm"
+                                  : isAI
+                                  ? "bg-purple-50 dark:bg-purple-955 border-purple-100 dark:border-purple-900/50 text-purple-800 dark:text-purple-100 rounded-tr-sm"
+                                  : "bg-indigo-50 dark:bg-indigo-950/40 border-indigo-200/80 dark:border-indigo-800/60 text-slate-800 dark:text-slate-100 rounded-tr-sm"
                               }`}
                             >
-                              <p className="font-bold text-[9px] mb-1 opacity-70 tracking-wider">
-                                {isAI ? "YAPAY ZEKA" : isHuman ? "MÜŞTERİ TEMSİLCİSİ" : "MÜŞTERİ"}
-                              </p>
-                              <p className="whitespace-pre-line">{turn.text}</p>
+                              <div className="flex items-center justify-between gap-2 mb-1">
+                                <p className={`font-extrabold text-[9px] tracking-wider uppercase ${
+                                  isCustomer
+                                    ? "text-amber-600 dark:text-amber-400"
+                                    : isAI
+                                    ? "text-purple-600 dark:text-purple-400"
+                                    : "text-indigo-600 dark:text-indigo-400"
+                                }`}>
+                                  {isAI ? "YAPAY ZEKA" : isCustomer ? "MÜŞTERİ" : "MÜŞTERİ TEMSİLCİSİ"}
+                                </p>
+                                {langBadge && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                    🌐 {langBadge}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="whitespace-pre-line font-bold">{primaryText}</p>
+                              {secondaryText && (
+                                <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-1 pt-1 border-t border-slate-200/70 dark:border-slate-800/70 leading-snug">
+                                  "{secondaryText}"
+                                </p>
+                              )}
                             </div>
-                            <span className="text-[9px] text-slate-400 dark:text-slate-555 mt-1 px-2 self-end font-medium">
+                            <span className="text-[9px] text-slate-400 dark:text-slate-555 mt-1 px-2 font-mono font-medium">
                               {formatDate(turn.timestamp)}
                             </span>
                           </div>

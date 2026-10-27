@@ -11,6 +11,9 @@ import {
   X,
   Headphones,
   User,
+  Bot,
+  MessageSquare,
+  Languages,
   Search,
   Calendar,
   Filter,
@@ -18,6 +21,34 @@ import {
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
+
+function parseBilingualTurnText(rawText) {
+  const str = String(rawText || "");
+  const origMatch = str.match(/^(.*?)\n\[\[ORIG:([A-Z-]+)\]\]\s*(.*)$/s);
+  if (origMatch) {
+    return {
+      primaryText: origMatch[1].trim(),
+      secondaryText: origMatch[3].trim(),
+      langBadge: `${origMatch[2]} → TR`,
+      isBilingual: true,
+    };
+  }
+  const transMatch = str.match(/^(.*?)\n\[\[TRANS:([A-Z-]+)\]\]\s*(.*)$/s);
+  if (transMatch) {
+    return {
+      primaryText: transMatch[1].trim(),
+      secondaryText: transMatch[3].trim(),
+      langBadge: `TR → ${transMatch[2]}`,
+      isBilingual: true,
+    };
+  }
+  return {
+    primaryText: str,
+    secondaryText: "",
+    langBadge: null,
+    isBilingual: false,
+  };
+}
 
 const DATE_FILTER_OPTIONS = [
   { id: "today", label: "Bugün" },
@@ -59,12 +90,34 @@ function getDateWindow(period) {
 export default function AgentHistoryTab({ backendHost, currentUser, callPanelPerms = {} }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const canListenRecords = callPanelPerms.canListenRecords !== false;
+  const canViewTranscripts = callPanelPerms.canViewTranscripts !== false;
   const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
   const [calls, setCalls] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [directory, setDirectory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeAudio, setActiveAudio] = useState(null);
+  const [activeTranscriptCall, setActiveTranscriptCall] = useState(null);
+  const [transcriptTurns, setTranscriptTurns] = useState([]);
+  const [transcriptLoading, setTranscriptLoading] = useState(false);
+
+  const openTranscriptModal = async (call) => {
+    setActiveTranscriptCall(call);
+    setTranscriptTurns([]);
+    setTranscriptLoading(true);
+    try {
+      const protocol = window.location.protocol;
+      const res = await fetch(`${protocol}//${backendHost}/api/calls/${call.id}/transcript`);
+      if (res.ok) {
+        const data = await res.json();
+        setTranscriptTurns(Array.isArray(data) ? data : []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch call transcript", err);
+    } finally {
+      setTranscriptLoading(false);
+    }
+  };
 
   // Filter & Search UI states
   const [dateFilter, setDateFilter] = useState("today");
@@ -611,6 +664,19 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                             >
                               <Phone size={14} />
                             </button>
+                            {canViewTranscripts && (
+                              <button
+                                onClick={() => openTranscriptModal(call)}
+                                className={`h-8 w-8 rounded-lg flex items-center justify-center transition-colors shrink-0 ${
+                                  activeTranscriptCall?.id === call.id
+                                    ? `${bg} text-white shadow-sm`
+                                    : `${lightBg} ${text} hover:opacity-80`
+                                }`}
+                                title="Çağrı Transkripti"
+                              >
+                                <MessageSquare size={14} />
+                              </button>
+                            )}
                             {canListenRecords && (
                               <button
                                 onClick={() => setActiveAudio(call)}
@@ -632,6 +698,155 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
           </div>
         )}
       </div>
+
+      {/* Call Transcript Modal (Webphone-Style Left/Right Bilingual Stream) */}
+      {canViewTranscripts && activeTranscriptCall && (
+        <div
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setActiveTranscriptCall(null)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 shadow-2xl w-full max-w-2xl max-h-[82vh] flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${lightBg} ${text}`}>
+                  <MessageSquare size={18} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="font-extrabold text-sm text-slate-800 dark:text-white tracking-tight">
+                      Çağrı Transkripti
+                    </h4>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-mono">
+                      {activeTranscriptCall.matchedContact?.displayName
+                        ? `${activeTranscriptCall.matchedContact.displayName} (${maskPhoneLast4(activeTranscriptCall.contactNumber, maskPhoneNumbers)})`
+                        : maskPhoneLast4(activeTranscriptCall.contactNumber, maskPhoneNumbers)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                    {activeTranscriptCall.start_time
+                      ? new Date(
+                          activeTranscriptCall.start_time +
+                            (activeTranscriptCall.start_time.endsWith("Z") ? "" : "Z")
+                        ).toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })
+                      : ""}{" "}
+                    • Süre:{" "}
+                    {formatDuration(
+                      activeTranscriptCall.duration,
+                      activeTranscriptCall.start_time,
+                      activeTranscriptCall.end_time
+                    )}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveTranscriptCall(null)}
+                className="h-8 w-8 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 flex items-center justify-center text-slate-500 transition-colors shrink-0"
+                title="Kapat"
+              >
+                <X size={15} />
+              </button>
+            </div>
+
+            {/* Dialogue Stream Body */}
+            <div className="flex-1 overflow-y-auto min-h-[260px] max-h-[58vh] p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800/80 space-y-3 scrollbar-thin">
+              {transcriptLoading ? (
+                <div className="h-56 flex flex-col items-center justify-center gap-2 text-slate-400">
+                  <RefreshCw size={22} className="animate-spin" />
+                  <p className="text-xs font-semibold">Görüşme transkripti yükleniyor...</p>
+                </div>
+              ) : transcriptTurns.length === 0 ? (
+                <div className="h-56 flex flex-col items-center justify-center text-center gap-2 text-slate-400">
+                  <MessageSquare size={28} className="opacity-35" />
+                  <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    Bu görüşmeye ait transkript kaydı bulunamadı.
+                  </p>
+                  <p className="text-[11px] text-slate-400 max-w-xs">
+                    Canlı çeviri veya yapay zeka asistanı kullanılan çağrılarda konuşma dökümü otomatik kaydedilir.
+                  </p>
+                </div>
+              ) : (
+                transcriptTurns.map((turn, idx) => {
+                  const isCustomer = turn.speaker === "customer" || turn.speaker === "user";
+                  const isAI = turn.speaker === "ai";
+                  const parsed = parseBilingualTurnText(turn.text);
+                  const timeStr = turn.timestamp
+                    ? new Date(
+                        turn.timestamp + (String(turn.timestamp).endsWith("Z") ? "" : "Z")
+                      ).toLocaleTimeString("tr-TR", {
+                        timeZone: "Europe/Istanbul",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                        second: "2-digit",
+                      })
+                    : "";
+
+                  return (
+                    <div
+                      key={turn.id || idx}
+                      className={`flex flex-col ${isCustomer ? "items-start" : "items-end"} animate-in fade-in duration-150`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 border shadow-sm ${
+                          isCustomer
+                            ? "bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800 rounded-tl-sm"
+                            : isAI
+                            ? "bg-purple-50/90 dark:bg-purple-950/35 border-purple-200/80 dark:border-purple-800/60 rounded-tr-sm"
+                            : "bg-indigo-50/90 dark:bg-indigo-950/40 border-indigo-200/80 dark:border-indigo-800/60 rounded-tr-sm"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span
+                            className={`text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 ${
+                              isCustomer
+                                ? "text-amber-600 dark:text-amber-400"
+                                : isAI
+                                ? "text-purple-600 dark:text-purple-400"
+                                : "text-indigo-600 dark:text-indigo-400"
+                            }`}
+                          >
+                            {isAI ? <Bot size={11} /> : <User size={11} />}
+                            {isCustomer
+                              ? "Müşteri"
+                              : isAI
+                              ? "Yapay Zeka Asistanı"
+                              : "Müşteri Temsilcisi"}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            {parsed.isBilingual && parsed.langBadge && (
+                              <span className="inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                                <Languages size={10} />
+                                {parsed.langBadge}
+                              </span>
+                            )}
+                            {timeStr && (
+                              <span className="text-[9px] text-slate-400 font-mono">
+                                {timeStr}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-snug whitespace-pre-line">
+                          {parsed.primaryText}
+                        </p>
+                        {parsed.isBilingual && parsed.secondaryText && (
+                          <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-1 pt-1 border-t border-slate-100 dark:border-slate-800/70 leading-snug">
+                            "{parsed.secondaryText}"
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Floating Audio Player */}
       {canListenRecords && activeAudio && activeAudio.recording_path && (

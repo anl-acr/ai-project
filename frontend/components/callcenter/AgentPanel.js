@@ -153,6 +153,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       ? perms.some(p =>
           [
             "call_panel:listen_records",
+            "call_panel:view_transcripts",
             "call_panel:webphone_save_contact",
             "call_panel:webphone_transfer",
             "call_panel:webphone_conference",
@@ -174,7 +175,18 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
         if (permCode === "call_panel:listen_records") {
           return currentUser?.role === "admin" || perms.includes("call_panel:listen_records");
         }
+        if (permCode === "call_panel:view_transcripts") {
+          return (
+            currentUser?.role === "admin" ||
+            perms.includes("call_panel:view_transcripts") ||
+            perms.includes("transcripts:access") ||
+            perms.includes("reports_transcripts:access")
+          );
+        }
         return true;
+      }
+      if (permCode === "call_panel:view_transcripts" && !perms.includes("call_panel:view_transcripts")) {
+        return currentUser?.role === "admin" || perms.includes("transcripts:access");
       }
       return perms.includes(permCode);
     };
@@ -205,6 +217,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     return {
       rawPermissions: perms || [],
       canListenRecords: checkWebphoneFeature("call_panel:listen_records"),
+      canViewTranscripts: checkWebphoneFeature("call_panel:view_transcripts"),
       canSaveContact: checkWebphoneFeature("call_panel:webphone_save_contact"),
       canTransfer: checkWebphoneFeature("call_panel:webphone_transfer"),
       canConference: checkWebphoneFeature("call_panel:webphone_conference"),
