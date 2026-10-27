@@ -51,7 +51,7 @@ export default function AgentWebphoneTab({
   const [transferTarget, setTransferTarget] = useState("");
   const [conferenceOpen, setConferenceOpen] = useState(false);
   const [conferenceTarget, setConferenceTarget] = useState("");
-  const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
+  const [isTranslatorOpen, setIsTranslatorOpen] = useState(true);
   const [newCallInput, setNewCallInput] = useState("");
   const [isNewCallOpen, setIsNewCallOpen] = useState(false);
 
@@ -68,6 +68,9 @@ export default function AgentWebphoneTab({
   useEffect(() => {
     const unsub = webphoneManager.subscribe((state) => {
       setWpState({ ...state });
+      if (state.callStatus === "InCall") {
+        setIsTranslatorOpen(true);
+      }
     });
     return () => unsub();
   }, []);

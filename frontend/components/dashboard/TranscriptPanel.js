@@ -162,11 +162,11 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
       })
       .catch((err) => console.error("[Transcript] Eski transkriptler alınamadı:", err));
 
-    // 4. Connect to FastAPI live WebSocket stream
+    // 4. Connect to FastAPI live WebSocket stream (via /api/ prefix so Nginx proxies to FastAPI)
     const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${wsProtocol}//${backendHost}/ws/transcripts/${activeCallId}`;
+    const wsUrl = `${wsProtocol}//${backendHost}/api/ws/transcripts/${activeCallId}`;
     console.log(`[Transcript] WebSocket bağlantısı kuruluyor: ${wsUrl}`);
-    
+
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
@@ -197,7 +197,26 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
       console.log("[Transcript] Canlı transkript akışı kapandı.");
     };
 
+    const handleLocalLiveTurn = (ev) => {
+      const detail = ev?.detail;
+      if (!detail || !detail.text) return;
+      setTranscripts((prev) => {
+        if (prev.length > 0 && prev[prev.length - 1].text === detail.text) return prev;
+        return [
+          ...prev,
+          {
+            speaker: detail.speaker || "customer",
+            text: detail.text,
+            timestamp: new Date().toISOString()
+          }
+        ];
+      });
+    };
+
+    window.addEventListener("LIVE_TRANSLATION_TURN", handleLocalLiveTurn);
+
     return () => {
+      window.removeEventListener("LIVE_TRANSLATION_TURN", handleLocalLiveTurn);
       ws.close();
     };
   }, [activeCallId, backendHost]);

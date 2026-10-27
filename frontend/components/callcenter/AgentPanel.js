@@ -118,12 +118,20 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     const fetchRolePerms = async () => {
       try {
         const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-        const res = await fetch(`${protocol}//${host}/api/settings/roles`);
+        const uid = (typeof window !== "undefined" && localStorage.getItem("current_user_id")) || currentUser?.id || "admin";
+        const res = await fetch(`${protocol}//${host}/api/settings/roles`, {
+          headers: { "X-User-ID": String(uid) }
+        });
         if (!res.ok) return;
         const data = await res.json();
         const rolesList = Array.isArray(data) ? data : (data?.roles || []);
-        const userRoleCode = currentUser?.role || "agent";
-        const matchedRole = rolesList.find(r => r.role_code === userRoleCode);
+        const userRoleCode = String(currentUser?.role || "agent").toLowerCase().trim();
+        const matchedRole = rolesList.find(
+          r =>
+            String(r.role_code || "").toLowerCase().trim() === userRoleCode ||
+            String(r.name || "").toLowerCase().trim() === userRoleCode ||
+            String(r.id || "").toLowerCase().trim() === userRoleCode
+        );
         if (mounted && matchedRole) {
           setRolePermissions(Array.isArray(matchedRole.permissions) ? matchedRole.permissions : []);
         }

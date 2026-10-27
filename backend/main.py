@@ -10405,7 +10405,7 @@ async def get_active_calls(user_info: dict = Depends(get_user_info)):
             active_list.append({
                 "id": call.id,
                 "caller_number": call.caller_number,
-                "caller_name": contact_map.get(call.caller_number) or resolve_contact_name_by_phone(call.caller_number, contacts),
+                "caller_name": contact_map.get(call.caller_number) or resolve_contact_name_by_phone(contacts, call.caller_number),
                 "callee_number": call.callee_number,
                 "start_time": call.start_time.isoformat() if call.start_time else None,
                 "channel": ch_name or "AudioSocket/AI",
@@ -10527,6 +10527,7 @@ async def list_appointments(user_info: dict = Depends(get_user_info), db: AsyncS
 # WebSockets: Real-time Transcript Stream
 # ----------------------------------------------------
 @app.websocket("/ws/transcripts/{call_id}")
+@app.websocket("/api/ws/transcripts/{call_id}")
 async def websocket_transcript_endpoint(websocket: WebSocket, call_id: str):
     await ws_manager.connect(call_id, websocket)
     try:
@@ -12267,22 +12268,30 @@ async def client_logs_endpoint(log: ClientLogSchema):
 # =====================================================================
 
 def resolve_contact_name_by_phone(contacts: list, phone_info: str) -> Optional[str]:
-    if not phone_info:
+    if isinstance(contacts, str) and isinstance(phone_info, (list, tuple, set)):
+        contacts, phone_info = phone_info, contacts
+    if not phone_info or not contacts or isinstance(contacts, str):
         return None
     clean_target = re.sub(r"\D", "", str(phone_info))
     if not clean_target:
         return None
 
     for c in contacts:
-        if c.phone_number:
-            if c.phone_number.strip() == str(phone_info).strip():
-                return f"{c.first_name} {c.last_name}".strip()
-            c_clean = re.sub(r"\D", "", str(c.phone_number))
+        if isinstance(c, dict):
+            c_phone = c.get("phone_number") or c.get("phone") or ""
+            c_name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip() or c.get("name", "")
+        else:
+            c_phone = getattr(c, "phone_number", None) or ""
+            c_name = f"{getattr(c, 'first_name', '') or ''} {getattr(c, 'last_name', '') or ''}".strip()
+        if c_phone:
+            if str(c_phone).strip() == str(phone_info).strip():
+                return c_name
+            c_clean = re.sub(r"\D", "", str(c_phone))
             if c_clean and c_clean == clean_target:
-                return f"{c.first_name} {c.last_name}".strip()
+                return c_name
             if len(c_clean) >= 10 and len(clean_target) >= 10:
                 if c_clean[-10:] == clean_target[-10:]:
-                    return f"{c.first_name} {c.last_name}".strip()
+                    return c_name
     return None
 
 @app.get("/api/omnichannel/chats")
@@ -14023,6 +14032,7 @@ async def get_intent_analysis_report(
 
 @app.get("/api/agent/directory")
 async def get_agent_directory(db: AsyncSession = Depends(get_db)):
+    from backend.services.ami_manager import registered_endpoints
     settings = load_settings()
     users = settings.get("users", [])
     queues = settings.get("queues", [])

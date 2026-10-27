@@ -144,6 +144,23 @@ export default function LiveTranslatorPanel({
     }
   };
 
+  const emitLiveTurn = (newItem) => {
+    setItems((prev) => [...prev, newItem]);
+    if (typeof window !== "undefined") {
+      const speaker = newItem.direction === "customer_to_agent" ? "customer" : "human";
+      const src = String(newItem.sourceLang || customerLang || "EN").toUpperCase();
+      const tgt = String(newItem.targetLang || agentLang || "TR").toUpperCase();
+      window.dispatchEvent(
+        new CustomEvent("LIVE_TRANSLATION_TURN", {
+          detail: {
+            speaker,
+            text: `[${src} -> ${tgt}] ${newItem.translatedText} (${newItem.originalText})`
+          }
+        })
+      );
+    }
+  };
+
   const attachRecorderToRemoteStream = (remoteStream) => {
     try {
       if (customerCaptureIntervalRef.current) {
@@ -157,9 +174,8 @@ export default function LiveTranslatorPanel({
         customerAudioCtxRef.current = null;
       }
 
-      // Route WebRTC remote track through WebAudio MediaStreamDestination + keepalive gain
-      // to prevent Chromium crbug.com/933677 silent remote stream recording
-      let recordableStream = remoteStream;
+      // Passive WebAudio keepalive consumer so Chromium pulls RTP frames continuously,
+      // while MediaRecorder records directly from remoteStream tracks (never blocked by suspended AudioContext!)
       try {
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         const ctx = new AudioCtx();
@@ -168,20 +184,12 @@ export default function LiveTranslatorPanel({
         }
         customerAudioCtxRef.current = ctx;
         const source = ctx.createMediaStreamSource(remoteStream);
-        const dest = ctx.createMediaStreamDestination();
-        source.connect(dest);
-
-        // Silent keepalive sink so Chromium continuously pulls RTP frames into WebAudio
         const keepAliveGain = ctx.createGain();
         keepAliveGain.gain.value = 0.0001;
         source.connect(keepAliveGain);
         keepAliveGain.connect(ctx.destination);
-
-        if (dest.stream && dest.stream.getAudioTracks().length > 0) {
-          recordableStream = dest.stream;
-        }
       } catch (audioGraphErr) {
-        console.warn("[LiveTranslator] Using direct remoteStream fallback:", audioGraphErr);
+        console.warn("[LiveTranslator] Passive AudioContext keepalive warning:", audioGraphErr);
       }
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -191,13 +199,17 @@ export default function LiveTranslatorPanel({
         : "";
 
       const recordWindow = () => {
-        const liveRemote = webphoneManager.getActiveRemoteStream();
+        const liveRemote = webphoneManager.getActiveRemoteStream() || remoteStream;
         if (!liveRemote) return;
+        const audioTracks = liveRemote.getAudioTracks ? liveRemote.getAudioTracks() : [];
+        if (audioTracks.length === 0) return;
+
         try {
+          const streamForRecorder = new MediaStream([audioTracks[0].clone()]);
           const chunks = [];
           const recorder = mimeType
-            ? new MediaRecorder(recordableStream, { mimeType })
-            : new MediaRecorder(recordableStream);
+            ? new MediaRecorder(streamForRecorder, { mimeType })
+            : new MediaRecorder(streamForRecorder);
           customerMediaRecorderRef.current = recorder;
 
           recorder.ondataavailable = (ev) => {
@@ -205,13 +217,16 @@ export default function LiveTranslatorPanel({
           };
 
           recorder.onstop = async () => {
+            try {
+              streamForRecorder.getTracks().forEach((t) => t.stop());
+            } catch (e) {}
             if (chunks.length === 0 || inFlightCustomerReqRef.current) return;
             const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-            if (blob.size < 600) return;
+            if (blob.size < 200) return;
             await processCustomerAudioBlob(blob, recorder.mimeType || "audio/webm");
           };
 
-          recorder.start();
+          recorder.start(500);
           setTimeout(() => {
             if (recorder.state === "recording") {
               try {
@@ -225,6 +240,7 @@ export default function LiveTranslatorPanel({
       };
 
       hasAttachedStreamRef.current = true;
+      console.log("[LiveTranslator] Attached MediaRecorder to active WebRTC remote stream");
       recordWindow();
       customerCaptureIntervalRef.current = setInterval(recordWindow, 3400);
       setStatusBanner("Müşteri ses kanalı canlı dinleniyor ve anlık Türkçeye çevriliyor...");
@@ -333,7 +349,7 @@ export default function LiveTranslatorPanel({
         timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       };
 
-      setItems((prev) => [...prev, newItem]);
+      emitLiveTurn(newItem);
 
       if (shouldTts && newItem.translatedText) {
         await playTurkishAudioToAgentHeadset(newItem.ttsAudioBase64, newItem.ttsMimeType, newItem.translatedText);
@@ -381,7 +397,7 @@ export default function LiveTranslatorPanel({
         ttsMimeType: data.tts_mime_type || "audio/mpeg",
         timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       };
-      setItems((prev) => [...prev, newItem]);
+      emitLiveTurn(newItem);
 
       if (shouldTts && newItem.translatedText) {
         await playTurkishAudioToAgentHeadset(newItem.ttsAudioBase64, newItem.ttsMimeType, newItem.translatedText);
@@ -537,7 +553,7 @@ export default function LiveTranslatorPanel({
         timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       };
 
-      setItems((prev) => [...prev, newItem]);
+      emitLiveTurn(newItem);
 
       if (newItem.ttsAudioBase64) {
         setPlayingItemId(newItem.id);
@@ -595,7 +611,7 @@ export default function LiveTranslatorPanel({
         timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       };
 
-      setItems((prev) => [...prev, newItem]);
+      emitLiveTurn(newItem);
 
       if (shouldSpeak && newItem.ttsAudioBase64) {
         setPlayingItemId(newItem.id);
