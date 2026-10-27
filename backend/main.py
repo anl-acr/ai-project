@@ -14477,12 +14477,77 @@ def _is_trusted_or_local_ip(ip_str: str) -> bool:
                 return True
     except Exception:
         pass
-    # Configured SIP Trunk hosts (e.g. ikonsip.com)
+    # Configured SIP Trunk hosts (e.g. ikonsip.com) + cached DNS resolution
+    if not hasattr(_is_trusted_or_local_ip, "_dns_cache"):
+        _is_trusted_or_local_ip._dns_cache = {}
+    import socket
     for t in settings_db.get("trunks", []):
         h = str(t.get("host") or "").strip()
+        if not h:
+            continue
         if h == base_ip:
             return True
+        if not re.match(r"^\d{1,3}(?:\.\d{1,3}){3}$", h):
+            resolved_ips = _is_trusted_or_local_ip._dns_cache.get(h)
+            if resolved_ips is None:
+                try:
+                    infos = socket.getaddrinfo(h, None, socket.AF_INET)
+                    resolved_ips = {info[4][0] for info in infos if info and len(info) > 4 and info[4]}
+                except Exception:
+                    resolved_ips = set()
+                _is_trusted_or_local_ip._dns_cache[h] = resolved_ips
+            if base_ip in resolved_ips:
+                return True
     return False
+
+
+_enforced_kernel_ban_ips = set()
+_realtime_sip_attack_tracker = {}
+
+
+def _enforce_kernel_drop_for_ip(ip_clean: str):
+    """
+    Saldırgan IP'yi Linux çekirdeğinde hem raw PREROUTING (nf_conntrack'tan ÖNCE, aktif UDP akışlarını anında keser)
+    hem de INPUT zincirinin en üstüne (1. sıraya) ekler ve aktif conntrack UDP tablosunu temizler.
+    """
+    import subprocess
+    if not ip_clean or ip_clean in _enforced_kernel_ban_ips:
+        return
+    # 1. raw PREROUTING drop (stops active UDP floods before conntrack ESTABLISHED bypass)
+    try:
+        chk_raw = subprocess.run(
+            ["iptables", "-t", "raw", "-C", "PREROUTING", "-s", ip_clean, "-j", "DROP"],
+            check=False, capture_output=True, timeout=1.5
+        )
+        if chk_raw.returncode != 0:
+            subprocess.run(
+                ["iptables", "-t", "raw", "-I", "PREROUTING", "1", "-s", ip_clean, "-j", "DROP"],
+                check=False, capture_output=True, timeout=1.5
+            )
+    except Exception:
+        pass
+
+    # 2. filter INPUT drop
+    try:
+        chk_in = subprocess.run(
+            ["iptables", "-C", "INPUT", "-s", ip_clean, "-j", "DROP"],
+            check=False, capture_output=True, timeout=1.5
+        )
+        if chk_in.returncode != 0:
+            subprocess.run(
+                ["iptables", "-I", "INPUT", "1", "-s", ip_clean, "-j", "DROP"],
+                check=False, capture_output=True, timeout=1.5
+            )
+    except Exception:
+        pass
+
+    # 3. Flush active UDP conntrack state if conntrack tool is present
+    try:
+        subprocess.run(["conntrack", "-D", "-s", ip_clean], check=False, capture_output=True, timeout=1.0)
+    except Exception:
+        pass
+
+    _enforced_kernel_ban_ips.add(ip_clean)
 
 
 def _execute_firewall_ban(ip_str: str, jail: str = "asterisk", reason: str = "SIP Brute-Force / Yetkisiz Deneme", force_manual: bool = False) -> bool:
@@ -14496,26 +14561,21 @@ def _execute_firewall_ban(ip_str: str, jail: str = "asterisk", reason: str = "SI
     if not force_manual and _is_trusted_or_local_ip(ip_clean):
         return False
 
-    # 1. Ban via UFW (if available)
+    # 1. Enforce kernel-level raw PREROUTING + INPUT DROP immediately
+    _enforce_kernel_drop_for_ip(ip_clean)
+
+    # 2. Ban via UFW (if available)
     try:
         subprocess.run(["ufw", "insert", "1", "deny", "from", ip_clean, "to", "any"], check=False, capture_output=True, timeout=2.0)
     except Exception:
         pass
 
-    # 2. Ban via fail2ban-client (if running)
+    # 3. Ban via fail2ban-client (if running)
     for j_name in [jail, "asterisk", "asterisk-pjsip"]:
         try:
             subprocess.run(["fail2ban-client", "set", j_name, "banip", ip_clean], check=False, capture_output=True, timeout=2.0)
         except Exception:
             pass
-
-    # 3. Ban via iptables fallback
-    try:
-        chk = subprocess.run(["iptables", "-C", "INPUT", "-s", ip_clean, "-j", "DROP"], check=False, capture_output=True, timeout=1.5)
-        if chk.returncode != 0:
-            subprocess.run(["iptables", "-I", "INPUT", "1", "-s", ip_clean, "-j", "DROP"], check=False, capture_output=True, timeout=1.5)
-    except Exception:
-        pass
 
     # 4. Persist in settings_db["security_blocked_ips"]
     blocked_list = settings_db.setdefault("security_blocked_ips", [])
@@ -14531,6 +14591,7 @@ def _execute_firewall_ban(ip_str: str, jail: str = "asterisk", reason: str = "SI
             "banned_at": now_str,
             "reason": reason
         })
+        print(f"[SIP IPS AUTO-BAN] Saldırgan IP Engellendi: {ip_clean} -> {reason}")
     save_settings(settings_db)
     return True
 
@@ -14542,6 +14603,9 @@ def _execute_firewall_unban(ip_str: str, add_to_whitelist: bool = False) -> bool
         ipaddress.ip_network(ip_clean, strict=False)
     except Exception:
         return False
+
+    _enforced_kernel_ban_ips.discard(ip_clean)
+    _realtime_sip_attack_tracker.pop(ip_clean, None)
 
     # 1. Remove from UFW
     try:
@@ -14556,11 +14620,15 @@ def _execute_firewall_unban(ip_str: str, add_to_whitelist: bool = False) -> bool
         except Exception:
             pass
 
-    # 3. Remove from iptables
-    try:
-        subprocess.run(["iptables", "-D", "INPUT", "-s", ip_clean, "-j", "DROP"], check=False, capture_output=True, timeout=1.5)
-    except Exception:
-        pass
+    # 3. Remove from iptables (both raw PREROUTING and filter INPUT)
+    for _ in range(3):
+        try:
+            r1 = subprocess.run(["iptables", "-t", "raw", "-D", "PREROUTING", "-s", ip_clean, "-j", "DROP"], check=False, capture_output=True, timeout=1.5)
+            r2 = subprocess.run(["iptables", "-D", "INPUT", "-s", ip_clean, "-j", "DROP"], check=False, capture_output=True, timeout=1.5)
+            if r1.returncode != 0 and r2.returncode != 0:
+                break
+        except Exception:
+            break
 
     # 4. Remove from settings_db
     if "security_blocked_ips" in settings_db:
@@ -14580,12 +14648,94 @@ def _execute_firewall_unban(ip_str: str, add_to_whitelist: bool = False) -> bool
     return True
 
 
+def ensure_asterisk_security_logger_and_manager():
+    """
+    Asterisk'in PJSIP 'log_failed_request' (NOTICE) ve SecurityEvent (SECURITY) kayıtlarını
+    /var/log/asterisk/messages ve /var/log/asterisk/security dosyalarına kesintisiz yazmasını
+    ve AMI üzerinden 'security' olaylarını göndermesini garanti altına alır.
+    """
+    import subprocess
+    if not os.path.exists("/etc/asterisk"):
+        return
+
+    try:
+        os.makedirs("/var/log/asterisk", exist_ok=True)
+        for lf in ("/var/log/asterisk/messages", "/var/log/asterisk/security", "/var/log/asterisk/full"):
+            if not os.path.exists(lf):
+                with open(lf, "a", encoding="utf-8"):
+                    pass
+            try:
+                os.chmod(lf, 0o664)
+            except Exception:
+                pass
+        subprocess.run(["chown", "-R", "asterisk:asterisk", "/var/log/asterisk"], check=False, capture_output=True, timeout=2.0)
+    except Exception:
+        pass
+
+    # 1. Ensure /etc/asterisk/logger.conf has messages & security channels active
+    logger_conf_path = "/etc/asterisk/logger.conf"
+    desired_logger_conf = """; ==========================================
+; AIDA OTOMATIK ASTERISK GUVENLIK & FAIL2BAN LOG YAPILANDIRMASI
+; ==========================================
+[general]
+dateformat=%F %T
+
+[logfiles]
+console => notice,warning,error,security
+messages => notice,warning,error,security
+security => security,notice,warning,error
+full => notice,warning,error,debug,verbose,dtmf,fax,security
+"""
+    try:
+        needs_logger_reload = False
+        if not os.path.exists(logger_conf_path):
+            with open(logger_conf_path, "w", encoding="utf-8") as f:
+                f.write(desired_logger_conf)
+            needs_logger_reload = True
+        else:
+            with open(logger_conf_path, "r", encoding="utf-8", errors="ignore") as f:
+                cur_logger = f.read()
+            # Check if messages => ... security is active (uncommented)
+            has_active_messages = any(
+                line.strip().startswith("messages") and "notice" in line and "security" in line
+                for line in cur_logger.splitlines()
+                if not line.strip().startswith(";")
+            )
+            if not has_active_messages:
+                with open(logger_conf_path, "w", encoding="utf-8") as f:
+                    f.write(desired_logger_conf)
+                needs_logger_reload = True
+        if needs_logger_reload:
+            subprocess.run(["asterisk", "-rx", "logger reload"], check=False, capture_output=True, timeout=2.0)
+    except Exception as e_lconf:
+        print(f"[Asterisk Logger Sync Error]: {e_lconf}")
+
+    # 2. Ensure /etc/asterisk/manager.conf includes 'security' permission for AMI real-time IPS
+    mgr_conf_path = "/etc/asterisk/manager.conf"
+    try:
+        if os.path.exists(mgr_conf_path):
+            with open(mgr_conf_path, "r", encoding="utf-8", errors="ignore") as f:
+                mgr_txt = f.read()
+            if "read = system,call,log,verbose,command,agent,user" in mgr_txt and "security" not in mgr_txt:
+                mgr_txt = mgr_txt.replace(
+                    "read = system,call,log,verbose,command,agent,user",
+                    "read = system,call,log,verbose,command,agent,user,security"
+                )
+                with open(mgr_conf_path, "w", encoding="utf-8") as f:
+                    f.write(mgr_txt)
+                subprocess.run(["asterisk", "-rx", "manager reload"], check=False, capture_output=True, timeout=2.0)
+    except Exception:
+        pass
+
+
 def configure_and_sync_fail2ban(install_if_missing: bool = False) -> dict:
     """
     Fail2ban Asterisk PJSIP filtresini ve hapishane (jail) kurallarını gelişmiş güvenlik ayarlarına ve
     Güvenli IP / Blok (ignoreip) listesine göre otomatik yapılandırır ve servisi yeniden yükler.
     """
     import subprocess, shutil
+    ensure_asterisk_security_logger_and_manager()
+
     adv = settings_db.get("security_advanced", {})
     max_retry = max(1, int(adv.get("login_rate_limit") or 3))
     ban_minutes = max(1, int(adv.get("block_duration_minutes") or 1440))
@@ -14615,29 +14765,42 @@ def configure_and_sync_fail2ban(install_if_missing: bool = False) -> dict:
         try:
             os.makedirs("/etc/fail2ban/filter.d", exist_ok=True)
             os.makedirs("/etc/fail2ban/jail.d", exist_ok=True)
-            filter_content = """[Definition]
-failregex = ^.*res_pjsip/pjsip_distributor\\.c:.*log_failed_request: Request '.*' from '.*' failed for '<HOST>(:\\d+)?'.* - (No matching endpoint found|Failed to authenticate).*$
-            ^.*SecurityEvent="(FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword)".*RemoteAddress="IPV[46]/(UDP|TCP|TLS|WS|WSS)/<HOST>/\\d+".*$
-            ^.*chan_sip\\.c:.*Registration from '.*' failed for '<HOST>(:\\d+)?' - .*$
+            filter_content = """[INCLUDES]
+before = common.conf
+
+[Definition]
+datepattern = ^\\[?%%Y-%%m-%%d %%H:%%M:%%S(?:\\.%%f)?\\]?
+              ^\\[?%%b\\s+%%d %%H:%%M:%%S\\]?
+              {^LN-BEG}
+
+failregex = ^.*res_pjsip(?:/pjsip_distributor)?\\.c:.*log_failed_request:\\s*Request\\s+'.*'\\s+from\\s+'.*'\\s+failed for\\s+'<HOST>(?::\\d+)?'.*-\\s*(?:No matching endpoint found|Failed to authenticate|Method not allowed).*$
+            ^.*SecurityEvent="(?:FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword|RequestNotSupported|UnexpectedAddress)".*RemoteAddress="IPV[46]/(?:UDP|TCP|TLS|WS|WSS)/<HOST>/\\d+".*$
+            ^.*chan_sip\\.c:.*Registration from '.*' failed for '<HOST>(?::\\d+)?' - .*$
+
 ignoreregex =
 """
             with open("/etc/fail2ban/filter.d/asterisk-aida.conf", "w", encoding="utf-8") as ff:
                 ff.write(filter_content)
 
             log_path = "/var/log/asterisk/messages"
-            if not os.path.exists(log_path):
-                os.makedirs("/var/log/asterisk", exist_ok=True)
-                with open(log_path, "a", encoding="utf-8"):
-                    pass
+            sec_log_path = "/var/log/asterisk/security"
+            for lp in (log_path, sec_log_path):
+                if not os.path.exists(lp):
+                    os.makedirs("/var/log/asterisk", exist_ok=True)
+                    with open(lp, "a", encoding="utf-8"):
+                        pass
 
             jail_content = f"""[asterisk]
 enabled = true
-port = 5060,5061
+backend = auto
+port = 5060,5061,8088,8089
 protocol = all
 filter = asterisk-aida
+banaction = iptables-allports
 logpath = {log_path}
+          {sec_log_path}
 maxretry = {max_retry}
-findtime = 300
+findtime = 600
 bantime = {ban_seconds}
 ignoreip = {ignore_ip_str}
 """
@@ -14649,69 +14812,192 @@ ignoreip = {ignore_ip_str}
         except Exception as e_f2b:
             print(f"[Fail2Ban Config Error]: {e_f2b}")
 
+    # Re-enforce kernel drops for all previously blocked IPs
+    for item in settings_db.get("security_blocked_ips", []):
+        b_ip = str(item.get("ip") or "").strip()
+        if b_ip and not _is_trusted_or_local_ip(b_ip):
+            _enforce_kernel_drop_for_ip(b_ip)
+
     return {"maxretry": max_retry, "bantime_minutes": ban_minutes, "ignoreip": ignore_ip_str}
+
+
+def record_and_ban_realtime_sip_attack(ip_addr: str, event_type: str = "InvalidAccountID", account_id: str = "", service: str = "PJSIP"):
+    """
+    AMI üzerinden gelen gerçek zamanlı SecurityEvent (InvalidAccountID, ChallengeResponseFailed vb.)
+    sinyallerini yakalar ve saldırgan IP'yi milisaniyeler içinde engeller.
+    """
+    import datetime
+    ip_clean = str(ip_addr or "").strip()
+    if not ip_clean or _is_trusted_or_local_ip(ip_clean):
+        return
+
+    adv = settings_db.get("security_advanced", {})
+    max_retry = max(1, int(adv.get("login_rate_limit") or 3))
+    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    entry = _realtime_sip_attack_tracker.setdefault(ip_clean, {
+        "ip": ip_clean,
+        "attempts": 0,
+        "last_seen": now_str,
+        "req_type": service,
+        "from_uri": account_id,
+        "reason": f"{event_type} ({account_id})"
+    })
+    entry["attempts"] += 1
+    entry["last_seen"] = now_str
+    entry["reason"] = f"AMI {event_type} ({account_id or service})"
+
+    # Instant ban for known scanner probing accounts (<sip:1@1>, NonExistent unknown account brute-force) or >= max_retry
+    is_instant_scanner = ("1@1" in str(account_id)) or (event_type == "InvalidAccountID" and entry["attempts"] >= min(2, max_retry))
+    if is_instant_scanner or entry["attempts"] >= max_retry:
+        _execute_firewall_ban(
+            ip_clean,
+            jail="asterisk-pjsip",
+            reason=f"{entry['reason']} ({entry['attempts']} deneme)"
+        )
 
 
 def scan_asterisk_failed_sip_attempts(auto_ban: bool = True) -> list:
     """
-    /var/log/asterisk/messages dosyasındaki PJSIP 'No matching endpoint found' ve 'Failed to authenticate'
-    saldırı kayıtlarını tarar; limit aşan saldırgan IP'leri otomatik olarak güvenlik duvarında engeller.
+    /var/log/asterisk/messages, /var/log/asterisk/security ve /var/log/asterisk/full dosyalarındaki
+    PJSIP 'No matching endpoint found', 'Failed to authenticate' ve 'SecurityEvent' saldırı kayıtlarını tarar;
+    botnet tarayıcılarını (örn. <sip:1@1>) ve limit aşan saldırgan IP'leri otomatik olarak çekirdek güvenlik duvarında engeller.
     """
     import re
     adv = settings_db.get("security_advanced", {})
     max_retry = max(1, int(adv.get("login_rate_limit") or 3))
 
-    log_files = ["/var/log/asterisk/messages", "/var/log/asterisk/full"]
+    log_files = ["/var/log/asterisk/messages", "/var/log/asterisk/security", "/var/log/asterisk/full"]
     ip_stats = {}
 
-    pattern = re.compile(
-        r"\[([^\]]+)\].*log_failed_request:\s*Request\s*'([^']+)'\s*from\s*'([^']+)'\s*failed for\s*'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d+)?'.*-\s*(.+)$"
+    # Seed from real-time AMI tracker
+    for k_ip, k_info in list(_realtime_sip_attack_tracker.items()):
+        if not _is_trusted_or_local_ip(k_ip):
+            ip_stats[k_ip] = dict(k_info)
+
+    pattern_pjsip = re.compile(
+        r"(?:\[([^\]]+)\]|^(\S+\s+\d+\s+\d+:\d+:\d+)).*log_failed_request:\s*Request\s*'([^']+)'\s*from\s*'([^']+)'\s*failed for\s*'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d+)?'(?:\s*\(callid:\s*([^)]+)\))?\s*-\s*(.+)$"
+    )
+    pattern_sec = re.compile(
+        r'(?:\[([^\]]+)\]|^(\S+\s+\d+\s+\d+:\d+:\d+)).*SecurityEvent="([^"]+)".*AccountID="([^"]*)".*RemoteAddress="IPV[46]/(?:UDP|TCP|TLS|WS|WSS)/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/\d+"'
     )
 
+    all_lines = []
     for lf in log_files:
         if not os.path.exists(lf):
             continue
         try:
             with open(lf, "r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()[-2500:]
-            for line in lines:
-                if "log_failed_request" not in line:
-                    continue
-                m = pattern.search(line.strip())
-                if m:
-                    ts_str, req_type, from_uri, ip_addr, fail_reason = m.groups()
-                    if _is_trusted_or_local_ip(ip_addr):
-                        continue
-                    entry = ip_stats.setdefault(ip_addr, {
-                        "ip": ip_addr,
-                        "attempts": 0,
-                        "last_seen": ts_str,
-                        "req_type": req_type,
-                        "from_uri": from_uri,
-                        "reason": fail_reason.strip()
-                    })
-                    entry["attempts"] += 1
-                    entry["last_seen"] = ts_str
-                    entry["reason"] = f"{fail_reason.strip()} ({req_type} {from_uri})"
+                f.seek(0, os.SEEK_END)
+                f_size = f.tell()
+                # Read last ~384KB for fast non-blocking scan
+                f.seek(max(0, f_size - 393216), os.SEEK_SET)
+                all_lines.extend(f.readlines()[-3500:])
         except Exception as e_log:
             print(f"[Asterisk Security Log Scan Error]: {e_log}")
+
+    # Also read recent systemd journal for asterisk service (catches CLI notices before logger.conf reload)
+    try:
+        import subprocess
+        res_jctl = subprocess.run(
+            ["journalctl", "-u", "asterisk", "-n", "400", "--no-pager"],
+            check=False, capture_output=True, text=True, timeout=1.5
+        )
+        if res_jctl.returncode == 0 and res_jctl.stdout:
+            all_lines.extend(res_jctl.stdout.splitlines())
+    except Exception:
+        pass
+
+    for line in all_lines:
+        if "log_failed_request" in line:
+            m = pattern_pjsip.search(line.strip())
+            if m:
+                ts_a, ts_b, req_type, from_uri, ip_addr, call_id, fail_reason = m.groups()
+                ts_str = ts_a or ts_b or ""
+                call_id = call_id or ""
+                if _is_trusted_or_local_ip(ip_addr):
+                    continue
+                entry = ip_stats.setdefault(ip_addr, {
+                    "ip": ip_addr,
+                    "attempts": 0,
+                    "last_seen": ts_str,
+                    "req_type": req_type,
+                    "from_uri": from_uri,
+                    "reason": fail_reason.strip(),
+                    "is_scanner": False
+                })
+                entry["attempts"] += 1
+                entry["last_seen"] = ts_str
+                entry["reason"] = f"{fail_reason.strip()} ({req_type} {from_uri})"
+                if "<sip:1@1>" in from_uri or call_id.strip() == "1" or "No matching endpoint found" in fail_reason:
+                    entry["is_scanner"] = True
+        elif "SecurityEvent=" in line:
+            m_s = pattern_sec.search(line.strip())
+            if m_s:
+                ts_a, ts_b, sec_ev, acc_id, ip_addr = m_s.groups()
+                ts_str = ts_a or ts_b or ""
+                if _is_trusted_or_local_ip(ip_addr):
+                    continue
+                entry = ip_stats.setdefault(ip_addr, {
+                    "ip": ip_addr,
+                    "attempts": 0,
+                    "last_seen": ts_str,
+                    "req_type": "SIP",
+                    "from_uri": acc_id,
+                    "reason": sec_ev,
+                    "is_scanner": False
+                })
+                entry["attempts"] += 1
+                entry["last_seen"] = ts_str
+                entry["reason"] = f"{sec_ev} ({acc_id})"
+                if sec_ev in ("InvalidAccountID", "FailedACL"):
+                    entry["is_scanner"] = True
 
     already_banned = {item.get("ip") for item in settings_db.get("security_blocked_ips", [])}
     detected_list = []
 
     for ip_addr, info in ip_stats.items():
-        if auto_ban and info["attempts"] >= max_retry and ip_addr not in already_banned:
-            _execute_firewall_ban(
-                ip_addr,
-                jail="asterisk-pjsip",
-                reason=f"{info['reason']} ({info['attempts']} deneme)"
-            )
-            already_banned.add(ip_addr)
+        should_ban = info["attempts"] >= max_retry or (info.get("is_scanner") and info["attempts"] >= min(2, max_retry)) or ("<sip:1@1>" in str(info.get("from_uri", "")))
+        if auto_ban and should_ban:
+            if ip_addr not in already_banned:
+                _execute_firewall_ban(
+                    ip_addr,
+                    jail="asterisk-pjsip",
+                    reason=f"{info['reason']} ({info['attempts']} deneme)"
+                )
+                already_banned.add(ip_addr)
+            else:
+                # Ensure kernel raw PREROUTING drop is active even if IP was already in settings_db
+                _enforce_kernel_drop_for_ip(ip_addr)
         elif ip_addr not in already_banned:
             detected_list.append(info)
 
     detected_list.sort(key=lambda x: x["attempts"], reverse=True)
     return detected_list
+
+
+async def asterisk_sip_ips_guard_loop():
+    """
+    Arka planda her 4 saniyede bir kesintisiz çalışan Gerçek Zamanlı SIP IPS (Saldırı Önleme) Servisi.
+    Asterisk loglarını ve PJSIP yetkisiz REGISTER / INVITE / OPTIONS taramalarını yakalayıp
+    saldırgan IP'leri raw PREROUTING + INPUT + Fail2Ban üzerinden otomatik engeller.
+    """
+    import asyncio
+    try:
+        await asyncio.to_thread(configure_and_sync_fail2ban, False)
+        await asyncio.to_thread(scan_asterisk_failed_sip_attempts, True)
+        print("[SIP IPS Guard] Gerçek zamanlı Asterisk PJSIP & Fail2Ban koruma kalkanı aktif.")
+    except Exception as e_init:
+        print(f"[SIP IPS Guard Init Error]: {e_init}")
+
+    while True:
+        try:
+            await asyncio.sleep(4.0)
+            await asyncio.to_thread(scan_asterisk_failed_sip_attempts, True)
+        except Exception as e_loop:
+            print(f"[SIP IPS Guard Loop Error]: {e_loop}")
+            await asyncio.sleep(5.0)
+
 
 
 def get_live_fail2ban_and_ufw_status(client_ip: str = "") -> dict:
@@ -15761,6 +16047,7 @@ async def startup_event():
         settings_db.update(load_settings())
         
     asyncio.create_task(start_ami_listener())
+    asyncio.create_task(asterisk_sip_ips_guard_loop())
 
     try:
         from backend.audiosocket_server import start_server as start_audiosocket_server

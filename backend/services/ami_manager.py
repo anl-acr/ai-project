@@ -260,6 +260,32 @@ def register_event_handlers(manager: Manager):
             except Exception:
                 pass
 
+    def _handle_ami_security_event(m, event):
+        import re
+        ev_name = str(event.get('Event') or "Security").strip()
+        remote_addr = str(event.get('RemoteAddress') or "").strip()
+        account_id = str(event.get('AccountID') or "").strip()
+        service = str(event.get('Service') or "PJSIP").strip()
+        # Format: IPV4/UDP/85.184.251.234/61661
+        m_ip = re.search(r"(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})", remote_addr)
+        if not m_ip:
+            return
+        ip_addr = m_ip.group(1)
+        try:
+            from backend.main import record_and_ban_realtime_sip_attack
+            record_and_ban_realtime_sip_attack(
+                ip_addr=ip_addr,
+                event_type=ev_name,
+                account_id=account_id,
+                service=service
+            )
+        except Exception as e_sec:
+            print(f"[AMI Security Handler Error]: {e_sec}")
+
+    for sec_ev in ('InvalidAccountID', 'ChallengeResponseFailed', 'InvalidPassword', 'FailedACL', 'RequestNotSupported', 'UnexpectedAddress'):
+        manager.register_event(sec_ev)(_handle_ami_security_event)
+
+
 async def get_ami_manager() -> Manager:
     """Returns or initializes the active AMI manager connection."""
     global manager_instance
