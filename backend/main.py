@@ -20195,17 +20195,17 @@ async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, l
 
 
 async def _record_bilingual_transcript_turn(call_id: Optional[str], direction: str, original_text: str, translated_text: str, source_lang: str, target_lang: str):
-    if not call_id or call_id == "demo-call-99" or not translated_text:
+    if not call_id or call_id == "demo-call-99" or (not translated_text and not original_text):
         return
     try:
         speaker = "customer" if direction == "customer_to_agent" else "human"
-        bilingual_line = f"[{source_lang.upper()} -> {target_lang.upper()}] {translated_text} ({original_text})"
+        clean_line = (translated_text or original_text) if speaker == "customer" else (original_text or translated_text)
         await ws_manager.broadcast_to_call(
             call_id,
             {
                 "type": "transcript",
                 "speaker": speaker,
-                "text": bilingual_line
+                "text": clean_line
             }
         )
     except Exception:
@@ -20339,14 +20339,14 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     # 3. Built-in Keyless Audio STT: Google Chromium Speech API v2 (16kHz 16-bit WAV/PCM)
     if not original_text and audio_bytes:
         original_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", src_code)
-        # Smart bidirectional fallback: if user spoke the opposite language (e.g. Turkish on customer phone during test)
+        # If customer spoke Turkish (or opposite language), recognize it while keeping speaker direction intact
         if not original_text and tgt_code and tgt_code != src_code:
             alt_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", tgt_code)
             if alt_text:
                 original_text = alt_text
-                src_code, tgt_code = tgt_code, src_code
-                detected_lang = src_code
-                effective_direction = "agent_to_customer" if src_code == "tr" else "customer_to_agent"
+                detected_lang = tgt_code
+                if effective_direction == "customer_to_agent":
+                    translated_text = alt_text
 
     # 4. Browser SpeechRecognition fallback if provided
     if not original_text and fallback_stt:
@@ -20359,30 +20359,26 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
 
     # Translate transcribed speech if not yet translated
     if original_text and not translated_text:
-        translated_text = await _fallback_google_text_translate(original_text, src_code, tgt_code)
-        # If translation is identical to original (e.g. Turkish spoken into an 'en' channel), try opposite direction
-        if (
-            translated_text
-            and translated_text.strip().lower() == original_text.strip().lower()
-            and audio_bytes
-            and tgt_code != src_code
-        ):
-            alt_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", tgt_code)
-            if alt_text:
-                alt_trans = await _fallback_google_text_translate(alt_text, tgt_code, src_code)
-                if alt_trans and alt_trans.strip().lower() != alt_text.strip().lower():
+        if effective_direction == "agent_to_customer" and not payload.generate_tts:
+            translated_text = original_text
+        else:
+            translated_text = await _fallback_google_text_translate(original_text, src_code, tgt_code)
+            # If translation is identical to original on customer_to_agent (e.g. customer spoke Turkish while 'en' was selected), try recognizing as Turkish directly
+            if (
+                effective_direction == "customer_to_agent"
+                and translated_text
+                and translated_text.strip().lower() == original_text.strip().lower()
+                and audio_bytes
+                and tgt_code != src_code
+            ):
+                alt_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", tgt_code)
+                if alt_text:
                     original_text = alt_text
-                    translated_text = alt_trans
-                    src_code, tgt_code = tgt_code, src_code
-                    detected_lang = src_code
-                    effective_direction = "agent_to_customer" if src_code == "tr" else "customer_to_agent"
-
-        if effective_direction == "customer_to_agent" and translated_text and not suggested_reply_tr:
-            suggested_reply_tr = "Memnuniyetle yardımcı olabilirim, hemen kontrol ediyorum."
-            suggested_reply_target = await _fallback_google_text_translate(suggested_reply_tr, "tr", src_code)
+                    translated_text = alt_text
+                    detected_lang = tgt_code
 
     if original_text or translated_text:
-        print(f"[LiveTranslator] ({src_code}->{tgt_code}) Original='{original_text}' | Translated='{translated_text}'")
+        print(f"[LiveTranslator] dir={effective_direction} ({src_code}->{tgt_code}) Original='{original_text}' | Translated='{translated_text}'")
 
     tts_b64 = ""
     tts_mime = "audio/mpeg"
