@@ -9,6 +9,14 @@ export const CALL_MONITOR_PERMS = [
   { id: "call_monitor:barge", name: "Araya Girme (Çağrıya Dahil Ol)" }
 ];
 
+export const SUPERVISOR_SUB_PERMS = [
+  { id: "supervisor:agent_status", name: "Canlı Temsilci Durum Müdahalesi (Müsait / Molaya Çıkar / Moladan Döndür)" },
+  { id: "supervisor:agent_logout", name: "Temsilci Oturum Kapatma (Sistemden Çıkar / Logout)" },
+  { id: "supervisor:scope_filter", name: "Rapor & Yönetim Filtresi (Yönetilen Temsilci ve Kuyruk Seçimi)" }
+];
+
+export const DEFAULT_SUPERVISOR_SUB_PERMS = SUPERVISOR_SUB_PERMS.map((p) => p.id);
+
 export const CALL_PANEL_SUB_GROUPS = [
   {
     id: "tabs",
@@ -90,7 +98,7 @@ const SYSTEM_FEATURES = [
   // 1. Operasyon ve İzleme
   { id: "dashboard", name: "Gerçek Zamanlı AI Pano", icon: Activity, type: "access", color: "purple" },
   { id: "wallboard", name: "Canlı İzleme Paneli", icon: Monitor, type: "access", color: "indigo" },
-  { id: "supervisor", name: "Supervizor (Canlı Durum Müdahale & Ekip/Kuyruk Yönetimi)", icon: Shield, type: "access", color: "indigo" },
+  { id: "supervisor", name: "Supervizor İşlemleri (Canlı Durum Müdahale & Ekip/Kuyruk Yönetimi)", icon: Shield, type: "access", color: "indigo" },
   { id: "call_monitor", name: "Araya Girme, Sufle ve Fısıldama (Canlı Çağrı Müdahale)", icon: Headphones, type: "call_monitor", color: "amber" },
   { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: PhoneCall, type: "access", color: "emerald" },
   { id: "omnichannel", name: "Ortak Gelen Kutusu", icon: MessageSquare, type: "access", color: "purple" },
@@ -191,6 +199,13 @@ export const normalizeRolePermissionsList = (rawPerms = []) => {
   const hasAnyTabPerm = perms.some((p) => p.startsWith("call_panel:tab_"));
   if (hasCallPanelAccess && !hasAnyTabPerm) {
     perms = Array.from(new Set([...perms, ...DEFAULT_CALL_PANEL_SUB_PERMS]));
+  }
+
+  // Supervisor sub-permissions fallback
+  const hasSupervisorAccess = perms.includes("supervisor:access") || perms.includes("supervisor");
+  const hasAnySupSubPerm = perms.some((p) => DEFAULT_SUPERVISOR_SUB_PERMS.includes(p));
+  if (hasSupervisorAccess && !hasAnySupSubPerm) {
+    perms = Array.from(new Set([...perms, "supervisor:access", ...DEFAULT_SUPERVISOR_SUB_PERMS]));
   }
 
   // Reports granular sub-permissions fallback if role has legacy reports:access
@@ -317,6 +332,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       });
     });
 
+    SUPERVISOR_SUB_PERMS.forEach((supItem) => {
+      total += 1;
+      if (perms.includes(supItem.id)) granted += 1;
+    });
+
     return { total, granted };
   };
 
@@ -368,6 +388,12 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       name: "Operasyon ve İzleme",
       icon: Activity,
       items: ["dashboard", "wallboard", "supervisor", "call_monitor", "call_panel", "omnichannel", "api_budgets"]
+    },
+    {
+      id: "supervisor_ops",
+      name: "Supervizor İşlemleri",
+      icon: Shield,
+      items: ["supervisor", "call_monitor", "wallboard"]
     },
     {
       id: "ai",
@@ -467,6 +493,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         const accessKey = feat.id.includes(":") ? feat.id : `${feat.id}:access`;
         codes.push(accessKey);
       }
+      if (feat.id === "supervisor") {
+        SUPERVISOR_SUB_PERMS.forEach((sp) => {
+          if (!codes.includes(sp.id)) codes.push(sp.id);
+        });
+      }
       if (feat.id === "call_panel") {
         CALL_PANEL_SUB_GROUPS.forEach((sg) => {
           sg.items.forEach((subItem) => {
@@ -496,7 +527,13 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
     setEditingRole(r);
     setRoleCode(r.role_code);
     setRoleName(r.name);
-    const initialPerms = normalizeRolePermissionsList(r.permissions);
+    let rawPerms = Array.isArray(r.permissions) ? [...r.permissions] : [];
+    if (["admin", "supervisor"].includes(String(r.role_code || "").toLowerCase())) {
+      if (!rawPerms.some((p) => String(p).startsWith("supervisor"))) {
+        rawPerms.push("supervisor:access", ...DEFAULT_SUPERVISOR_SUB_PERMS);
+      }
+    }
+    const initialPerms = normalizeRolePermissionsList(rawPerms);
     setSelectedPermissions(initialPerms);
     setSelectedBreaks(r.allowed_breaks || []);
     setActiveModalTab("operations");
@@ -584,10 +621,22 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
 
   const togglePermission = (permCode) => {
     if (selectedPermissions.includes(permCode)) {
-      setSelectedPermissions(selectedPermissions.filter(p => p !== permCode));
+      if (permCode === "supervisor:access") {
+        setSelectedPermissions(
+          selectedPermissions.filter(
+            (p) => p !== "supervisor:access" && p !== "supervisor" && !DEFAULT_SUPERVISOR_SUB_PERMS.includes(p)
+          )
+        );
+      } else {
+        setSelectedPermissions(selectedPermissions.filter((p) => p !== permCode));
+      }
     } else {
-      if (permCode === "call_panel:access" && !selectedPermissions.some(p => p.startsWith("call_panel:tab_"))) {
+      if (permCode === "call_panel:access" && !selectedPermissions.some((p) => p.startsWith("call_panel:tab_"))) {
         setSelectedPermissions(Array.from(new Set([...selectedPermissions, permCode, ...DEFAULT_CALL_PANEL_SUB_PERMS])));
+      } else if (permCode === "supervisor:access") {
+        setSelectedPermissions(Array.from(new Set([...selectedPermissions, "supervisor:access", ...DEFAULT_SUPERVISOR_SUB_PERMS])));
+      } else if (DEFAULT_SUPERVISOR_SUB_PERMS.includes(permCode)) {
+        setSelectedPermissions(Array.from(new Set([...selectedPermissions, "supervisor:access", permCode])));
       } else {
         setSelectedPermissions([...selectedPermissions, permCode]);
       }
@@ -1221,6 +1270,43 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                     )}
                                   </div>
                                 </div>
+
+                                {/* Nested Sub-Options for Supervizor İşlemleri (supervisor & wallboard) */}
+                                {(feat.id === "supervisor" || (feat.id === "wallboard" && hasAccessSelected)) && (
+                                  <div className="mt-1 pt-3 border-t border-slate-200/70 dark:border-slate-800/80 space-y-2">
+                                    <span className="text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
+                                      Supervizor İşlemleri & Canlı Müdahale Alt Yetkileri
+                                    </span>
+                                    <div className="flex flex-wrap gap-2">
+                                      {SUPERVISOR_SUB_PERMS.map((supItem) => {
+                                        const isSupSelected = selectedPermissions.includes(supItem.id);
+                                        return (
+                                          <button
+                                            key={supItem.id}
+                                            type="button"
+                                            onClick={() => togglePermission(supItem.id)}
+                                            className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all flex items-center gap-1.5 text-left ${
+                                              isSupSelected
+                                                ? `${lightBg} ${text} ${border}`
+                                                : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                            }`}
+                                          >
+                                            <div
+                                              className={`w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 ${
+                                                isSupSelected
+                                                  ? `${bg} border-transparent text-white`
+                                                  : "border-slate-300 dark:border-slate-700"
+                                              }`}
+                                            >
+                                              {isSupSelected && <Check size={9} strokeWidth={3} />}
+                                            </div>
+                                            <span>{supItem.name}</span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Nested Sub-Options for AI Fısıldama Yönetimi (ai_whisper) */}
                                 {feat.id === "ai_whisper" && (

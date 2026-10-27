@@ -1268,8 +1268,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const selectedRolePerms = Array.isArray(selectedRoleObj?.permissions) ? selectedRoleObj.permissions : [];
   const hasSupervisorPerm =
     String(role || "").toLowerCase() === "supervisor" ||
-    selectedRolePerms.includes("supervisor:access") ||
-    selectedRolePerms.includes("supervisor");
+    selectedRolePerms.some((p) => String(p || "").startsWith("supervisor"));
 
   return (
     <div className="w-full space-y-6">
@@ -1798,6 +1797,19 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                             {systemRoles.length === 0 && <option value="agent">Agent</option>}
                                             {systemRoles.map(r => <option key={r.role_code} value={r.role_code}>{r.name}</option>)}
                                         </select>
+                                        {hasSupervisorPerm && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setActiveTab("supervisor_filter")}
+                                                className={`mt-2 w-full flex items-center justify-between px-3 py-2 rounded-xl border ${border} ${lightBg} ${text} text-[11px] font-bold transition-all hover:opacity-90`}
+                                            >
+                                                <span className="flex items-center gap-1.5">
+                                                    <Shield size={13} />
+                                                    Supervizor Rapor & Yönetim Filtresi ({managedUsers.length} Temsilci, {managedQueues.length} Kuyruk)
+                                                </span>
+                                                <span className="underline text-[10px]">Yapılandır →</span>
+                                            </button>
+                                        )}
                                     </div>
                                     <div>
                                         <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Arayüz Şifresi (Login)</label>

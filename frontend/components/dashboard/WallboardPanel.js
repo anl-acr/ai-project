@@ -1353,8 +1353,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
       const perms = Array.isArray(currentRole.permissions) ? currentRole.permissions : [];
       const hasSupPerm =
         String(currentRole.role_code || "").toLowerCase() === "supervisor" ||
-        perms.includes("supervisor:access") ||
-        perms.includes("supervisor");
+        perms.some((p) => String(p || "").startsWith("supervisor"));
       setIsSupervisor(hasSupPerm);
 
       const hasAccess = hasSupPerm || perms.includes("wallboard:access") || perms.includes("wallboard");

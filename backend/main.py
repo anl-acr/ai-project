@@ -904,7 +904,9 @@ DEFAULT_SETTINGS = {
             "name": "Yönetici",
             "permissions": [
                 # Operasyon & İzleme
-                "dashboard:access", "wallboard:access", "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "dashboard:access", "wallboard:access", "supervisor:access",
+                "supervisor:agent_status", "supervisor:agent_logout", "supervisor:scope_filter",
+                "call_panel:access", "call_panel:listen_records", "omnichannel:access",
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
@@ -983,7 +985,9 @@ DEFAULT_SETTINGS = {
             "role_code": "supervisor",
             "name": "Şef (Supervisor)",
             "permissions": [
-                "dashboard:access", "wallboard:access", "call_panel:access", "call_panel:listen_records", "omnichannel:access",
+                "dashboard:access", "wallboard:access", "supervisor:access",
+                "supervisor:agent_status", "supervisor:agent_logout", "supervisor:scope_filter",
+                "call_panel:access", "call_panel:listen_records", "omnichannel:access",
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
@@ -1238,6 +1242,9 @@ def load_settings():
                     new_perms.append("wallboard:access")
                 if "supervisor:access" not in new_perms:
                     new_perms.append("supervisor:access")
+                for sup_sub in ["supervisor:agent_status", "supervisor:agent_logout", "supervisor:scope_filter"]:
+                    if sup_sub not in new_perms:
+                        new_perms.append(sup_sub)
                 if "dialer:access" not in new_perms:
                     new_perms.append("dialer:access")
                 if "call_flow:access" not in new_perms:
@@ -16362,11 +16369,16 @@ async def new_get_roles_endpoint(db: AsyncSession = Depends(get_db)):
         if roles:
             out = []
             admin_defaults = DEFAULT_SETTINGS["roles"][0]["permissions"]
+            sup_Required = ["supervisor:access", "supervisor:agent_status", "supervisor:agent_logout", "supervisor:scope_filter"]
             for r in roles:
                 d = {c.name: getattr(r, c.name) for c in r.__table__.columns}
+                perms_list = list(d.get("permissions") or [])
                 if d.get("role_code") in ["admin", "superadmin"]:
-                    merged = list(set((d.get("permissions") or []) + admin_defaults))
-                    d["permissions"] = merged
+                    perms_list = list(set(perms_list + admin_defaults))
+                elif d.get("role_code") == "supervisor":
+                    if not any(str(p).startswith("supervisor") for p in perms_list):
+                        perms_list = list(set(perms_list + sup_Required))
+                d["permissions"] = perms_list
                 out.append(d)
             return out
     except Exception as e:
