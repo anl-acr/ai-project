@@ -51,7 +51,7 @@ export default function AgentWebphoneTab({
   const [transferTarget, setTransferTarget] = useState("");
   const [conferenceOpen, setConferenceOpen] = useState(false);
   const [conferenceTarget, setConferenceTarget] = useState("");
-  const [isTranslatorOpen, setIsTranslatorOpen] = useState(true);
+  const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
   const [newCallInput, setNewCallInput] = useState("");
   const [isNewCallOpen, setIsNewCallOpen] = useState(false);
 
@@ -68,9 +68,6 @@ export default function AgentWebphoneTab({
   useEffect(() => {
     const unsub = webphoneManager.subscribe((state) => {
       setWpState({ ...state });
-      if (state.callStatus === "InCall") {
-        setIsTranslatorOpen(true);
-      }
     });
     return () => unsub();
   }, []);
@@ -1021,32 +1018,25 @@ export default function AgentWebphoneTab({
               </>
             )}
 
-            {/* Persistent Live Translator & Interpreter Panel (Never unmounts on Idle <-> Calling <-> InCall) */}
+            {/* Top-Right Compact Translate Toggle Icon & Chat Panel */}
             {hasAnyTranslatorPerm && (
-              <div className="flex-1 min-h-[260px]">
-                {!isTranslatorOpen ? (
-                  <div
-                    onClick={() => setIsTranslatorOpen(true)}
-                    className={`cursor-pointer px-4 py-3 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex items-center justify-between hover:opacity-95 transition-all`}
+              <>
+                <div className="flex justify-end shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setIsTranslatorOpen((p) => !p)}
+                    title={isTranslatorOpen ? "Canlı Çeviri Panelini Kapat" : "Canlı Konuşma & Çeviri Panelini Aç"}
+                    className={`h-9 w-9 rounded-xl border flex items-center justify-center transition-all shadow-sm ${
+                      isTranslatorOpen
+                        ? `${bg} text-white border-transparent`
+                        : `bg-white dark:bg-slate-900 ${text} ${borderLight} hover:opacity-90`
+                    }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
-                        <Languages size={17} />
-                      </div>
-                      <div>
-                        <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                          Canlı Konuşma &amp; Çeviri
-                        </h4>
-                        <p className="text-[10px] text-slate-400 mt-0.5">
-                          Görüşme sırasındaki konuşmaları anlık metin ve sohbet akışı olarak görüntüler.
-                        </p>
-                      </div>
-                    </div>
-                    <span className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg}`}>
-                      Paneli Aç
-                    </span>
-                  </div>
-                ) : (
+                    <Languages size={17} />
+                  </button>
+                </div>
+
+                <div className={isTranslatorOpen ? "flex-1 min-h-[260px]" : "hidden"}>
                   <LiveTranslatorPanel
                     backendHost={backendHost}
                     callId={activeCallId}
@@ -1056,8 +1046,8 @@ export default function AgentWebphoneTab({
                     isActiveInstance={Boolean(isWebphoneScreenActive)}
                     onClose={() => setIsTranslatorOpen(false)}
                   />
-                )}
-              </div>
+                </div>
+              </>
             )}
           </div>
         </div>
