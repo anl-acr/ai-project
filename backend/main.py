@@ -4094,9 +4094,6 @@ async def save_departments_endpoint(payload: Union[List[DepartmentSchema], Depar
 @app.post("/api/webrtc/register_notify")
 async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSession = Depends(get_db)):
     from backend.services.ami_manager import registered_endpoints
-    from backend.services.agent_presence import update_agent_state
-    from backend.database.models import AgentBreakLog
-    from sqlalchemy import select, or_
 
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
@@ -4118,42 +4115,6 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
         if matched_user_id:
             registered_endpoints.add(str(matched_user_id), client_ip)
 
-        update_agent_state(
-            is_logged_in=True,
-            status="online",
-            current_break=None,
-            user_id=matched_user_id
-        )
-        update_agent_state(
-            is_logged_in=True,
-            status="online",
-            current_break=None,
-            user_id=ext
-        )
-
-        try:
-            now_utc = datetime.datetime.utcnow()
-            recent_cutoff = now_utc - datetime.timedelta(minutes=10)
-            stmt_recent = select(AgentBreakLog).where(
-                AgentBreakLog.break_name == "__LOGIN__",
-                AgentBreakLog.start_time >= recent_cutoff,
-                or_(AgentBreakLog.extension == ext, AgentBreakLog.user_id == str(matched_user_id))
-            )
-            res_recent = await db.execute(stmt_recent)
-            if not res_recent.scalars().first():
-                db.add(AgentBreakLog(
-                    user_id=str(matched_user_id),
-                    extension=ext,
-                    break_name="__LOGIN__",
-                    start_time=now_utc,
-                    end_time=now_utc,
-                    duration_seconds=0
-                ))
-                await db.commit()
-        except Exception as e_log:
-            print(f"[WebRTC Register Notify] Timeline login log error: {e_log}")
-
-        print(f"[WebRTC Register Notify] Extension {ext} (User ID: {matched_user_id}) registered & online from IP {client_ip}.")
     return {"status": "success", "ip": client_ip}
 
 @app.post("/api/webrtc/unregister_notify")
@@ -4178,9 +4139,7 @@ async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get
                 registered_endpoints.discard(str(u.get("extension")))
                 registered_endpoints.discard(str(u.get("id")))
 
-        update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=ext)
-        if matched_user_id:
-            update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=matched_user_id)
+        update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=matched_user_id, extension=ext)
 
         try:
             now_utc = datetime.datetime.utcnow()
@@ -4235,6 +4194,10 @@ async def get_agent_status_endpoint(
                 if not ext_str:
                     ext_str = u_ext
 
+    mem_state = get_agent_state(user_id=uid_str, extension=ext_str)
+    if mem_state and mem_state.get("status_since_utc") and not mem_state.get("is_logged_in"):
+        return mem_state
+
     try:
         conds = []
         for tv in target_vals:
@@ -4245,9 +4208,19 @@ async def get_agent_status_endpoint(
             stmt_today_logs = select(AgentBreakLog).where(
                 AgentBreakLog.start_time >= today_start_utc,
                 or_(*conds)
-            ).order_by(AgentBreakLog.start_time.desc())
+            ).order_by(AgentBreakLog.start_time.desc(), AgentBreakLog.id.desc())
             res_today_logs = await db.execute(stmt_today_logs)
             all_today_logs = res_today_logs.scalars().all()
+
+            if all_today_logs and str(all_today_logs[0].break_name or "") == "__LOGOUT__":
+                st_out = update_agent_state(
+                    is_logged_in=False,
+                    status="offline",
+                    current_break=None,
+                    user_id=uid_str,
+                    extension=ext_str
+                )
+                return st_out
 
             active_brk = next(
                 (b for b in all_today_logs if b.end_time is None and not str(b.break_name or "").startswith("__")),
@@ -4281,7 +4254,6 @@ async def get_agent_status_endpoint(
         print(f"[Get Agent Status DB Check Error]: {e_st}")
         all_today_logs = []
 
-    mem_state = get_agent_state(user_id=uid_str, extension=ext_str)
     if mem_state and mem_state.get("status_since_utc"):
         return mem_state
 
@@ -4357,7 +4329,6 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
     )
 
     try:
-
         conditions = []
         if user_id_str:
             conditions.append(AgentBreakLog.user_id == user_id_str)
@@ -4388,7 +4359,7 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
                 duration_seconds=0
             )
             db.add(new_log)
-        elif payload.status == "offline" and not payload.is_logged_in and (user_id_str or ext_str):
+        elif (payload.status == "offline" or not payload.is_logged_in) and (user_id_str or ext_str):
             db.add(AgentBreakLog(
                 user_id=user_id_str,
                 extension=ext_str,
@@ -4398,14 +4369,12 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
                 duration_seconds=0
             ))
         elif payload.status == "online" and payload.is_logged_in and not ended_any_break and conditions:
-            recent_cutoff = now_utc - datetime.timedelta(minutes=30)
-            stmt_recent = select(AgentBreakLog).where(
-                AgentBreakLog.break_name == "__LOGIN__",
-                AgentBreakLog.start_time >= recent_cutoff,
+            stmt_latest = select(AgentBreakLog).where(
                 or_(*conditions)
-            )
-            res_recent = await db.execute(stmt_recent)
-            if not res_recent.scalars().first():
+            ).order_by(AgentBreakLog.start_time.desc(), AgentBreakLog.id.desc()).limit(1)
+            res_latest = await db.execute(stmt_latest)
+            latest_log = res_latest.scalars().first()
+            if not latest_log or str(latest_log.break_name or "") != "__LOGIN__":
                 db.add(AgentBreakLog(
                     user_id=user_id_str,
                     extension=ext_str,
@@ -10601,7 +10570,7 @@ async def get_reports_agents():
         # Fetch today's agent session/break logs to restore login/break state accurately
         stmt_brk = select(AgentBreakLog).where(
             AgentBreakLog.start_time >= today_start_utc
-        ).order_by(AgentBreakLog.start_time.desc())
+        ).order_by(AgentBreakLog.start_time.desc(), AgentBreakLog.id.desc())
         res_brk = await session.execute(stmt_brk)
         today_break_logs = res_brk.scalars().all()
 
