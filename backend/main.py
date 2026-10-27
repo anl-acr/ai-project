@@ -2845,11 +2845,24 @@ same => n,GotoIf($["${{CUT(SURVEY_CFG,:,1)}}" != "ENABLED"]?hangup_transfer)
 same => n,Set(SURVEY_Q_EXT=${{CUT(SURVEY_CFG,:,2)}})
 same => n,Set(SURVEY_MAX_DIGITS=${{CUT(SURVEY_CFG,:,3)}})
 same => n,Set(SURVEY_TIMEOUT=${{CUT(SURVEY_CFG,:,4)}})
-same => n,Set(SURVEY_Q_WAV=${{CUT(SURVEY_CFG,:,5)}})
+same => n,Set(SURVEY_Q_WAVS=${{CUT(SURVEY_CFG,:,5)}})
 same => n,Set(SURVEY_TY_WAV=${{CUT(SURVEY_CFG,:,6)}})
-same => n,Read(SURVEY_SCORE,/var/spool/asterisk/monitor/${{SURVEY_Q_WAV}},${{SURVEY_MAX_DIGITS}},,,${{SURVEY_TIMEOUT}})
-same => n,Set(SURVEY_RES=${{CURL(http://{backend_host}/api/queues/survey/submit?call_id=${{CALL_UUID}}&queue_ext=${{SURVEY_Q_EXT}}&agent_ext=${{URIENCODE(${{MEMBERINTERFACE}})}}&caller=${{CALLERID(num)}}&score=${{SURVEY_SCORE}})}})
-same => n,GotoIf($["${{SURVEY_SCORE}}" = ""]?hangup_transfer)
+same => n,Set(SURVEY_Q_CNT=${{CUT(SURVEY_CFG,:,7)}})
+same => n,Set(SURVEY_Q_CNT=${{IF($["${{SURVEY_Q_CNT}}" = ""]?1:${{SURVEY_Q_CNT}})}})
+same => n,Set(SURVEY_Q_IDX=1)
+same => n,Set(SURVEY_ALL_SCORES=)
+same => n,Set(SURVEY_ANY_ANS=0)
+same => n(survey_t_loop),GotoIf($[${{SURVEY_Q_IDX}} > ${{SURVEY_Q_CNT}}]?survey_t_done)
+same => n,Set(CUR_Q_WAV=${{CUT(SURVEY_Q_WAVS,&,${{SURVEY_Q_IDX}})}})
+same => n,Set(CUR_Q_WAV=${{IF($["${{CUR_Q_WAV}}" = ""]?tr_anket_soru:${{CUR_Q_WAV}})}})
+same => n,Set(SURVEY_SCORE=)
+same => n,Read(SURVEY_SCORE,/var/spool/asterisk/monitor/${{CUR_Q_WAV}},${{SURVEY_MAX_DIGITS}},,,${{SURVEY_TIMEOUT}})
+same => n,Set(SURVEY_ANY_ANS=${{IF($["${{SURVEY_SCORE}}" != ""]?1:${{SURVEY_ANY_ANS}})}})
+same => n,Set(SURVEY_ALL_SCORES=${{IF($[${{SURVEY_Q_IDX}} = 1]?${{SURVEY_SCORE}}:${{SURVEY_ALL_SCORES}},${{SURVEY_SCORE}})}})
+same => n,Set(SURVEY_Q_IDX=$[${{SURVEY_Q_IDX}} + 1])
+same => n,Goto(survey_t_loop)
+same => n(survey_t_done),Set(SURVEY_RES=${{CURL(http://{backend_host}/api/queues/survey/submit?call_id=${{CALL_UUID}}&queue_ext=${{SURVEY_Q_EXT}}&agent_ext=${{URIENCODE(${{MEMBERINTERFACE}})}}&caller=${{CALLERID(num)}}&score=${{URIENCODE(${{SURVEY_ALL_SCORES}})}})}})
+same => n,GotoIf($["${{SURVEY_ANY_ANS}}" != "1"]?hangup_transfer)
 same => n,Playback(/var/spool/asterisk/monitor/${{SURVEY_TY_WAV}})
 same => n(hangup_transfer),Hangup()
 
@@ -3017,11 +3030,24 @@ same => n,GotoIf($["${{CUT(SURVEY_CFG,:,1)}}" != "ENABLED"]?final_hangup)
 same => n,Set(SURVEY_Q_EXT=${{CUT(SURVEY_CFG,:,2)}})
 same => n,Set(SURVEY_MAX_DIGITS=${{CUT(SURVEY_CFG,:,3)}})
 same => n,Set(SURVEY_TIMEOUT=${{CUT(SURVEY_CFG,:,4)}})
-same => n,Set(SURVEY_Q_WAV=${{CUT(SURVEY_CFG,:,5)}})
+same => n,Set(SURVEY_Q_WAVS=${{CUT(SURVEY_CFG,:,5)}})
 same => n,Set(SURVEY_TY_WAV=${{CUT(SURVEY_CFG,:,6)}})
-same => n,Read(SURVEY_SCORE,/var/spool/asterisk/monitor/${{SURVEY_Q_WAV}},${{SURVEY_MAX_DIGITS}},,,${{SURVEY_TIMEOUT}})
-same => n,Set(SURVEY_RES=${{CURL(http://{backend_host}/api/queues/survey/submit?call_id=${{CALL_UUID}}&queue_ext=${{SURVEY_Q_EXT}}&agent_ext=${{EXTEN}}&caller=${{CALLERID(num)}}&score=${{SURVEY_SCORE}})}})
-same => n,GotoIf($["${{SURVEY_SCORE}}" = ""]?final_hangup)
+same => n,Set(SURVEY_Q_CNT=${{CUT(SURVEY_CFG,:,7)}})
+same => n,Set(SURVEY_Q_CNT=${{IF($["${{SURVEY_Q_CNT}}" = ""]?1:${{SURVEY_Q_CNT}})}})
+same => n,Set(SURVEY_Q_IDX=1)
+same => n,Set(SURVEY_ALL_SCORES=)
+same => n,Set(SURVEY_ANY_ANS=0)
+same => n(survey_w_loop),GotoIf($[${{SURVEY_Q_IDX}} > ${{SURVEY_Q_CNT}}]?survey_w_done)
+same => n,Set(CUR_Q_WAV=${{CUT(SURVEY_Q_WAVS,&,${{SURVEY_Q_IDX}})}})
+same => n,Set(CUR_Q_WAV=${{IF($["${{CUR_Q_WAV}}" = ""]?tr_anket_soru:${{CUR_Q_WAV}})}})
+same => n,Set(SURVEY_SCORE=)
+same => n,Read(SURVEY_SCORE,/var/spool/asterisk/monitor/${{CUR_Q_WAV}},${{SURVEY_MAX_DIGITS}},,,${{SURVEY_TIMEOUT}})
+same => n,Set(SURVEY_ANY_ANS=${{IF($["${{SURVEY_SCORE}}" != ""]?1:${{SURVEY_ANY_ANS}})}})
+same => n,Set(SURVEY_ALL_SCORES=${{IF($[${{SURVEY_Q_IDX}} = 1]?${{SURVEY_SCORE}}:${{SURVEY_ALL_SCORES}},${{SURVEY_SCORE}})}})
+same => n,Set(SURVEY_Q_IDX=$[${{SURVEY_Q_IDX}} + 1])
+same => n,Goto(survey_w_loop)
+same => n(survey_w_done),Set(SURVEY_RES=${{CURL(http://{backend_host}/api/queues/survey/submit?call_id=${{CALL_UUID}}&queue_ext=${{SURVEY_Q_EXT}}&agent_ext=${{EXTEN}}&caller=${{CALLERID(num)}}&score=${{URIENCODE(${{SURVEY_ALL_SCORES}})}})}})
+same => n,GotoIf($["${{SURVEY_ANY_ANS}}" != "1"]?final_hangup)
 same => n,Playback(/var/spool/asterisk/monitor/${{SURVEY_TY_WAV}})
 same => n(final_hangup),Hangup()
 
@@ -3046,14 +3072,16 @@ same => n,Hangup()
         import shutil
         sounds_tr_dir = os.path.join(config_dir, "sounds_tr")
         monitor_dir = "/var/spool/asterisk/monitor"
-        if os.path.isdir(sounds_tr_dir) and (os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk")):
+        if os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk"):
             os.makedirs(monitor_dir, exist_ok=True)
-            for fname in os.listdir(sounds_tr_dir):
-                if fname.endswith(".wav"):
-                    src_wav = os.path.join(sounds_tr_dir, fname)
-                    dst_wav = os.path.join(monitor_dir, fname)
-                    shutil.copy2(src_wav, dst_wav)
-                    os.chmod(dst_wav, 0o644)
+            for src_dir in [sounds_tr_dir, "uploads/announcements"]:
+                if os.path.isdir(src_dir):
+                    for fname in os.listdir(src_dir):
+                        if fname.endswith(".wav"):
+                            src_wav = os.path.join(src_dir, fname)
+                            dst_wav = os.path.join(monitor_dir, fname)
+                            shutil.copy2(src_wav, dst_wav)
+                            os.chmod(dst_wav, 0o644)
     except Exception as e_snd:
         print(f"[Asterisk Config] Turkce ses dosyalari kopyalanamadi: {e_snd}")
 
@@ -5222,6 +5250,57 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
         normalized.append(item)
     return normalized
 
+def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
+    """Converts an uploaded or TTS announcement audio file into 8000Hz mono 16-bit PCM WAV for Asterisk and syncs to monitor directories."""
+    import os
+    import shutil
+    import subprocess
+
+    os.makedirs("uploads/announcements", exist_ok=True)
+    wav_filename = f"{ann_id}.wav"
+    wav_filepath = os.path.join("uploads/announcements", wav_filename)
+    tmp_wav = os.path.join("uploads/announcements", f"{ann_id}_tmp8k.wav")
+
+    converted = False
+    for cmd in [
+        ["ffmpeg", "-y", "-i", src_filepath, "-ar", "8000", "-ac", "1", "-c:a", "pcm_s16le", tmp_wav],
+        ["sox", src_filepath, "-r", "8000", "-c", "1", "-b", "16", tmp_wav],
+    ]:
+        try:
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4.0)
+            if res.returncode == 0 and os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 44:
+                shutil.move(tmp_wav, wav_filepath)
+                converted = True
+                break
+        except Exception:
+            pass
+    if os.path.exists(tmp_wav):
+        try:
+            os.remove(tmp_wav)
+        except Exception:
+            pass
+
+    if not converted and src_filepath != wav_filepath and os.path.exists(src_filepath):
+        try:
+            shutil.copy2(src_filepath, wav_filepath)
+        except Exception:
+            pass
+
+    if os.path.exists(wav_filepath):
+        target_dirs = [os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr"), "recordings"]
+        if os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk"):
+            target_dirs.append("/var/spool/asterisk/monitor")
+        for d in target_dirs:
+            try:
+                os.makedirs(d, exist_ok=True)
+                dst = os.path.join(d, wav_filename)
+                shutil.copy2(wav_filepath, dst)
+                os.chmod(dst, 0o644)
+            except Exception as e_sync:
+                print(f"[Announcement WAV Sync Warning] ({d}): {e_sync}")
+    return wav_filepath
+
+
 @app.post("/api/settings/announcements")
 async def create_announcement(
     file: UploadFile = File(None),
@@ -5236,12 +5315,13 @@ async def create_announcement(
     orig_fname = file.filename if (file and file.filename) else "tts_audio.wav"
     ext = os.path.splitext(orig_fname)[1] or ".wav"
     ann_id = str(uuid.uuid4())
-    filename = f"{ann_id}{ext}" if file else "tts_audio.wav"
+    filename = f"{ann_id}{ext}" if file else f"{ann_id}.wav"
     filepath = os.path.join("uploads/announcements", filename)
     
     if file:
         with open(filepath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
+        _convert_and_sync_announcement_wav(filepath, ann_id)
             
     resolved_type = type if type in ["announcement", "moh"] else (announcement_type if announcement_type in ["announcement", "moh"] else "announcement")
     ann = {
@@ -5268,16 +5348,24 @@ class TTSAnnouncementSchema(BaseModel):
 async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_user_info)):
     import os
     target_tenant = user_info.get("tenant_id") or "tenant-default"
-    text = payload.get("text", "")
+    text = str(payload.get("text") or "").strip()
     name = (payload.get("name") or "TTS Anons").strip()
     ann_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else "announcement"
-    voice = payload.get("voice", "tr-TR-AhmetNeural")
+    voice = payload.get("voice") or "tr-TR-EmelNeural"
+    existing_id = str(payload.get("id") or payload.get("announcement_id") or "").strip()
     
     if not text:
         raise HTTPException(status_code=400, detail="Metin boş olamaz.")
         
     os.makedirs("uploads/announcements", exist_ok=True)
-    ann_id = str(uuid.uuid4())
+    if "announcements" not in settings_db:
+        settings_db["announcements"] = []
+
+    existing_ann = None
+    if existing_id:
+        existing_ann = next((a for a in settings_db["announcements"] if str(a.get("id")) == existing_id), None)
+
+    ann_id = existing_ann["id"] if existing_ann else str(uuid.uuid4())
     filename = f"{ann_id}.mp3"
     orig_fname = f"tts_{ann_id[:8]}.mp3"
     filepath = os.path.join("uploads/announcements", filename)
@@ -5290,21 +5378,34 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
         print(f"[TTS Error]: {e}")
         with open(filepath, "wb") as f:
             f.write(b"RIFF....WAVEfmt ....data....")
+
+    _convert_and_sync_announcement_wav(filepath, ann_id)
             
-    ann = {
-        "id": ann_id,
-        "name": name,
-        "filename": filename,
-        "original_filename": orig_fname,
-        "type": ann_type,
-        "tenant_id": target_tenant,
-        "text": text,
-        "created_at": datetime.datetime.now().timestamp()
-    }
-    
-    if "announcements" not in settings_db:
-        settings_db["announcements"] = []
-    settings_db["announcements"].append(ann)
+    now_ts = datetime.datetime.now().timestamp()
+    if existing_ann:
+        existing_ann["name"] = name
+        existing_ann["filename"] = filename
+        existing_ann["original_filename"] = orig_fname
+        existing_ann["type"] = ann_type
+        existing_ann["text"] = text
+        existing_ann["voice"] = voice
+        existing_ann["updated_at"] = now_ts
+        ann = existing_ann
+    else:
+        ann = {
+            "id": ann_id,
+            "name": name,
+            "filename": filename,
+            "original_filename": orig_fname,
+            "type": ann_type,
+            "tenant_id": target_tenant,
+            "text": text,
+            "voice": voice,
+            "created_at": now_ts,
+            "updated_at": now_ts
+        }
+        settings_db["announcements"].append(ann)
+
     save_settings(settings_db)
     return {"status": "success", "announcement": ann}
 
@@ -8010,6 +8111,9 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
                     survey_scale=getattr(q, "survey_scale", "1-5"),
                     survey_question_announcement=getattr(q, "survey_question_announcement", ""),
                     survey_thank_you_announcement=getattr(q, "survey_thank_you_announcement", ""),
+                    survey_thank_you_text=getattr(q, "survey_thank_you_text", ""),
+                    survey_thank_you_voice=getattr(q, "survey_thank_you_voice", "tr-TR-EmelNeural"),
+                    survey_questions=getattr(q, "survey_questions", []),
                     survey_timeout_sec=getattr(q, "survey_timeout_sec", 10),
                     survey_low_score_threshold=getattr(q, "survey_low_score_threshold", 2)
                 )
@@ -15363,10 +15467,14 @@ async def startup_event():
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_scale VARCHAR DEFAULT '1-5';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_question_announcement VARCHAR DEFAULT '';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_thank_you_announcement VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_thank_you_text VARCHAR DEFAULT '';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_thank_you_voice VARCHAR DEFAULT 'tr-TR-EmelNeural';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_questions JSON DEFAULT '[]';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_timeout_sec INTEGER DEFAULT 10;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_low_score_threshold INTEGER DEFAULT 2;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_concurrent_breaks INTEGER DEFAULT 0;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS disposition_codes JSON DEFAULT '[]';",
+                "ALTER TABLE queue_survey_responses ADD COLUMN IF NOT EXISTS question_answers JSON DEFAULT '[]';",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';",
@@ -16473,10 +16581,21 @@ def _resolve_survey_announcement_wav(ann_val: str, default_wav: str) -> str:
     val_str = str(ann_val).strip()
     for a in settings_db.get("announcements", []):
         if str(a.get("id")) == val_str or str(a.get("filename")) == val_str or str(a.get("name")) == val_str:
+            ann_id = str(a.get("id") or "").strip()
             fname = str(a.get("filename") or "").strip()
             if fname:
-                return fname[:-4] if fname.lower().endswith(".wav") else fname
-    return val_str[:-4] if val_str.lower().endswith(".wav") else val_str
+                src_fp = os.path.join("uploads/announcements", fname)
+                if ann_id and os.path.exists(src_fp):
+                    wav_check = os.path.join("/var/spool/asterisk/monitor", f"{ann_id}.wav")
+                    local_wav_check = os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr", f"{ann_id}.wav")
+                    if not os.path.exists(wav_check) and not os.path.exists(local_wav_check):
+                        _convert_and_sync_announcement_wav(src_fp, ann_id)
+                base_name = os.path.splitext(fname)[0]
+                return base_name or ann_id or default_wav
+            if ann_id:
+                return ann_id
+    base_val = os.path.splitext(val_str)[0]
+    return base_val or default_wav
 
 
 def _extract_clean_agent_ext(raw_agent: str) -> str:
@@ -16501,7 +16620,7 @@ async def get_queue_survey_config_for_dialplan(
 ):
     """
     Called by Asterisk dialplan right after a queue or agent call ends from the agent side.
-    Returns: ENABLED:<queue_ext>:<max_digits>:<timeout>:<question_wav>:<thankyou_wav> or DISABLED
+    Returns: ENABLED:<queue_ext>:<max_digits>:<timeout>:<q_wav_1>&<q_wav_2>...:<thankyou_wav>:<q_count> or DISABLED
     """
     try:
         res = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
@@ -16549,10 +16668,27 @@ async def get_queue_survey_config_for_dialplan(
     scale = str(matched_q.get("survey_scale") or "1-5")
     max_digits = 2 if scale == "1-10" else 1
     timeout_sec = max(3, min(30, int(matched_q.get("survey_timeout_sec") or 10)))
-    q_wav = _resolve_survey_announcement_wav(matched_q.get("survey_question_announcement"), "tr_anket_soru")
+
+    raw_questions = matched_q.get("survey_questions")
+    if isinstance(raw_questions, str):
+        try:
+            raw_questions = json.loads(raw_questions)
+        except Exception:
+            raw_questions = []
+
+    q_wav_list = []
+    if isinstance(raw_questions, list) and len(raw_questions) > 0:
+        for q_item in raw_questions:
+            if isinstance(q_item, dict):
+                ann_ref = q_item.get("announcement_id") or q_item.get("announcement") or ""
+                q_wav_list.append(_resolve_survey_announcement_wav(ann_ref, "tr_anket_soru"))
+    if not q_wav_list:
+        q_wav_list = [_resolve_survey_announcement_wav(matched_q.get("survey_question_announcement"), "tr_anket_soru")]
+
+    q_wavs_str = "&".join(q_wav_list)
     ty_wav = _resolve_survey_announcement_wav(matched_q.get("survey_thank_you_announcement"), "tr_anket_tesekkur")
 
-    return PlainTextResponse(f"ENABLED:{q_ext_resolved}:{max_digits}:{timeout_sec}:{q_wav}:{ty_wav}")
+    return PlainTextResponse(f"ENABLED:{q_ext_resolved}:{max_digits}:{timeout_sec}:{q_wavs_str}:{ty_wav}:{len(q_wav_list)}")
 
 
 @app.get("/api/queues/survey/submit")
@@ -16566,7 +16702,7 @@ async def submit_queue_survey_response(
     score: Optional[str] = "",
     db: AsyncSession = Depends(get_db)
 ):
-    """Records post-call queue satisfaction survey response from Asterisk DTMF or API."""
+    """Records post-call queue satisfaction survey response from Asterisk DTMF or API (supports single or multi-question comma-separated scores)."""
     body_data = {}
     if request.method == "POST":
         try:
@@ -16602,6 +16738,15 @@ async def submit_queue_survey_response(
     max_score = 10 if scale == "1-10" else (2 if scale == "1-2" else 5)
     low_threshold = int(matched_q.get("survey_low_score_threshold") or 2) if matched_q else 2
 
+    raw_questions = matched_q.get("survey_questions") if matched_q else []
+    if isinstance(raw_questions, str):
+        try:
+            raw_questions = json.loads(raw_questions)
+        except Exception:
+            raw_questions = []
+    if not isinstance(raw_questions, list):
+        raw_questions = []
+
     # Resolve agent & caller from Call table if missing
     ag_name = ""
     if c_id:
@@ -16634,20 +16779,49 @@ async def submit_queue_survey_response(
     if not ag_name:
         ag_name = f"Dahili {ag_ext}" if ag_ext else "Temsilci"
 
-    # Parse score
-    score_val = None
-    status_val = "timeout"
-    if raw_score != "":
-        try:
-            parsed = int(raw_score)
-            if 1 <= parsed <= max_score:
-                score_val = parsed
-                status_val = "completed"
-            else:
-                score_val = parsed
-                status_val = "invalid"
-        except Exception:
-            status_val = "invalid"
+    # Parse single or multi-question score(s)
+    score_parts = raw_score.split(",") if "," in raw_score else ([raw_score] if raw_score != "" else [])
+    question_answers = []
+    valid_scores = []
+    any_invalid = False
+
+    total_q_len = max(len(score_parts), len(raw_questions), 1)
+    for idx in range(total_q_len):
+        part_str = score_parts[idx].strip() if idx < len(score_parts) else ""
+        q_meta = raw_questions[idx] if idx < len(raw_questions) and isinstance(raw_questions[idx], dict) else {}
+        q_title = str(q_meta.get("title") or q_meta.get("question_text") or q_meta.get("text") or f"{idx + 1}. Soru").strip()
+        q_sc = None
+        q_st = "timeout"
+        if part_str != "":
+            try:
+                p_int = int(part_str)
+                q_sc = p_int
+                if 1 <= p_int <= max_score:
+                    q_st = "completed"
+                    valid_scores.append(p_int)
+                else:
+                    q_st = "invalid"
+                    any_invalid = True
+            except Exception:
+                q_st = "invalid"
+                any_invalid = True
+        question_answers.append({
+            "question_index": idx + 1,
+            "question_text": q_title,
+            "score": q_sc,
+            "max_score": max_score,
+            "status": q_st
+        })
+
+    if valid_scores:
+        score_val = int(round(sum(valid_scores) / len(valid_scores)))
+        status_val = "completed"
+    elif any_invalid:
+        score_val = question_answers[0]["score"] if question_answers else None
+        status_val = "invalid"
+    else:
+        score_val = None
+        status_val = "timeout"
 
     now_utc = datetime.datetime.utcnow()
     new_resp = QueueSurveyResponse(
@@ -16660,6 +16834,7 @@ async def submit_queue_survey_response(
         caller_number=caller_num or "Bilinmeyen",
         score=score_val,
         max_score=max_score,
+        question_answers=question_answers,
         status=status_val,
         timestamp=now_utc
     )
@@ -16686,6 +16861,7 @@ async def submit_queue_survey_response(
         "caller_number": caller_num or "Bilinmeyen",
         "score": score_val,
         "max_score": max_score,
+        "question_answers": question_answers,
         "status": status_val,
         "timestamp": now_utc.isoformat()
     })
@@ -16699,14 +16875,16 @@ async def submit_queue_survey_response(
 
     if request.method == "GET":
         return PlainTextResponse("SAVED")
-    return {"status": "success", "id": saved_id, "score": score_val, "survey_status": status_val}
+    return {"status": "success", "id": saved_id, "score": score_val, "question_answers": question_answers, "survey_status": status_val}
 
 
 @app.get("/api/reports/queue-surveys")
 async def get_queue_survey_reports(
     request: Request,
     queue_extension: Optional[str] = "all",
+    queue_ext: Optional[str] = None,
     agent_extension: Optional[str] = "all",
+    agent_ext: Optional[str] = None,
     score_filter: Optional[str] = "all",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
@@ -16715,6 +16893,10 @@ async def get_queue_survey_reports(
 ):
     """Returns aggregated CSAT KPIs, score distribution, per-queue/per-agent breakdown, and detailed survey records."""
     target_tenant = user_info.get("tenant_id") or "tenant-default"
+    if queue_ext and (not queue_extension or queue_extension == "all"):
+        queue_extension = queue_ext
+    if agent_ext and (not agent_extension or agent_extension == "all"):
+        agent_extension = agent_ext
 
     raw_rows = []
     try:
@@ -16728,6 +16910,13 @@ async def get_queue_survey_reports(
                         continue
                 elif r_tenant != target_tenant:
                     continue
+            ts_iso = r.timestamp.isoformat() if r.timestamp else datetime.datetime.utcnow().isoformat()
+            q_ans = getattr(r, "question_answers", []) or []
+            if isinstance(q_ans, str):
+                try:
+                    q_ans = json.loads(q_ans)
+                except Exception:
+                    q_ans = []
             raw_rows.append({
                 "id": r.id,
                 "tenant_id": r_tenant,
@@ -16739,8 +16928,10 @@ async def get_queue_survey_reports(
                 "caller_number": r.caller_number or "Bilinmeyen",
                 "score": r.score,
                 "max_score": r.max_score or 5,
+                "question_answers": q_ans,
                 "status": r.status or "completed",
-                "timestamp": r.timestamp.isoformat() if r.timestamp else datetime.datetime.utcnow().isoformat()
+                "timestamp": ts_iso,
+                "created_at": ts_iso
             })
     except Exception as e:
         print(f"[Survey Reports DB Read Warning]: {e}")
@@ -16812,7 +17003,11 @@ async def get_queue_survey_reports(
                 except Exception:
                     pass
 
-        row["is_critical"] = bool(st == "completed" and sc is not None and sc <= low_thr)
+        is_crit = bool(st == "completed" and sc is not None and sc <= low_thr)
+        row["is_critical"] = is_crit
+        row["is_low_score"] = is_crit
+        if not row.get("created_at"):
+            row["created_at"] = row.get("timestamp")
         row["recording_path"] = f"/api/recordings/{row['call_id']}.wav" if row.get("call_id") else None
         filtered.append(row)
 
@@ -16844,6 +17039,7 @@ async def get_queue_survey_reports(
 
     avg_score = round(sum(norm_scores) / len(norm_scores), 2) if norm_scores else 0.0
     csat_pct = round((high_count / completed_count) * 100, 1) if completed_count > 0 else 0.0
+    low_rate_pct = round((low_count / completed_count) * 100, 1) if completed_count > 0 else 0.0
 
     score_distribution = []
     for star in [5, 4, 3, 2, 1]:
@@ -16894,19 +17090,24 @@ async def get_queue_survey_reports(
     by_queue_list = []
     for qe, qd in by_queue_map.items():
         comp = qd["completed"]
+        tot_q = qd["total"]
         avg_q = round(sum(qd["scores"]) / comp, 2) if comp > 0 else 0.0
         csat_q = round((qd["high_count"] / comp) * 100, 1) if comp > 0 else 0.0
+        part_q = round((comp / tot_q) * 100, 1) if tot_q > 0 else 0.0
         by_queue_list.append({
             "queue_extension": qe,
             "queue_name": qd["queue_name"],
             "survey_enabled": qd["survey_enabled"],
             "survey_scale": qd["survey_scale"],
-            "total": qd["total"],
+            "total": tot_q,
+            "total_offered": tot_q,
             "completed": comp,
+            "participation_rate": part_q,
             "avg_score": avg_q,
             "csat_pct": csat_q,
             "high_count": qd["high_count"],
-            "low_count": qd["low_count"]
+            "low_count": qd["low_count"],
+            "low_score_count": qd["low_count"]
         })
     by_queue_list.sort(key=lambda x: (x["completed"], x["avg_score"]), reverse=True)
 
@@ -16950,26 +17151,38 @@ async def get_queue_survey_reports(
             "avg_score": avg_a,
             "csat_pct": csat_a,
             "high_count": ad["high_count"],
-            "low_count": ad["low_count"]
+            "high_score_count": ad["high_count"],
+            "low_count": ad["low_count"],
+            "low_score_count": ad["low_count"]
         })
     by_agent_list.sort(key=lambda x: (x["avg_score"], x["completed"]), reverse=True)
 
+    q_list_out = [{"extension": k, "name": v["name"]} for k, v in queues_meta.items()]
     return {
         "summary": {
             "total_surveys": total_count,
+            "total_offered": total_count,
             "completed_surveys": completed_count,
+            "completed_responses": completed_count,
             "timeout_surveys": timeout_count,
+            "timeout_count": timeout_count,
             "participation_rate": participation_rate,
             "avg_score": avg_score,
             "csat_pct": csat_pct,
+            "csat_percent": csat_pct,
             "high_score_count": high_count,
-            "low_score_count": low_count
+            "high_satisfaction_count": high_count,
+            "high_satisfaction_rate": csat_pct,
+            "low_score_count": low_count,
+            "low_score_rate": low_rate_pct,
+            "distribution": {str(k): v for k, v in dist_counts.items()}
         },
         "score_distribution": score_distribution,
         "by_queue": by_queue_list,
         "by_agent": by_agent_list,
         "items": filtered[:250],
-        "queues_list": [{"extension": k, "name": v["name"]} for k, v in queues_meta.items()]
+        "queues_list": q_list_out,
+        "queues": q_list_out
     }
 
 @app.get("/api/settings/trunks")

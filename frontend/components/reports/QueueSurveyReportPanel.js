@@ -202,23 +202,29 @@ export default function QueueSurveyReportPanel({ backendHost }) {
   };
 
   const handleExportExcel = () => {
-    const rows = filteredItems.map((it) => ({
-      "Tarih / Saat": it.created_at ? formatDateDMY(it.created_at) : "-",
-      "Kuyruk No": it.queue_extension || "-",
-      "Kuyruk Adı": it.queue_name || "-",
-      "Temsilci Dahili": it.agent_extension || "-",
-      "Temsilci Adı": it.agent_name || "-",
-      "Arayan Numara": it.caller_number || "-",
-      "Verilen Puan": it.score !== null && it.score !== undefined ? `${it.score} / ${it.max_score || 5}` : "Yanıtsız",
-      "Durum":
-        it.status === "completed"
-          ? "Tamamlandı"
-          : it.status === "timeout"
-          ? "Zaman Aşımı"
-          : "Geçersiz Tuşlama",
-      "Kritik Düşük Puan": it.is_low_score ? "EVET (Kritik)" : "Hayır",
-      "Görüşme Süresi (Sn)": it.call_duration || 0
-    }));
+    const rows = filteredItems.map((it) => {
+      const qBreakdown = Array.isArray(it.question_answers) && it.question_answers.length > 0
+        ? it.question_answers.map((qa, idx) => `${qa.question_text || `Soru ${idx + 1}`}: ${qa.score ?? "Yanıtsız"}`).join(" | ")
+        : "-";
+      return {
+        "Tarih / Saat": it.created_at ? formatDateDMY(it.created_at) : "-",
+        "Kuyruk No": it.queue_extension || "-",
+        "Kuyruk Adı": it.queue_name || "-",
+        "Temsilci Dahili": it.agent_extension || "-",
+        "Temsilci Adı": it.agent_name || "-",
+        "Arayan Numara": it.caller_number || "-",
+        "Ortalama Puan": it.score !== null && it.score !== undefined ? `${it.score} / ${it.max_score || 5}` : "Yanıtsız",
+        "Soru Bazlı Yanıtlar": qBreakdown,
+        "Durum":
+          it.status === "completed"
+            ? "Tamamlandı"
+            : it.status === "timeout"
+            ? "Zaman Aşımı"
+            : "Geçersiz Tuşlama",
+        "Kritik Düşük Puan": it.is_low_score ? "EVET (Kritik)" : "Hayır",
+        "Görüşme Süresi (Sn)": it.call_duration || 0
+      };
+    });
 
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
@@ -226,38 +232,53 @@ export default function QueueSurveyReportPanel({ backendHost }) {
     XLSX.writeFile(wb, `ACD_Kuyruk_Anket_Raporu_${new Date().toISOString().slice(0, 10)}.xlsx`);
   };
 
-  const renderStars = (score, maxScore = 5) => {
+  const renderStars = (score, maxScore = 5, questionAnswers = []) => {
     if (score === null || score === undefined) {
       return <span className="text-[11px] font-semibold text-slate-400 italic">Tuşlama Yok</span>;
     }
     const normalizedStars = maxScore === 10 ? Math.round(score / 2) : maxScore === 2 ? (score === 2 ? 5 : 1) : score;
     return (
-      <div className="flex items-center gap-1">
-        <div className="flex items-center gap-0.5">
-          {[1, 2, 3, 4, 5].map((st) => (
-            <Star
-              key={st}
-              size={13}
-              className={
-                st <= normalizedStars
-                  ? "text-amber-400 fill-amber-400"
-                  : "text-slate-300 dark:text-slate-700"
-              }
-            />
-          ))}
+      <div className="space-y-1">
+        <div className="flex items-center gap-1">
+          <div className="flex items-center gap-0.5">
+            {[1, 2, 3, 4, 5].map((st) => (
+              <Star
+                key={st}
+                size={13}
+                className={
+                  st <= normalizedStars
+                    ? "text-amber-400 fill-amber-400"
+                    : "text-slate-300 dark:text-slate-700"
+                }
+              />
+            ))}
+          </div>
+          <span
+            className={
+              "ml-1.5 px-2 py-0.5 rounded-md text-[10px] font-black " +
+              (score <= 2
+                ? "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50"
+                : score >= 4
+                ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50"
+                : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50")
+            }
+          >
+            {score} / {maxScore}
+          </span>
         </div>
-        <span
-          className={
-            "ml-1.5 px-2 py-0.5 rounded-md text-[10px] font-black " +
-            (score <= 2
-              ? "bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50"
-              : score >= 4
-              ? "bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50"
-              : "bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50")
-          }
-        >
-          {score} / {maxScore}
-        </span>
+        {Array.isArray(questionAnswers) && questionAnswers.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1">
+            {questionAnswers.map((qa, qIdx) => (
+              <span
+                key={qIdx}
+                title={qa.question_text || `${qIdx + 1}. Soru`}
+                className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[9px] font-bold text-slate-600 dark:text-slate-300 border border-slate-200/70 dark:border-slate-700"
+              >
+                S{qa.question_index || qIdx + 1}: {qa.score !== null && qa.score !== undefined ? `${qa.score}★` : "-"}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     );
   };
@@ -750,7 +771,7 @@ export default function QueueSurveyReportPanel({ backendHost }) {
                         {item.caller_number || "-"}
                       </td>
                     )}
-                    {visibleColumns.score && <td className="py-3 px-4">{renderStars(item.score, item.max_score || 5)}</td>}
+                    {visibleColumns.score && <td className="py-3 px-4">{renderStars(item.score, item.max_score || 5, item.question_answers)}</td>}
                     {visibleColumns.status && (
                       <td className="py-3 px-4">
                         {item.status === "completed" ? (

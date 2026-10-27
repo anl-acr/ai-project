@@ -1,8 +1,18 @@
-import React, { useState, useEffect } from "react";
-import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock, Shuffle, Repeat, BarChart2, HelpCircle, Star } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { X, Settings, Volume2, Users, ChevronRight, ChevronLeft, Check, Search, PhoneCall, Music, AlertCircle, AlertTriangle, PhoneForwarded, Bot, Shield, Clock, Shuffle, Repeat, BarChart2, HelpCircle, Star, Plus, Trash2, Play, Square, Sparkles, RefreshCw } from "lucide-react";
 import { createPortal } from "react-dom";
+import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { tenantFetch } from "../../utils/apiHost";
+
+const DEFAULT_SURVEY_QUESTION = {
+  id: "q_1",
+  title: "1. Soru (Genel Memnuniyet)",
+  question_text: "Görüşmemizi değerlendirmek için lütfen 1 ile 5 arasında bir puan tuşlayınız.",
+  announcement_id: "",
+  voice: "tr-TR-EmelNeural",
+  mode: "tts"
+};
 
 export default function QueueEditModal({ isOpen, onClose, onSave, queueData = null, allQueues = [], API_BASE }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -10,6 +20,23 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   const [activeTab, setActiveTab] = useState("general");
   const [memberView, setMemberView] = useState("agents"); // 'agents' or 'supervisors'
   const [error, setError] = useState(null);
+
+  // Survey TTS & Multi-Question States
+  const [generatingTtsKey, setGeneratingTtsKey] = useState(null);
+  const [ttsSuccessKey, setTtsSuccessKey] = useState(null);
+  const [playingAudioKey, setPlayingAudioKey] = useState(null);
+  const [deleteQuestionIdx, setDeleteQuestionIdx] = useState(null);
+  const [thankYouMode, setThankYouMode] = useState("tts");
+  const surveyAudioRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (surveyAudioRef.current) {
+        surveyAudioRef.current.pause();
+        surveyAudioRef.current = null;
+      }
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (error) {
@@ -116,6 +143,9 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     survey_scale: "1-5",
     survey_question_announcement: "",
     survey_thank_you_announcement: "",
+    survey_thank_you_text: "Değerlendirmeniz için teşekkür eder, iyi günler dileriz.",
+    survey_thank_you_voice: "tr-TR-EmelNeural",
+    survey_questions: [{ ...DEFAULT_SURVEY_QUESTION }],
     survey_timeout_sec: 10,
     survey_low_score_threshold: 2
   });
@@ -227,6 +257,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       fetchTrunks();
 
       if (queueData) {
+        const existingQuestions =
+          Array.isArray(queueData.survey_questions) && queueData.survey_questions.length > 0
+            ? queueData.survey_questions.map((q, idx) => ({
+                id: q.id || `q_${idx + 1}`,
+                title: q.title || `${idx + 1}. Soru`,
+                question_text:
+                  q.question_text ||
+                  "Görüşmemizi değerlendirmek için lütfen 1 ile 5 arasında bir puan tuşlayınız.",
+                announcement_id: q.announcement_id || q.announcement || "",
+                voice: q.voice || "tr-TR-EmelNeural",
+                mode: q.mode || "tts"
+              }))
+            : [
+                {
+                  ...DEFAULT_SURVEY_QUESTION,
+                  announcement_id: queueData.survey_question_announcement || ""
+                }
+              ];
+
         setFormData(prev => ({
           ...prev,
           max_concurrent_breaks: 0,
@@ -243,9 +292,16 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           survey_scale: "1-5",
           survey_question_announcement: "",
           survey_thank_you_announcement: "",
+          survey_thank_you_text: "Değerlendirmeniz için teşekkür eder, iyi günler dileriz.",
+          survey_thank_you_voice: "tr-TR-EmelNeural",
           survey_timeout_sec: 10,
           survey_low_score_threshold: 2,
           ...queueData,
+          survey_questions: existingQuestions,
+          survey_thank_you_text:
+            queueData.survey_thank_you_text ||
+            "Değerlendirmeniz için teşekkür eder, iyi günler dileriz.",
+          survey_thank_you_voice: queueData.survey_thank_you_voice || "tr-TR-EmelNeural",
           disposition_codes: Array.isArray(queueData.disposition_codes) && queueData.disposition_codes.length > 0
             ? queueData.disposition_codes
             : DEFAULT_DISPOSITION_CODES
@@ -293,6 +349,9 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           survey_scale: "1-5",
           survey_question_announcement: "",
           survey_thank_you_announcement: "",
+          survey_thank_you_text: "Değerlendirmeniz için teşekkür eder, iyi günler dileriz.",
+          survey_thank_you_voice: "tr-TR-EmelNeural",
+          survey_questions: [{ ...DEFAULT_SURVEY_QUESTION }],
           survey_timeout_sec: 10,
           survey_low_score_threshold: 2
         });
@@ -345,12 +404,20 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       return;
     }
 
+    const normalizedQuestions = Array.isArray(formData.survey_questions) && formData.survey_questions.length > 0
+      ? formData.survey_questions
+      : [{ ...DEFAULT_SURVEY_QUESTION }];
+
+    const firstAnnId = normalizedQuestions[0]?.announcement_id || formData.survey_question_announcement || "";
+
     if (onSave) {
       onSave(
         {
           ...formData,
           extension: extStr,
           name: qName,
+          survey_questions: normalizedQuestions,
+          survey_question_announcement: firstAnnId,
           queueMembers,
           supervisors
         },
@@ -1687,8 +1754,197 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     );
   };
 
+  const handleAddSurveyQuestion = () => {
+    setFormData(prev => {
+      const current = Array.isArray(prev.survey_questions) && prev.survey_questions.length > 0
+        ? prev.survey_questions
+        : [{ ...DEFAULT_SURVEY_QUESTION }];
+      const nextNum = current.length + 1;
+      return {
+        ...prev,
+        survey_questions: [
+          ...current,
+          {
+            id: `q_${Date.now()}_${nextNum}`,
+            title: `${nextNum}. Soru`,
+            question_text: `${nextNum}. sorumuz için lütfen 1 ile 5 arasında bir puan tuşlayınız.`,
+            announcement_id: "",
+            voice: "tr-TR-EmelNeural",
+            mode: "tts"
+          }
+        ]
+      };
+    });
+  };
+
+  const handleUpdateSurveyQuestion = (idx, field, value) => {
+    setFormData(prev => {
+      const current = Array.isArray(prev.survey_questions) && prev.survey_questions.length > 0
+        ? [...prev.survey_questions]
+        : [{ ...DEFAULT_SURVEY_QUESTION }];
+      if (!current[idx]) return prev;
+      current[idx] = { ...current[idx], [field]: value };
+      const updated = { ...prev, survey_questions: current };
+      if (idx === 0 && field === "announcement_id") {
+        updated.survey_question_announcement = value;
+      }
+      return updated;
+    });
+  };
+
+  const handleConfirmDeleteSurveyQuestion = () => {
+    if (deleteQuestionIdx === null) return;
+    setFormData(prev => {
+      const current = Array.isArray(prev.survey_questions) ? [...prev.survey_questions] : [];
+      if (current.length <= 1) return prev;
+      const filtered = current.filter((_, i) => i !== deleteQuestionIdx);
+      return {
+        ...prev,
+        survey_questions: filtered,
+        survey_question_announcement: filtered[0]?.announcement_id || ""
+      };
+    });
+    setDeleteQuestionIdx(null);
+  };
+
+  const handlePlaySurveyAnnouncement = (annIdOrVal, playKey) => {
+    if (playingAudioKey === playKey) {
+      if (surveyAudioRef.current) {
+        surveyAudioRef.current.pause();
+        surveyAudioRef.current = null;
+      }
+      setPlayingAudioKey(null);
+      return;
+    }
+
+    if (surveyAudioRef.current) {
+      surveyAudioRef.current.pause();
+      surveyAudioRef.current = null;
+    }
+
+    const resolvedId = resolveAnnouncementVal(annIdOrVal);
+    const annObj = (announcementsList || []).find(
+      a => String(a.id) === String(resolvedId) || String(a.filename) === String(annIdOrVal)
+    );
+    if (!annObj || !annObj.filename) {
+      setError("Dinlenecek ses dosyası bulunamadı. Lütfen önce 'TTS ile Anonsu Güncelle' butonuna basınız.");
+      return;
+    }
+
+    const audioUrl = `${API_BASE}/api/uploads/announcements/${annObj.filename}?t=${annObj.updated_at || Date.now()}`;
+    const audio = new Audio(audioUrl);
+    audio.onended = () => setPlayingAudioKey(null);
+    audio.onerror = () => setPlayingAudioKey(null);
+    audio.play().catch(() => setPlayingAudioKey(null));
+    surveyAudioRef.current = audio;
+    setPlayingAudioKey(playKey);
+  };
+
+  const handleGenerateSurveyTts = async ({ targetType, questionIndex = 0 }) => {
+    setError(null);
+    const queueLabel = (formData.name || formData.extension || "Kuyruk").trim();
+
+    if (targetType === "question") {
+      const questions = Array.isArray(formData.survey_questions) && formData.survey_questions.length > 0
+        ? formData.survey_questions
+        : [{ ...DEFAULT_SURVEY_QUESTION }];
+      const q = questions[questionIndex];
+      if (!q || !String(q.question_text || "").trim()) {
+        setError("Lütfen seslendirilecek soru metnini giriniz.");
+        return;
+      }
+
+      const key = `q_${questionIndex}`;
+      setGeneratingTtsKey(key);
+      try {
+        const res = await tenantFetch(`${API_BASE}/api/settings/announcements/tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: q.announcement_id || undefined,
+            name: `Anket_${queueLabel}_Soru_${questionIndex + 1}`,
+            type: "announcement",
+            text: String(q.question_text).trim(),
+            voice: q.voice || "tr-TR-EmelNeural"
+          })
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "TTS ses dosyası oluşturulamadı.");
+        }
+        const data = await res.json();
+        const createdAnn = data.announcement;
+        if (createdAnn && createdAnn.id) {
+          setAnnouncementsList(prev => {
+            const exists = prev.some(a => String(a.id) === String(createdAnn.id));
+            return exists
+              ? prev.map(a => (String(a.id) === String(createdAnn.id) ? createdAnn : a))
+              : [...prev, createdAnn];
+          });
+          handleUpdateSurveyQuestion(questionIndex, "announcement_id", createdAnn.id);
+          setTtsSuccessKey(key);
+          setTimeout(() => setTtsSuccessKey(prevKey => (prevKey === key ? null : prevKey)), 3500);
+        }
+      } catch (err) {
+        setError(err.message || "TTS anonsu güncellenirken hata oluştu.");
+      } finally {
+        setGeneratingTtsKey(null);
+      }
+    } else if (targetType === "thankyou") {
+      const tyText = String(formData.survey_thank_you_text || "").trim();
+      if (!tyText) {
+        setError("Lütfen seslendirilecek teşekkür anons metnini giriniz.");
+        return;
+      }
+      const key = "thankyou";
+      setGeneratingTtsKey(key);
+      try {
+        const res = await tenantFetch(`${API_BASE}/api/settings/announcements/tts`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: formData.survey_thank_you_announcement || undefined,
+            name: `Anket_${queueLabel}_Tesekkur`,
+            type: "announcement",
+            text: tyText,
+            voice: formData.survey_thank_you_voice || "tr-TR-EmelNeural"
+          })
+        });
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          throw new Error(errData.detail || "TTS teşekkür anonsu oluşturulamadı.");
+        }
+        const data = await res.json();
+        const createdAnn = data.announcement;
+        if (createdAnn && createdAnn.id) {
+          setAnnouncementsList(prev => {
+            const exists = prev.some(a => String(a.id) === String(createdAnn.id));
+            return exists
+              ? prev.map(a => (String(a.id) === String(createdAnn.id) ? createdAnn : a))
+              : [...prev, createdAnn];
+          });
+          setFormData(prev => ({
+            ...prev,
+            survey_thank_you_announcement: createdAnn.id
+          }));
+          setTtsSuccessKey(key);
+          setTimeout(() => setTtsSuccessKey(prevKey => (prevKey === key ? null : prevKey)), 3500);
+        }
+      } catch (err) {
+        setError(err.message || "Teşekkür TTS anonsu güncellenirken hata oluştu.");
+      } finally {
+        setGeneratingTtsKey(null);
+      }
+    }
+  };
+
   const renderSurveyTab = () => {
     const isEnabled = !!formData.survey_enabled;
+    const questions =
+      Array.isArray(formData.survey_questions) && formData.survey_questions.length > 0
+        ? formData.survey_questions
+        : [{ ...DEFAULT_SURVEY_QUESTION }];
+
     return (
       <div className="p-6 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[65vh]">
         {/* Aktifleştirme Başlığı */}
@@ -1699,7 +1955,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
               Çağrı Sonu Memnuniyet Anketi (CSAT)
             </h4>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Temsilci görüşmeyi sonlandırdığında müşteri hattı kapanmaz; otomatik olarak sesli memnuniyet anketi dinletilir ve tuşlanan puan (DTMF) kaydedilir.
+              Temsilci görüşmeyi sonlandırdığında müşteri hattı kapanmaz; otomatik olarak sesli memnuniyet anketi soruları sırayla dinletilir ve tuşlanan puanlar (DTMF) kaydedilir.
             </p>
           </div>
           <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -1716,7 +1972,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
         <div className={"space-y-5 transition-all duration-300 " + (!isEnabled ? "opacity-45 pointer-events-none select-none" : "")}>
           {/* Anket Parametreleri */}
-          <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-5">
+          <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
@@ -1755,7 +2011,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                   className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring + " font-mono"}
                 />
                 <p className="text-[10px] text-slate-400 mt-1">
-                  Anons bittikten sonra müşterinin tuşlama yapması için beklenecek süre.
+                  Her soru anonsundan sonra tuşlama için beklenecek süre.
                 </p>
               </div>
 
@@ -1779,43 +2035,333 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 </p>
               </div>
             </div>
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+          {/* Çoklu Anket Soruları ve TTS Seslendirme Bölümü */}
+          <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-4">
+            <div className="flex items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Volume2 size={12} className={text} />
-                  Anket Soru Anonsu
-                </label>
-                <select
-                  name="survey_question_announcement"
-                  value={resolveAnnouncementVal(formData.survey_question_announcement)}
-                  onChange={handleChange}
-                  disabled={!isEnabled}
-                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
-                >
-                  <option value="">Varsayılan Türkçe Anket Sorusu (1'den 5'e Puanlayın)</option>
-                  {announcementsList.map(a => (
-                    <option key={a.id || a.filename || a.name} value={a.id}>
-                      {formatAnnouncementLabel(a)}
-                    </option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Varsayılan: "Görüşmemizi değerlendirmek için lütfen 1 ile 5 arasında bir puan tuşlayınız..."
+                <h5 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <Volume2 size={15} className={text} />
+                  Anket Soruları &amp; Doğrudan TTS Anons Güncelleme
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${lightBg} ${text}`}>
+                    {questions.length} Soru
+                  </span>
+                </h5>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Sağdaki <strong>+</strong> butonuna basarak istediğiniz kadar anket sorusu ekleyebilir ve metni yazıp <strong>TTS ile Anonsu Güncelle</strong> diyerek anında seslendirebilirsiniz.
                 </p>
               </div>
 
+              <button
+                type="button"
+                onClick={handleAddSurveyQuestion}
+                disabled={!isEnabled}
+                title="Yeni Anket Sorusu Ekle"
+                className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm cursor-pointer"
+              >
+                <Plus size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {questions.map((q, idx) => {
+                const qKey = `q_${idx}`;
+                const qMode = q.mode || "tts";
+                const isGeneratingThis = generatingTtsKey === qKey;
+                const isSuccessThis = ttsSuccessKey === qKey;
+                const isPlayingThis = playingAudioKey === qKey;
+                const resolvedAnnId = resolveAnnouncementVal(q.announcement_id);
+
+                return (
+                  <div
+                    key={q.id || idx}
+                    className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/60 border border-slate-200/80 dark:border-slate-800 space-y-3 transition-all"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider text-white ${bg} shrink-0`}>
+                          {idx + 1}. SORU
+                        </span>
+                        <input
+                          type="text"
+                          value={q.title || ""}
+                          onChange={(e) => handleUpdateSurveyQuestion(idx, "title", e.target.value)}
+                          placeholder={`${idx + 1}. Soru Başlığı (Örn: Temsilci Memnuniyeti)`}
+                          className={`flex-1 text-xs font-bold px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                        />
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <div className="inline-flex rounded-xl p-0.5 bg-slate-200/70 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateSurveyQuestion(idx, "mode", "tts")}
+                            className={
+                              "px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 " +
+                              (qMode === "tts"
+                                ? "bg-white dark:bg-slate-900 " + text + " shadow-sm"
+                                : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")
+                            }
+                          >
+                            <Sparkles size={11} /> TTS ile Anons
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateSurveyQuestion(idx, "mode", "file")}
+                            className={
+                              "px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 " +
+                              (qMode === "file"
+                                ? "bg-white dark:bg-slate-900 " + text + " shadow-sm"
+                                : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")
+                            }
+                          >
+                            <Volume2 size={11} /> Ses Dosyası Seç
+                          </button>
+                        </div>
+
+                        {questions.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteQuestionIdx(idx)}
+                            title="Soruyu Sil"
+                            className="p-1.5 rounded-xl text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {qMode === "tts" ? (
+                      <div className="space-y-2.5">
+                        <div>
+                          <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                            Müşteriye Okunacak Soru Anons Metni (TTS)
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={q.question_text || ""}
+                            onChange={(e) => handleUpdateSurveyQuestion(idx, "question_text", e.target.value)}
+                            placeholder="Örn: Görüşmemizi değerlendirmek için lütfen 1 ile 5 arasında bir puan tuşlayınız."
+                            className={`w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                          />
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={q.voice || "tr-TR-EmelNeural"}
+                              onChange={(e) => handleUpdateSurveyQuestion(idx, "voice", e.target.value)}
+                              className={`text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 ${ring}`}
+                            >
+                              <option value="tr-TR-EmelNeural">👩 Kadın Sesi (Emel Neural - Doğal)</option>
+                              <option value="tr-TR-AhmetNeural">👨 Erkek Sesi (Ahmet Neural - Kurumsal)</option>
+                            </select>
+
+                            {resolvedAnnId && (
+                              <button
+                                type="button"
+                                onClick={() => handlePlaySurveyAnnouncement(resolvedAnnId, qKey)}
+                                className={
+                                  "px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer " +
+                                  (isPlayingThis
+                                    ? "bg-rose-600 text-white border-rose-600"
+                                    : `bg-white dark:bg-slate-900 ${text} ${borderLight} hover:opacity-85`)
+                                }
+                                title="Oluşturulan Anonsu Dinle"
+                              >
+                                {isPlayingThis ? <Square size={11} /> : <Play size={11} />}
+                                {isPlayingThis ? "Durdur" : "Anonsu Dinle"}
+                              </button>
+                            )}
+
+                            {isSuccessThis && (
+                              <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 animate-in fade-in">
+                                <Check size={13} /> TTS Anonsu Güncellendi!
+                              </span>
+                            )}
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleGenerateSurveyTts({ targetType: "question", questionIndex: idx })}
+                            disabled={isGeneratingThis}
+                            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center gap-1.5 transition-all cursor-pointer ${bg} ${hover} disabled:opacity-50`}
+                          >
+                            {isGeneratingThis ? (
+                              <>
+                                <RefreshCw size={12} className="animate-spin" />
+                                Seslendiriliyor...
+                              </>
+                            ) : (
+                              <>
+                                <Sparkles size={12} />
+                                {resolvedAnnId ? "TTS ile Anonsu Güncelle" : "TTS ile Anons Oluştur"}
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                          Kayıtlı Anons Ses Dosyası Seçin
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={resolvedAnnId}
+                            onChange={(e) => handleUpdateSurveyQuestion(idx, "announcement_id", e.target.value)}
+                            className={`flex-1 px-3.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                          >
+                            <option value="">Varsayılan Türkçe Anket Sorusu (1'den 5'e Puanlayın)</option>
+                            {announcementsList.map(a => (
+                              <option key={a.id || a.filename || a.name} value={a.id}>
+                                {formatAnnouncementLabel(a)}
+                              </option>
+                            ))}
+                          </select>
+
+                          {resolvedAnnId && (
+                            <button
+                              type="button"
+                              onClick={() => handlePlaySurveyAnnouncement(resolvedAnnId, qKey)}
+                              className={
+                                "px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border shrink-0 transition-all cursor-pointer " +
+                                (isPlayingThis
+                                  ? "bg-rose-600 text-white border-rose-600"
+                                  : `bg-white dark:bg-slate-900 ${text} ${borderLight}`)
+                              }
+                            >
+                              {isPlayingThis ? <Square size={11} /> : <Play size={11} />}
+                              {isPlayingThis ? "Durdur" : "Dinle"}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Teşekkür Anonsu (Tuşlama Sonrası) - TTS & Ses Dosyası Seçimi */}
+          <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-sm space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <label className="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1.5 mb-1.5">
-                  <Volume2 size={12} className={text} />
-                  Teşekkür Anonsu (Tuşlama Sonrası)
-                </label>
+                <h5 className="text-xs font-black text-slate-800 dark:text-white uppercase tracking-wider flex items-center gap-2">
+                  <Volume2 size={14} className={text} />
+                  Teşekkür Anonsu (Anket Tuşlaması Sonrası)
+                </h5>
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Müşteri soruları yanıtladıktan sonra hat kapanmadan hemen önce dinletilecek kapanış mesajı.
+                </p>
+              </div>
+
+              <div className="inline-flex rounded-xl p-0.5 bg-slate-200/70 dark:bg-slate-800 border border-slate-200 dark:border-slate-700">
+                <button
+                  type="button"
+                  onClick={() => setThankYouMode("tts")}
+                  className={
+                    "px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 " +
+                    (thankYouMode === "tts"
+                      ? "bg-white dark:bg-slate-900 " + text + " shadow-sm"
+                      : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")
+                  }
+                >
+                  <Sparkles size={11} /> TTS ile Anons
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setThankYouMode("file")}
+                  className={
+                    "px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 " +
+                    (thankYouMode === "file"
+                      ? "bg-white dark:bg-slate-900 " + text + " shadow-sm"
+                      : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300")
+                  }
+                >
+                  <Volume2 size={11} /> Ses Dosyası Seç
+                </button>
+              </div>
+            </div>
+
+            {thankYouMode === "tts" ? (
+              <div className="space-y-2.5 pt-1">
+                <textarea
+                  rows={2}
+                  name="survey_thank_you_text"
+                  value={formData.survey_thank_you_text || ""}
+                  onChange={handleChange}
+                  placeholder="Örn: Değerlendirmeniz için teşekkür eder, iyi günler dileriz."
+                  className={`w-full text-xs px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <select
+                      name="survey_thank_you_voice"
+                      value={formData.survey_thank_you_voice || "tr-TR-EmelNeural"}
+                      onChange={handleChange}
+                      className={`text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-700 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 ${ring}`}
+                    >
+                      <option value="tr-TR-EmelNeural">👩 Kadın Sesi (Emel Neural - Doğal)</option>
+                      <option value="tr-TR-AhmetNeural">👨 Erkek Sesi (Ahmet Neural - Kurumsal)</option>
+                    </select>
+
+                    {resolveAnnouncementVal(formData.survey_thank_you_announcement) && (
+                      <button
+                        type="button"
+                        onClick={() => handlePlaySurveyAnnouncement(formData.survey_thank_you_announcement, "thankyou")}
+                        className={
+                          "px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer " +
+                          (playingAudioKey === "thankyou"
+                            ? "bg-rose-600 text-white border-rose-600"
+                            : `bg-white dark:bg-slate-900 ${text} ${borderLight}`)
+                        }
+                      >
+                        {playingAudioKey === "thankyou" ? <Square size={11} /> : <Play size={11} />}
+                        {playingAudioKey === "thankyou" ? "Durdur" : "Anonsu Dinle"}
+                      </button>
+                    )}
+
+                    {ttsSuccessKey === "thankyou" && (
+                      <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1 animate-in fade-in">
+                        <Check size={13} /> Teşekkür Anonsu Güncellendi!
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => handleGenerateSurveyTts({ targetType: "thankyou" })}
+                    disabled={generatingTtsKey === "thankyou"}
+                    className={`px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm flex items-center gap-1.5 transition-all cursor-pointer ${bg} ${hover} disabled:opacity-50`}
+                  >
+                    {generatingTtsKey === "thankyou" ? (
+                      <>
+                        <RefreshCw size={12} className="animate-spin" />
+                        Seslendiriliyor...
+                      </>
+                    ) : (
+                      <>
+                        <Sparkles size={12} />
+                        {resolveAnnouncementVal(formData.survey_thank_you_announcement)
+                          ? "TTS ile Anonsu Güncelle"
+                          : "TTS ile Anons Oluştur"}
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 pt-1">
                 <select
                   name="survey_thank_you_announcement"
                   value={resolveAnnouncementVal(formData.survey_thank_you_announcement)}
                   onChange={handleChange}
                   disabled={!isEnabled}
-                  className={"w-full px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
+                  className={"flex-1 px-3.5 py-2.5 bg-slate-50/50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:ring-2 " + ring}
                 >
                   <option value="">Varsayılan Türkçe Teşekkür Anonsu</option>
                   {announcementsList.map(a => (
@@ -1824,11 +2370,23 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                     </option>
                   ))}
                 </select>
-                <p className="text-[10px] text-slate-400 mt-1">
-                  Varsayılan: "Değerlendirmeniz için teşekkür eder, iyi günler dileriz."
-                </p>
+                {resolveAnnouncementVal(formData.survey_thank_you_announcement) && (
+                  <button
+                    type="button"
+                    onClick={() => handlePlaySurveyAnnouncement(formData.survey_thank_you_announcement, "thankyou")}
+                    className={
+                      "px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 border shrink-0 transition-all cursor-pointer " +
+                      (playingAudioKey === "thankyou"
+                        ? "bg-rose-600 text-white border-rose-600"
+                        : `bg-white dark:bg-slate-900 ${text} ${borderLight}`)
+                    }
+                  >
+                    {playingAudioKey === "thankyou" ? <Square size={11} /> : <Play size={11} />}
+                    {playingAudioKey === "thankyou" ? "Durdur" : "Dinle"}
+                  </button>
+                )}
               </div>
-            </div>
+            )}
           </div>
 
           {/* Bilgi Kutusu */}
@@ -1840,11 +2398,11 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px] text-slate-600 dark:text-slate-400 leading-relaxed">
               <div className="flex gap-2">
                 <span className="font-extrabold text-amber-600 dark:text-amber-400">1.</span>
-                <p>Müşteriyle görüşen temsilci çağrıyı sonlandırdığında müşteri hattı otomatik olarak ankete aktarılır ve soru anonsu dinletilir.</p>
+                <p>Müşteriyle görüşen temsilci çağrıyı sonlandırdığında müşteri hattı otomatik olarak ankete aktarılır ve eklediğiniz tüm sorular sırasıyla dinletilir.</p>
               </div>
               <div className="flex gap-2">
                 <span className="font-extrabold text-amber-600 dark:text-amber-400">2.</span>
-                <p>Müşterinin tuşladığı puan; kuyruk, temsilci, arayan numara ve ses kaydı ile eşleştirilerek <strong>Çağrı Raporları & Analiz &gt; Anket Raporları</strong> ekranına anlık yansır.</p>
+                <p>Müşterinin her soruya tuşladığı puanlar; kuyruk, temsilci, arayan numara ve ses kaydı ile eşleştirilerek <strong>Çağrı Raporları &amp; Analiz &gt; Anket Raporları</strong> ekranına anlık yansır.</p>
               </div>
             </div>
           </div>
@@ -1924,6 +2482,13 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           </button>
         </div>
 
+        <ConfirmDeleteModal
+          isOpen={deleteQuestionIdx !== null}
+          onClose={() => setDeleteQuestionIdx(null)}
+          onConfirm={handleConfirmDeleteSurveyQuestion}
+          title="Anket Sorusunu Sil"
+          message={`${deleteQuestionIdx !== null ? deleteQuestionIdx + 1 : ""}. anket sorusunu silmek istediğinize emin misiniz?`}
+        />
       </div>
     </div>,
     document.body

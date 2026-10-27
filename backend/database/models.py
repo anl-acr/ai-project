@@ -350,6 +350,9 @@ class PBXQueue(Base):
     survey_scale = Column(String, default="1-5")
     survey_question_announcement = Column(String, default="")
     survey_thank_you_announcement = Column(String, default="")
+    survey_thank_you_text = Column(String, default="")
+    survey_thank_you_voice = Column(String, default="tr-TR-EmelNeural")
+    survey_questions = Column(JSON, default=list)
     survey_timeout_sec = Column(Integer, default=10)
     survey_low_score_threshold = Column(Integer, default=2)
 
@@ -398,5 +401,6 @@ class QueueSurveyResponse(Base):
     caller_number = Column(String, nullable=True, index=True)
     score = Column(Integer, nullable=True)
     max_score = Column(Integer, default=5)
+    question_answers = Column(JSON, default=list)
     status = Column(String, default="completed")  # completed, timeout, invalid
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
