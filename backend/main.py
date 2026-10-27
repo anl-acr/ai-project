@@ -2900,9 +2900,12 @@ same => n,Hangup()
 ; Çağrı Yönlendirme (Her Zaman, Meşgulde, Zaman Aşımında, İptal Kodu) Prefix'leri
 {dynamic_feature_dialplan}
 
+; +90 veya + ile başlayan dış hat aramalarını başında + olmadan yönlendir
+exten => _+X.,1,Goto(webrtc_agents,${{EXTEN:1}},1)
+
 ; Dış hat aramaları için (0 ile başlayan numaralar - Güvenlik & Toll-Fraud ACL Korumalı)
 exten => _0.,1,NoOp(Dis arama guvenlik kontrolu: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
-same => n,Set(CURLOPT(conntimeout)=1)
+same => n(outbound_start),Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
 same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out:deny_out)
@@ -2951,8 +2954,9 @@ same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
-; İç hat (Diğer temsilciler & Dahililer) aramaları için (1000, 1001, 200 vb.)
-exten => _[1-9]X.,1,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+; İç hat (Diğer temsilciler & Dahililer: 100-999999) ve Prefix'li Dış Aramalar (99805..., 905..., 507... vb. >= 7 hane)
+exten => _[1-9]X.,1,GotoIf($[${{LEN(${{EXTEN}})}} >= 7]?outbound_route_ext)
+same => n,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
@@ -2965,6 +2969,48 @@ same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Set(DIALSTATUS=FAILED)
 same => n,Answer()
 same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
+same => n,Hangup()
+same => n(outbound_route_ext),NoOp(Prefixli veya 7+ haneli dis arama yonlendiriliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
+same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out_ext:deny_out_ext)
+same => n(deny_out_ext),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, Sebep=${{OUT_ACL}})
+same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
+same => n,Hangup(21)
+same => n(allow_out_ext),NoOp(Dis arama onaylandi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
+same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
+same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
+same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out_ext)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
+same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
+same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?apply_out_cfg_ext:fallback_out_dial_ext)
+same => n(apply_out_cfg_ext),Set(__OUT_TRUNK_NAME=${{CUT(OUT_CFG,|,2)}})
+same => n,Set(OUT_LIMIT_EN=${{CUT(OUT_CFG,|,3)}})
+same => n,Set(OUT_MAX_CH=${{CUT(OUT_CFG,|,4)}})
+same => n,Set(OUT_CID_NUM=${{CUT(OUT_CFG,|,5)}})
+same => n,Set(OUT_CID_NAME=${{CUT(OUT_CFG,|,6)}})
+same => n,Set(OUT_DIAL_STR=${{CUT(OUT_CFG,|,7)}})
+same => n,Set(__OUT_HDR_DIVERSION=${{CUT(OUT_CFG,|,8)}})
+same => n,Set(__OUT_HDR_RPID=${{CUT(OUT_CFG,|,9)}})
+same => n,Set(__OUT_HDR_PAI=${{CUT(OUT_CFG,|,10)}})
+same => n,Set(__OUT_HDR_PPI=${{CUT(OUT_CFG,|,11)}})
+same => n,Set(__OUT_MAXPTIME=${{CUT(OUT_CFG,|,12)}})
+same => n,GotoIf($["${{OUT_LIMIT_EN}}" != "1"]?set_out_cid_ext)
+same => n,Set(GROUP(trunk_limit)=${{OUT_TRUNK_NAME}})
+same => n,GotoIf($[${{GROUP_COUNT(${{OUT_TRUNK_NAME}}@trunk_limit)}} > ${{OUT_MAX_CH}}]?out_limit_exceeded_ext)
+same => n(set_out_cid_ext),Set(CALLERID(num)=${{IF($["${{OUT_CID_NUM}}" != ""]?${{OUT_CID_NUM}}:908503607390)}})
+same => n,Set(CALLERID(name)=${{IF($["${{OUT_CID_NAME}}" != ""]?${{OUT_CID_NAME}}:${{CALLERID(num)}})}})
+same => n,Dial(${{OUT_DIAL_STR}},60,rb(trunk-outbound-headers^s^1))
+same => n,Hangup()
+same => n(out_limit_exceeded_ext),NoOp(TRUNK GIDEN CAGRI LIMITI ASILDI: ${{OUT_TRUNK_NAME}} Max=${{OUT_MAX_CH}})
+same => n,Busy(5)
+same => n,Hangup(17)
+same => n(fallback_out_dial_ext),Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
+same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
@@ -3166,6 +3212,162 @@ async def delete_trunk(trunk_id: int, background_tasks: BackgroundTasks, user_in
     regenerate_pjsip_custom_conf(background_tasks)
     return {"status": "success", "message": "SIP Trunk başarıyla silindi."}
 
+def _asterisk_pattern_to_regex(pat_raw: str) -> tuple[str, str]:
+    """
+    Converts an Asterisk dialplan pattern (e.g. '_998.', '998.', '998X.', '998', '0.')
+    into a (regex_str, fixed_digit_prefix) tuple.
+    """
+    p = str(pat_raw or "").strip()
+    if p.startswith("_"):
+        p = p[1:].strip()
+    if not p:
+        return r"^\d+$", ""
+
+    # Extract fixed leading digits before any wildcard (X, Z, N, ., !, [)
+    m_pref = re.match(r"^(\d+)", p)
+    fixed_prefix = m_pref.group(1) if m_pref else ""
+
+    # If the pattern is purely digits (e.g. "998") and <= 6 digits, treat it as a prefix match "998."
+    if p.isdigit() and len(p) <= 6:
+        return f"^{re.escape(p)}\\d*$", p
+
+    out = ["^"]
+    i = 0
+    n = len(p)
+    while i < n:
+        ch = p[i]
+        if ch == "[":
+            j = p.find("]", i + 1)
+            if j != -1:
+                out.append(p[i : j + 1])
+                i = j + 1
+                continue
+        if ch in ("X", "x"):
+            out.append(r"\d")
+        elif ch in ("Z", "z"):
+            out.append(r"[1-9]")
+        elif ch in ("N", "n"):
+            out.append(r"[2-9]")
+        elif ch in (".", "!"):
+            out.append(r"\d*")
+        elif ch.isdigit() or ch == "+":
+            out.append(re.escape(ch))
+        else:
+            out.append(re.escape(ch))
+        i += 1
+    out.append("$")
+    return "".join(out), fixed_prefix
+
+
+def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", users_list: list = None) -> dict:
+    """
+    Evaluates configured outbound_rules against callee_raw (e.g. '99805071796372' or '05071796372'):
+    - Matches patterns (pattern, strip, prepend)
+    - Strips rule access prefix (explicit strip count/prefix or smart prefix detection before 05.../02.../03.../04.../0850...)
+    - Normalizes target number for SIP trunk ('905071796372') and ACL check ('05071796372')
+    """
+    raw = str(callee_raw or "").strip()
+    clean_num = raw[1:] if raw.startswith("+") else raw
+    outbound_rules = settings_db.get("outbound_rules", [])
+    u_list = users_list if users_list is not None else settings_db.get("users", [])
+    caller_str = str(caller_ext or "").strip()
+    caller_user = next((u for u in u_list if str(u.get("extension") or "").strip() == caller_str), None)
+    caller_uid = str(caller_user.get("id") or "") if caller_user else ""
+
+    matched_rule = None
+    matched_pat_obj = None
+    matched_fixed_prefix = ""
+
+    # Pass 1: Look for explicit pattern match in active outbound_rules
+    for rule in outbound_rules:
+        if rule.get("is_active", True) is False:
+            continue
+        allowed = [str(x).strip() for x in (rule.get("allowed_users") or []) if str(x).strip()]
+        if allowed and caller_str:
+            if caller_str not in allowed and (not caller_uid or caller_uid not in allowed):
+                continue
+        patterns = rule.get("patterns") or []
+        for pat_obj in patterns:
+            pat_str = str((pat_obj.get("pattern") if isinstance(pat_obj, dict) else pat_obj) or "").strip()
+            if not pat_str:
+                continue
+            rx, fixed_pref = _asterisk_pattern_to_regex(pat_str)
+            try:
+                if re.match(rx, clean_num) or (raw != clean_num and re.match(rx, raw)):
+                    matched_rule = rule
+                    matched_pat_obj = pat_obj if isinstance(pat_obj, dict) else {"pattern": pat_str}
+                    matched_fixed_prefix = fixed_pref
+                    break
+            except Exception:
+                pass
+        if matched_rule:
+            break
+
+    # Pass 2: If no pattern explicitly matched, pick first active rule allowed for caller
+    if not matched_rule:
+        for rule in outbound_rules:
+            if rule.get("is_active", True) is False:
+                continue
+            allowed = [str(x).strip() for x in (rule.get("allowed_users") or []) if str(x).strip()]
+            if allowed and caller_str:
+                if caller_str not in allowed and (not caller_uid or caller_uid not in allowed):
+                    continue
+            matched_rule = rule
+            break
+
+    working = clean_num
+    prepend_val = ""
+    if matched_pat_obj:
+        strip_raw = str(matched_pat_obj.get("strip") or "").strip()
+        prepend_val = str(matched_pat_obj.get("prepend") or "").strip()
+        stripped_done = False
+        if strip_raw:
+            if strip_raw.isdigit():
+                s_cnt = int(strip_raw)
+                if 0 < s_cnt < len(working):
+                    working = working[s_cnt:]
+                    stripped_done = True
+            elif working.startswith(strip_raw) and len(working) > len(strip_raw):
+                working = working[len(strip_raw):]
+                stripped_done = True
+
+        # Smart fallback: if pattern had a fixed prefix (e.g. '998' from '998.') and strip was left empty,
+        # and removing that prefix leaves a valid 10-to-12 digit phone number (e.g. '05071796372')
+        if not stripped_done and matched_fixed_prefix and working.startswith(matched_fixed_prefix):
+            rem = working[len(matched_fixed_prefix):]
+            if re.match(r"^(?:0?[2345]\d{9}|0?850\d{7}|0?800\d{7}|0?444\d{4}|90[23458]\d{9}|00\d{7,15})$", rem):
+                working = rem
+                stripped_done = True
+
+    # Smart prefix strip even if no pattern specified strip: e.g. 1-4 digit prefix + '05071796372' (12-15 digits total)
+    m_pref_tr = re.match(r"^(\d{1,4})(0(?:[2345]\d{9}|850\d{7}|800\d{7}|444\d{4}))$", working)
+    if m_pref_tr and not working.startswith("00") and not working.startswith("90"):
+        working = m_pref_tr.group(2)
+
+    if prepend_val:
+        working = prepend_val + working
+
+    # acl_number: number format suitable for check_outbound_call (starts with 0 or 90 or 00)
+    acl_number = working
+    if re.match(r"^([2345]\d{9}|850\d{7}|800\d{7})$", acl_number):
+        acl_number = "0" + acl_number
+
+    # trunk_dial_number: format suitable for SIP trunk (905071796372 for Turkish numbers unless prepend explicitly set '0')
+    trunk_dial_number = working
+    if prepend_val != "0":
+        if re.match(r"^0([2345]\d{9}|850\d{7}|800\d{7})$", trunk_dial_number):
+            trunk_dial_number = "90" + trunk_dial_number[1:]
+        elif re.match(r"^([2345]\d{9}|850\d{7}|800\d{7})$", trunk_dial_number):
+            trunk_dial_number = "90" + trunk_dial_number
+
+    return {
+        "matched_rule": matched_rule,
+        "matched_pattern": matched_pat_obj,
+        "acl_number": acl_number,
+        "trunk_dial_number": trunk_dial_number,
+    }
+
+
 @app.get("/api/trunks/resolve_outbound_dial", response_class=PlainTextResponse)
 async def resolve_outbound_dial_endpoint(
     caller: str = "",
@@ -3177,7 +3379,8 @@ async def resolve_outbound_dial_endpoint(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    Asterisk giden aramalarda (webrtc_agents _0. vb.) seçili Dış Hat (Trunk) üzerindeki:
+    Asterisk giden aramalarda (webrtc_agents _0. ve _[1-9]X. vb.) seçili Dış Hat (Trunk) üzerindeki:
+    - Giden Arama Kuralları (outbound_rules: pattern, strip, prepend, trunk_ids/trunks, caller_id)
     - Çağrı Kısıtlama (call_limit_enabled, call_limit_direction, max_channels)
     - Giden SIP Başlıkları (From User, From Display Name, Diversion, Remote-Party-ID, P-Asserted-Identity, P-Preferred-Identity)
     - Diğer Ayarlar (Realm, Maxptime)
@@ -3210,24 +3413,33 @@ async def resolve_outbound_dial_endpoint(
                     if t.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
                         t[extra_k] = dt.get(extra_k)
 
+        # Match outbound rule & strip prefix (e.g. 99805071796372 -> 905071796372)
+        transform_info = _match_and_transform_outbound_number(callee or dial_num, caller_ext=caller, users_list=users_list)
+        matched_rule = transform_info.get("matched_rule")
+        resolved_target_num = transform_info.get("trunk_dial_number") or dial_num or callee
+
         active_trunks = [t for t in trunks_list if t.get("is_active", True) is not False]
         if not active_trunks:
-            return f"ALLOW|Operator_Trunk|0|30|908503607390|908503607390|PJSIP/Operator_Trunk/sip:{dial_num or callee}@ikonsip.com:5060|||||"
+            return f"ALLOW|Operator_Trunk|0|30|908503607390|908503607390|PJSIP/Operator_Trunk/sip:{resolved_target_num}@ikonsip.com:5060|||||"
 
-        # Check outbound rules to see if a specific trunk or outbound rule caller_id matches
-        outbound_rules = settings_db.get("outbound_rules", [])
-        matched_rule = None
         selected_trunk = None
-        for rule in outbound_rules:
-            if rule.get("is_active", True) is False:
-                continue
-            r_trunks = rule.get("trunks") or []
-            if r_trunks:
-                first_t_name = str(r_trunks[0]).strip()
-                cand = next((t for t in active_trunks if str(t.get("trunk_name")) == first_t_name or str(t.get("id")) == first_t_name), None)
+        if matched_rule:
+            r_trunks = (
+                matched_rule.get("trunk_ids")
+                or matched_rule.get("trunks")
+                or ([matched_rule.get("trunk_id")] if matched_rule.get("trunk_id") else [])
+            )
+            for t_ref in r_trunks:
+                t_ref_str = str(t_ref).strip()
+                cand = next(
+                    (
+                        t for t in active_trunks
+                        if str(t.get("id")) == t_ref_str or str(t.get("trunk_name")) == t_ref_str
+                    ),
+                    None,
+                )
                 if cand:
                     selected_trunk = cand
-                    matched_rule = rule
                     break
 
         if not selected_trunk:
@@ -3277,7 +3489,8 @@ async def resolve_outbound_dial_endpoint(
         # 1. Outbound From User (CID Number)
         out_from_user_mode = str(sip_hdrs.get("outbound_from_user") or "default").strip()
         out_from_user_custom = str(sip_hdrs.get("outbound_from_user_custom") or "").strip()
-        cid_num = _resolve_num_val(out_from_user_mode, out_from_user_custom, t_did)
+        default_cid_num = rule_cid if (matched_rule and (matched_rule.get("caller_id") or matched_rule.get("outbound_caller_id"))) else t_did
+        cid_num = _resolve_num_val(out_from_user_mode, out_from_user_custom, default_cid_num)
 
         # 2. Outbound From Display Name (CID Name)
         out_from_name_mode = str(sip_hdrs.get("outbound_from_name") or "trunk_name").strip().lower()
@@ -3318,7 +3531,7 @@ async def resolve_outbound_dial_endpoint(
             max_ch = 30
 
         # 5. Dial Target String
-        target_num = dial_num or callee
+        target_num = resolved_target_num
         if t_type == "account":
             dial_str = f"PJSIP/{target_num}@{safe_t_name}"
         elif raw_t_name == "908503607390" or safe_t_name == "Operator_Trunk":
@@ -5658,6 +5871,10 @@ async def save_outbound_rule(request: Request, user_info: dict = Depends(get_use
             settings_db["outbound_rules"].append(payload)
             
     save_settings(settings_db)
+    try:
+        regenerate_extensions_custom_conf()
+    except Exception:
+        pass
     return {"status": "success", "outbound_rules": settings_db["outbound_rules"]}
 
 @app.delete("/api/settings/outbound_rules/{rule_id}")
@@ -5667,6 +5884,10 @@ async def delete_outbound_rule(rule_id: str):
         
     settings_db["outbound_rules"] = [r for r in settings_db["outbound_rules"] if r.get("id") != rule_id]
     save_settings(settings_db)
+    try:
+        regenerate_extensions_custom_conf()
+    except Exception:
+        pass
     return {"status": "success", "outbound_rules": settings_db["outbound_rules"]}
 
 @app.get("/api/settings/inbound_rules")
@@ -5931,9 +6152,13 @@ async def check_outbound_call(caller: str = "", callee: str = "", channel: str =
     callee_str = str(callee or "").strip()
     via_upper = str(via or "").upper()
 
-    # 0. Kara Liste (Blacklist) kontrolü
+    # 0. Giden Arama Kuralı (Outbound Rule) prefix çözümlemesi (ör: 99805071796372 -> 05071796372)
+    transform_info = _match_and_transform_outbound_number(callee_str, caller_ext=caller_str)
+    acl_callee_str = transform_info.get("acl_number") or callee_str
+
+    # 0.1 Kara Liste (Blacklist) kontrolü
     is_bl_caller, bl_reason_c = await is_phone_or_value_blacklisted(caller_str)
-    is_bl_callee, bl_reason_d = await is_phone_or_value_blacklisted(callee_str)
+    is_bl_callee, bl_reason_d = await is_phone_or_value_blacklisted(acl_callee_str)
     if is_bl_caller or is_bl_callee:
         bl_reason = bl_reason_d or bl_reason_c or "BLACKLISTED"
         print(f"[Abuse Shield] Outbound call blocked via Blacklist: {caller_str} -> {callee_str} ({bl_reason})")
@@ -5956,9 +6181,9 @@ async def check_outbound_call(caller: str = "", callee: str = "", channel: str =
                 allow_international = True
 
     # 2. Numara formatı ve Toll-Fraud / Scanner önek kontrolü (097..., 098..., 099..., 12+ haneli 0'lı numaralar)
-    is_blocked, reason = is_suspicious_or_fraud_outbound_number(callee_str, allow_international=allow_international)
+    is_blocked, reason = is_suspicious_or_fraud_outbound_number(acl_callee_str, allow_international=allow_international)
     if is_blocked:
-        print(f"[SIP Security Shield] Dış arama engellendi! Arayan={caller_str}, Aranan={callee_str}, Sebep={reason}, Via={via}")
+        print(f"[SIP Security Shield] Dış arama engellendi! Arayan={caller_str}, Aranan={callee_str} (ACL={acl_callee_str}), Sebep={reason}, Via={via}")
         try:
             add_system_log("SECURITY", "WARNING", f"Sızma / Yetkisiz Dış Arama Engellendi: Dahili {caller_str} -> {callee_str} ({reason})")
         except Exception:
@@ -16019,32 +16244,32 @@ async def startup_event():
             global settings_db
             settings_db.update(load_settings())
 
-            # Regenerate Asterisk configs (PJSIP endpoints, trunks, queues, dialplan) for native or docker Asterisk
-            try:
-                regenerate_pjsip_custom_conf()
-                regenerate_queues_conf()
-                regenerate_extensions_custom_conf()
-                configure_and_sync_fail2ban(install_if_missing=False)
-                scan_asterisk_failed_sip_attempts(auto_ban=True)
-                print("[Asterisk Startup Sync] PJSIP, Kuyruk, Dialplan ve Fail2Ban güvenlik kuralları başarıyla güncellendi.")
-            except Exception as e_ast:
-                print(f"[Asterisk Startup Sync Error]: {e_ast}")
-
-            # Start background tasks
-            asyncio.create_task(recording_cleanup_task())
-            try:
-                from backend.services.email_service import poll_imap_inbox
-                asyncio.create_task(poll_imap_inbox())
-                print("[Startup] IMAP E-posta dinleme servisi başlatıldı.")
-            except Exception as e_email:
-                print(f"[Startup Error] IMAP e-posta dinleme servisi başlatılamadı: {e_email}")
-
     try:
         await asyncio.wait_for(seed_db_tables(), timeout=5.0)
     except Exception as e:
         print(f"[Database Init/Seeding Timeout or Error]: {e}")
         global settings_db
         settings_db.update(load_settings())
+
+    # Regenerate Asterisk configs (PJSIP endpoints, trunks, queues, dialplan) for native or docker Asterisk
+    try:
+        regenerate_pjsip_custom_conf()
+        regenerate_queues_conf()
+        regenerate_extensions_custom_conf()
+        configure_and_sync_fail2ban(install_if_missing=False)
+        scan_asterisk_failed_sip_attempts(auto_ban=True)
+        print("[Asterisk Startup Sync] PJSIP, Kuyruk, Dialplan ve Fail2Ban güvenlik kuralları başarıyla güncellendi.")
+    except Exception as e_ast:
+        print(f"[Asterisk Startup Sync Error]: {e_ast}")
+
+    # Start background tasks
+    asyncio.create_task(recording_cleanup_task())
+    try:
+        from backend.services.email_service import poll_imap_inbox
+        asyncio.create_task(poll_imap_inbox())
+        print("[Startup] IMAP E-posta dinleme servisi başlatıldı.")
+    except Exception as e_email:
+        print(f"[Startup Error] IMAP e-posta dinleme servisi başlatılamadı: {e_email}")
         
     asyncio.create_task(start_ami_listener())
     asyncio.create_task(asterisk_sip_ips_guard_loop())
