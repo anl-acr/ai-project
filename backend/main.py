@@ -19887,6 +19887,7 @@ class LiveTranslateAudioPayload(BaseModel):
     target_lang: Optional[str] = "tr"
     generate_tts: Optional[bool] = False
     call_id: Optional[str] = None
+    fallback_stt_text: Optional[str] = None
 
 
 class LiveTranslateTextPayload(BaseModel):
@@ -19909,18 +19910,85 @@ LANG_NAME_MAP = {
 }
 
 
-async def _synthesize_translator_tts_base64(text: str, lang_code: str = "tr") -> tuple[str, str]:
+def _resolve_translator_ai_keys(user_info: Optional[dict] = None) -> dict:
+    """Resolves Google/Gemini, Groq, OpenAI, and ElevenLabs API keys across tenant & global settings."""
+    target_tenant = (user_info or {}).get("tenant_id") or "tenant-default"
+    tenant_prov = {}
+    if isinstance(settings_db.get("tenant_ai_providers"), dict):
+        tenant_prov = settings_db["tenant_ai_providers"].get(target_tenant) or {}
+    global_prov = settings_db.get("ai_providers", {}) if isinstance(settings_db.get("ai_providers"), dict) else {}
+
+    # Also check any other tenant entry if default is empty
+    any_tenant_google = ""
+    any_tenant_groq = ""
+    any_tenant_openai = ""
+    any_tenant_el = ""
+    if isinstance(settings_db.get("tenant_ai_providers"), dict):
+        for _, tp in settings_db["tenant_ai_providers"].items():
+            if isinstance(tp, dict):
+                any_tenant_google = any_tenant_google or tp.get("google_api_key") or tp.get("gemini_api_key") or ""
+                any_tenant_groq = any_tenant_groq or tp.get("groq_api_key") or ""
+                any_tenant_openai = any_tenant_openai or tp.get("openai_api_key") or ""
+                any_tenant_el = any_tenant_el or tp.get("elevenlabs_api_key") or ""
+
+    gemini_key = (
+        tenant_prov.get("google_api_key")
+        or tenant_prov.get("gemini_api_key")
+        or global_prov.get("google_api_key")
+        or global_prov.get("gemini_api_key")
+        or any_tenant_google
+        or settings_db.get("gemini_api_key")
+        or os.getenv("GEMINI_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
+        or ""
+    ).strip()
+
+    groq_key = (
+        tenant_prov.get("groq_api_key")
+        or global_prov.get("groq_api_key")
+        or any_tenant_groq
+        or os.getenv("GROQ_API_KEY")
+        or ""
+    ).strip()
+
+    openai_key = (
+        tenant_prov.get("openai_api_key")
+        or global_prov.get("openai_api_key")
+        or any_tenant_openai
+        or os.getenv("OPENAI_API_KEY")
+        or ""
+    ).strip()
+
+    elevenlabs_key = (
+        tenant_prov.get("elevenlabs_api_key")
+        or global_prov.get("elevenlabs_api_key")
+        or any_tenant_el
+        or os.getenv("ELEVENLABS_API_KEY")
+        or ""
+    ).strip()
+
+    return {
+        "gemini_key": gemini_key,
+        "groq_key": groq_key,
+        "openai_key": openai_key,
+        "elevenlabs_key": elevenlabs_key,
+        "elevenlabs_voice_id": global_prov.get("elevenlabs_voice_id") or "EXAVITQu4vr4xnSDxMaL"
+    }
+
+
+async def _synthesize_translator_tts_base64(text: str, lang_code: str = "tr", user_info: Optional[dict] = None) -> tuple[str, str]:
     """Synthesizes natural speech audio (MP3 base64) for real-time voice interpretation."""
     clean_text = (text or "").strip()
     if not clean_text:
         return "", "audio/mpeg"
 
+    keys = _resolve_translator_ai_keys(user_info)
+
     # 1. Try ElevenLabs Multilingual v2 if API key is configured
     try:
-        ai_prov = settings_db.get("ai_providers", {}) if isinstance(settings_db.get("ai_providers"), dict) else {}
-        el_key = (ai_prov.get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY") or "").strip()
+        el_key = keys["elevenlabs_key"]
         if el_key:
-            voice_id = ai_prov.get("elevenlabs_voice_id") or "EXAVITQu4vr4xnSDxMaL"
+            voice_id = keys["elevenlabs_voice_id"]
             url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?optimize_streaming_latency=3"
             async with httpx.AsyncClient(timeout=8.0) as client:
                 r = await client.post(
@@ -19996,7 +20064,8 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     raw_b64 = (payload.audio_base64 or "").strip()
     if "," in raw_b64:
         raw_b64 = raw_b64.split(",", 1)[1]
-    if not raw_b64:
+    fallback_stt = (payload.fallback_stt_text or "").strip()
+    if not raw_b64 and not fallback_stt:
         return {"original_text": "", "translated_text": ""}
 
     src_code = (payload.source_lang or "en").lower()
@@ -20004,8 +20073,10 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     src_name = LANG_NAME_MAP.get(src_code, src_code)
     tgt_name = LANG_NAME_MAP.get(tgt_code, tgt_code)
 
-    ai_prov = settings_db.get("ai_providers", {}) if isinstance(settings_db.get("ai_providers"), dict) else {}
-    gemini_key = (ai_prov.get("gemini_api_key") or os.getenv("GEMINI_API_KEY") or "").strip()
+    keys = _resolve_translator_ai_keys(user_info)
+    gemini_key = keys["gemini_key"]
+    groq_key = keys["groq_key"]
+    openai_key = keys["openai_key"]
 
     original_text = ""
     translated_text = ""
@@ -20013,7 +20084,8 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     suggested_reply_target = ""
     detected_lang = src_code
 
-    if gemini_key:
+    # 1. Primary: Gemini Multimodal Audio -> Transcription + Translation + Suggested Reply in one shot
+    if gemini_key and raw_b64:
         prompt_text = (
             f"You are a real-time call center simultaneous interpreter. "
             f"Listen to this audio clip spoken in {src_name}. "
@@ -20023,7 +20095,7 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
             f"Return ONLY valid JSON with keys: "
             f'{{"detected_lang": "{src_code}", "original_text": "...", "translated_text": "...", "suggested_reply_tr": "...", "suggested_reply_target": "..."}}'
         )
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash"]:
+        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
                 g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
                 req_body = {
@@ -20033,7 +20105,7 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
                                 {"text": prompt_text},
                                 {
                                     "inline_data": {
-                                        "mime_type": payload.mime_type or "audio/webm",
+                                        "mime_type": (payload.mime_type or "audio/webm").split(";")[0],
                                         "data": raw_b64
                                     }
                                 }
@@ -20061,13 +20133,66 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
                             suggested_reply_target = (parsed.get("suggested_reply_target") or "").strip()
                             detected_lang = (parsed.get("detected_lang") or src_code).strip()
                             break
+                    else:
+                        print(f"[LiveTranslator Audio Gemini ({model_name}) HTTP {resp.status_code}]: {resp.text[:200]}")
             except Exception as g_err:
                 print(f"[LiveTranslator Audio Gemini ({model_name}) Warning]: {g_err}")
+
+    # 2. Secondary Audio STT Fallback: Groq Whisper or OpenAI Whisper if Gemini didn't transcribe
+    if not original_text and raw_b64 and (groq_key or openai_key):
+        try:
+            audio_bytes = base64.b64decode(raw_b64)
+            ext = "webm"
+            if "ogg" in (payload.mime_type or ""):
+                ext = "ogg"
+            elif "wav" in (payload.mime_type or ""):
+                ext = "wav"
+            elif "mp4" in (payload.mime_type or ""):
+                ext = "mp4"
+
+            if groq_key:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    r_w = await client.post(
+                        "https://api.groq.com/openai/v1/audio/transcriptions",
+                        headers={"Authorization": f"Bearer {groq_key}"},
+                        data={"model": "whisper-large-v3-turbo", "language": src_code.split("-")[0]},
+                        files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or "audio/webm")}
+                    )
+                    if r_w.status_code == 200:
+                        original_text = (r_w.json().get("text") or "").strip()
+            if not original_text and openai_key:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    r_w = await client.post(
+                        "https://api.openai.com/v1/audio/transcriptions",
+                        headers={"Authorization": f"Bearer {openai_key}"},
+                        data={"model": "whisper-1", "language": src_code.split("-")[0]},
+                        files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or "audio/webm")}
+                    )
+                    if r_w.status_code == 200:
+                        original_text = (r_w.json().get("text") or "").strip()
+        except Exception as w_err:
+            print(f"[LiveTranslator Whisper Fallback Warning]: {w_err}")
+
+    # 3. Browser SpeechRecognition fallback if provided
+    if not original_text and fallback_stt:
+        original_text = fallback_stt
+
+    # Filter out common Whisper hallucinations on silence
+    if original_text.lower().strip(".!?, ") in ("you", "thank you", "thanks for watching", "altyazı m.k.", "subtitle", ""):
+        if not fallback_stt:
+            original_text = ""
+
+    # If we obtained original_text via Whisper or fallback_stt, translate it now
+    if original_text and not translated_text:
+        translated_text = await _fallback_google_text_translate(original_text, src_code, tgt_code)
+        if payload.direction == "customer_to_agent" and translated_text and not suggested_reply_tr:
+            suggested_reply_tr = "Memnuniyetle yardımcı olabilirim, hemen kontrol ediyorum."
+            suggested_reply_target = await _fallback_google_text_translate(suggested_reply_tr, "tr", src_code)
 
     tts_b64 = ""
     tts_mime = "audio/mpeg"
     if payload.generate_tts and translated_text:
-        tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code)
+        tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code, user_info=user_info)
 
     if original_text and translated_text:
         await _record_bilingual_transcript_turn(
@@ -20102,8 +20227,8 @@ async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_i
     src_name = LANG_NAME_MAP.get(src_code, src_code)
     tgt_name = LANG_NAME_MAP.get(tgt_code, tgt_code)
 
-    ai_prov = settings_db.get("ai_providers", {}) if isinstance(settings_db.get("ai_providers"), dict) else {}
-    gemini_key = (ai_prov.get("gemini_api_key") or os.getenv("GEMINI_API_KEY") or "").strip()
+    keys = _resolve_translator_ai_keys(user_info)
+    gemini_key = keys["gemini_key"]
 
     translated_text = ""
     suggested_reply_tr = ""
@@ -20118,7 +20243,7 @@ async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_i
             f"Return ONLY valid JSON: "
             f'{{"translated_text": "...", "suggested_reply_tr": "...", "suggested_reply_target": "..."}}'
         )
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash"]:
+        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
             try:
                 g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
                 req_body = {
@@ -20154,7 +20279,7 @@ async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_i
     tts_b64 = ""
     tts_mime = "audio/mpeg"
     if payload.generate_tts and translated_text:
-        tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code)
+        tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code, user_info=user_info)
 
     if translated_text:
         await _record_bilingual_transcript_turn(
