@@ -345,6 +345,13 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
   const { dispositionCodes } = getAgentQueueConfig();
 
+  const isCurrentBreakAuto =
+    agentState?.status === "break" &&
+    (Boolean(agentState?.current_break?.is_auto_break) ||
+      String(agentState?.current_break?.name || "").toLowerCase().startsWith("otomatik mola") ||
+      String(agentState?.current_break?.name || "").toLowerCase().includes("çağrı kaçırma") ||
+      String(agentState?.current_break?.name || "").toLowerCase().includes("bağlantı koptu"));
+
   // Status style helper
   const getStatusDisplay = () => {
     if (!agentState?.is_logged_in) {
@@ -369,6 +376,14 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       };
     }
     if (agentState?.status === "break" && agentState?.current_break) {
+      if (isCurrentBreakAuto) {
+        return {
+          text: `${agentState.current_break.name} • ${formatTimer(liveBreakSeconds)}`,
+          badgeClass: "bg-slate-800 text-white dark:bg-slate-700 border-slate-600",
+          indicatorClass: "bg-white animate-pulse",
+          customColor: "#ffffff"
+        };
+      }
       return {
         text: `Molada (${agentState.current_break.name}) • ${formatTimer(liveBreakSeconds)}`,
         badgeClass: isBreakOvertime
@@ -418,6 +433,19 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
           </div>
         )}
       </div>
+
+      {/* Automatic Break (RONA / Disconnect) Anthracite Warning Banner */}
+      {isCurrentBreakAuto && (
+        <div className="mb-3 p-3 rounded-xl bg-slate-800 text-white border border-slate-600 flex items-start gap-2.5 text-[11px] font-semibold shadow-sm">
+          <AlertTriangle size={16} className="shrink-0 mt-0.5 text-amber-400" />
+          <div className="flex-1">
+            <div className="font-extrabold">Otomatik Mola Aktif ({agentState?.current_break?.name})</div>
+            <div className="text-[10px] text-slate-300 mt-0.5">
+              Çağrı kaçırma veya bağlantı kopması nedeniyle sistem sizi otomatik molaya aldı. Çağrı alabilmek için &quot;Molayı Bitir&quot; butonuna tıklayın.
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Break Quota / Concurrent Limit Warning Banner */}
       {breakError && (

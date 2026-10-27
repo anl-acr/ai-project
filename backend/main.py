@@ -4161,6 +4161,12 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
         if matched_user_id:
             registered_endpoints.add(str(matched_user_id), client_ip)
 
+        try:
+            from backend.services.agent_presence import handle_agent_reconnect_auto_pause
+            asyncio.create_task(handle_agent_reconnect_auto_pause(ext))
+        except Exception:
+            pass
+
     return {"status": "success", "ip": client_ip}
 
 @app.post("/api/webrtc/unregister_notify")
@@ -4211,7 +4217,7 @@ async def get_agent_status_endpoint(
     extension: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
-    from backend.services.agent_presence import get_agent_state, update_agent_state
+    from backend.services.agent_presence import get_agent_state, update_agent_state, is_auto_break_name, AUTO_BREAK_DEFAULT_COLOR
     from backend.database.models import AgentBreakLog
     from sqlalchemy import select, or_
 
@@ -4273,13 +4279,14 @@ async def get_agent_status_endpoint(
                 None
             )
             if active_brk:
-                brk_color = "#eab308"
-                brk_id = None
+                is_auto = is_auto_break_name(active_brk.break_name)
+                brk_color = AUTO_BREAK_DEFAULT_COLOR if is_auto else "#eab308"
+                brk_id = "auto_pause" if is_auto else None
                 brk_max_min = 0
                 brk_quota_min = 0
                 for b_cfg in settings.get("breaks", []):
                     if str(b_cfg.get("name", "")).strip().lower() == str(active_brk.break_name or "").strip().lower():
-                        brk_color = b_cfg.get("color") or "#eab308"
+                        brk_color = b_cfg.get("color") or brk_color
                         brk_id = b_cfg.get("id")
                         brk_max_min = int(b_cfg.get("max_duration_minutes") or 0)
                         brk_quota_min = int(b_cfg.get("daily_quota_minutes") or 0)
@@ -4291,6 +4298,7 @@ async def get_agent_status_endpoint(
                     "id": brk_id,
                     "name": active_brk.break_name or "Mola",
                     "color": brk_color,
+                    "is_auto_break": is_auto,
                     "max_duration_minutes": brk_max_min,
                     "daily_quota_minutes": brk_quota_min,
                     "start_time_utc": brk_start_iso,
@@ -4338,7 +4346,7 @@ async def get_agent_status_endpoint(
 @app.post("/api/agent/status")
 @app.post("/agent/status")
 async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSession = Depends(get_db)):
-    from backend.services.agent_presence import update_agent_state, active_agent_status
+    from backend.services.agent_presence import update_agent_state, active_agent_status, reset_agent_missed_calls, sync_asterisk_queue_pause
     from backend.database.models import AgentBreakLog, PBXQueue
     from sqlalchemy import select, or_
 
@@ -4498,6 +4506,14 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
         extension=ext_str
     )
 
+    if ext_str:
+        if payload.status == "online" and payload.is_logged_in:
+            reset_agent_missed_calls(ext_str)
+            asyncio.create_task(sync_asterisk_queue_pause(ext_str, False, reason="AgentAvailable"))
+        elif payload.status == "break":
+            b_reason = str((brk_payload or {}).get("name") or "Break")
+            asyncio.create_task(sync_asterisk_queue_pause(ext_str, True, reason=b_reason))
+
     try:
         conditions = []
         if user_id_str:
@@ -4559,6 +4575,7 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
         print(f"[Agent Status] Error managing break logs: {e_brk}")
 
     return {"status": "success", "agent_state": new_state, "state": new_state}
+
 
 
 class AgentAssistRequestSchema(BaseModel):
@@ -6116,6 +6133,14 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
             log_fwd_action(f"Profil ({active_prof_id}) Yönlendirmesi", imm_target)
             return Response(content=f"ALLOW:{imm_target}:{no_ans_timeout}", media_type="text/plain")
 
+        # Trigger per-queue Auto-Pause evaluation if agent did not answer or rejected the call on Step 1
+        if int(step) == 1 and dialstatus in ["NOANSWER", "BUSY"]:
+            try:
+                from backend.services.agent_presence import handle_agent_missed_call_for_auto_pause
+                asyncio.create_task(handle_agent_missed_call_for_auto_pause(ext_str))
+            except Exception as e_ap:
+                print(f"[Forwarding Resolver AutoPause Trigger Warning]: {e_ap}")
+
         # Rule 1.8: BENİ TAKİP ET (Follow Me) - Step 1 & Step 2 when desk phone rings and is not answered
         if fm_enabled and dialstatus in ["NOANSWER", "CANCEL", "BUSY", "CHANUNAVAIL", "CONGESTION"]:
             chosen_target_type = fm_first if int(step) == 1 else fm_second
@@ -6140,6 +6165,18 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
         f_noans = extract_target(user_dict.get("forwarding_no_answer"))
         mobile_enabled = bool(user_dict.get("mobile_transfer_enabled", False))
         gsm_num = str(user_dict.get("gsm_number") or user_dict.get("mobile_number") or fm_mobile or "").strip()
+
+        # Rule 1.9: Check if agent is currently on Break (Manual or Auto-Pause) during BEFORE_DIAL
+        if dialstatus == "BEFORE_DIAL":
+            try:
+                from backend.services.agent_presence import get_agent_state
+                ag_st = get_agent_state(user_id=str(user_dict.get("id") or ""), extension=ext_str)
+                if ag_st and ag_st.get("is_logged_in") and ag_st.get("status") == "break":
+                    brk_target = f_busy or prof_target or (gsm_num if mobile_enabled and gsm_num else "HANGUP")
+                    print(f"[Forwarding Resolver] Extension {ext_str} is on BREAK -> Action: {brk_target}")
+                    return Response(content=f"ALLOW:{brk_target}:{no_ans_timeout}", media_type="text/plain")
+            except Exception:
+                pass
 
         # Rule 2: MEŞGUL DURUMDA (forwarding_busy) - When line is busy or channel unavailable
         if dialstatus in ["BUSY", "CHANUNAVAIL", "CONGESTION"]:
@@ -8115,7 +8152,14 @@ def clone_tenant_config(source_tenant_id: str, target_tenant_id: str):
                     survey_thank_you_voice=getattr(q, "survey_thank_you_voice", "tr-TR-EmelNeural"),
                     survey_questions=getattr(q, "survey_questions", []),
                     survey_timeout_sec=getattr(q, "survey_timeout_sec", 10),
-                    survey_low_score_threshold=getattr(q, "survey_low_score_threshold", 2)
+                    survey_low_score_threshold=getattr(q, "survey_low_score_threshold", 2),
+                    auto_pause_missed_enabled=getattr(q, "auto_pause_missed_enabled", False),
+                    auto_pause_missed_count=getattr(q, "auto_pause_missed_count", 1),
+                    auto_pause_disconnect_enabled=getattr(q, "auto_pause_disconnect_enabled", False),
+                    auto_pause_disconnect_grace_sec=getattr(q, "auto_pause_disconnect_grace_sec", 15),
+                    auto_pause_reconnect_mode=getattr(q, "auto_pause_reconnect_mode", "manual"),
+                    auto_pause_notify_user=getattr(q, "auto_pause_notify_user", True),
+                    auto_pause_notify_channels=getattr(q, "auto_pause_notify_channels", "both")
                 )
                 db.add(new_q)
 
@@ -11061,6 +11105,7 @@ async def get_reports_agents():
             break_id = None
             break_color = None
             break_max_min = 0
+            is_auto_brk = False
             status_duration = 0
             status_since_utc = None
 
@@ -11074,7 +11119,9 @@ async def get_reports_agents():
                     curr_b = agent_sess.get("current_break") or {}
                     break_type = (active_brk_log.break_name if active_brk_log else None) or curr_b.get("name") or "Mola"
                     break_id = curr_b.get("id")
-                    break_color = curr_b.get("color") or "#eab308"
+                    from backend.services.agent_presence import is_auto_break_name, AUTO_BREAK_DEFAULT_COLOR
+                    is_auto_brk = bool(curr_b.get("is_auto_break") or is_auto_break_name(break_type))
+                    break_color = curr_b.get("color") or (AUTO_BREAK_DEFAULT_COLOR if is_auto_brk else "#eab308")
                     break_max_min = int(curr_b.get("max_duration_minutes") or 0)
                     for b_cfg in breaks_cfg:
                         if str(b_cfg.get("name", "")).strip().lower() == str(break_type).strip().lower():
@@ -11151,6 +11198,7 @@ async def get_reports_agents():
                 "breakType": break_type,
                 "breakColor": break_color,
                 "breakMaxMinutes": break_max_min,
+                "isAutoBreak": is_auto_brk,
                 "caller": caller_number,
                 "call_id": matched_call_id,
                 "duration": status_duration,
@@ -14242,6 +14290,8 @@ async def get_agent_queue_peers(
         else:
             logout_time_str = fmt_tr_hms(last_logout_utc) if last_logout_utc else "-"
 
+        from backend.services.agent_presence import is_auto_break_name
+        is_auto_break_peer = bool(status_code == "break" and is_auto_break_name(break_name_val))
         agents_result.append({
             "id": u_id or a_key,
             "name": u_obj["name"],
@@ -14254,6 +14304,7 @@ async def get_agent_queue_peers(
             "status": status_code,
             "status_label": status_label,
             "break_name": break_name_val,
+            "is_auto_break": is_auto_break_peer,
             "active_call_with": active_call_with,
             "status_since_utc": (status_since_utc.isoformat() + "Z") if status_since_utc else None,
             "status_duration_seconds": status_duration_seconds,
@@ -15474,6 +15525,13 @@ async def startup_event():
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_low_score_threshold INTEGER DEFAULT 2;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_concurrent_breaks INTEGER DEFAULT 0;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS disposition_codes JSON DEFAULT '[]';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_missed_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_missed_count INTEGER DEFAULT 1;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_disconnect_enabled BOOLEAN DEFAULT FALSE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_disconnect_grace_sec INTEGER DEFAULT 15;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_reconnect_mode VARCHAR DEFAULT 'manual';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_notify_user BOOLEAN DEFAULT TRUE;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_notify_channels VARCHAR DEFAULT 'both';",
                 "ALTER TABLE queue_survey_responses ADD COLUMN IF NOT EXISTS question_answers JSON DEFAULT '[]';",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;",

@@ -42,10 +42,13 @@ export const DEFAULT_STATUS_COLORS = {
   available: "#10b981", // Yeşil (Login / Müsait)
   busy: "#ef4444",      // Kırmızı (Meşgul / Görüşmede)
   break: "#eab308",     // Sarı (Molada - Genel Varsayılan)
+  autoBreak: "#334155", // Antrasit / Siyah (Otomatik Mola - Çağrı Kaçırma / Kopma)
   breakColors: {}       // Mola bazlı kişisel renk tercihleri: { [breakId_or_breakName]: "#..." }
 };
 
 export const COLOR_SWATCHES = [
+  { hex: "#334155", label: "Antrasit" },
+  { hex: "#0f172a", label: "Siyah" },
   { hex: "#10b981", label: "Yeşil" },
   { hex: "#22c55e", label: "Zümrüt" },
   { hex: "#eab308", label: "Sarı" },
@@ -59,6 +62,19 @@ export const COLOR_SWATCHES = [
   { hex: "#06b6d4", label: "Turkuaz" },
   { hex: "#64748b", label: "Gri" }
 ];
+
+export function isAutoBreakState(state) {
+  if (!state || state.status !== "Molada") return false;
+  if (state.isAutoBreak) return true;
+  const bt = String(state.breakType || "").trim().toLowerCase();
+  return (
+    bt.startsWith("otomatik mola") ||
+    bt.startsWith("auto_pause") ||
+    bt.startsWith("auto pause") ||
+    bt.includes("çağrı kaçırma") ||
+    bt.includes("bağlantı koptu")
+  );
+}
 
 export function hexToRgba(hex, alpha = 1) {
   const clean = String(hex || "#10b981").replace("#", "").trim();
@@ -87,6 +103,9 @@ export function resolveAgentStatusHex(state, statusColors = DEFAULT_STATUS_COLOR
     return "#8b5cf6";
   }
   if (st === "Molada") {
+    if (isAutoBreakState(state)) {
+      return colors.autoBreak || DEFAULT_STATUS_COLORS.autoBreak;
+    }
     const bcMap = colors.breakColors || {};
     const bIdKey = state?.breakId != null ? String(state.breakId) : "";
     const bNameKey = state?.breakType ? String(state.breakType).trim() : "";
@@ -266,6 +285,7 @@ export function normalizeWallboardLayout(saved) {
         available: saved.statusColors.available || DEFAULT_STATUS_COLORS.available,
         busy: saved.statusColors.busy || DEFAULT_STATUS_COLORS.busy,
         break: saved.statusColors.break || DEFAULT_STATUS_COLORS.break,
+        autoBreak: saved.statusColors.autoBreak || DEFAULT_STATUS_COLORS.autoBreak,
         breakColors:
           saved.statusColors.breakColors && typeof saved.statusColors.breakColors === "object"
             ? { ...saved.statusColors.breakColors }
@@ -594,7 +614,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
               </button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
               {[
                 {
                   key: "available",
@@ -616,6 +636,13 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
                   subtitle: "Varsayılan Mola Rengi",
                   badge: "MOLADA",
                   defaultHex: DEFAULT_STATUS_COLORS.break
+                },
+                {
+                  key: "autoBreak",
+                  title: "Otomatik Mola",
+                  subtitle: "Çağrı Kaçırma / Kopma",
+                  badge: "OTO MOLA",
+                  defaultHex: DEFAULT_STATUS_COLORS.autoBreak
                 }
               ].map((item) => {
                 const currentHex = statusColors?.[item.key] || item.defaultHex;
@@ -2348,7 +2375,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                   }}
                                   className="px-2 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0"
                                 >
-                                  {state.status}
+                                  {isAutoBreakState(state) ? "Otomatik Mola" : state.status}
                                 </span>
 
                                 {isSupervisor && (

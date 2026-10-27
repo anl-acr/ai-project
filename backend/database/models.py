@@ -356,6 +356,15 @@ class PBXQueue(Base):
     survey_timeout_sec = Column(Integer, default=10)
     survey_low_score_threshold = Column(Integer, default=2)
 
+    # Per-Queue Auto-Pause (Otomatik Mola - Çağrı Kaçırma & Bağlantı Kopması)
+    auto_pause_missed_enabled = Column(Boolean, default=False)
+    auto_pause_missed_count = Column(Integer, default=1)
+    auto_pause_disconnect_enabled = Column(Boolean, default=False)
+    auto_pause_disconnect_grace_sec = Column(Integer, default=15)
+    auto_pause_reconnect_mode = Column(String, default="manual")  # manual | auto
+    auto_pause_notify_user = Column(Boolean, default=True)
+    auto_pause_notify_channels = Column(String, default="both")  # both | whatsapp | email
+
 class AIAgent(Base):
     __tablename__ = "ai_agents"
     id = Column(String, primary_key=True, index=True) # UUID or string ID

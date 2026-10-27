@@ -147,7 +147,16 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     survey_thank_you_voice: "tr-TR-EmelNeural",
     survey_questions: [{ ...DEFAULT_SURVEY_QUESTION }],
     survey_timeout_sec: 10,
-    survey_low_score_threshold: 2
+    survey_low_score_threshold: 2,
+
+    // Per-Queue Automatic Break (Otomatik Mola / RONA & Bağlantı Kopma)
+    auto_pause_missed_enabled: false,
+    auto_pause_missed_count: 1,
+    auto_pause_disconnect_enabled: false,
+    auto_pause_disconnect_grace_sec: 15,
+    auto_pause_reconnect_mode: "manual",
+    auto_pause_notify_user: true,
+    auto_pause_notify_channels: "both"
   });
 
   // State for Members & Supervisors
@@ -296,6 +305,13 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           survey_thank_you_voice: "tr-TR-EmelNeural",
           survey_timeout_sec: 10,
           survey_low_score_threshold: 2,
+          auto_pause_missed_enabled: false,
+          auto_pause_missed_count: 1,
+          auto_pause_disconnect_enabled: false,
+          auto_pause_disconnect_grace_sec: 15,
+          auto_pause_reconnect_mode: "manual",
+          auto_pause_notify_user: true,
+          auto_pause_notify_channels: "both",
           ...queueData,
           survey_questions: existingQuestions,
           survey_thank_you_text:
@@ -353,7 +369,14 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           survey_thank_you_voice: "tr-TR-EmelNeural",
           survey_questions: [{ ...DEFAULT_SURVEY_QUESTION }],
           survey_timeout_sec: 10,
-          survey_low_score_threshold: 2
+          survey_low_score_threshold: 2,
+          auto_pause_missed_enabled: false,
+          auto_pause_missed_count: 1,
+          auto_pause_disconnect_enabled: false,
+          auto_pause_disconnect_grace_sec: 15,
+          auto_pause_reconnect_mode: "manual",
+          auto_pause_notify_user: true,
+          auto_pause_notify_channels: "both"
         });
         setQueueMembers([]);
         setSupervisors([]);
@@ -657,6 +680,149 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           ))}
           {(!formData.disposition_codes || formData.disposition_codes.length === 0) && (
             <span className="text-[11px] text-slate-400 italic">Henüz çağrı sonuç kodu tanımlanmadı.</span>
+          )}
+        </div>
+      </div>
+
+      {/* Otomatik Mola (Auto-Pause / RONA) & Temsilci Bildirim Kuralları */}
+      <div className="md:col-span-2 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="inline-block w-2.5 h-2.5 rounded-full bg-slate-700 dark:bg-slate-400" />
+              <label className="text-xs font-bold text-slate-800 dark:text-white">
+                Otomatik Mola (Auto-Pause / RONA) & Temsilci Bildirim Kuralları
+              </label>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-0.5">
+              Temsilci çağrı kaçırdığında veya WebPhone/SIP bağlantısı koptuğunda otomatik molaya alınır, yeni çağrı gönderilmez ve canlı izleme panelinde antrasit/siyah renkte işaretlenir.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* 1. Çağrı Kaçırmada Otomatik Mola (RONA) */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/70 space-y-3">
+            <label className="flex items-center justify-between gap-2 cursor-pointer">
+              <div>
+                <div className="text-xs font-bold text-slate-800 dark:text-white">Çağrı Kaçırmada Otomatik Mola (RONA)</div>
+                <div className="text-[10px] text-slate-500">Temsilci çalan çağrıyı açmazsa veya reddederse otomatik molaya al.</div>
+              </div>
+              <input
+                type="checkbox"
+                name="auto_pause_missed_enabled"
+                checked={Boolean(formData.auto_pause_missed_enabled)}
+                onChange={handleChange}
+                className="w-4 h-4 rounded accent-slate-800 cursor-pointer shrink-0"
+              />
+            </label>
+
+            {formData.auto_pause_missed_enabled && (
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Üst Üste Kaçırılan Çağrı Limiti
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    name="auto_pause_missed_count"
+                    value={formData.auto_pause_missed_count ?? 1}
+                    onChange={handleChange}
+                    className={`w-24 text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                  <span className="text-[10px] text-slate-500">çağrı cevapsız kalırsa &quot;Otomatik Mola (Çağrı Kaçırma)&quot; başlatılır.</span>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 2. Bağlantı Koptuğunda Otomatik Mola */}
+          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/70 space-y-3">
+            <label className="flex items-center justify-between gap-2 cursor-pointer">
+              <div>
+                <div className="text-xs font-bold text-slate-800 dark:text-white">Bağlantı Koptuğunda Otomatik Mola</div>
+                <div className="text-[10px] text-slate-500">WebPhone / SIP bağlantısı koptuğunda temsilciyi otomatik molaya al.</div>
+              </div>
+              <input
+                type="checkbox"
+                name="auto_pause_disconnect_enabled"
+                checked={Boolean(formData.auto_pause_disconnect_enabled)}
+                onChange={handleChange}
+                className="w-4 h-4 rounded accent-slate-800 cursor-pointer shrink-0"
+              />
+            </label>
+
+            {formData.auto_pause_disconnect_enabled && (
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Kopma Tolerans Süresi (Sn)
+                  </label>
+                  <input
+                    type="number"
+                    min={3}
+                    max={120}
+                    name="auto_pause_disconnect_grace_sec"
+                    value={formData.auto_pause_disconnect_grace_sec ?? 15}
+                    onChange={handleChange}
+                    className={`w-full text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                  <span className="text-[9px] text-slate-400">Anlık sayfa yenilemelerini tolere eder.</span>
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Bağlantı Geldiğinde Davranış
+                  </label>
+                  <select
+                    name="auto_pause_reconnect_mode"
+                    value={formData.auto_pause_reconnect_mode || "manual"}
+                    onChange={handleChange}
+                    className={`w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                  >
+                    <option value="manual">Molada Kalsın (Manuel Müsait)</option>
+                    <option value="auto">Otomatik Müsait&apos;e Döndür</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 3. Otomatik Molaya Düşen Temsilciye Bildirim (E-Posta & WhatsApp) */}
+        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <label className="flex items-center gap-2.5 cursor-pointer">
+            <input
+              type="checkbox"
+              name="auto_pause_notify_user"
+              checked={Boolean(formData.auto_pause_notify_user ?? true)}
+              onChange={handleChange}
+              className="w-4 h-4 rounded accent-slate-800 cursor-pointer shrink-0"
+            />
+            <div>
+              <div className="text-xs font-bold text-slate-800 dark:text-white">
+                Otomatik Molaya Düşen Temsilciye Bildirim Gönder (E-Posta / WhatsApp)
+              </div>
+              <div className="text-[10px] text-slate-500">
+                Temsilcinin haberi olmayabileceği durumlar için kullanıcı profilindeki E-Posta ve GSM/WhatsApp numarasına anında uyarı iletilir.
+              </div>
+            </div>
+          </label>
+
+          {Boolean(formData.auto_pause_notify_user ?? true) && (
+            <div className="shrink-0">
+              <select
+                name="auto_pause_notify_channels"
+                value={formData.auto_pause_notify_channels || "both"}
+                onChange={handleChange}
+                className={`text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white font-semibold focus:outline-none focus:ring-2 ${ring}`}
+              >
+                <option value="both">WhatsApp + E-Posta</option>
+                <option value="whatsapp">Sadece WhatsApp</option>
+                <option value="email">Sadece E-Posta</option>
+              </select>
+            </div>
           )}
         </div>
       </div>

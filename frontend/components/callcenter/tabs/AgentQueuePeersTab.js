@@ -168,11 +168,26 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
       };
     }
     if (agent.status === "break") {
+      const bReason = agent.break_reason || agent.break_name || "";
+      const isAuto =
+        Boolean(agent.is_auto_break) ||
+        String(bReason).toLowerCase().startsWith("otomatik mola") ||
+        String(bReason).toLowerCase().includes("çağrı kaçırma") ||
+        String(bReason).toLowerCase().includes("bağlantı koptu");
+      if (isAuto) {
+        return {
+          badgeBg: "bg-slate-800 text-white dark:bg-slate-700 border-slate-600",
+          dot: "bg-slate-300 animate-pulse",
+          solidDot: "bg-slate-800 dark:bg-slate-300",
+          title: bReason || "Otomatik Mola",
+          durationPhrase: `${durText} süredir otomatik molada`
+        };
+      }
       return {
         badgeBg: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
         dot: "bg-amber-500 animate-pulse",
         solidDot: "bg-amber-500",
-        title: agent.break_reason ? `Molada (${agent.break_reason})` : "Molada",
+        title: bReason ? `Molada (${bReason})` : "Molada",
         durationPhrase: `${durText} süredir molada`
       };
     }

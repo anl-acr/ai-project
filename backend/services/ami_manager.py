@@ -187,6 +187,16 @@ def register_event_handlers(manager: Manager):
                 "exten": exten or connected_num or existing.get("exten") or "",
                 "state": mapped
             }
+            if mapped == "busy":
+                try:
+                    import re
+                    from backend.services.agent_presence import reset_agent_missed_calls
+                    ch_s = str(channel or "")
+                    m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)-", ch_s, re.IGNORECASE)
+                    if m_ext:
+                        reset_agent_missed_calls(m_ext.group(1))
+                except Exception:
+                    pass
 
     @manager.register_event('Hangup')
     def handle_hangup(m, event):
@@ -208,9 +218,47 @@ def register_event_handlers(manager: Manager):
             if status in ["Reachable", "Created", "Registered"]:
                 registered_endpoints.add(aor, extracted_ip)
                 print(f"[AMI] Endpoint Kaydedildi: {aor} (IP: {extracted_ip})")
+                try:
+                    from backend.services.agent_presence import handle_agent_reconnect_auto_pause
+                    asyncio.create_task(handle_agent_reconnect_auto_pause(str(aor)))
+                except Exception as e_rec:
+                    print(f"[AMI AutoPause Reconnect Hook Error]: {e_rec}")
             elif status in ["Removed", "Unreachable", "Unknown"]:
                 registered_endpoints.discard(aor)
                 print(f"[AMI] Endpoint Koptu: {aor}")
+                try:
+                    from backend.services.agent_presence import schedule_agent_disconnect_auto_pause
+                    asyncio.create_task(schedule_agent_disconnect_auto_pause(str(aor)))
+                except Exception as e_dc:
+                    print(f"[AMI AutoPause Disconnect Hook Error]: {e_dc}")
+
+    @manager.register_event('AgentRingNoAnswer')
+    def handle_agent_ring_no_answer(m, event):
+        import re
+        iface = str(event.get('Interface') or event.get('MemberName') or "").strip()
+        q_name = str(event.get('Queue') or "").strip()
+        m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)", iface, re.IGNORECASE)
+        ext_val = m_ext.group(1) if m_ext else iface
+        if ext_val:
+            print(f"[AMI] AgentRingNoAnswer: {ext_val} (Queue: {q_name})")
+            try:
+                from backend.services.agent_presence import handle_agent_missed_call_for_auto_pause
+                asyncio.create_task(handle_agent_missed_call_for_auto_pause(ext_val, queue_ext=q_name))
+            except Exception as e_rna:
+                print(f"[AMI AgentRingNoAnswer AutoPause Error]: {e_rna}")
+
+    @manager.register_event('AgentConnect')
+    def handle_agent_connect(m, event):
+        import re
+        iface = str(event.get('Interface') or event.get('MemberName') or "").strip()
+        m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)", iface, re.IGNORECASE)
+        ext_val = m_ext.group(1) if m_ext else iface
+        if ext_val:
+            try:
+                from backend.services.agent_presence import reset_agent_missed_calls
+                reset_agent_missed_calls(ext_val)
+            except Exception:
+                pass
 
 async def get_ami_manager() -> Manager:
     """Returns or initializes the active AMI manager connection."""
