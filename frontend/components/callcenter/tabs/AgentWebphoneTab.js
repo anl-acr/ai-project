@@ -1018,36 +1018,19 @@ export default function AgentWebphoneTab({
               </>
             )}
 
-            {/* Top-Right Compact Translate Toggle Icon & Chat Panel */}
+            {/* Live Translator Chat Panel (Toggled from the call control bar button) */}
             {hasAnyTranslatorPerm && (
-              <>
-                <div className="flex justify-end shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setIsTranslatorOpen((p) => !p)}
-                    title={isTranslatorOpen ? "Canlı Çeviri Panelini Kapat" : "Canlı Konuşma & Çeviri Panelini Aç"}
-                    className={`h-9 w-9 rounded-xl border flex items-center justify-center transition-all shadow-sm ${
-                      isTranslatorOpen
-                        ? `${bg} text-white border-transparent`
-                        : `bg-white dark:bg-slate-900 ${text} ${borderLight} hover:opacity-90`
-                    }`}
-                  >
-                    <Languages size={17} />
-                  </button>
-                </div>
-
-                <div className={isTranslatorOpen ? "flex-1 min-h-[260px]" : "hidden"}>
-                  <LiveTranslatorPanel
-                    backendHost={backendHost}
-                    callId={activeCallId}
-                    callStatus={callStatus}
-                    canLiveTranslate={canLiveTranslate}
-                    canVoiceInterpret={canVoiceInterpret}
-                    isActiveInstance={Boolean(isWebphoneScreenActive)}
-                    onClose={() => setIsTranslatorOpen(false)}
-                  />
-                </div>
-              </>
+              <div className={isTranslatorOpen ? "flex-1 min-h-[260px]" : "hidden"}>
+                <LiveTranslatorPanel
+                  backendHost={backendHost}
+                  callId={activeCallId}
+                  callStatus={callStatus}
+                  canLiveTranslate={canLiveTranslate}
+                  canVoiceInterpret={canVoiceInterpret}
+                  isActiveInstance={Boolean(isWebphoneScreenActive)}
+                  onClose={() => setIsTranslatorOpen(false)}
+                />
+              </div>
             )}
           </div>
         </div>
