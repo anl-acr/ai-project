@@ -40,6 +40,15 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   const [trunksList, setTrunksList] = useState([]);
   const [searchTargetQuery, setSearchTargetQuery] = useState("");
   const [memberSearchQuery, setMemberSearchQuery] = useState("");
+  const [newDispositionCode, setNewDispositionCode] = useState("");
+
+  const DEFAULT_DISPOSITION_CODES = [
+    "Satış Yapıldı",
+    "Bilgi Verildi",
+    "Tekrar Aranacak",
+    "Teknik Destek",
+    "İptal / Şikayet"
+  ];
 
   // State: Form Data
   const [formData, setFormData] = useState({
@@ -49,6 +58,8 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     max_calls: 0,
     ring_time: 15,
     acw_time: 5,
+    max_concurrent_breaks: 0,
+    disposition_codes: DEFAULT_DISPOSITION_CODES,
     
     // State: Announcements
     join_announcement_enabled: false,
@@ -218,6 +229,8 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
       if (queueData) {
         setFormData(prev => ({
           ...prev,
+          max_concurrent_breaks: 0,
+          disposition_codes: DEFAULT_DISPOSITION_CODES,
           smart_callback_enabled: false,
           smart_callback_max_wait_seconds: 60,
           smart_callback_queue_threshold: 3,
@@ -232,7 +245,10 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           survey_thank_you_announcement: "",
           survey_timeout_sec: 10,
           survey_low_score_threshold: 2,
-          ...queueData
+          ...queueData,
+          disposition_codes: Array.isArray(queueData.disposition_codes) && queueData.disposition_codes.length > 0
+            ? queueData.disposition_codes
+            : DEFAULT_DISPOSITION_CODES
         }));
         
         // Ensure queueMembers have priority attribute
@@ -247,6 +263,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         // Reset form
         setFormData({
           extension: "", name: "", strategy: "ringall", max_calls: 0, ring_time: 15, acw_time: 5,
+          max_concurrent_breaks: 0, disposition_codes: DEFAULT_DISPOSITION_CODES,
           join_announcement_enabled: false, join_announcement: "",
           periodic_announcement_enabled: false, periodic_announcement: "",
           hold_music_class: "default",
@@ -493,8 +510,88 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
 
       <div>
         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">ACW Süresi (Sn)</label>
-        <input type="number" name="acw_time" value={formData.acw_time} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-        <p className="text-[10px] text-slate-500 mt-1">Çağrı sonrası toparlanma süresi (After Call Work).</p>
+        <input type="number" min={0} name="acw_time" value={formData.acw_time} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
+        <p className="text-[10px] text-slate-500 mt-1">Çağrı sonrası işlem/not alma süresi (After Call Work). 0 = Kapalı.</p>
+      </div>
+
+      <div>
+        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Aynı Anda Maks. Moladaki Temsilci</label>
+        <input type="number" min={0} name="max_concurrent_breaks" value={formData.max_concurrent_breaks ?? 0} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
+        <p className="text-[10px] text-slate-500 mt-1">Bu kuyrukta aynı anda en fazla kaç temsilci molaya çıkabilir? (0 = Sınırsız)</p>
+      </div>
+
+      <div className="md:col-span-2 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            <label className="block text-xs font-bold text-slate-800 dark:text-white">Çağrı Sonuç Kodları (Disposition / Wrap-Up Codes)</label>
+            <p className="text-[10px] text-slate-500 mt-0.5">Temsilcilerin görüşme sonunda veya ACW süresinde tek tıkla seçebileceği çağrı sonuç etiketleri.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              value={newDispositionCode}
+              onChange={(e) => setNewDispositionCode(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  const val = newDispositionCode.trim();
+                  if (val && !(formData.disposition_codes || []).includes(val)) {
+                    setFormData(prev => ({
+                      ...prev,
+                      disposition_codes: [...(prev.disposition_codes || []), val]
+                    }));
+                    setNewDispositionCode("");
+                  }
+                }
+              }}
+              placeholder="Yeni sonuç kodu ekle..."
+              className={`text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                const val = newDispositionCode.trim();
+                if (val && !(formData.disposition_codes || []).includes(val)) {
+                  setFormData(prev => ({
+                    ...prev,
+                    disposition_codes: [...(prev.disposition_codes || []), val]
+                  }));
+                  setNewDispositionCode("");
+                }
+              }}
+              title="Yeni Sonuç Kodu Ekle"
+              className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-all shadow-sm"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {(formData.disposition_codes || []).map((code, idx) => (
+            <span
+              key={`${code}-${idx}`}
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold ${lightBg} ${text} border ${borderLight}`}
+            >
+              <span>{code}</span>
+              <button
+                type="button"
+                onClick={() =>
+                  setFormData(prev => ({
+                    ...prev,
+                    disposition_codes: (prev.disposition_codes || []).filter((_, i) => i !== idx)
+                  }))
+                }
+                className="hover:opacity-75"
+                title="Kaldır"
+              >
+                <X size={12} />
+              </button>
+            </span>
+          ))}
+          {(!formData.disposition_codes || formData.disposition_codes.length === 0) && (
+            <span className="text-[11px] text-slate-400 italic">Henüz çağrı sonuç kodu tanımlanmadı.</span>
+          )}
+        </div>
       </div>
     </div>
   );

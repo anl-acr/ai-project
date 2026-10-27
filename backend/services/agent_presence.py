@@ -4,7 +4,7 @@ active_agent_status = {}
 
 agent_state = {
     "is_logged_in": False,
-    "status": "offline",  # offline, online, break
+    "status": "offline",  # offline, online, break, acw
     "current_break": None, # dict: {"id": 1, "name": "...", "color": "..."} or None
     "user_id": None,
     "extension": None,

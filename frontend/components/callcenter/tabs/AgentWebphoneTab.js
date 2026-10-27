@@ -258,7 +258,7 @@ export default function AgentWebphoneTab({
         {/* Left Column: Phone Controls & Session */}
         <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-6 h-full overflow-y-auto hide-scrollbar pb-6">
           <div className="w-full shrink-0 animate-in fade-in slide-in-from-left-4 duration-500">
-            <AgentSessionCard backendHost={backendHost} currentUser={currentUser} />
+            <AgentSessionCard backendHost={backendHost} currentUser={currentUser} activeCallId={activeCallId} />
           </div>
 
           {/* Enhanced Dialpad (Always active so user can dial a new line anytime) */}

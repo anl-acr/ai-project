@@ -1,7 +1,18 @@
-import React, { useState, useEffect } from "react";
-import { LogIn, LogOut, Coffee, ShieldAlert, UserCheck, Play, ChevronDown, ChevronUp, User } from "lucide-react";
+import React, { useState, useEffect, useRef } from "react";
+import { LogIn, LogOut, Coffee, ShieldAlert, UserCheck, Play, ChevronDown, ChevronUp, User, Clock, CheckCircle2, Tag, AlertTriangle } from "lucide-react";
+import webphoneManager from "../../utils/webphoneManager";
+import { useTheme } from "../../utils/theme";
 
-export default function AgentSessionCard({ backendHost = "localhost:8000", currentUser }) {
+const DEFAULT_DISPOSITIONS = [
+  "Satış Yapıldı",
+  "Bilgi Verildi",
+  "Tekrar Aranacak",
+  "Teknik Destek",
+  "İptal / Şikayet"
+];
+
+export default function AgentSessionCard({ backendHost = "localhost:8000", currentUser, activeCallId = null }) {
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [agentState, setAgentState] = useState({
     is_logged_in: false,
     status: "offline",
@@ -12,10 +23,19 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const [breaks, setBreaks] = useState([]);
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
+  const [queues, setQueues] = useState([]);
 
   const [showDropdown, setShowDropdown] = useState(false);
   const [loading, setLoading] = useState(false);
   const [liveBreakSeconds, setLiveBreakSeconds] = useState(0);
+  const [breakError, setBreakError] = useState("");
+
+  // ACW & Disposition states
+  const [acwRemaining, setAcwRemaining] = useState(0);
+  const [selectedDisposition, setSelectedDisposition] = useState("");
+  const [dispositionSaved, setDispositionSaved] = useState(false);
+  const [lastEndedCallId, setLastEndedCallId] = useState(null);
+  const prevCallStatusRef = useRef("Idle");
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -31,9 +51,96 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     };
   }, [currentUser]);
 
-  // 1-second live timer when logged in (online or break)
   useEffect(() => {
-    if (!agentState?.is_logged_in || (agentState?.status !== "break" && agentState?.status !== "online")) {
+    if (activeCallId) {
+      setLastEndedCallId(activeCallId);
+    }
+  }, [activeCallId]);
+
+  // Resolve agent's queue ACW duration and Disposition Codes
+  const getAgentQueueConfig = () => {
+    const ext = String(currentUser?.extension || agentState?.extension || "").trim();
+    const uid = String(currentUser?.id || agentState?.user_id || "").trim();
+    const safeQueues = Array.isArray(queues) ? queues : [];
+    const myQueues = safeQueues.filter((q) => {
+      const members = q.queueMembers || q.members || [];
+      return members.some((m) => {
+        const mExt = typeof m === "object" ? String(m.extension || m.user_id || m.id || "").trim() : String(m).trim();
+        return (ext && mExt === ext) || (uid && mExt === uid);
+      });
+    });
+
+    const targetQueues = myQueues.length > 0 ? myQueues : safeQueues;
+    let acwTime = 15;
+    const dispSet = new Set();
+
+    targetQueues.forEach((q) => {
+      if (typeof q.acw_time === "number" && q.acw_time >= 0) {
+        acwTime = q.acw_time;
+      }
+      if (Array.isArray(q.disposition_codes)) {
+        q.disposition_codes.forEach((c) => {
+          if (c && String(c).trim()) dispSet.add(String(c).trim());
+        });
+      }
+    });
+
+    return {
+      acwTime,
+      dispositionCodes: dispSet.size > 0 ? Array.from(dispSet) : DEFAULT_DISPOSITIONS
+    };
+  };
+
+  // Detect WebPhone call end (InCall -> Idle) to automatically enter ACW
+  useEffect(() => {
+    const unsub = webphoneManager.subscribe((wpState) => {
+      const currStatus = wpState?.callStatus || "Idle";
+      if (prevCallStatusRef.current === "InCall" && currStatus === "Idle") {
+        const { acwTime } = getAgentQueueConfig();
+        if (acwTime > 0) {
+          setAcwRemaining(acwTime);
+          setSelectedDisposition("");
+          setDispositionSaved(false);
+          updateStateOnBackend({
+            is_logged_in: true,
+            status: "acw",
+            current_break: null,
+            user_id: currentUser?.id || agentState?.user_id,
+            extension: currentUser?.extension || agentState?.extension
+          });
+        }
+      }
+      prevCallStatusRef.current = currStatus;
+    });
+    return () => unsub();
+  }, [currentUser, queues, agentState?.user_id, agentState?.extension]);
+
+  // ACW countdown timer
+  useEffect(() => {
+    if (agentState?.status !== "acw") {
+      return;
+    }
+    if (acwRemaining <= 0) {
+      const { acwTime } = getAgentQueueConfig();
+      setAcwRemaining(acwTime > 0 ? acwTime : 15);
+      return;
+    }
+    const timer = setInterval(() => {
+      setAcwRemaining((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          handleEndBreak();
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [agentState?.status, acwRemaining]);
+
+  // 1-second live timer when logged in (online, break, or acw)
+  useEffect(() => {
+    if (!agentState?.is_logged_in || !["break", "online", "acw"].includes(agentState?.status)) {
       setLiveBreakSeconds(0);
       return;
     }
@@ -88,17 +195,28 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
   const fetchUsersAndRolesAndBreaks = async () => {
     try {
-      const resUsers = await fetch(`${API_BASE}/api/settings/users`);
-      const dataUsers = await resUsers.json();
-      setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
-
-      const resRoles = await fetch(`${API_BASE}/api/settings/roles`);
-      const dataRoles = await resRoles.json();
-      setRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
-
-      const resBreaks = await fetch(`${API_BASE}/api/settings/breaks`);
-      const dataBreaks = await resBreaks.json();
-      setBreaks(Array.isArray(dataBreaks) ? dataBreaks : (dataBreaks?.breaks || []));
+      const [resUsers, resRoles, resBreaks, resQueues] = await Promise.all([
+        fetch(`${API_BASE}/api/settings/users`),
+        fetch(`${API_BASE}/api/settings/roles`),
+        fetch(`${API_BASE}/api/settings/breaks`),
+        fetch(`${API_BASE}/api/settings/queues`)
+      ]);
+      if (resUsers.ok) {
+        const dataUsers = await resUsers.json();
+        setUsers(Array.isArray(dataUsers) ? dataUsers : (dataUsers?.users || []));
+      }
+      if (resRoles.ok) {
+        const dataRoles = await resRoles.json();
+        setRoles(Array.isArray(dataRoles) ? dataRoles : (dataRoles?.roles || []));
+      }
+      if (resBreaks.ok) {
+        const dataBreaks = await resBreaks.json();
+        setBreaks(Array.isArray(dataBreaks) ? dataBreaks : (dataBreaks?.breaks || []));
+      }
+      if (resQueues.ok) {
+        const dataQueues = await resQueues.json();
+        setQueues(Array.isArray(dataQueues) ? dataQueues : (dataQueues?.queues || []));
+      }
     } catch (err) {
       console.error("Agent verileri yüklenemedi:", err);
     }
@@ -106,6 +224,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
   const updateStateOnBackend = async (newState) => {
     setLoading(true);
+    setBreakError("");
     try {
       const payload = {
         ...newState,
@@ -124,11 +243,36 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         if (typeof window !== "undefined") {
           window.dispatchEvent(new CustomEvent("AGENT_STATUS_UPDATED", { detail: updated }));
         }
+      } else if (!res.ok) {
+        setBreakError(data?.detail || "Durum değiştirilemedi (kota/limit dolu olabilir).");
       }
     } catch (err) {
       console.error("Agent durumu güncellenemedi:", err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleSaveDisposition = async (code) => {
+    setSelectedDisposition(code);
+    const targetCallId = activeCallId || lastEndedCallId;
+    if (targetCallId) {
+      try {
+        await fetch(`${API_BASE}/api/calls/${targetCallId}/notes`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            topic: code,
+            notes: `Çağrı Sonuç Kodu (Disposition): ${code}`
+          })
+        });
+      } catch (e) {
+        console.error("Disposition kaydedilemedi:", e);
+      }
+    }
+    setDispositionSaved(true);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("CALL_DISPOSITION_SELECTED", { detail: { code, callId: targetCallId } }));
     }
   };
 
@@ -175,6 +319,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   };
 
   const handleEndBreak = () => {
+    setAcwRemaining(0);
     const newState = {
       is_logged_in: true,
       status: "online",
@@ -194,6 +339,12 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const roleFiltered = safeBreaks.filter(b => allowedBreakIds.includes(b.id));
   const filteredBreaks = roleFiltered.length > 0 ? roleFiltered : safeBreaks;
 
+  // Check if current break exceeded max_duration_minutes
+  const activeBreakMaxMin = Number(agentState?.current_break?.max_duration_minutes || 0);
+  const isBreakOvertime = agentState?.status === "break" && activeBreakMaxMin > 0 && liveBreakSeconds > activeBreakMaxMin * 60;
+
+  const { dispositionCodes } = getAgentQueueConfig();
+
   // Status style helper
   const getStatusDisplay = () => {
     if (!agentState?.is_logged_in) {
@@ -210,10 +361,19 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         indicatorClass: "bg-primary animate-pulse"
       };
     }
+    if (agentState?.status === "acw") {
+      return {
+        text: `ACW (Çağrı Sonrası İşlem) • ${formatTimer(acwRemaining || liveBreakSeconds)}`,
+        badgeClass: `${lightBg} ${text} ${borderLight}`,
+        indicatorClass: `${bg} animate-pulse`
+      };
+    }
     if (agentState?.status === "break" && agentState?.current_break) {
       return {
         text: `Molada (${agentState.current_break.name}) • ${formatTimer(liveBreakSeconds)}`,
-        badgeClass: "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-200/50 dark:border-amber-900/30",
+        badgeClass: isBreakOvertime
+          ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/40 animate-pulse"
+          : "bg-amber-50 dark:bg-amber-950/20 text-primary dark:text-amber-400 border-amber-200/50 dark:border-amber-900/30",
         indicatorClass: "bg-primary animate-pulse",
         customColor: agentState.current_break.color
       };
@@ -259,6 +419,23 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         )}
       </div>
 
+      {/* Break Quota / Concurrent Limit Warning Banner */}
+      {breakError && (
+        <div className="mb-3 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2 text-rose-600 dark:text-rose-400 text-[11px] font-semibold">
+          <AlertTriangle size={15} className="shrink-0 mt-0.5" />
+          <div className="flex-1">{breakError}</div>
+          <button onClick={() => setBreakError("")} className="text-[10px] font-bold underline">Kapat</button>
+        </div>
+      )}
+
+      {/* Break Overtime Warning Banner */}
+      {isBreakOvertime && (
+        <div className="mb-3 p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/40 flex items-center gap-2 text-amber-700 dark:text-amber-300 text-[11px] font-bold animate-pulse">
+          <AlertTriangle size={15} className="shrink-0" />
+          <span>Mola süre sınırını ({activeBreakMaxMin} dk) aştınız! Lütfen oturuma dönün.</span>
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center py-6 text-xs text-slate-500">Güncelleniyor...</div>
       ) : (
@@ -267,8 +444,6 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
           {/* OFFLINE: User select and Login Button */}
           {!agentState.is_logged_in && (
             <div className="space-y-2.5">
-
-
               <button
                 onClick={handleLogin}
                 disabled={!currentUser || loading}
@@ -280,8 +455,60 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
             </div>
           )}
 
+          {/* ACW MODE: Countdown + Quick Disposition Selector + Finish ACW Button */}
+          {agentState.is_logged_in && agentState.status === "acw" && (
+            <div className={`p-3.5 rounded-xl border ${borderLight} ${lightBg} space-y-3`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Clock size={14} className={text} />
+                  <span className={`text-xs font-extrabold ${text}`}>Çağrı Sonrası İşlem (ACW)</span>
+                </div>
+                <span className={`px-2 py-0.5 rounded-lg text-xs font-black font-mono ${bg} text-white`}>
+                  {formatTimer(acwRemaining)}
+                </span>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300 flex items-center gap-1">
+                    <Tag size={11} /> Çağrı Sonuç Kodu Seçin:
+                  </span>
+                  {dispositionSaved && (
+                    <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                      <CheckCircle2 size={11} /> Kaydedildi
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {dispositionCodes.map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => handleSaveDisposition(code)}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all ${
+                        selectedDisposition === code
+                          ? `${bg} text-white ${border} shadow-sm`
+                          : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-400"
+                      }`}
+                    >
+                      {code}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <button
+                onClick={handleEndBreak}
+                className={`w-full flex items-center justify-center gap-2 py-2.5 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm`}
+              >
+                <Play size={14} />
+                <span>Hazırım (ACW Bitir & Müsait Ol)</span>
+              </button>
+            </div>
+          )}
+
           {/* ONLINE/BREAK: Interactive Buttons */}
-          {agentState.is_logged_in && (
+          {agentState.is_logged_in && agentState.status !== "acw" && (
             <div className="space-y-2">
               
               {agentState.status === "break" ? (
@@ -343,13 +570,20 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
                       <button
                         key={b.id}
                         onClick={() => handleSelectBreak(b)}
-                        className="w-full flex items-center gap-2.5 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-xl transition-all text-left border border-transparent"
+                        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-xl transition-all text-left border border-transparent"
                       >
-                        <span 
-                          className="h-2.5 w-2.5 rounded-full border border-slate-200/20" 
-                          style={{ backgroundColor: b.color }} 
-                        />
-                        <span>{b.name}</span>
+                        <div className="flex items-center gap-2.5">
+                          <span 
+                            className="h-2.5 w-2.5 rounded-full border border-slate-200/20 shrink-0" 
+                            style={{ backgroundColor: b.color }} 
+                          />
+                          <span>{b.name}</span>
+                        </div>
+                        {Number(b.max_duration_minutes) > 0 && (
+                          <span className="text-[9px] font-bold text-slate-400">
+                            Maks {b.max_duration_minutes}dk
+                          </span>
+                        )}
                       </button>
                     ))
                   )}

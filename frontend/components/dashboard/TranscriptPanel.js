@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Bot, MessageSquare, User, Save, History, FileText, Calendar, Check, AlertCircle, Phone, Play, Square, ArrowRight, Radio, PhoneOff } from "lucide-react";
+import { Bot, MessageSquare, User, Save, History, FileText, Calendar, Check, AlertCircle, Phone, Play, Square, ArrowRight, Radio, PhoneOff, Sparkles, Search, BookOpen, Tag } from "lucide-react";
+import { useTheme } from "../../utils/theme";
+
+const DEFAULT_DISPOSITIONS = [
+  "Satış Yapıldı",
+  "Bilgi Verildi",
+  "Tekrar Aranacak",
+  "Teknik Destek",
+  "İptal / Şikayet"
+];
 
 export default function TranscriptPanel({ callId, backendHost = "localhost:8000", callPanelPerms = {} }) {
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const canTransfer = callPanelPerms.canTransfer !== false;
   const canConference = callPanelPerms.canConference !== false;
   // Demo Mode override
@@ -19,6 +29,12 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
   const [noteContent, setNoteContent] = useState("");
   const [saveStatus, setSaveStatus] = useState(""); // "", "saving", "success", "error"
   const [expandedCallId, setExpandedCallId] = useState(null);
+  const [dispositionCodes, setDispositionCodes] = useState(DEFAULT_DISPOSITIONS);
+
+  // Real-Time Agent Assist State
+  const [assistQuery, setAssistQuery] = useState("");
+  const [assistSuggestions, setAssistSuggestions] = useState([]);
+  const [assistLoading, setAssistLoading] = useState(false);
 
   // Call control states
   const [isHold, setIsHold] = useState(false);
@@ -28,6 +44,62 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
   const [conferenceTarget, setConferenceTarget] = useState("");
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
+
+  const fetchAgentAssist = async (customQuery = "") => {
+    setAssistLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/agent/assist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          query: customQuery,
+          call_id: activeCallId && activeCallId !== "demo-call-99" ? activeCallId : null
+        })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAssistSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : []);
+      }
+    } catch (e) {
+      console.error("[Agent Assist] Öneriler alınamadı:", e);
+    } finally {
+      setAssistLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/settings/queues`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((qData) => {
+        const list = Array.isArray(qData) ? qData : qData?.queues || [];
+        const codes = new Set();
+        list.forEach((q) => {
+          if (Array.isArray(q.disposition_codes)) {
+            q.disposition_codes.forEach((c) => {
+              if (c && String(c).trim()) codes.add(String(c).trim());
+            });
+          }
+        });
+        if (codes.size > 0) setDispositionCodes(Array.from(codes));
+      })
+      .catch(() => {});
+
+    const onDispositionSelected = (ev) => {
+      if (ev?.detail?.code) {
+        setNoteTopic(ev.detail.code);
+      }
+    };
+    window.addEventListener("CALL_DISPOSITION_SELECTED", onDispositionSelected);
+    return () => window.removeEventListener("CALL_DISPOSITION_SELECTED", onDispositionSelected);
+  }, [backendHost]);
+
+  // Auto-update Agent Assist when customer speaks in transcript
+  useEffect(() => {
+    if (!activeCallId) return;
+    const customerTurns = transcripts.filter((t) => t.speaker === "customer" && t.text);
+    const latestTurn = customerTurns.length > 0 ? customerTurns[customerTurns.length - 1].text : "";
+    fetchAgentAssist(assistQuery.trim() || latestTurn);
+  }, [activeCallId, transcripts.length]);
 
   // Load initial transcripts or subscribe to WebSocket updates when activeCallId changes
   useEffect(() => {
@@ -545,23 +617,116 @@ export default function TranscriptPanel({ callId, backendHost = "localhost:8000"
             )}
           </div>
 
-          {/* Section 2: Agent Call Notes Form */}
+          {/* Section 1.5: Real-Time Agent Assist (Canlı AI Temsilci Asistanı) */}
+          <div className={`p-3.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl space-y-2.5 shadow-sm`}>
+            <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800/60">
+              <div className={`flex items-center gap-1.5 text-[9px] font-extrabold ${text} uppercase tracking-widest`}>
+                <Sparkles size={12} />
+                <span>Canlı AI Temsilci Asistanı</span>
+              </div>
+              {assistLoading && (
+                <span className="text-[8px] font-bold text-slate-400 animate-pulse">Taranıyor...</span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1">
+                <Search size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  value={assistQuery}
+                  onChange={(e) => setAssistQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      fetchAgentAssist(assistQuery.trim());
+                    }
+                  }}
+                  placeholder="Bilgi bankasında hızlı ara (Örn: iade, fiyat)..."
+                  className="w-full pl-7 pr-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/60 text-[10px] font-semibold text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => fetchAgentAssist(assistQuery.trim())}
+                className={`px-2.5 py-1.5 rounded-lg ${bg} ${hover} text-white text-[9px] font-extrabold shrink-0 transition-all`}
+              >
+                Bul
+              </button>
+            </div>
+
+            <div className="max-h-36 overflow-y-auto space-y-1.5 pr-0.5">
+              {assistSuggestions.length === 0 ? (
+                <div className="text-[9px] text-slate-400 italic py-2 text-center">
+                  Müşteri konuşmasına veya aramanıza uygun bilgi bankası kartları burada önerilir.
+                </div>
+              ) : (
+                assistSuggestions.map((item) => (
+                  <div
+                    key={item.id}
+                    className="p-2 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 space-y-1"
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="inline-flex items-center gap-1 text-[9px] font-extrabold text-slate-700 dark:text-slate-200 truncate">
+                        <BookOpen size={10} className={text} />
+                        <span className="truncate">{item.source}</span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNoteContent((prev) =>
+                            prev ? `${prev}\n${item.content}` : item.content
+                          )
+                        }
+                        className={`text-[8px] font-extrabold ${text} hover:underline shrink-0`}
+                      >
+                        + Nota Ekle
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-slate-600 dark:text-slate-300 leading-relaxed line-clamp-3">
+                      {item.content}
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          {/* Section 2: Agent Call Notes & Disposition Form */}
           <div className="p-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl space-y-3">
             <div className="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-slate-800/60">
               <div className="flex items-center gap-1.5 text-[9px] font-extrabold text-slate-450 dark:text-slate-500 uppercase tracking-widest">
                 <FileText size={12} className="text-slate-400" />
-                <span>Görüşme Notu Kaydet</span>
+                <span>Çağrı Sonuç Kodu & Not</span>
               </div>
             </div>
 
             <div className="space-y-2">
               <div>
-                <label className="text-[8px] font-extrabold text-slate-455 dark:text-slate-550 uppercase tracking-wider block mb-1">Görüşme Konusu</label>
+                <label className="text-[8px] font-extrabold text-slate-455 dark:text-slate-550 uppercase tracking-wider flex items-center gap-1 mb-1">
+                  <Tag size={9} /> Hızlı Sonuç Kodu (Disposition)
+                </label>
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {dispositionCodes.map((code) => (
+                    <button
+                      key={code}
+                      type="button"
+                      onClick={() => setNoteTopic(code)}
+                      className={`px-2 py-0.5 rounded-md text-[9px] font-bold border transition-all ${
+                        noteTopic === code
+                          ? `${bg} text-white ${border}`
+                          : "bg-slate-50 dark:bg-slate-950 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-slate-400"
+                      }`}
+                    >
+                      {code}
+                    </button>
+                  ))}
+                </div>
                 <input
                   type="text"
                   value={noteTopic}
                   onChange={(e) => setNoteTopic(e.target.value)}
-                  placeholder="örn: İade Talebi, Fatura İtirazı"
+                  placeholder="örn: Satış Yapıldı, Fatura İtirazı"
                   className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white placeholder-slate-400 focus:outline-none focus:border-violet-500"
                 />
               </div>

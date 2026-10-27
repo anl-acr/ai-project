@@ -27,9 +27,13 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
   const [name, setName] = useState("");
   const [color, setColor] = useState("#f59e0b");
   const [customColor, setCustomColor] = useState("");
+  const [maxDurationMinutes, setMaxDurationMinutes] = useState(0);
+  const [dailyQuotaMinutes, setDailyQuotaMinutes] = useState(0);
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState("");
   const [editColor, setEditColor] = useState("");
+  const [editMaxDuration, setEditMaxDuration] = useState(0);
+  const [editDailyQuota, setEditDailyQuota] = useState(0);
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -75,13 +79,17 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
     const newBreak = {
       id: newId,
       name: name.trim(),
-      color: chosenColor
+      color: chosenColor,
+      max_duration_minutes: Math.max(0, parseInt(maxDurationMinutes, 10) || 0),
+      daily_quota_minutes: Math.max(0, parseInt(dailyQuotaMinutes, 10) || 0)
     };
 
     const newBreaksList = [...breaks, newBreak];
     setBreaks(newBreaksList);
     setName("");
     setCustomColor("");
+    setMaxDurationMinutes(0);
+    setDailyQuotaMinutes(0);
     handleSaveAll(newBreaksList);
   };
 
@@ -102,19 +110,29 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
     setEditingId(b.id);
     setEditName(b.name);
     setEditColor(b.color);
+    setEditMaxDuration(b.max_duration_minutes || 0);
+    setEditDailyQuota(b.daily_quota_minutes || 0);
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditName("");
     setEditColor("");
+    setEditMaxDuration(0);
+    setEditDailyQuota(0);
   };
 
   const saveEdit = (id) => {
     if (!editName.trim()) return;
     const updated = breaks.map((b) => {
       if (b.id === id) {
-        return { ...b, name: editName.trim(), color: editColor };
+        return {
+          ...b,
+          name: editName.trim(),
+          color: editColor,
+          max_duration_minutes: Math.max(0, parseInt(editMaxDuration, 10) || 0),
+          daily_quota_minutes: Math.max(0, parseInt(editDailyQuota, 10) || 0)
+        };
       }
       return b;
     });
@@ -134,7 +152,7 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
           <div>
             <h3 className="font-bold text-sm text-slate-800 dark:text-white uppercase tracking-wider">MOLA TANIMLARI YAPILANDIRMASI</h3>
             <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
-              Müşteri temsilcilerinin mola durumlarını belirleyin. Moladaki temsilciler arama aktarımlarından muaf tutulur.
+              Müşteri temsilcilerinin mola durumlarını, tek seferlik mola süre sınırlarını ve günlük kota limitlerini belirleyin.
             </p>
           </div>
         </div>
@@ -158,6 +176,37 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
                 onChange={(e) => setName(e.target.value)}
                 className={`w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} dark:focus:ring-rose-400/25 transition-all`}
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Tek Sefer Maks (Dk)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="0 = Sınırsız"
+                  value={maxDurationMinutes}
+                  onChange={(e) => setMaxDurationMinutes(e.target.value)}
+                  className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                />
+                <span className="text-[9px] text-slate-400">0 = Sınırsız (Aşım uyarısı)</span>
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                  Günlük Kota (Dk)
+                </label>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="0 = Sınırsız"
+                  value={dailyQuotaMinutes}
+                  onChange={(e) => setDailyQuotaMinutes(e.target.value)}
+                  className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring}`}
+                />
+                <span className="text-[9px] text-slate-400">0 = Sınırsız (Kota engeli)</span>
+              </div>
             </div>
 
             <div>
@@ -245,13 +294,34 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
                     className="flex items-center justify-between p-3 rounded-xl border border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 hover:bg-slate-50 dark:hover:bg-slate-950/40 transition-colors"
                   >
                     {editingId === b.id ? (
-                      <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                      <div className="flex-1 flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
                         <input
                           type="text"
                           value={editName}
                           onChange={(e) => setEditName(e.target.value)}
-                          className="flex-1 text-xs px-2.5 py-1 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none"
+                          placeholder="Mola Adı"
+                          className="flex-1 text-xs px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 focus:outline-none"
                         />
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400">Maks(Dk):</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={editMaxDuration}
+                            onChange={(e) => setEditMaxDuration(e.target.value)}
+                            className="w-16 text-xs px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] font-bold text-slate-400">Kota(Dk):</span>
+                          <input
+                            type="number"
+                            min={0}
+                            value={editDailyQuota}
+                            onChange={(e) => setEditDailyQuota(e.target.value)}
+                            className="w-16 text-xs px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100"
+                          />
+                        </div>
                         <div className="flex items-center gap-2">
                           <input
                             type="color"
@@ -275,12 +345,22 @@ export default function BreakDefinitions({ backendHost = "localhost:8000" }) {
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center gap-2.5">
                           <span
-                            className="h-3 w-3 rounded-full border border-slate-200/20 shadow-sm"
+                            className="h-3 w-3 rounded-full border border-slate-200/20 shadow-sm shrink-0"
                             style={{ backgroundColor: b.color }}
                           />
                           <span className="text-xs font-semibold text-slate-700 dark:text-slate-350">{b.name}</span>
+                          {Number(b.max_duration_minutes) > 0 && (
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                              Maks: {b.max_duration_minutes} dk
+                            </span>
+                          )}
+                          {Number(b.daily_quota_minutes) > 0 && (
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${lightBg} ${text} border ${borderLight}`}>
+                              Günlük Kota: {b.daily_quota_minutes} dk
+                            </span>
+                          )}
                         </div>
                         <div className="flex items-center gap-1">
                           <button

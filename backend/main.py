@@ -216,6 +216,8 @@ class BreakSchema(BaseModel):
     id: Optional[int] = None
     name: str
     color: str
+    max_duration_minutes: Optional[int] = 0
+    daily_quota_minutes: Optional[int] = 0
 
 class LocationSchema(BaseModel):
     id: Optional[str] = None
@@ -232,6 +234,8 @@ class AgentStateSchema(BaseModel):
     current_break: Optional[dict] = None
     user_id: Optional[Union[int, str]] = None
     extension: Optional[str] = None
+    by_supervisor: Optional[bool] = False
+    acw_duration: Optional[int] = None
 
 class UserSessionSchema(BaseModel):
     device_type: str
@@ -4243,10 +4247,14 @@ async def get_agent_status_endpoint(
             if active_brk:
                 brk_color = "#eab308"
                 brk_id = None
+                brk_max_min = 0
+                brk_quota_min = 0
                 for b_cfg in settings.get("breaks", []):
                     if str(b_cfg.get("name", "")).strip().lower() == str(active_brk.break_name or "").strip().lower():
                         brk_color = b_cfg.get("color") or "#eab308"
                         brk_id = b_cfg.get("id")
+                        brk_max_min = int(b_cfg.get("max_duration_minutes") or 0)
+                        brk_quota_min = int(b_cfg.get("daily_quota_minutes") or 0)
                         break
                 brk_start_dt = active_brk.start_time.replace(tzinfo=None)
                 brk_start_iso = brk_start_dt.isoformat() + "Z"
@@ -4255,6 +4263,8 @@ async def get_agent_status_endpoint(
                     "id": brk_id,
                     "name": active_brk.break_name or "Mola",
                     "color": brk_color,
+                    "max_duration_minutes": brk_max_min,
+                    "daily_quota_minutes": brk_quota_min,
                     "start_time_utc": brk_start_iso,
                     "elapsed_seconds": elapsed_sec
                 }
@@ -4300,15 +4310,15 @@ async def get_agent_status_endpoint(
 @app.post("/api/agent/status")
 @app.post("/agent/status")
 async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSession = Depends(get_db)):
-    from backend.services.agent_presence import update_agent_state
-    from backend.database.models import AgentBreakLog
+    from backend.services.agent_presence import update_agent_state, active_agent_status
+    from backend.database.models import AgentBreakLog, PBXQueue
     from sqlalchemy import select, or_
 
     user_id_str = str(payload.user_id).strip() if payload.user_id is not None and str(payload.user_id).strip() != "" else None
     ext_str = str(payload.extension).strip() if getattr(payload, "extension", None) and str(payload.extension).strip() != "" else None
 
+    settings = load_settings()
     if user_id_str or ext_str:
-        settings = load_settings()
         for u in settings.get("users", []):
             u_id = str(u.get("id", "")).strip()
             u_ext = str(u.get("extension", "")).strip()
@@ -4339,10 +4349,115 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
         ext_str = user_id_str
 
     now_utc = datetime.datetime.utcnow()
+    now_tr = now_utc + datetime.timedelta(hours=3)
+    today_start_utc = (now_tr.replace(hour=0, minute=0, second=0, microsecond=0)) - datetime.timedelta(hours=3)
+
     brk_payload = payload.current_break
     if payload.status == "break" and isinstance(brk_payload, dict):
+        brk_name = str(brk_payload.get("name") or "Mola").strip()
+        brk_max_min = int(brk_payload.get("max_duration_minutes") or 0)
+        brk_quota_min = int(brk_payload.get("daily_quota_minutes") or 0)
+        for b_cfg in settings.get("breaks", []):
+            if str(b_cfg.get("name", "")).strip().lower() == brk_name.lower() or (brk_payload.get("id") and b_cfg.get("id") == brk_payload.get("id")):
+                if not brk_max_min:
+                    brk_max_min = int(b_cfg.get("max_duration_minutes") or 0)
+                if not brk_quota_min:
+                    brk_quota_min = int(b_cfg.get("daily_quota_minutes") or 0)
+                break
+
+        # Enforce Break Quota & Queue Concurrent Break Limit (unless triggered by Supervisor)
+        if not getattr(payload, "by_supervisor", False):
+            # 1. Check Daily Break Quota for this agent
+            if brk_quota_min > 0 and (user_id_str or ext_str):
+                q_conds = []
+                if user_id_str:
+                    q_conds.append(AgentBreakLog.user_id == user_id_str)
+                if ext_str:
+                    q_conds.append(AgentBreakLog.extension == ext_str)
+                stmt_quota = select(AgentBreakLog).where(
+                    AgentBreakLog.start_time >= today_start_utc,
+                    AgentBreakLog.break_name == brk_name,
+                    or_(*q_conds)
+                )
+                res_quota = await db.execute(stmt_quota)
+                quota_logs = res_quota.scalars().all()
+                used_sec = 0
+                for ql in quota_logs:
+                    if ql.end_time:
+                        used_sec += int(ql.duration_seconds or max(0, (ql.end_time - ql.start_time).total_seconds()))
+                    else:
+                        used_sec += max(0, int((now_utc - ql.start_time.replace(tzinfo=None)).total_seconds()))
+                if used_sec >= brk_quota_min * 60:
+                    used_min = round(used_sec / 60, 1)
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"'{brk_name}' için günlük mola kotanız ({brk_quota_min} dk) dolmuştur (Bugün kullanılan: {used_min} dk)."
+                    )
+
+            # 2. Check Queue Max Concurrent Breaks
+            try:
+                res_q = await db.execute(select(PBXQueue))
+                db_queues = res_q.scalars().all()
+                queues_list = [{c.name: getattr(q, c.name) for c in q.__table__.columns} for q in db_queues]
+            except Exception:
+                queues_list = settings.get("queues", [])
+
+            if not queues_list:
+                queues_list = settings.get("queues", [])
+
+            stmt_all_active_brk = select(AgentBreakLog).where(
+                AgentBreakLog.start_time >= today_start_utc,
+                AgentBreakLog.end_time.is_(None)
+            )
+            res_all_active = await db.execute(stmt_all_active_brk)
+            active_brk_rows = [
+                r for r in res_all_active.scalars().all()
+                if not str(r.break_name or "").startswith("__")
+            ]
+
+            for q in queues_list:
+                max_conc = int(q.get("max_concurrent_breaks") or 0)
+                if max_conc <= 0:
+                    continue
+                members = q.get("queueMembers") or q.get("members") or []
+                member_exts = set()
+                for m in members:
+                    if isinstance(m, dict):
+                        m_ext = str(m.get("extension") or m.get("id") or "").strip()
+                    else:
+                        m_ext = str(m).strip()
+                    if m_ext:
+                        member_exts.add(m_ext)
+
+                my_keys = {k for k in (ext_str, user_id_str) if k}
+                if not (my_keys & member_exts):
+                    continue
+
+                # Count other members of this queue currently on break
+                other_on_break = set()
+                for m_ext in member_exts:
+                    if m_ext in my_keys:
+                        continue
+                    st_mem = active_agent_status.get(m_ext)
+                    if st_mem and st_mem.get("is_logged_in") and st_mem.get("status") == "break":
+                        other_on_break.add(m_ext)
+                        continue
+                    for r in active_brk_rows:
+                        if str(r.extension or "").strip() == m_ext or str(r.user_id or "").strip() == m_ext:
+                            other_on_break.add(m_ext)
+                            break
+
+                if len(other_on_break) >= max_conc:
+                    q_title = q.get("name") or q.get("extension") or "Kuyruk"
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"'{q_title}' kuyruğunda aynı anda en fazla {max_conc} temsilci molaya çıkabilir. Şu an mola kontenjanı dolu."
+                    )
+
         brk_payload = {
             **brk_payload,
+            "max_duration_minutes": brk_max_min,
+            "daily_quota_minutes": brk_quota_min,
             "start_time_utc": now_utc.isoformat() + "Z",
             "elapsed_seconds": 0
         }
@@ -4416,6 +4531,137 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
         print(f"[Agent Status] Error managing break logs: {e_brk}")
 
     return {"status": "success", "agent_state": new_state, "state": new_state}
+
+
+class AgentAssistRequestSchema(BaseModel):
+    query: Optional[str] = ""
+    call_id: Optional[str] = None
+
+
+@app.post("/api/agent/assist")
+async def real_time_agent_assist_endpoint(
+    payload: AgentAssistRequestSchema,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db)
+):
+    from backend.database.models import DocumentChunk, Rule, CannedResponse, Transcript
+    from sqlalchemy import select, or_
+
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    query_str = (payload.query or "").strip()
+
+    # If no explicit query is passed, pull the latest customer transcript utterances from the active call
+    if not query_str and payload.call_id:
+        try:
+            stmt_tr = select(Transcript).where(
+                Transcript.call_id == payload.call_id,
+                Transcript.speaker == "customer"
+            ).order_by(Transcript.timestamp.desc()).limit(2)
+            res_tr = await db.execute(stmt_tr)
+            tr_rows = res_tr.scalars().all()
+            if tr_rows:
+                query_str = " ".join([r.text for r in reversed(tr_rows) if r.text]).strip()
+        except Exception:
+            pass
+
+    keywords = [
+        w.lower() for w in query_str.replace("?", " ").replace(".", " ").replace(",", " ").split()
+        if len(w.strip()) >= 3
+    ]
+
+    suggestions = []
+    try:
+        # 1. Search FAQ Rules
+        if target_tenant in ["all", "global", "tenant-default", "default"]:
+            stmt_rules = select(Rule).where(Rule.is_active == True)
+        else:
+            stmt_rules = select(Rule).where(Rule.is_active == True, Rule.tenant_id == target_tenant)
+        res_rules = await db.execute(stmt_rules)
+        all_rules = res_rules.scalars().all()
+        for r in all_rules:
+            trig = (r.trigger_keyword or "").strip()
+            resp = (r.response_text or "").strip()
+            if not resp:
+                continue
+            score = 0
+            combined = f"{trig} {resp}".lower()
+            if keywords:
+                for kw in keywords:
+                    if kw in combined:
+                        score += 3 if kw in trig.lower() else 1
+            else:
+                score = 1
+            if score > 0:
+                suggestions.append({
+                    "id": f"rule-{r.id}",
+                    "source": trig or "SSS Kuralı",
+                    "type": "faq",
+                    "content": resp,
+                    "score": score
+                })
+
+        # 2. Search RAG Knowledge Base Chunks
+        if target_tenant in ["all", "global", "tenant-default", "default"]:
+            stmt_chunks = select(DocumentChunk).limit(80)
+        else:
+            stmt_chunks = select(DocumentChunk).where(DocumentChunk.tenant_id == target_tenant).limit(80)
+        res_chunks = await db.execute(stmt_chunks)
+        all_chunks = res_chunks.scalars().all()
+        for ch in all_chunks:
+            txt = (ch.content or "").strip()
+            if not txt:
+                continue
+            score = 0
+            txt_lower = txt.lower()
+            if keywords:
+                for kw in keywords:
+                    if kw in txt_lower:
+                        score += 2
+            else:
+                score = 1
+            if score > 0:
+                snippet = txt[:320] + ("..." if len(txt) > 320 else "")
+                suggestions.append({
+                    "id": f"kb-{ch.id}",
+                    "source": ch.filename or "Bilgi Bankası",
+                    "type": "kb",
+                    "content": snippet,
+                    "score": score
+                })
+
+        # 3. Search Canned Responses (Hazır Yanıtlar)
+        stmt_canned = select(CannedResponse).limit(30)
+        res_canned = await db.execute(stmt_canned)
+        for cr in res_canned.scalars().all():
+            title_s = (cr.title or "").strip()
+            content_s = (cr.content or "").strip()
+            if not content_s:
+                continue
+            score = 0
+            comb_c = f"{title_s} {cr.shortcut or ''} {content_s}".lower()
+            if keywords:
+                for kw in keywords:
+                    if kw in comb_c:
+                        score += 2
+            else:
+                score = 1
+            if score > 0:
+                suggestions.append({
+                    "id": f"canned-{cr.id}",
+                    "source": f"/{cr.shortcut} — {title_s}" if cr.shortcut else title_s,
+                    "type": "canned",
+                    "content": content_s,
+                    "score": score
+                })
+    except Exception as e_assist:
+        print(f"[Agent Assist Error]: {e_assist}")
+
+    suggestions.sort(key=lambda x: x.get("score", 0), reverse=True)
+    return {
+        "status": "success",
+        "query_used": query_str,
+        "suggestions": suggestions[:6]
+    }
 
 
 def validate_number_range(number_str: str, entity_type: str):
@@ -10710,6 +10956,7 @@ async def get_reports_agents():
             break_type = None
             break_id = None
             break_color = None
+            break_max_min = 0
             status_duration = 0
             status_since_utc = None
 
@@ -10724,12 +10971,15 @@ async def get_reports_agents():
                     break_type = (active_brk_log.break_name if active_brk_log else None) or curr_b.get("name") or "Mola"
                     break_id = curr_b.get("id")
                     break_color = curr_b.get("color") or "#eab308"
+                    break_max_min = int(curr_b.get("max_duration_minutes") or 0)
                     for b_cfg in breaks_cfg:
                         if str(b_cfg.get("name", "")).strip().lower() == str(break_type).strip().lower():
                             if not break_id:
                                 break_id = b_cfg.get("id")
                             if not curr_b.get("color") and b_cfg.get("color"):
                                 break_color = b_cfg.get("color")
+                            if not break_max_min:
+                                break_max_min = int(b_cfg.get("max_duration_minutes") or 0)
                             break
 
                     if active_brk_log and active_brk_log.start_time:
@@ -10745,6 +10995,20 @@ async def get_reports_agents():
                                 status_duration = max(0, int((now_utc - dt_s).total_seconds()))
                             except Exception:
                                 status_duration = 0
+                elif session_status == "acw":
+                    status = "ACW / İşlemde"
+                    sess_since = agent_sess.get("status_since_utc")
+                    if sess_since:
+                        try:
+                            dt_acw = datetime.datetime.fromisoformat(str(sess_since).replace("Z", ""))
+                            status_since_utc = dt_acw.isoformat() + "Z"
+                            status_duration = max(0, int((now_utc - dt_acw).total_seconds()))
+                        except Exception:
+                            status_since_utc = now_utc.isoformat() + "Z"
+                            status_duration = 0
+                    else:
+                        status_since_utc = now_utc.isoformat() + "Z"
+                        status_duration = 0
                 else:
                     status = "Müsait"
                     avail_candidates = []
@@ -10782,6 +11046,7 @@ async def get_reports_agents():
                 "breakId": break_id,
                 "breakType": break_type,
                 "breakColor": break_color,
+                "breakMaxMinutes": break_max_min,
                 "caller": caller_number,
                 "call_id": matched_call_id,
                 "duration": status_duration,
@@ -15100,6 +15365,8 @@ async def startup_event():
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_thank_you_announcement VARCHAR DEFAULT '';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_timeout_sec INTEGER DEFAULT 10;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS survey_low_score_threshold INTEGER DEFAULT 2;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS max_concurrent_breaks INTEGER DEFAULT 0;",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS disposition_codes JSON DEFAULT '[]';",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS active_profile VARCHAR DEFAULT 'available';",

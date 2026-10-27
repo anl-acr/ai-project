@@ -83,6 +83,9 @@ export function resolveAgentStatusHex(state, statusColors = DEFAULT_STATUS_COLOR
   if (st === "Görüşmede" || st === "Meşgul") {
     return colors.busy || DEFAULT_STATUS_COLORS.busy;
   }
+  if (st === "ACW / İşlemde") {
+    return "#8b5cf6";
+  }
   if (st === "Molada") {
     const bcMap = colors.breakColors || {};
     const bIdKey = state?.breakId != null ? String(state.breakId) : "";
@@ -1571,7 +1574,8 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
         extension: String(targetUser.extension || ""),
         is_logged_in: actionType !== "logout",
         status: actionType === "logout" ? "offline" : actionType === "break" ? "break" : "online",
-        current_break: actionType === "break" ? breakObj : null
+        current_break: actionType === "break" ? breakObj : null,
+        by_supervisor: true
       };
 
       const res = await fetch(`${API_BASE}/api/agent/status`, {
@@ -2261,9 +2265,13 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                         const isLongCallAlarm =
                           state.status === "Görüşmede" &&
                           liveDuration >= (Number(thresholds.maxCallDurationSec) || 300);
+                        const isBreakLimitExceeded =
+                          state.status === "Molada" &&
+                          Number(state.breakMaxMinutes) > 0 &&
+                          liveDuration > Number(state.breakMaxMinutes) * 60;
                         const isLongBreakAlarm =
                           state.status === "Molada" &&
-                          liveDuration >= (Number(thresholds.maxBreakDurationSec) || 900);
+                          (isBreakLimitExceeded || liveDuration >= (Number(thresholds.maxBreakDurationSec) || 900));
 
                         const activeHex = resolveAgentStatusHex(state, statusColors);
                         const isAlarm = isLongCallAlarm || isLongBreakAlarm;
@@ -2271,8 +2279,10 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                         let detailsText = `Dahili: ${u.extension} (${formatSeconds(liveDuration)})`;
                         if (state.status === "Görüşmede") {
                           detailsText = `${state.caller || "Aktif Çağrı"} (${formatSeconds(liveDuration)})`;
+                        } else if (state.status === "ACW / İşlemde") {
+                          detailsText = `Çağrı Sonrası İşlem (${formatSeconds(liveDuration)})`;
                         } else if (state.status === "Molada") {
-                          detailsText = `${state.breakType || "Mola"} (${formatSeconds(liveDuration)})`;
+                          detailsText = `${state.breakType || "Mola"} (${formatSeconds(liveDuration)})${isBreakLimitExceeded ? " • SÜRE AŞIMI!" : ""}`;
                         }
 
                         return (
@@ -2369,14 +2379,14 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                           Durum Müdahalesi
                                         </div>
 
-                                        {state.status === "Molada" && (
+                                        {(state.status === "Molada" || state.status === "ACW / İşlemde") && (
                                           <button
                                             type="button"
                                             onClick={() => handleSupervisorAgentAction(u, "online")}
                                             className="w-full px-3 py-1.5 text-left text-[11px] font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 flex items-center gap-2 transition-colors"
                                           >
                                             <Play size={12} className="shrink-0" />
-                                            <span>Moladan Döndür (Müsait)</span>
+                                            <span>{state.status === "ACW / İşlemde" ? "ACW Bitir (Müsait)" : "Moladan Döndür (Müsait)"}</span>
                                           </button>
                                         )}
 

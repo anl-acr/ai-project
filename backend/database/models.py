@@ -310,6 +310,8 @@ class PBXQueue(Base):
     max_calls = Column(Integer, default=0)
     ring_time = Column(Integer, default=15)
     acw_time = Column(Integer, default=5)
+    max_concurrent_breaks = Column(Integer, default=0)
+    disposition_codes = Column(JSON, default=list)
     join_announcement_enabled = Column(Boolean, default=False)
     join_announcement = Column(String, nullable=True)
     periodic_announcement_enabled = Column(Boolean, default=False)
