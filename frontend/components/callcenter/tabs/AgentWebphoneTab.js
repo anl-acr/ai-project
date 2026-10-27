@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-import TranscriptPanel from "../../dashboard/TranscriptPanel";
-import AgentSessionCard from "../../phone/AgentSessionCard";
 import LiveTranslatorPanel from "../../phone/LiveTranslatorPanel";
 import {
   Phone,
   PhoneOff,
   PhoneCall,
+  PhoneIncoming,
+  PhoneOutgoing,
+  PhoneMissed,
   Mic,
   MicOff,
   Pause,
@@ -19,11 +20,25 @@ import {
   GitMerge,
   PhoneForwarded,
   Users,
-  Languages
+  Languages,
+  Delete,
+  Clock,
+  Tag,
+  Check,
+  Search,
+  Save
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
 import { webphoneManager } from "../../../utils/webphoneManager";
+
+const DEFAULT_DISPOSITIONS = [
+  "Satış Yapıldı",
+  "Bilgi Verildi",
+  "Tekrar Aranacak",
+  "Teknik Destek",
+  "İptal / Şikayet"
+];
 
 export default function AgentWebphoneTab({
   backendHost,
@@ -34,7 +49,7 @@ export default function AgentWebphoneTab({
   isWebphoneScreenActive = true,
   callPanelPerms = {}
 }) {
-  const { bg, text, lightBg, borderLight } = useTheme();
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [wpState, setWpState] = useState(() => webphoneManager.getState());
 
   const canSaveContact = callPanelPerms.canSaveContact !== false;
@@ -55,13 +70,21 @@ export default function AgentWebphoneTab({
   const [newCallInput, setNewCallInput] = useState("");
   const [isNewCallOpen, setIsNewCallOpen] = useState(false);
 
-  // Contacts & Add Contact Modal State
+  // Contacts, Directory & Recent Calls State
   const [contacts, setContacts] = useState([]);
   const [directory, setDirectory] = useState([]);
+  const [recentCalls, setRecentCalls] = useState([]);
+  const [quickSearch, setQuickSearch] = useState("");
   const [isAddContactOpen, setIsAddContactOpen] = useState(false);
   const [newContact, setNewContact] = useState({ firstName: "", lastName: "", email: "" });
   const [savingContact, setSavingContact] = useState(false);
   const [contactError, setContactError] = useState("");
+
+  // Quick Disposition & In-Call Note State
+  const [dispositionCodes, setDispositionCodes] = useState(DEFAULT_DISPOSITIONS);
+  const [selectedDisposition, setSelectedDisposition] = useState("");
+  const [callNote, setCallNote] = useState("");
+  const [noteSaved, setNoteSaved] = useState(false);
 
   const inputRef = useRef(null);
 
@@ -85,13 +108,15 @@ export default function AgentWebphoneTab({
     };
   }, [isWebphoneScreenActive]);
 
-  // Fetch system contacts & directory
+  // Fetch system contacts, directory & recent calls
   const fetchContactsAndDirectory = async () => {
     try {
       const protocol = window.location.protocol;
-      const [contactsRes, dirRes] = await Promise.all([
+      const [contactsRes, dirRes, callsRes, queuesRes] = await Promise.all([
         fetch(`${protocol}//${backendHost}/api/contacts`),
-        fetch(`${protocol}//${backendHost}/api/agent/directory`)
+        fetch(`${protocol}//${backendHost}/api/agent/directory`),
+        fetch(`${protocol}//${backendHost}/api/calls`),
+        fetch(`${protocol}//${backendHost}/api/settings/queues`)
       ]);
       if (contactsRes.ok) {
         const cData = await contactsRes.json();
@@ -100,6 +125,25 @@ export default function AgentWebphoneTab({
       if (dirRes.ok) {
         const dData = await dirRes.json();
         setDirectory(Array.isArray(dData) ? dData : []);
+      }
+      if (callsRes.ok) {
+        const clData = await callsRes.json();
+        if (Array.isArray(clData)) {
+          setRecentCalls(clData.slice(0, 8));
+        }
+      }
+      if (queuesRes.ok) {
+        const qData = await queuesRes.json();
+        const list = Array.isArray(qData) ? qData : qData?.queues || [];
+        const codes = new Set();
+        list.forEach((q) => {
+          if (Array.isArray(q.disposition_codes)) {
+            q.disposition_codes.forEach((c) => {
+              if (c && String(c).trim()) codes.add(String(c).trim());
+            });
+          }
+        });
+        if (codes.size > 0) setDispositionCodes(Array.from(codes));
       }
     } catch (err) {
       console.error("Rehber verileri alınamadı:", err);
@@ -137,6 +181,10 @@ export default function AgentWebphoneTab({
       setTransferTarget("");
       setConferenceTarget("");
       setNewCallInput("");
+      setSelectedDisposition("");
+      setCallNote("");
+      setNoteSaved(false);
+      fetchContactsAndDirectory();
     }
   }, [callStatus, lines.length]);
 
@@ -163,6 +211,13 @@ export default function AgentWebphoneTab({
     webphoneManager.setDialNumber((webphoneManager.getState().dialNumber || "") + String(num));
   };
 
+  const handleBackspace = () => {
+    const curr = String(webphoneManager.getState().dialNumber || "");
+    if (curr.length > 0) {
+      webphoneManager.setDialNumber(curr.slice(0, -1));
+    }
+  };
+
   const handleAnswerCall = (lineId = null) => {
     webphoneManager.answerCall(lineId);
   };
@@ -187,6 +242,33 @@ export default function AgentWebphoneTab({
 
   const toggleHold = () => {
     webphoneManager.toggleHold();
+  };
+
+  const handleSaveCallDispositionAndNote = async (codeOverride = null) => {
+    const topicToSave = codeOverride !== null ? codeOverride : selectedDisposition;
+    if (codeOverride !== null) {
+      setSelectedDisposition(codeOverride);
+    }
+    if (!activeCallId) {
+      setNoteSaved(true);
+      setTimeout(() => setNoteSaved(false), 2500);
+      return;
+    }
+    try {
+      const protocol = window.location.protocol;
+      await fetch(`${protocol}//${backendHost}/api/calls/${activeCallId}/notes`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          topic: topicToSave,
+          notes: callNote
+        })
+      });
+      setNoteSaved(true);
+      setTimeout(() => setNoteSaved(false), 2500);
+    } catch (e) {
+      console.error("Not kaydedilemedi:", e);
+    }
   };
 
   const handleSaveContact = async () => {
@@ -258,16 +340,41 @@ export default function AgentWebphoneTab({
     return { name, num };
   };
 
+  // Filtered directory + contacts for idle quick-dial panel
+  const combinedQuickDirectory = [
+    ...directory
+      .filter((d) => d.type === "user" && d.extension !== String(currentUser?.extension))
+      .map((d) => ({
+        id: `dir-${d.extension}`,
+        name: d.full_name || d.name || `Dahili ${d.extension}`,
+        number: String(d.extension),
+        isInternal: true,
+        isOnline: Boolean(d.is_registered)
+      })),
+    ...contacts.slice(0, 15).map((c) => ({
+      id: `cnt-${c.id}`,
+      name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.phone_number,
+      number: String(c.phone_number || ""),
+      isInternal: false,
+      isOnline: false
+    }))
+  ].filter((item) => {
+    if (!quickSearch.trim()) return true;
+    const q = quickSearch.toLowerCase();
+    return item.name.toLowerCase().includes(q) || item.number.toLowerCase().includes(q);
+  });
+
   return (
     <div className="w-full h-full p-4 lg:p-6 overflow-hidden flex flex-col relative">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
-        {/* Left Column: Phone Controls */}
-        <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-6 h-full overflow-y-auto hide-scrollbar pb-6">
-          {/* Enhanced Dialpad (Always active so user can dial a new line anytime) */}
-          <div className={`p-6 bg-white dark:bg-slate-900 border ${borderLight} rounded-3xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 flex flex-col items-center shrink-0 animate-in fade-in slide-in-from-left-4 duration-700`}>
+        {/* Left Column: Sleek Dialpad */}
+        <div className="lg:col-span-4 xl:col-span-4 flex flex-col gap-4 h-full overflow-y-auto hide-scrollbar">
+          <div
+            className={`p-5 bg-white dark:bg-slate-900 border ${borderLight} rounded-3xl shadow-sm flex flex-col items-center justify-between flex-1`}
+          >
             {callNotification && (
               <div
-                className={`w-full mb-4 p-3 rounded-2xl border text-xs font-semibold flex items-start justify-between gap-2 animate-in fade-in slide-in-from-top-2 duration-200 ${
+                className={`w-full mb-3 p-3 rounded-2xl border text-xs font-semibold flex items-start justify-between gap-2 animate-in fade-in duration-200 ${
                   callNotification.type === "info"
                     ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/60 text-emerald-700 dark:text-emerald-300"
                     : "bg-rose-50 dark:bg-rose-950/30 border-rose-200 dark:border-rose-800/60 text-rose-600 dark:text-rose-400"
@@ -284,95 +391,134 @@ export default function AgentWebphoneTab({
               </div>
             )}
 
-            {/* Status Display */}
-            <div className="text-center mb-6 w-full">
-              <p className={`text-[10px] font-extrabold uppercase tracking-widest ${callStatus !== "Idle" ? "text-emerald-500" : "text-slate-400 dark:text-slate-500"}`}>
-                {isConferenceActive
-                  ? `Konferans Aktif (${lines.length} Hat)`
-                  : callStatus === "InCall"
-                  ? lines.length > 1
-                    ? `Görüşme Aktif (${lines.length} Hat Açık)`
-                    : "Görüşme Aktif"
-                  : callStatus === "Calling"
-                  ? "Aranıyor..."
-                  : callStatus === "Ringing"
-                  ? "Gelen Çağrı..."
-                  : "Hat Müsait"}
-              </p>
-              <div className="mt-1 flex flex-col items-center justify-center">
+            {/* Digital Number Screen with Backspace */}
+            <div className="w-full">
+              <div className="flex items-center justify-between mb-2 px-1">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                  <span
+                    className={`h-2 w-2 rounded-full ${
+                      callStatus !== "Idle"
+                        ? "bg-emerald-500 animate-pulse"
+                        : isRegistered
+                        ? "bg-emerald-500"
+                        : "bg-rose-500"
+                    }`}
+                  />
+                  {isConferenceActive
+                    ? `Konferans (${lines.length} Hat)`
+                    : callStatus === "InCall"
+                    ? "Görüşme Aktif"
+                    : callStatus === "Calling"
+                    ? "Aranıyor..."
+                    : callStatus === "Ringing"
+                    ? "Gelen Çağrı..."
+                    : isRegistered
+                    ? `WebPhone Hazır (${currentUser?.extension || "1000"})`
+                    : "Bağlantı Bekleniyor"}
+                </span>
+                {dialNumber && (
+                  <button
+                    type="button"
+                    onClick={() => setDialNumber("")}
+                    className="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors"
+                  >
+                    Temizle
+                  </button>
+                )}
+              </div>
+
+              <div className="relative flex items-center bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3.5 py-2.5">
                 <input
                   ref={inputRef}
                   type="text"
                   value={dialNumber}
                   onChange={(e) => setDialNumber(e.target.value.replace(/[^0-9*#+]/g, ""))}
                   onKeyDown={(e) => e.key === "Enter" && dialNumber && handleCall(dialNumber)}
-                  placeholder={callStatus !== "Idle" ? "Yeni Hat İçin Numara..." : "Numara Girin..."}
-                  className="w-full text-center text-2xl font-mono font-bold tracking-widest text-slate-800 dark:text-white bg-transparent border-none outline-none focus:ring-0 placeholder:text-slate-300 dark:placeholder:text-slate-700 h-10"
+                  placeholder={callStatus !== "Idle" ? "2. Hat İçin Numara..." : "Numara veya Dahili..."}
+                  className="w-full text-center text-xl font-mono font-extrabold tracking-wider text-slate-800 dark:text-white bg-transparent border-none outline-none focus:ring-0 placeholder:text-slate-400 dark:placeholder:text-slate-600 placeholder:font-sans placeholder:text-sm placeholder:font-semibold"
                   autoFocus
                 />
-                {resolvedDisplayName && callStatus !== "Idle" && (
-                  <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center justify-center gap-1.5 animate-in fade-in">
-                    <UserCheck size={14} />
-                    {resolvedDisplayName}
-                  </p>
+                {dialNumber && (
+                  <button
+                    type="button"
+                    onClick={handleBackspace}
+                    title="Sil (Backspace)"
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors shrink-0"
+                  >
+                    <Delete size={18} />
+                  </button>
                 )}
               </div>
+
+              {matchedContact && dialNumber && (
+                <p className="text-xs font-bold text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-center justify-center gap-1">
+                  <UserCheck size={13} />
+                  {matchedContact.displayName}
+                </p>
+              )}
             </div>
 
-            {/* Keypad */}
-            <div className="grid grid-cols-3 gap-5 w-full px-2">
-              {[1, 2, 3, 4, 5, 6, 7, 8, 9, "*", 0, "#"].map((num) => (
+            {/* Keypad Grid */}
+            <div className="grid grid-cols-3 gap-3.5 w-full my-4 px-2">
+              {[
+                { digit: "1", sub: "" },
+                { digit: "2", sub: "ABC" },
+                { digit: "3", sub: "DEF" },
+                { digit: "4", sub: "GHI" },
+                { digit: "5", sub: "JKL" },
+                { digit: "6", sub: "MNO" },
+                { digit: "7", sub: "PQRS" },
+                { digit: "8", sub: "TUV" },
+                { digit: "9", sub: "WXYZ" },
+                { digit: "*", sub: "" },
+                { digit: "0", sub: "+" },
+                { digit: "#", sub: "" }
+              ].map(({ digit, sub }) => (
                 <button
-                  key={num}
+                  key={digit}
+                  type="button"
                   onClick={() => {
-                    handleDial(num);
+                    handleDial(digit);
                     inputRef.current?.focus();
                   }}
-                  className={`w-14 h-14 mx-auto rounded-full bg-slate-50 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center justify-center text-lg font-bold text-slate-700 dark:text-slate-200 transition-all duration-200 hover:scale-105 active:scale-95 shadow-sm border ${borderLight} hover:shadow-md`}
+                  className={`h-14 rounded-2xl bg-slate-50/90 dark:bg-slate-800/80 hover:bg-slate-100 dark:hover:bg-slate-700 flex flex-col items-center justify-center transition-all duration-150 active:scale-95 border ${borderLight}`}
                 >
-                  {num}
+                  <span className="text-lg font-extrabold text-slate-800 dark:text-slate-100 leading-none">
+                    {digit}
+                  </span>
+                  {sub && (
+                    <span className="text-[8px] font-bold tracking-widest text-slate-400 dark:text-slate-500 mt-0.5">
+                      {sub}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex items-center justify-center gap-4 mt-8 w-full">
+            {/* Primary Call Button */}
+            <div className="w-full pt-1">
               <button
+                type="button"
                 onClick={() => (callStatus === "Ringing" ? handleAnswerCall() : handleCall(dialNumber))}
                 disabled={!dialNumber && callStatus !== "Ringing"}
-                title={
-                  callStatus === "Ringing"
+                className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-45 text-white font-extrabold text-sm flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 transition-all active:scale-98"
+              >
+                <Phone size={18} className="fill-current" />
+                <span>
+                  {callStatus === "Ringing"
                     ? "Gelen Çağrıyı Yanıtla"
                     : callStatus !== "Idle"
-                    ? "Mevcut Çağrıyı Beklemeye Alıp Yeni Hat Ara"
-                    : "Çağrı Başlat"
-                }
-                className="w-16 h-16 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 hover:from-emerald-500 hover:to-emerald-700 disabled:opacity-50 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all hover:scale-105 active:scale-95"
-              >
-                <Phone size={24} className="fill-current" />
+                    ? "Yeni Hat Ara"
+                    : "Çağrı Başlat"}
+                </span>
               </button>
-
-              {callStatus !== "Idle" && (callStatus !== "Ringing" || canRejectCall) && (
-                <button
-                  onClick={() => handleHangup()}
-                  title="Seçili Hattı Sonlandır"
-                  className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-105 active:scale-95 animate-in zoom-in"
-                >
-                  <PhoneOff size={22} className="fill-current" />
-                </button>
-              )}
             </div>
-            {callStatus !== "Idle" && (
-              <p className="mt-3 text-[11px] text-slate-400 dark:text-slate-500 text-center">
-                Görüşme esnasında numara tuşlayıp <strong className="text-emerald-600 dark:text-emerald-400">Yeşil Arama</strong> tuşuna basarak 2. hattı arayabilirsiniz.
-              </p>
-            )}
           </div>
         </div>
 
-        {/* Right Column: Active Multi-Line Call Panel & Transcripts */}
-        <div className="lg:col-span-8 xl:col-span-9 h-full flex flex-col gap-3 overflow-hidden animate-in fade-in slide-in-from-right-4 duration-700 delay-100">
-          {/* Group Ringing Visual Alert Banner (No Ringtone Sound) */}
+        {/* Right Column: Active Call Workspace OR Idle Quick-Access Workspace */}
+        <div className="lg:col-span-8 xl:col-span-8 h-full flex flex-col gap-4 overflow-hidden">
+          {/* Group Ringing Visual Alert Banner */}
           {Array.isArray(wpState.groupRingingCalls) && wpState.groupRingingCalls.length > 0 && (
             <div className="shrink-0 space-y-2">
               {wpState.groupRingingCalls.map((rc) => {
@@ -383,15 +529,15 @@ export default function AgentWebphoneTab({
                 return (
                   <div
                     key={`${rc.ringing_extension}_${rc.caller_number}`}
-                    className="p-4 rounded-2xl border-2 border-amber-400 dark:border-amber-500/80 bg-amber-50/90 dark:bg-amber-950/40 shadow-md flex flex-wrap items-center justify-between gap-4 animate-in fade-in duration-200"
+                    className="p-4 rounded-2xl border-2 border-amber-400 dark:border-amber-500/80 bg-amber-50/90 dark:bg-amber-950/40 shadow-md flex flex-wrap items-center justify-between gap-4"
                   >
                     <div className="flex items-center gap-3.5">
-                      <div className="h-11 w-11 rounded-2xl bg-amber-500 text-white flex items-center justify-center shadow-sm shrink-0">
-                        <PhoneIncoming size={20} className="animate-bounce" />
+                      <div className="h-10 w-10 rounded-xl bg-amber-500 text-white flex items-center justify-center shrink-0">
+                        <PhoneIncoming size={18} className="animate-bounce" />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black uppercase tracking-wider bg-amber-500 text-white">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500 text-white">
                             Grubunda Çağrı Var
                           </span>
                           {rc.group_name && (
@@ -400,18 +546,12 @@ export default function AgentWebphoneTab({
                             </span>
                           )}
                         </div>
-                        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                        <div className="mt-1 flex flex-wrap items-center gap-x-4 text-xs">
                           <span className="text-slate-700 dark:text-slate-200">
-                            <strong className="text-slate-500 dark:text-slate-400">Çalan Dahili:</strong>{" "}
-                            <span className="font-extrabold text-slate-900 dark:text-white">
-                              {rc.ringing_extension} {rc.ringing_name ? `(${rc.ringing_name})` : ""}
-                            </span>
+                            <strong>Çalan Dahili:</strong> {rc.ringing_extension}
                           </span>
-                          <span className="text-slate-700 dark:text-slate-200">
-                            <strong className="text-slate-500 dark:text-slate-400">Arayan:</strong>{" "}
-                            <span className="font-extrabold font-mono text-amber-700 dark:text-amber-300">
-                              {rcCallerDisplay}
-                            </span>
+                          <span className="font-mono font-bold text-amber-700 dark:text-amber-300">
+                            {rcCallerDisplay}
                           </span>
                         </div>
                       </div>
@@ -420,10 +560,10 @@ export default function AgentWebphoneTab({
                     <button
                       type="button"
                       onClick={() => webphoneManager.pickupGroupCall(rc)}
-                      className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-extrabold text-xs tracking-wide shadow-md shadow-emerald-500/20 flex items-center gap-2 transition-all shrink-0"
+                      className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-extrabold text-xs flex items-center gap-1.5 shrink-0"
                     >
-                      <Phone size={15} />
-                      Aç / Çağrıyı Çek ({rc.ringing_extension})
+                      <Phone size={14} />
+                      Çağrıyı Çek ({rc.ringing_extension})
                     </button>
                   </div>
                 );
@@ -431,394 +571,429 @@ export default function AgentWebphoneTab({
             </div>
           )}
 
-          <div className="flex flex-col h-full gap-4 overflow-y-auto">
-            {callStatus !== "Idle" && (
-              <>
-                {/* Multi-Line Switcher & Action Bar */}
-                <div className={`p-3.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex flex-col gap-3 shrink-0`}>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex items-center gap-2">
-                    <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                      Aktif Hatlar ({lines.length})
-                    </span>
-                    {isConferenceActive && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-500/30">
-                        <Radio size={12} className="animate-pulse" />
-                        Konferans Birleştirildi
-                      </span>
-                    )}
-                    {attendedTransferPending && hasMultipleLines && (
-                      <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300 border border-violet-300 dark:border-violet-500/30">
-                        <PhoneForwarded size={12} />
-                        Kontrollü Transfer Danışma Hattı
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Quick Multi-Line Actions */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    {hasMultipleLines && (
-                      <button
-                        type="button"
-                        onClick={() => webphoneManager.swapLines()}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 transition-all"
-                        title="Çağrılar Arasında Geçiş Yap (Beklet / Devam Et)"
-                      >
-                        <ArrowLeftRight size={14} />
-                        Hat Değiştir (Swap)
-                      </button>
-                    )}
-
-                    {hasMultipleLines && canTransfer && (
-                      <button
-                        type="button"
-                        onClick={() => webphoneManager.completeAttendedTransfer()}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-500 text-white shadow-sm transition-all"
-                        title="İki hattı birbirine bağla ve görüşmeden çık (Kontrollü Transferi Tamamla)"
-                      >
-                        <PhoneForwarded size={14} />
-                        Kontrollü Transferi Tamamla (Aktar)
-                      </button>
-                    )}
-
-                    {inCallLinesCount >= 2 && canConference && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          isConferenceActive ? webphoneManager.stopConference() : webphoneManager.startConference()
-                        }
-                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all ${
-                          isConferenceActive
-                            ? "bg-amber-600 hover:bg-amber-500"
-                            : "bg-emerald-600 hover:bg-emerald-500"
-                        }`}
-                        title={
-                          isConferenceActive
-                            ? "Konferansı ayır ve tekli hatta dön"
-                            : "Tüm hatları konferansta birleştir (3'lü Görüşme)"
-                        }
-                      >
-                        <GitMerge size={14} />
-                        {isConferenceActive ? "Konferansı Ayır" : "Konferansta Birleştir"}
-                      </button>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={() => setIsNewCallOpen((p) => !p)}
-                      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all ${
-                        isNewCallOpen
-                          ? `${bg} text-white border-transparent`
-                          : `${lightBg} ${text} ${borderLight} hover:opacity-90`
-                      }`}
-                      title="Mevcut çağrıyı beklemeye alarak yeni bir numara/dahili ara"
-                    >
-                      <PhoneCall size={14} />
-                      + Yeni Çağrı Ekle
-                    </button>
+          {callStatus === "Idle" ? (
+            /* IDLE STATE WORKSPACE: Recent Calls & Quick Directory instead of empty white space */
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 h-full overflow-hidden">
+              {/* Recent Calls Card */}
+              <div
+                className={`p-5 bg-white dark:bg-slate-900 border ${borderLight} rounded-3xl shadow-sm flex flex-col overflow-hidden`}
+              >
+                <div className="flex items-center justify-between pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                      <Clock size={16} />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">
+                        Son Görüşmeler
+                      </h3>
+                      <p className="text-[10px] text-slate-400">Tek tıkla numarayı tekrar arayın</p>
+                    </div>
                   </div>
                 </div>
 
-                {/* Inline New Call Bar */}
-                {isNewCallOpen && (
-                  <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 animate-in fade-in duration-150">
-                    <input
-                      type="text"
-                      value={newCallInput}
-                      onChange={(e) => setNewCallInput(e.target.value.replace(/[^0-9*#+]/g, ""))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && newCallInput.trim()) {
-                          handleCall(newCallInput.trim());
-                          setNewCallInput("");
-                          setIsNewCallOpen(false);
-                        }
-                      }}
-                      placeholder="Yeni hat için dahili veya telefon numarası girin (Örn: 1002)..."
-                      className="flex-1 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!newCallInput.trim()) return;
-                        handleCall(newCallInput.trim());
-                        setNewCallInput("");
-                        setIsNewCallOpen(false);
-                      }}
-                      className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-all flex items-center gap-1.5"
-                    >
-                      <Phone size={13} />
-                      Yeni Hat Ara
-                    </button>
-                    {canTransfer && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!newCallInput.trim()) return;
-                          const m = findContactByPhone(newCallInput.trim(), contacts, directory);
-                          webphoneManager.startAttendedTransfer(newCallInput.trim(), m?.displayName || "");
-                          setNewCallInput("");
-                          setIsNewCallOpen(false);
-                        }}
-                        className="px-3.5 py-1.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-all flex items-center gap-1.5"
-                        title="Mevcut arayanı beklemeye al ve kontrollü transfer için bu numarayı ara"
-                      >
-                        <PhoneForwarded size={13} />
-                        Kontrollü Transfer İçin Ara
-                      </button>
-                    )}
-                    {canConference && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!newCallInput.trim()) return;
-                          const m = findContactByPhone(newCallInput.trim(), contacts, directory);
-                          webphoneManager.addParticipantToConference(newCallInput.trim(), m?.displayName || "");
-                          setNewCallInput("");
-                          setIsNewCallOpen(false);
-                        }}
-                        className="px-3.5 py-1.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition-all flex items-center gap-1.5"
-                        title="Bu numarayı ara ve açıldığında otomatik konferansa birleştir"
-                      >
-                        <Users size={13} />
-                        Konferans İçin Ara
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {/* Line Cards */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-                  {lines.map((line) => {
-                    const isSelected = line.id === activeLineId;
-                    const { name, num } = resolveLineLabel(line);
-                    const statusBadge = isConferenceActive
-                      ? { label: "Konferansta", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" }
-                      : line.callStatus === "Ringing"
-                      ? { label: "Gelen Çağrı", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 animate-pulse" }
-                      : line.callStatus === "Calling"
-                      ? { label: "Aranıyor...", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 animate-pulse" }
-                      : line.isOnHold
-                      ? { label: "Beklemede", cls: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300" }
-                      : { label: "Aktif", cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300" };
-
-                    return (
-                      <div
-                        key={line.id}
-                        onClick={() => webphoneManager.switchLine(line.id)}
-                        className={`cursor-pointer p-3 rounded-xl border transition-all flex items-center justify-between gap-2 ${
-                          isSelected
-                            ? "border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20 shadow-sm"
-                            : "border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40 hover:border-slate-300 dark:hover:border-slate-700"
-                        }`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-1.5">
-                            <span className="px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
-                              Hat {line.lineNumber}
-                            </span>
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${statusBadge.cls}`}>
-                              {statusBadge.label}
-                            </span>
-                            {line.callStatus === "InCall" && (
-                              <span className="text-[11px] font-mono font-bold text-slate-500 dark:text-slate-400">
-                                {formatDuration(line.callDuration)}
-                              </span>
-                            )}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                  {recentCalls.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center py-10 text-slate-400 text-xs">
+                      Henüz kayıtlı görüşme geçmişi bulunmuyor.
+                    </div>
+                  ) : (
+                    recentCalls.map((c) => {
+                      const rawNum = c.caller_number || "";
+                      const m = findContactByPhone(rawNum, contacts, directory);
+                      const shownNum = maskPhoneNumbers ? maskPhoneLast4(rawNum, true) : rawNum;
+                      const isMissed = c.status === "missed" || c.status === "no_answer" || c.status === "busy";
+                      return (
+                        <div
+                          key={c.id}
+                          className="p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-3 hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div
+                              className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                                isMissed
+                                  ? "bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400"
+                                  : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400"
+                              }`}
+                            >
+                              {isMissed ? <PhoneMissed size={15} /> : <PhoneOutgoing size={15} />}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
+                                {m?.displayName || c.caller_name || shownNum || "Bilinmeyen"}
+                              </p>
+                              <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
+                                <span>{shownNum}</span>
+                                {c.start_time && (
+                                  <span>
+                                    •{" "}
+                                    {new Date(c.start_time).toLocaleTimeString("tr-TR", {
+                                      hour: "2-digit",
+                                      minute: "2-digit"
+                                    })}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
                           </div>
-                          <div className="mt-1 truncate font-bold text-sm text-slate-800 dark:text-white">
-                            {name ? `${name} (${num})` : num}
-                          </div>
-                        </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                          {line.callStatus === "Ringing" ? (
+                          {rawNum && (
                             <button
                               type="button"
-                              onClick={() => handleAnswerCall(line.id)}
-                              className="h-8 px-2.5 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold flex items-center gap-1"
-                              title="Bu Hattı Yanıtla"
+                              onClick={() => {
+                                setDialNumber(rawNum);
+                                handleCall(rawNum);
+                              }}
+                              className="h-8 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold flex items-center gap-1.5 shrink-0 transition-all"
+                              title="Hemen Ara"
                             >
-                              <Phone size={13} />
-                              Yanıtla
+                              <Phone size={12} className="fill-current" />
+                              Ara
                             </button>
-                          ) : !isSelected || line.isOnHold ? (
-                            <button
-                              type="button"
-                              onClick={() => webphoneManager.switchLine(line.id)}
-                              className="h-8 px-2.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300 text-xs font-bold flex items-center gap-1"
-                              title="Bu Hatta Geç"
-                            >
-                              <Play size={12} />
-                              Geç
-                            </button>
-                          ) : null}
-                          <button
-                            type="button"
-                            onClick={() => handleHangup(line.id)}
-                            className="h-8 w-8 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white dark:bg-rose-500/10 dark:text-rose-400 dark:hover:bg-rose-500 dark:hover:text-white flex items-center justify-center transition-colors"
-                            title="Bu Hattı Kapat"
-                          >
-                            <PhoneOff size={14} />
-                          </button>
+                          )}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
-              {/* Sleek Active Call Panel */}
-              <div className="p-6 bg-gradient-to-br from-white via-slate-50 to-white dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-3xl shadow-xl dark:shadow-2xl flex flex-col items-center justify-center relative overflow-hidden shrink-0 min-h-[250px]">
-                {/* Pulsing Background when active */}
-                <div className={`absolute inset-0 bg-emerald-500/10 ${callStatus === "InCall" ? "animate-pulse" : "animate-none"}`}></div>
-
-                <div className="relative z-10 flex flex-col items-center w-full">
-                  <div
-                    className={`w-16 h-16 rounded-full flex items-center justify-center mb-4 shadow-md dark:shadow-xl transition-all duration-500 ${
-                      callStatus === "InCall"
-                        ? "bg-emerald-100 border-2 border-emerald-400 text-emerald-500 dark:bg-emerald-500/20 dark:text-emerald-400"
-                        : "bg-amber-100 border-2 border-amber-400 text-amber-500 dark:bg-amber-500/20 dark:text-amber-400"
-                    }`}
-                  >
-                    {isConferenceActive ? (
-                      <Users size={28} />
-                    ) : isOnHold ? (
-                      <Pause size={28} />
-                    ) : (
-                      <Phone size={28} className={callStatus === "Calling" || callStatus === "Ringing" ? "animate-bounce" : ""} />
-                    )}
-                  </div>
-
-                  {isConferenceActive ? (
-                    <div className="flex flex-col items-center text-center">
-                      <div className="flex items-center gap-1.5 mb-1.5 px-3 py-1 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-full text-xs font-extrabold tracking-wide shadow-sm">
-                        <Radio size={14} className="animate-pulse" />
-                        <span>Çoklu Konferans Görüşmesi ({lines.length} Katılımcı)</span>
-                      </div>
-                      <h2 className="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-white tracking-wide mb-2">
-                        {lines
-                          .map((l) => {
-                            const lbl = resolveLineLabel(l);
-                            return lbl.name || lbl.num;
-                          })
-                          .join(" & ")}
-                      </h2>
+              {/* Quick Internal Directory & Contacts Card */}
+              <div
+                className={`p-5 bg-white dark:bg-slate-900 border ${borderLight} rounded-3xl shadow-sm flex flex-col overflow-hidden`}
+              >
+                <div className="flex items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-100 dark:border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                      <Users size={16} />
                     </div>
-                  ) : resolvedDisplayName ? (
-                    <div className="flex flex-col items-center text-center">
-                      <div className="flex items-center gap-1.5 mb-1.5 px-3 py-1 bg-emerald-100 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 rounded-full text-xs font-extrabold tracking-wide shadow-sm">
-                        <UserCheck size={14} />
-                        <span>{resolvedIsInternal ? "Dahili Abone" : "Rehberde Kayıtlı"}</span>
-                      </div>
-                      <h2 className="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-white tracking-wide mb-1">
-                        {resolvedDisplayName}
-                      </h2>
-                      <p className="text-lg font-mono font-semibold text-slate-500 dark:text-slate-400 tracking-widest mb-2">
-                        {displayPhoneNum}
-                      </p>
+                    <div>
+                      <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white">
+                        Hızlı Rehber &amp; Dahililer
+                      </h3>
+                      <p className="text-[10px] text-slate-400">Dahili aboneler ve kayıtlı kişiler</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="relative mb-3">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={quickSearch}
+                    onChange={(e) => setQuickSearch(e.target.value)}
+                    placeholder="İsim veya numara ara..."
+                    className="w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none"
+                  />
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1">
+                  {combinedQuickDirectory.length === 0 ? (
+                    <div className="h-full flex flex-col items-center justify-center text-center py-10 text-slate-400 text-xs">
+                      Eşleşen kişi veya dahili bulunamadı.
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center text-center">
-                      {maskPhoneNumbers && (
-                        <span className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1">
-                          Kayıtsız Numara
-                        </span>
-                      )}
-                      <h2 className="text-3xl md:text-4xl font-extrabold text-slate-800 dark:text-white tracking-widest mb-2 font-mono drop-shadow-sm dark:drop-shadow-lg">
-                        {displayPhoneNum}
-                      </h2>
-                      {canSaveContact && (
+                    combinedQuickDirectory.map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-2.5 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-3 hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="relative h-8 w-8 rounded-xl bg-slate-200/80 dark:bg-slate-700 flex items-center justify-center text-xs font-extrabold text-slate-700 dark:text-slate-200 shrink-0">
+                            {item.name.charAt(0).toUpperCase()}
+                            {item.isInternal && (
+                              <span
+                                className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-900 ${
+                                  item.isOnline ? "bg-emerald-500" : "bg-slate-400"
+                                }`}
+                              />
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{item.name}</p>
+                            <p className="text-[10px] font-mono text-slate-400">
+                              {item.isInternal ? `Dahili ${item.number}` : item.number}
+                            </p>
+                          </div>
+                        </div>
+
                         <button
+                          type="button"
                           onClick={() => {
-                            setNewContact({ firstName: "", lastName: "", email: "" });
-                            setContactError("");
-                            setIsAddContactOpen(true);
+                            setDialNumber(item.number);
+                            handleCall(item.number);
                           }}
-                          title="Kişiyi Rehbere Kaydet"
-                          className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 active:scale-95 text-white text-xs font-bold shadow-md shadow-rose-500/20 transition-all shrink-0 cursor-pointer"
+                          className={`h-8 px-3 rounded-xl ${bg} ${hover} text-white text-[11px] font-bold flex items-center gap-1.5 shrink-0 transition-all`}
                         >
-                          <UserPlus size={15} />
-                          Rehbere Kaydet
+                          <Phone size={12} className="fill-current" />
+                          Ara
                         </button>
-                      )}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* ACTIVE CALL WORKSPACE */
+            <div className="flex flex-col h-full gap-3.5 overflow-y-auto">
+              {/* Show Multi-Line Bar ONLY when 2+ lines exist or "+ Yeni Hat" is toggled */}
+              {(hasMultipleLines || isNewCallOpen) && (
+                <div
+                  className={`p-3.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex flex-col gap-3 shrink-0`}
+                >
+                  {hasMultipleLines && (
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                          Aktif Hatlar ({lines.length})
+                        </span>
+                        {isConferenceActive && (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">
+                            <Radio size={12} className="animate-pulse" />
+                            Konferans Birleştirildi
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => webphoneManager.swapLines()}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
+                        >
+                          <ArrowLeftRight size={14} />
+                          Hat Değiştir
+                        </button>
+
+                        {canTransfer && (
+                          <button
+                            type="button"
+                            onClick={() => webphoneManager.completeAttendedTransfer()}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-violet-600 hover:bg-violet-500 text-white"
+                          >
+                            <PhoneForwarded size={14} />
+                            Transferi Tamamla
+                          </button>
+                        )}
+
+                        {inCallLinesCount >= 2 && canConference && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              isConferenceActive ? webphoneManager.stopConference() : webphoneManager.startConference()
+                            }
+                            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white ${
+                              isConferenceActive ? "bg-amber-600" : "bg-emerald-600"
+                            }`}
+                          >
+                            <GitMerge size={14} />
+                            {isConferenceActive ? "Konferansı Ayır" : "Konferansta Birleştir"}
+                          </button>
+                        )}
+                      </div>
                     </div>
                   )}
 
-                  <div className="flex items-center gap-3 mt-1">
-                    <span className="relative flex h-3 w-3">
-                      <span
-                        className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                          callStatus === "InCall" ? "bg-emerald-500 dark:bg-emerald-400" : "bg-amber-500 dark:bg-amber-400"
-                        }`}
-                      ></span>
-                      <span
-                        className={`relative inline-flex rounded-full h-3 w-3 ${
-                          callStatus === "InCall" ? "bg-emerald-500" : "bg-amber-500"
-                        }`}
-                      ></span>
-                    </span>
-                    <p
-                      className={`font-semibold tracking-widest uppercase text-xs ${
-                        callStatus === "InCall" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
+                  {isNewCallOpen && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newCallInput}
+                        onChange={(e) => setNewCallInput(e.target.value.replace(/[^0-9*#+]/g, ""))}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && newCallInput.trim()) {
+                            handleCall(newCallInput.trim());
+                            setNewCallInput("");
+                            setIsNewCallOpen(false);
+                          }
+                        }}
+                        placeholder="2. hat için dahili veya telefon numarası girin..."
+                        className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!newCallInput.trim()) return;
+                          handleCall(newCallInput.trim());
+                          setNewCallInput("");
+                          setIsNewCallOpen(false);
+                        }}
+                        className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center gap-1.5"
+                      >
+                        <Phone size={13} />
+                        Ara
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsNewCallOpen(false)}
+                        className="p-2 rounded-xl text-slate-400 hover:text-slate-600"
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                  )}
+
+                  {hasMultipleLines && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {lines.map((line) => {
+                        const isSelected = line.id === activeLineId;
+                        const { name, num } = resolveLineLabel(line);
+                        return (
+                          <div
+                            key={line.id}
+                            onClick={() => webphoneManager.switchLine(line.id)}
+                            className={`cursor-pointer p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                              isSelected
+                                ? "border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/20"
+                                : "border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40"
+                            }`}
+                          >
+                            <div className="min-w-0">
+                              <span className="text-[10px] font-extrabold text-slate-500 mr-2">
+                                Hat {line.lineNumber}
+                              </span>
+                              <span className="font-bold text-xs text-slate-800 dark:text-white truncate">
+                                {name ? `${name} (${num})` : num}
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleHangup(line.id);
+                              }}
+                              className="h-7 w-7 rounded-lg bg-rose-50 hover:bg-rose-500 text-rose-600 hover:text-white flex items-center justify-center"
+                            >
+                              <PhoneOff size={13} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Main Active Call Card */}
+              <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-sm flex flex-col justify-between gap-4 shrink-0">
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  {/* Caller Info */}
+                  <div className="flex items-center gap-3.5">
+                    <div
+                      className={`w-13 h-13 rounded-2xl flex items-center justify-center shrink-0 ${
+                        callStatus === "InCall"
+                          ? "bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400"
+                          : "bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400"
                       }`}
                     >
-                      {callStatus === "InCall"
-                        ? isOnHold
-                          ? "Hat Beklemede"
-                          : `Görüşme Aktif - ${formatDuration(callDuration)}`
-                        : callStatus === "Ringing"
-                        ? "Gelen Çağrı..."
-                        : "Aranıyor..."}
-                    </p>
+                      <Phone
+                        size={24}
+                        className={callStatus === "Calling" || callStatus === "Ringing" ? "animate-bounce" : ""}
+                      />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
+                            callStatus === "InCall"
+                              ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/60 dark:text-emerald-400"
+                              : "bg-amber-50 text-amber-600 dark:bg-amber-950/60 dark:text-amber-400"
+                          }`}
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-current animate-ping" />
+                          {callStatus === "InCall"
+                            ? isOnHold
+                              ? "Beklemede"
+                              : `Görüşme Aktif • ${formatDuration(callDuration)}`
+                            : callStatus === "Ringing"
+                            ? "Gelen Çağrı..."
+                            : "Aranıyor..."}
+                        </span>
+                        {resolvedDisplayName && (
+                          <span className="text-[10px] font-bold text-slate-400">
+                            {resolvedIsInternal ? "Dahili Abone" : "Kayıtlı Kişi"}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2.5 mt-1">
+                        <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-wide">
+                          {resolvedDisplayName || displayPhoneNum}
+                        </h2>
+                        {resolvedDisplayName && (
+                          <span className="text-sm font-mono font-semibold text-slate-400">{displayPhoneNum}</span>
+                        )}
+                        {!resolvedDisplayName && canSaveContact && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewContact({ firstName: "", lastName: "", email: "" });
+                              setContactError("");
+                              setIsAddContactOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-bold transition-all"
+                          >
+                            <UserPlus size={13} />
+                            Rehbere Ekle
+                          </button>
+                        )}
+                      </div>
+                    </div>
                   </div>
 
-                  {/* Call Controls */}
-                  <div className="flex flex-wrap items-center justify-center gap-4 mt-6 relative">
+                  {/* Call Control Buttons */}
+                  <div className="flex flex-wrap items-center gap-2.5 relative">
                     {callStatus === "Ringing" ? (
                       <>
                         <button
+                          type="button"
                           onClick={() => handleAnswerCall()}
-                          className="w-14 h-14 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 hover:from-emerald-500 hover:to-emerald-700 text-white flex items-center justify-center shadow-lg shadow-emerald-500/30 transition-all hover:scale-110 group"
-                          title="Yanıtla"
+                          className="h-11 px-4 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-emerald-500/20"
                         >
-                          <Phone size={24} className="fill-current group-hover:scale-110 transition-transform" />
+                          <Phone size={16} className="fill-current" />
+                          Yanıtla
                         </button>
                         {canRejectCall && (
                           <button
+                            type="button"
                             onClick={() => handleHangup()}
-                            className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group"
-                            title="Reddet"
+                            className="h-11 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs flex items-center gap-2 shadow-md shadow-rose-500/20"
                           >
-                            <PhoneOff size={24} className="group-hover:scale-110 transition-transform" />
+                            <PhoneOff size={16} />
+                            Reddet
                           </button>
                         )}
                       </>
                     ) : (
                       <>
                         <button
+                          type="button"
                           onClick={toggleMute}
                           title={isMuted ? "Sesi Aç" : "Sessize Al"}
-                          className={`w-13 h-13 p-3.5 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${
+                          className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all ${
                             isMuted
-                              ? "bg-rose-100 border-rose-300 text-rose-500 dark:bg-rose-500/20 dark:border-rose-500/50 dark:text-rose-400"
-                              : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
+                              ? "bg-rose-100 border-rose-300 text-rose-600 dark:bg-rose-500/20 dark:border-rose-500/50 dark:text-rose-400"
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
                           }`}
                         >
-                          {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                        </button>
-                        <button
-                          onClick={toggleHold}
-                          title={isOnHold ? "Beklemeden Al (Devam Et)" : "Hattı Beklemeye Al"}
-                          className={`w-13 h-13 p-3.5 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${
-                            isOnHold
-                              ? "bg-amber-100 border-amber-300 text-amber-600 dark:bg-amber-500/20 dark:border-amber-500/50 dark:text-amber-400"
-                              : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
-                          }`}
-                        >
-                          {isOnHold ? <Play size={20} /> : <Pause size={20} />}
+                          {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
                         </button>
 
-                        {/* Transfer Button & Popover (Both Unattended/Blind & Attended/Warm Transfer) */}
+                        <button
+                          type="button"
+                          onClick={toggleHold}
+                          title={isOnHold ? "Devam Et" : "Beklemeye Al"}
+                          className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all ${
+                            isOnHold
+                              ? "bg-amber-100 border-amber-300 text-amber-600 dark:bg-amber-500/20 dark:border-amber-500/50 dark:text-amber-400"
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                          }`}
+                        >
+                          {isOnHold ? <Play size={18} /> : <Pause size={18} />}
+                        </button>
+
+                        {/* Transfer Button */}
                         {callStatus === "InCall" && canTransfer && (
                           <div className="relative">
                             <button
@@ -827,19 +1002,19 @@ export default function AgentWebphoneTab({
                                 setTransferOpen((p) => !p);
                                 setConferenceOpen(false);
                               }}
-                              title="Kontrollü / Kontrolsüz Çağrı Transferi"
-                              className={`w-13 h-13 p-3.5 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${
+                              title="Çağrı Transferi"
+                              className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all ${
                                 transferOpen
-                                  ? "bg-violet-100 border-violet-300 text-violet-600 dark:bg-violet-500/20 dark:border-violet-500/50 dark:text-violet-400"
-                                  : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
+                                  ? "bg-violet-100 border-violet-300 text-violet-600 dark:bg-violet-500/20 dark:text-violet-400"
+                                  : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
                               }`}
                             >
-                              <ArrowRight size={20} />
+                              <ArrowRight size={18} />
                             </button>
                             {transferOpen && (
-                              <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-72 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-30 space-y-2.5 animate-in fade-in zoom-in-95 duration-150">
+                              <div className="absolute right-0 top-13 w-72 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-30 space-y-2.5">
                                 <div className="flex items-center justify-between">
-                                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
                                     Çağrı Transferi
                                   </span>
                                   <button
@@ -852,7 +1027,7 @@ export default function AgentWebphoneTab({
                                 </div>
                                 <input
                                   type="text"
-                                  placeholder="Hedef Dahili veya Numara (Örn: 1001)"
+                                  placeholder="Hedef Dahili veya No (Örn: 1001)"
                                   value={transferTarget}
                                   onChange={(e) => setTransferTarget(e.target.value)}
                                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none"
@@ -867,45 +1042,35 @@ export default function AgentWebphoneTab({
                                       setTransferOpen(false);
                                       setTransferTarget("");
                                     }}
-                                    className="w-full py-2 px-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                                    className="w-full py-2 px-3 rounded-xl bg-violet-600 hover:bg-violet-500 text-white text-xs font-bold flex items-center justify-center gap-1.5"
                                   >
                                     <ArrowRight size={14} />
-                                    Kontrolsüz Transfer (Direkt Aktar)
+                                    Kontrolsüz Transfer
                                   </button>
                                   <button
                                     type="button"
                                     onClick={() => {
                                       if (!transferTarget.trim()) return;
                                       const m = findContactByPhone(transferTarget.trim(), contacts, directory);
-                                      webphoneManager.startAttendedTransfer(transferTarget.trim(), m?.displayName || "");
+                                      webphoneManager.startAttendedTransfer(
+                                        transferTarget.trim(),
+                                        m?.displayName || ""
+                                      );
                                       setTransferOpen(false);
                                       setTransferTarget("");
                                     }}
-                                    className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                                    className="w-full py-2 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold flex items-center justify-center gap-1.5"
                                   >
                                     <PhoneForwarded size={14} />
-                                    Kontrollü Transfer (Önce Ara & Danış)
+                                    Kontrollü Transfer
                                   </button>
-                                  {hasMultipleLines && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        webphoneManager.completeAttendedTransfer();
-                                        setTransferOpen(false);
-                                      }}
-                                      className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
-                                    >
-                                      <GitMerge size={14} />
-                                      Mevcut 2 Hattı Birleştir & Çık
-                                    </button>
-                                  )}
                                 </div>
                               </div>
                             )}
                           </div>
                         )}
 
-                        {/* Conference Button & Popover */}
+                        {/* Conference Button */}
                         {callStatus === "InCall" && canConference && (
                           <div className="relative">
                             <button
@@ -915,18 +1080,18 @@ export default function AgentWebphoneTab({
                                 setTransferOpen(false);
                               }}
                               title="Konferans Görüşmesi"
-                              className={`w-13 h-13 p-3.5 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${
+                              className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all ${
                                 conferenceOpen || isConferenceActive
-                                  ? "bg-emerald-100 border-emerald-300 text-emerald-600 dark:bg-emerald-500/20 dark:border-emerald-500/50 dark:text-emerald-400"
-                                  : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
+                                  ? "bg-emerald-100 border-emerald-300 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400"
+                                  : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
                               }`}
                             >
-                              <Radio size={20} />
+                              <Radio size={18} />
                             </button>
                             {conferenceOpen && (
-                              <div className="absolute bottom-16 left-1/2 -translate-x-1/2 w-72 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-30 space-y-2.5 animate-in fade-in zoom-in-95 duration-150">
+                              <div className="absolute right-0 top-13 w-72 p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-30 space-y-2.5">
                                 <div className="flex items-center justify-between">
-                                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wider">
+                                  <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
                                     Konferans Yönetimi
                                   </span>
                                   <button
@@ -944,91 +1109,141 @@ export default function AgentWebphoneTab({
                                   onChange={(e) => setConferenceTarget(e.target.value)}
                                   className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-mono font-bold text-slate-800 dark:text-white focus:outline-none"
                                 />
-                                <div className="grid grid-cols-1 gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      if (!conferenceTarget.trim()) return;
-                                      const m = findContactByPhone(conferenceTarget.trim(), contacts, directory);
-                                      webphoneManager.addParticipantToConference(conferenceTarget.trim(), m?.displayName || "");
-                                      setConferenceOpen(false);
-                                      setConferenceTarget("");
-                                    }}
-                                    className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
-                                  >
-                                    <UserPlus size={14} />
-                                    Katılımcıyı Ara & Konferansa Ekle
-                                  </button>
-                                  {inCallLinesCount >= 2 && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        if (isConferenceActive) {
-                                          webphoneManager.stopConference();
-                                        } else {
-                                          webphoneManager.startConference();
-                                        }
-                                        setConferenceOpen(false);
-                                      }}
-                                      className={`w-full py-2 px-3 rounded-xl text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 ${
-                                        isConferenceActive ? "bg-amber-600 hover:bg-amber-500" : "bg-cyan-600 hover:bg-cyan-500"
-                                      }`}
-                                    >
-                                      <GitMerge size={14} />
-                                      {isConferenceActive ? "Konferansı Ayır (Tekli Hat)" : "Mevcut Hatları Konferansta Birleştir"}
-                                    </button>
-                                  )}
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (!conferenceTarget.trim()) return;
+                                    const m = findContactByPhone(conferenceTarget.trim(), contacts, directory);
+                                    webphoneManager.addParticipantToConference(
+                                      conferenceTarget.trim(),
+                                      m?.displayName || ""
+                                    );
+                                    setConferenceOpen(false);
+                                    setConferenceTarget("");
+                                  }}
+                                  className="w-full py-2 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                                >
+                                  <UserPlus size={14} />
+                                  Ara &amp; Konferansa Ekle
+                                </button>
                               </div>
                             )}
                           </div>
                         )}
 
+                        {/* Add 2nd Line Button */}
+                        <button
+                          type="button"
+                          onClick={() => setIsNewCallOpen((p) => !p)}
+                          title="Yeni Çağrı / 2. Hat Ekle"
+                          className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all ${
+                            isNewCallOpen
+                              ? `${lightBg} ${text} ${borderLight}`
+                              : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                          }`}
+                        >
+                          <PhoneCall size={18} />
+                        </button>
+
+                        {/* Live Translator Toggle Button */}
                         {hasAnyTranslatorPerm && (
                           <button
                             type="button"
                             onClick={() => setIsTranslatorOpen((p) => !p)}
-                            title="Canlı Konuşma Çevirisi & Simultane Tercüman (TR ↔ Yabancı Dil)"
-                            className={`w-13 h-13 p-3.5 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${
+                            title="Canlı Konuşma & Çeviri Akışı"
+                            className={`h-11 w-11 rounded-2xl border flex items-center justify-center transition-all ${
                               isTranslatorOpen
-                                ? `${lightBg} ${text} ${borderLight}`
-                                : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
+                                ? `${bg} text-white border-transparent shadow-sm`
+                                : "bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
                             }`}
                           >
-                            <Languages size={20} />
+                            <Languages size={18} />
                           </button>
                         )}
 
+                        {/* Single Clean Hangup Button */}
                         <button
+                          type="button"
                           onClick={() => handleHangup()}
-                          title="Seçili Hattı Sonlandır"
-                          className="w-14 h-14 rounded-full bg-gradient-to-br from-rose-500 to-rose-700 hover:from-rose-600 hover:to-rose-800 text-white flex items-center justify-center shadow-lg shadow-rose-500/30 transition-all hover:scale-110 group"
+                          title="Çağrıyı Sonlandır"
+                          className="h-11 px-4 rounded-2xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs flex items-center gap-1.5 shadow-md shadow-rose-500/20 transition-all"
                         >
-                          <PhoneOff size={24} className="group-hover:scale-110 transition-transform" />
+                          <PhoneOff size={16} />
+                          <span>Kapat</span>
                         </button>
                       </>
                     )}
                   </div>
                 </div>
-              </div>
-              </>
-            )}
 
-            {/* Live Translator Chat Panel (Toggled from the call control bar button) */}
-            {hasAnyTranslatorPerm && (
-              <div className={isTranslatorOpen ? "flex-1 min-h-[260px]" : "hidden"}>
-                <LiveTranslatorPanel
-                  backendHost={backendHost}
-                  callId={activeCallId}
-                  callStatus={callStatus}
-                  canLiveTranslate={canLiveTranslate}
-                  canVoiceInterpret={canVoiceInterpret}
-                  isActiveInstance={Boolean(isWebphoneScreenActive)}
-                  onClose={() => setIsTranslatorOpen(false)}
-                />
+                {/* Integrated Quick Disposition & Call Note Bar */}
+                <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="text-[10px] font-extrabold text-slate-400 uppercase flex items-center gap-1 mr-1">
+                        <Tag size={11} />
+                        Sonuç Kodu:
+                      </span>
+                      {dispositionCodes.map((code) => (
+                        <button
+                          key={code}
+                          type="button"
+                          onClick={() => handleSaveCallDispositionAndNote(code)}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold border transition-all ${
+                            selectedDisposition === code
+                              ? `${bg} text-white ${border}`
+                              : "bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-slate-300"
+                          }`}
+                        >
+                          {code}
+                        </button>
+                      ))}
+                    </div>
+                    {noteSaved && (
+                      <span className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                        <Check size={13} />
+                        Kaydedildi
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={callNote}
+                      onChange={(e) => setCallNote(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSaveCallDispositionAndNote()}
+                      placeholder="Görüşme ile ilgili kısa not ekleyin..."
+                      className="flex-1 px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 text-xs font-medium text-slate-800 dark:text-white focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveCallDispositionAndNote()}
+                      className="px-3.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-100 dark:text-slate-900 text-white text-xs font-bold flex items-center gap-1.5 shrink-0 transition-all"
+                    >
+                      <Save size={13} />
+                      Kaydet
+                    </button>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
+
+              {/* Live Translator Chat Panel (Toggled from the call control bar button) */}
+              {hasAnyTranslatorPerm && (
+                <div className={isTranslatorOpen ? "flex-1 min-h-[240px]" : "hidden"}>
+                  <LiveTranslatorPanel
+                    backendHost={backendHost}
+                    callId={activeCallId}
+                    callStatus={callStatus}
+                    canLiveTranslate={canLiveTranslate}
+                    canVoiceInterpret={canVoiceInterpret}
+                    isActiveInstance={Boolean(isWebphoneScreenActive)}
+                    onClose={() => setIsTranslatorOpen(false)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1059,7 +1274,9 @@ export default function AgentWebphoneTab({
 
             <div className="space-y-3 text-left">
               <div>
-                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">Telefon Numarası</label>
+                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                  Telefon Numarası
+                </label>
                 <input
                   type="text"
                   value={displayPhoneNum || dialNumber}
@@ -1091,7 +1308,9 @@ export default function AgentWebphoneTab({
                 </div>
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">E-posta (İsteğe Bağlı)</label>
+                <label className="text-xs font-bold text-slate-600 dark:text-slate-400 block mb-1">
+                  E-posta (İsteğe Bağlı)
+                </label>
                 <input
                   type="email"
                   value={newContact.email}
