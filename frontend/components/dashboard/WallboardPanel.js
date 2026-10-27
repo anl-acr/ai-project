@@ -1404,6 +1404,25 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     return () => clearInterval(interval);
   }, []);
 
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getLiveDuration = (state) => {
+    if (!state) return 0;
+    if (state.status_since_utc) {
+      const ms = nowMs - new Date(state.status_since_utc).getTime();
+      if (!isNaN(ms) && ms >= 0) {
+        return Math.floor(ms / 1000);
+      }
+    }
+    return Math.max(0, Number(state.duration) || 0);
+  };
+
   const canMonitorAny = monitorPerms.listen || monitorPerms.whisper || monitorPerms.barge;
 
   const handleTriggerMonitor = async ({ mode, callId, targetExt, callerNumber, label, isAiCall = false }) => {
@@ -1505,10 +1524,14 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   };
 
   const formatSeconds = (sec) => {
-    const s = Math.max(0, Number(sec) || 0);
-    const mins = Math.floor(s / 60);
-    const secs = Math.floor(s % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    const s = Math.max(0, Math.floor(Number(sec) || 0));
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const secs = s % 60;
+    if (hrs > 0) {
+      return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+    }
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   };
 
   const loggedInUsers = users.filter((u) => {
@@ -2121,21 +2144,23 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                         const cardId = `user-${u.id}`;
                         const isMenuOpen = openMenuCardId === cardId;
 
+                        const liveDuration = getLiveDuration(state);
+
                         const isLongCallAlarm =
                           state.status === "Görüşmede" &&
-                          Number(state.duration) >= (Number(thresholds.maxCallDurationSec) || 300);
+                          liveDuration >= (Number(thresholds.maxCallDurationSec) || 300);
                         const isLongBreakAlarm =
                           state.status === "Molada" &&
-                          Number(state.duration) >= (Number(thresholds.maxBreakDurationSec) || 900);
+                          liveDuration >= (Number(thresholds.maxBreakDurationSec) || 900);
 
                         const activeHex = resolveAgentStatusHex(state, statusColors);
                         const isAlarm = isLongCallAlarm || isLongBreakAlarm;
 
-                        let detailsText = `Dahili: ${u.extension}`;
+                        let detailsText = `Dahili: ${u.extension} (${formatSeconds(liveDuration)})`;
                         if (state.status === "Görüşmede") {
-                          detailsText = `${state.caller || "Aktif Çağrı"} (${formatSeconds(state.duration)})`;
+                          detailsText = `${state.caller || "Aktif Çağrı"} (${formatSeconds(liveDuration)})`;
                         } else if (state.status === "Molada") {
-                          detailsText = `${state.breakType || "Mola"} (${formatSeconds(state.duration)})`;
+                          detailsText = `${state.breakType || "Mola"} (${formatSeconds(liveDuration)})`;
                         }
 
                         return (
@@ -2448,7 +2473,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                   {u.full_name} ({u.extension}) ↔ {st.caller || "Aktif Çağrı"}
                                 </p>
                                 <p style={{ color: busyHex }} className="text-[10px] font-bold">
-                                  Süre: {formatSeconds(st.duration)}
+                                  Süre: {formatSeconds(getLiveDuration(st))}
                                 </p>
                               </div>
                             </div>
@@ -2709,7 +2734,8 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                     <div className="space-y-2.5 max-h-[340px] overflow-y-auto pr-1">
                       {onBreakUsers.map((u) => {
                         const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)] || {};
-                        const exceeded = Number(st.duration) >= (Number(thresholds.maxBreakDurationSec) || 900);
+                        const liveBrkSec = getLiveDuration(st);
+                        const exceeded = liveBrkSec >= (Number(thresholds.maxBreakDurationSec) || 900);
                         const itemBreakHex = resolveAgentStatusHex(st, statusColors);
                         return (
                           <div
@@ -2741,7 +2767,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                   exceeded ? "text-rose-600 dark:text-rose-400 animate-pulse" : "text-slate-700 dark:text-slate-200"
                                 }`}
                               >
-                                {formatSeconds(st.duration)}
+                                {formatSeconds(liveBrkSec)}
                               </span>
                               {exceeded && (
                                 <p className="text-[8px] font-extrabold text-rose-500 uppercase">Süre Aşıldı</p>

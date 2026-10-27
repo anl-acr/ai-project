@@ -28,8 +28,8 @@ def get_agent_state(user_id=None, extension=None):
         }
     return agent_state
 
-def update_agent_state(is_logged_in: bool, status: str, current_break: dict = None, user_id=None, extension=None):
-    now_iso = datetime.datetime.utcnow().isoformat() + "Z"
+def update_agent_state(is_logged_in: bool, status: str, current_break: dict = None, user_id=None, extension=None, status_since_utc: str = None):
+    now_iso = status_since_utc or (datetime.datetime.utcnow().isoformat() + "Z")
     agent_state["is_logged_in"] = is_logged_in
     agent_state["status"] = status
     agent_state["current_break"] = current_break
@@ -51,6 +51,8 @@ def update_agent_state(is_logged_in: bool, status: str, current_break: dict = No
             k_str = str(key).strip()
             active_agent_status[k_str] = st_data
             active_agent_status[key] = st_data
+            if k_str.isdigit():
+                active_agent_status[int(k_str)] = st_data
 
     return st_data
 

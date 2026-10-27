@@ -4234,12 +4234,14 @@ async def get_agent_status_endpoint(
                         brk_color = b_cfg.get("color") or "#eab308"
                         brk_id = b_cfg.get("id")
                         break
-                elapsed_sec = max(0, int((now_utc - active_brk.start_time).total_seconds()))
+                brk_start_dt = active_brk.start_time.replace(tzinfo=None)
+                brk_start_iso = brk_start_dt.isoformat() + "Z"
+                elapsed_sec = max(0, int((now_utc - brk_start_dt).total_seconds()))
                 brk_obj = {
                     "id": brk_id,
                     "name": active_brk.break_name or "Mola",
                     "color": brk_color,
-                    "start_time_utc": active_brk.start_time.isoformat() + "Z",
+                    "start_time_utc": brk_start_iso,
                     "elapsed_seconds": elapsed_sec
                 }
                 st = update_agent_state(
@@ -4247,26 +4249,37 @@ async def get_agent_status_endpoint(
                     status="break",
                     current_break=brk_obj,
                     user_id=uid_str,
-                    extension=ext_str
+                    extension=ext_str,
+                    status_since_utc=brk_start_iso
                 )
-                return {**st, "elapsed_seconds": elapsed_sec, "break_start_utc": active_brk.start_time.isoformat() + "Z"}
+                return {**st, "elapsed_seconds": elapsed_sec, "break_start_utc": brk_start_iso}
     except Exception as e_st:
         print(f"[Get Agent Status DB Check Error]: {e_st}")
         all_today_logs = []
 
     if mem_state and mem_state.get("status_since_utc"):
-        return mem_state
+        elapsed_online = 0
+        try:
+            dt_m = datetime.datetime.fromisoformat(str(mem_state["status_since_utc"]).replace("Z", ""))
+            elapsed_online = max(0, int((now_utc - dt_m).total_seconds()))
+        except Exception:
+            elapsed_online = 0
+        return {**mem_state, "elapsed_seconds": elapsed_online}
 
     # Restore online state after backend restart only if the agent had logged in today and not logged out
     if all_today_logs and str(all_today_logs[0].break_name or "") != "__LOGOUT__":
+        last_dt = (all_today_logs[0].end_time or all_today_logs[0].start_time).replace(tzinfo=None)
+        last_iso = last_dt.isoformat() + "Z"
+        elapsed_online = max(0, int((now_utc - last_dt).total_seconds()))
         auto_state = update_agent_state(
             is_logged_in=True,
             status="online",
             current_break=None,
             user_id=uid_str,
-            extension=ext_str
+            extension=ext_str,
+            status_since_utc=last_iso
         )
-        return auto_state
+        return {**auto_state, "elapsed_seconds": elapsed_online}
 
     return get_agent_state(user_id=uid_str, extension=ext_str)
 
@@ -10625,6 +10638,7 @@ async def get_reports_agents():
                             break
 
             # 2. Match with ongoing Call records in DB
+            call_since_utc = None
             for oc in ongoing_calls:
                 oc_caller = str(oc.caller_number or "").strip()
                 oc_callee = str(oc.callee_number or "").strip()
@@ -10632,7 +10646,9 @@ async def get_reports_agents():
                     is_in_call = True
                     matched_call_id = oc.id
                     if oc.start_time:
-                        call_duration = max(0, int((now_utc - oc.start_time.replace(tzinfo=None)).total_seconds()))
+                        dt_call = oc.start_time.replace(tzinfo=None)
+                        call_since_utc = dt_call.isoformat() + "Z"
+                        call_duration = max(0, int((now_utc - dt_call).total_seconds()))
                     if not caller_number:
                         caller_number = oc_callee if oc_caller == u_ext_str else oc_caller
                     break
@@ -10663,12 +10679,14 @@ async def get_reports_agents():
             elif user_logs and str(user_logs[0].break_name or "") != "__LOGOUT__":
                 is_logged_in = True
                 session_status = "online"
+                restored_dt = (user_logs[0].end_time or user_logs[0].start_time).replace(tzinfo=None)
                 agent_sess = update_agent_state(
                     is_logged_in=True,
                     status="online",
                     current_break=None,
                     user_id=u_id_str,
-                    extension=u_ext_str
+                    extension=u_ext_str,
+                    status_since_utc=restored_dt.isoformat() + "Z"
                 )
             else:
                 is_logged_in = False
@@ -10678,11 +10696,14 @@ async def get_reports_agents():
             break_type = None
             break_id = None
             break_color = None
-            status_duration = call_duration
+            status_duration = 0
+            status_since_utc = None
 
             if is_logged_in:
                 if is_in_call:
                     status = "Görüşmede"
+                    status_duration = call_duration
+                    status_since_utc = call_since_utc or (now_utc - datetime.timedelta(seconds=call_duration)).isoformat() + "Z"
                 elif session_status == "break" or active_brk_log:
                     status = "Molada"
                     curr_b = agent_sess.get("current_break") or {}
@@ -10698,17 +10719,44 @@ async def get_reports_agents():
                             break
 
                     if active_brk_log and active_brk_log.start_time:
-                        status_duration = max(0, int((now_utc - active_brk_log.start_time.replace(tzinfo=None)).total_seconds()))
+                        dt_s = active_brk_log.start_time.replace(tzinfo=None)
+                        status_since_utc = dt_s.isoformat() + "Z"
+                        status_duration = max(0, int((now_utc - dt_s).total_seconds()))
                     else:
                         b_start_str = curr_b.get("start_time_utc") or agent_sess.get("status_since_utc")
                         if b_start_str:
                             try:
                                 dt_s = datetime.datetime.fromisoformat(str(b_start_str).replace("Z", ""))
+                                status_since_utc = dt_s.isoformat() + "Z"
                                 status_duration = max(0, int((now_utc - dt_s).total_seconds()))
                             except Exception:
                                 status_duration = 0
                 else:
                     status = "Müsait"
+                    avail_candidates = []
+                    sess_since = agent_sess.get("status_since_utc")
+                    if sess_since:
+                        try:
+                            avail_candidates.append(datetime.datetime.fromisoformat(str(sess_since).replace("Z", "")))
+                        except Exception:
+                            pass
+                    if user_logs:
+                        dt_log = (user_logs[0].end_time or user_logs[0].start_time)
+                        if dt_log:
+                            avail_candidates.append(dt_log.replace(tzinfo=None))
+                    for tc in today_calls:
+                        tc_caller = str(tc.caller_number or "").strip()
+                        tc_callee = str(tc.callee_number or "").strip()
+                        if (tc_caller == u_ext_str or tc_callee == u_ext_str) and tc.end_time:
+                            avail_candidates.append(tc.end_time.replace(tzinfo=None))
+
+                    if avail_candidates:
+                        dt_avail = max(avail_candidates)
+                        status_since_utc = dt_avail.isoformat() + "Z"
+                        status_duration = max(0, int((now_utc - dt_avail).total_seconds()))
+                    else:
+                        status_since_utc = now_utc.isoformat() + "Z"
+                        status_duration = 0
 
             ag_info = {
                 "id": u_id_str,
@@ -10723,6 +10771,7 @@ async def get_reports_agents():
                 "caller": caller_number,
                 "call_id": matched_call_id,
                 "duration": status_duration,
+                "status_since_utc": status_since_utc,
                 "callsToday": ext_call_counts.get(u_ext_str, 0)
             }
             agents_state[u.id] = ag_info

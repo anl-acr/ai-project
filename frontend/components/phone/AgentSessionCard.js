@@ -31,14 +31,17 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     };
   }, [currentUser]);
 
-  // 1-second live timer when in break
+  // 1-second live timer when logged in (online or break)
   useEffect(() => {
-    if (agentState?.status !== "break") {
+    if (!agentState?.is_logged_in || (agentState?.status !== "break" && agentState?.status !== "online")) {
       setLiveBreakSeconds(0);
       return;
     }
     const calcElapsed = () => {
-      const startIso = agentState?.break_start_utc || agentState?.current_break?.start_time_utc || agentState?.status_since_utc;
+      const startIso =
+        agentState?.status === "break"
+          ? agentState?.break_start_utc || agentState?.current_break?.start_time_utc || agentState?.status_since_utc
+          : agentState?.status_since_utc;
       if (startIso) {
         const ms = Date.now() - new Date(startIso).getTime();
         if (!isNaN(ms) && ms >= 0) {
@@ -202,7 +205,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     }
     if (agentState?.status === "online") {
       return {
-        text: "Müsait (Çağrı Alabilir)",
+        text: `Müsait (Çağrı Alabilir) • ${formatTimer(liveBreakSeconds)}`,
         badgeClass: "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-200/50 dark:border-emerald-900/30",
         indicatorClass: "bg-primary animate-pulse"
       };
