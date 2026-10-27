@@ -51,6 +51,7 @@ export default function AgentWebphoneTab({
 }) {
   const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [wpState, setWpState] = useState(() => webphoneManager.getState());
+  const myExt = String(currentUser?.extension || "1000");
 
   const canSaveContact = callPanelPerms.canSaveContact !== false;
   const canTransfer = callPanelPerms.canTransfer !== false;
