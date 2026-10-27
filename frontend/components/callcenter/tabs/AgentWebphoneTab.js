@@ -87,6 +87,8 @@ export default function AgentWebphoneTab({
   const [noteSaved, setNoteSaved] = useState(false);
 
   const inputRef = useRef(null);
+  const backspaceHoldTimeoutRef = useRef(null);
+  const backspaceHoldIntervalRef = useRef(null);
 
   useEffect(() => {
     const unsub = webphoneManager.subscribe((state) => {
@@ -217,6 +219,37 @@ export default function AgentWebphoneTab({
       webphoneManager.setDialNumber(curr.slice(0, -1));
     }
   };
+
+  const stopBackspaceHold = () => {
+    if (backspaceHoldTimeoutRef.current) {
+      clearTimeout(backspaceHoldTimeoutRef.current);
+      backspaceHoldTimeoutRef.current = null;
+    }
+    if (backspaceHoldIntervalRef.current) {
+      clearInterval(backspaceHoldIntervalRef.current);
+      backspaceHoldIntervalRef.current = null;
+    }
+  };
+
+  const startBackspaceHold = (e) => {
+    if (e && e.button !== undefined && e.button !== 0) return;
+    stopBackspaceHold();
+    handleBackspace();
+    backspaceHoldTimeoutRef.current = setTimeout(() => {
+      backspaceHoldIntervalRef.current = setInterval(() => {
+        const curr = String(webphoneManager.getState().dialNumber || "");
+        if (!curr) {
+          stopBackspaceHold();
+          return;
+        }
+        webphoneManager.setDialNumber(curr.slice(0, -1));
+      }, 65);
+    }, 320);
+  };
+
+  useEffect(() => {
+    return () => stopBackspaceHold();
+  }, []);
 
   const handleAnswerCall = (lineId = null) => {
     webphoneManager.answerCall(lineId);
@@ -441,9 +474,20 @@ export default function AgentWebphoneTab({
                 {dialNumber && (
                   <button
                     type="button"
-                    onClick={handleBackspace}
-                    title="Sil (Backspace)"
-                    className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors shrink-0"
+                    onMouseDown={startBackspaceHold}
+                    onMouseUp={stopBackspaceHold}
+                    onMouseLeave={stopBackspaceHold}
+                    onTouchStart={(e) => {
+                      e.preventDefault();
+                      startBackspaceHold();
+                    }}
+                    onTouchEnd={stopBackspaceHold}
+                    onTouchCancel={stopBackspaceHold}
+                    onClick={(e) => {
+                      if (e.detail === 0) handleBackspace();
+                    }}
+                    title="Sil (Basılı tutarak hızlı silin)"
+                    className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-200/60 dark:hover:bg-slate-700/60 transition-colors shrink-0 select-none"
                   >
                     <Delete size={18} />
                   </button>
