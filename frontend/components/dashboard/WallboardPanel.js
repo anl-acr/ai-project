@@ -152,6 +152,7 @@ export function normalizeWallboardLayout(saved) {
   let mainWidgets = DEFAULT_MAIN_WIDGETS;
   let agentCardDensity = "standard";
   let agentSortBy = "status";
+  let agentStatusFilter = "ALL";
   let thresholds = DEFAULT_THRESHOLDS;
   let activePresetKey = "standard";
 
@@ -190,6 +191,7 @@ export function normalizeWallboardLayout(saved) {
 
     if (saved.agentCardDensity) agentCardDensity = saved.agentCardDensity;
     if (saved.agentSortBy) agentSortBy = saved.agentSortBy;
+    if (saved.agentStatusFilter) agentStatusFilter = saved.agentStatusFilter;
     if (saved.thresholds && typeof saved.thresholds === "object") {
       thresholds = { ...DEFAULT_THRESHOLDS, ...saved.thresholds };
     }
@@ -201,6 +203,7 @@ export function normalizeWallboardLayout(saved) {
     mainWidgets,
     agentCardDensity,
     agentSortBy,
+    agentStatusFilter,
     thresholds,
     activePresetKey
   };
@@ -216,6 +219,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
   const [mainWidgets, setMainWidgets] = useState(DEFAULT_MAIN_WIDGETS);
   const [agentCardDensity, setAgentCardDensity] = useState("standard");
   const [agentSortBy, setAgentSortBy] = useState("status");
+  const [agentStatusFilter, setAgentStatusFilter] = useState("ALL");
   const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
   const [activePresetKey, setActivePresetKey] = useState("standard");
   const [draggedKpiIndex, setDraggedKpiIndex] = useState(null);
@@ -235,6 +239,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
         setMainWidgets(norm.mainWidgets);
         setAgentCardDensity(norm.agentCardDensity);
         setAgentSortBy(norm.agentSortBy);
+        setAgentStatusFilter(norm.agentStatusFilter);
         setThresholds(norm.thresholds);
         setActivePresetKey(norm.activePresetKey);
       }
@@ -251,6 +256,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
           setMainWidgets(norm.mainWidgets);
           setAgentCardDensity(norm.agentCardDensity);
           setAgentSortBy(norm.agentSortBy);
+          setAgentStatusFilter(norm.agentStatusFilter);
           setThresholds(norm.thresholds);
           setActivePresetKey(norm.activePresetKey);
           if (typeof window !== "undefined") {
@@ -267,6 +273,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
       mainWidgets: nextPatch.mainWidgets ?? mainWidgets,
       agentCardDensity: nextPatch.agentCardDensity ?? agentCardDensity,
       agentSortBy: nextPatch.agentSortBy ?? agentSortBy,
+      agentStatusFilter: nextPatch.agentStatusFilter ?? agentStatusFilter,
       thresholds: nextPatch.thresholds ?? thresholds,
       activePresetKey: nextPatch.activePresetKey ?? activePresetKey
     };
@@ -313,12 +320,14 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
     setMainWidgets(preset.mainWidgets);
     setAgentCardDensity(preset.agentCardDensity);
     setAgentSortBy(preset.agentSortBy);
+    setAgentStatusFilter("ALL");
     setActivePresetKey("standard");
     syncLayout({
       kpiCards: preset.kpiCards,
       mainWidgets: preset.mainWidgets,
       agentCardDensity: preset.agentCardDensity,
       agentSortBy: preset.agentSortBy,
+      agentStatusFilter: "ALL",
       thresholds: DEFAULT_THRESHOLDS,
       activePresetKey: "standard"
     });
@@ -611,12 +620,12 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
         </div>
       )}
 
-      {/* Tab 3: Card Density, Default Sort & Personal Thresholds */}
+      {/* Tab 3: Card Density, Status Filter, Default Sort & Personal Thresholds */}
       {customizerTab === "thresholds" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800">
             <h5 className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
-              Temsilci Kartı Görünüm Yoğunluğu & Sıralama
+              Temsilci Kartı Görünüm, Filtre & Sıralama
             </h5>
             <div className="space-y-2">
               <label className="block text-[10px] font-bold text-slate-500">Kart Boyutu / Detay Seviyesi</label>
@@ -640,6 +649,35 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
                     }`}
                   >
                     {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <label className="block text-[10px] font-bold text-slate-500">Temsilci Durum Filtresi</label>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                {[
+                  { id: "ALL", label: "Tümü" },
+                  { id: "Görüşmede", label: "Görüşmede" },
+                  { id: "Müsait", label: "Müsait" },
+                  { id: "Molada", label: "Molada" },
+                  { id: "Çevrimdışı", label: "Çevrimdışı" }
+                ].map((st) => (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => {
+                      setAgentStatusFilter(st.id);
+                      syncLayout({ agentStatusFilter: st.id });
+                    }}
+                    className={`py-1.5 px-2 rounded-xl text-[10px] font-extrabold border ${
+                      agentStatusFilter === st.id
+                        ? `${bg} text-white border-transparent shadow-sm`
+                        : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                    {st.label}
                   </button>
                 ))}
               </div>
@@ -797,6 +835,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   const [agentSortBy, setAgentSortBy] = useState("status");
   const [agentStatusFilter, setAgentStatusFilter] = useState("ALL");
   const [agentSearchQuery, setAgentSearchQuery] = useState("");
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
@@ -817,6 +856,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     setMainWidgets(norm.mainWidgets);
     setAgentCardDensity(norm.agentCardDensity);
     setAgentSortBy(norm.agentSortBy);
+    setAgentStatusFilter(norm.agentStatusFilter);
     setThresholds(norm.thresholds);
   };
 
@@ -1495,8 +1535,8 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                   key={widget.id}
                   className={`${colClass} p-6 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm space-y-4 min-h-[380px]`}
                 >
-                  {/* Widget Header & Quick Filter / Density Toolbar */}
-                  <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/60 pb-3.5">
+                  {/* Widget Header with Right-Aligned Magnifying Glass Search Icon */}
+                  <div className="flex items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800/60 pb-3.5">
                     <div className="flex items-center gap-2">
                       <Volume2 size={15} className="text-violet-500 shrink-0" />
                       <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">
@@ -1508,62 +1548,49 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                       </span>
                     </div>
 
-                    {/* Quick Filters, Search & Card Density Switcher */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <div className="flex items-center bg-slate-100/70 dark:bg-slate-950 p-0.5 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                        {[
-                          { id: "ALL", label: "Tümü" },
-                          { id: "Görüşmede", label: "Görüşmede" },
-                          { id: "Müsait", label: "Müsait" },
-                          { id: "Molada", label: "Molada" },
-                          { id: "Çevrimdışı", label: "Çevrimdışı" }
-                        ].map((st) => (
-                          <button
-                            key={st.id}
-                            type="button"
-                            onClick={() => setAgentStatusFilter(st.id)}
-                            className={`px-2 py-1 rounded-lg text-[9px] font-extrabold transition-all ${
-                              agentStatusFilter === st.id
-                                ? `${bg} text-white shadow-sm`
-                                : "text-slate-500 hover:text-slate-800 dark:hover:text-slate-200"
-                            }`}
-                          >
-                            {st.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="relative">
-                        <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                        <input
-                          type="text"
-                          value={agentSearchQuery}
-                          onChange={(e) => setAgentSearchQuery(e.target.value)}
-                          placeholder="İsim veya dahili..."
-                          className="pl-7 pr-2.5 py-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[10px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none w-32"
-                        />
-                      </div>
-
-                      <div className="flex items-center bg-slate-100/70 dark:bg-slate-950 p-0.5 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                        {[
-                          { id: "compact", label: "Mini" },
-                          { id: "standard", label: "Normal" },
-                          { id: "detailed", label: "Detay" }
-                        ].map((d) => (
-                          <button
-                            key={d.id}
-                            type="button"
-                            onClick={() => setAgentCardDensity(d.id)}
-                            className={`px-2 py-1 rounded-lg text-[9px] font-extrabold ${
-                              agentCardDensity === d.id
-                                ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm"
-                                : "text-slate-400 hover:text-slate-600"
-                            }`}
-                          >
-                            {d.label}
-                          </button>
-                        ))}
-                      </div>
+                    {/* Right-aligned Magnifying Glass Icon */}
+                    <div className="flex items-center gap-1.5">
+                      {(isSearchOpen || agentSearchQuery) && (
+                        <div className="relative flex items-center animate-in fade-in duration-150">
+                          <input
+                            type="text"
+                            autoFocus
+                            value={agentSearchQuery}
+                            onChange={(e) => setAgentSearchQuery(e.target.value)}
+                            placeholder="İsim veya dahili..."
+                            className="pl-2.5 pr-6 py-1 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 text-[10px] font-bold text-slate-700 dark:text-slate-200 focus:outline-none w-36"
+                          />
+                          {agentSearchQuery && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAgentSearchQuery("");
+                                setIsSearchOpen(false);
+                              }}
+                              className="absolute right-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                            >
+                              <X size={11} />
+                            </button>
+                          )}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isSearchOpen && agentSearchQuery) {
+                            setAgentSearchQuery("");
+                          }
+                          setIsSearchOpen(!isSearchOpen);
+                        }}
+                        title="Temsilci Ara"
+                        className={`h-7 w-7 rounded-xl border flex items-center justify-center transition-all ${
+                          isSearchOpen || agentSearchQuery
+                            ? `${bg} text-white border-transparent shadow-sm`
+                            : "bg-slate-50 dark:bg-slate-950 text-slate-500 hover:text-slate-800 dark:hover:text-white border-slate-200/70 dark:border-slate-800"
+                        }`}
+                      >
+                        <Search size={13} />
+                      </button>
                     </div>
                   </div>
 

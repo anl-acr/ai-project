@@ -16781,18 +16781,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.8",
+        "version": "v2.6.9",
         "commit_hash": live_commit,
         "release_date": "27 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.8",
+                "version": "v2.6.9",
                 "commit_hash": live_commit,
                 "release_date": "27 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Canlı İzleme Paneli Minimal Arama İkonu & Temsilci Durum Filtresinin Profil Ayarlarına Taşınması",
+                "summary": "Temsilci & AI Çağrı Meşguliyet Durumları başlığındaki Mini/Normal/Detay seçicisi kaldırıldı, Tümü/Görüşmede/Müsait/Molada/Çevrimdışı filtresi Profil Ayarları > Canlı İzleme Paneli sekmesine taşındı ve arama alanı sağ üstte büyüteç ikonuna dönüştürüldü.",
+                "features": [
+                    {
+                        "title": "🔍 Minimal Büyüteç Arama İkonu",
+                        "desc": "Temsilci & AI Çağrı Meşguliyet Durumları kart başlığının sağ tarafında yalnızca kompakt büyüteç ikonu yer alır; tıklandığında arama kutusu açılır."
+                    },
+                    {
+                        "title": "🎛️ Temsilci Durum Filtresi Profil Ayarlarında",
+                        "desc": "Tümü, Görüşmede, Müsait, Molada ve Çevrimdışı durum filtreleri ana ekrandan kaldırılarak Profil Ayarları > Canlı İzleme Paneli > Kart Görünümü & Alarm Eşikleri bölümüne eklendi."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.8",
+                "commit_hash": "ae1e24c",
+                "release_date": "27 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Profil Ayarları Sol Dikey Sekme Düzeni & Canlı İzleme Paneli Özelleştirme Sekmesi",
                 "summary": "Canlı İzleme Paneli başlığındaki alt açıklama ve şablon/özelleştirme butonları kaldırılarak sağ üst Profil Ayarları penceresine 'Canlı İzleme Paneli' sekmesi olarak taşındı; Temsilci Profil Ayarları popup penceresi Kullanıcı Düzenleme penceresi gibi sol dikey sekmeli yapıya kavuşturuldu.",
                 "features": [
