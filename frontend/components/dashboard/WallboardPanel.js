@@ -1924,7 +1924,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
                             {agentCardDensity === "detailed" && (
                               <div className="pt-2 mt-1 border-t border-slate-200/50 dark:border-slate-800/60 flex items-center justify-between text-[9px] font-bold text-slate-500">
-                                <span>Dahili: #{u.extension}</span>
+                                <span>Dahili: {u.extension}</span>
                                 <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 font-extrabold text-slate-700 dark:text-slate-300">
                                   Bugün: {state.callsToday || 0} Çağrı
                                 </span>
