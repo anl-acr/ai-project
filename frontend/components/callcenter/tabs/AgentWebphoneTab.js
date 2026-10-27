@@ -1023,7 +1023,7 @@ export default function AgentWebphoneTab({
 
             {/* Persistent Live Translator & Interpreter Panel (Never unmounts on Idle <-> Calling <-> InCall) */}
             {hasAnyTranslatorPerm && (
-              <div className="shrink-0">
+              <div className="flex-1 min-h-[260px]">
                 {!isTranslatorOpen ? (
                   <div
                     onClick={() => setIsTranslatorOpen(true)}
@@ -1035,15 +1035,15 @@ export default function AgentWebphoneTab({
                       </div>
                       <div>
                         <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                          Canlı Konuşma Çevirisi & Simultane Tercüman (TR ↔ Yabancı Dil)
+                          Canlı Konuşma &amp; Çeviri
                         </h4>
                         <p className="text-[10px] text-slate-400 mt-0.5">
-                          Görüşme sırasında yabancı dil konuşmaları anlık Türkçe metne ve sese dönüştürür (Çift yönlü çeviri).
+                          Görüşme sırasındaki konuşmaları anlık metin ve sohbet akışı olarak görüntüler.
                         </p>
                       </div>
                     </div>
                     <span className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg}`}>
-                      Tercüman Panelini Aç
+                      Paneli Aç
                     </span>
                   </div>
                 ) : (
@@ -1059,11 +1059,6 @@ export default function AgentWebphoneTab({
                 )}
               </div>
             )}
-
-            {/* Persistent Transcript Panel */}
-            <div className="flex-1 min-h-[260px] overflow-hidden">
-              <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
-            </div>
           </div>
         </div>
       </div>
