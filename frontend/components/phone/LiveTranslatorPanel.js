@@ -90,15 +90,13 @@ export default function LiveTranslatorPanel({
     };
   }, []);
 
-  // Automatically start/attach customer listener when call enters InCall, and stop when Idle
+  // Automatically start/attach customer listener when call is active, and stop when Idle
   useEffect(() => {
     if (callStatus === "Idle") {
       stopCustomerListener();
       stopAgentPushToTalk(true);
-    } else if (callStatus === "InCall" && canLiveTranslate) {
-      if (!isListeningCustomer || !hasAttachedStreamRef.current) {
-        startCustomerListener(true);
-      }
+    } else if (canLiveTranslate) {
+      startCustomerListener(true);
     }
   }, [callStatus, canLiveTranslate]);
 
@@ -161,88 +159,215 @@ export default function LiveTranslatorPanel({
     }
   };
 
+  const customerScriptNodeRef = useRef(null);
+  const customerSourceNodeRef = useRef(null);
+  const ambientCustomerSpeechRecRef = useRef(null);
+  const lastCustomerTextRef = useRef("");
+  const isListeningCustomerRef = useRef(true);
+  const isRecordingAgentRef = useRef(false);
+  const customerLangRef = useRef(customerLang);
+
+  useEffect(() => {
+    isListeningCustomerRef.current = isListeningCustomer;
+  }, [isListeningCustomer]);
+
+  useEffect(() => {
+    isRecordingAgentRef.current = isRecordingAgentSpeech;
+  }, [isRecordingAgentSpeech]);
+
+  useEffect(() => {
+    customerLangRef.current = customerLang;
+    if (ambientCustomerSpeechRecRef.current && isListeningCustomer && !isRecordingAgentSpeech) {
+      try {
+        ambientCustomerSpeechRecRef.current.stop();
+      } catch (e) {}
+    }
+  }, [customerLang]);
+
+  // Helper: Encode Float32 PCM chunks into a 16kHz 16-bit Mono RIFF WAV Blob (compatible with Gemini, Whisper, and Google Chromium Speech API v2)
+  const encodeWavFromFloat32Chunks = (chunks, inputSampleRate = 48000, targetRate = 16000) => {
+    let totalLen = 0;
+    for (const c of chunks) totalLen += c.length;
+    if (totalLen === 0) return null;
+
+    const merged = new Float32Array(totalLen);
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.length;
+    }
+
+    const ratio = inputSampleRate / targetRate;
+    const outLength = Math.max(1, Math.floor(merged.length / ratio));
+    const buffer = new ArrayBuffer(44 + outLength * 2);
+    const view = new DataView(buffer);
+
+    const writeStr = (pos, str) => {
+      for (let i = 0; i < str.length; i++) {
+        view.setUint8(pos + i, str.charCodeAt(i));
+      }
+    };
+
+    writeStr(0, "RIFF");
+    view.setUint32(4, 36 + outLength * 2, true);
+    writeStr(8, "WAVE");
+    writeStr(12, "fmt ");
+    view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+    view.setUint16(20, 1, true); // AudioFormat (1 = Linear PCM)
+    view.setUint16(22, 1, true); // NumChannels (1 = Mono)
+    view.setUint32(24, targetRate, true); // SampleRate (16000)
+    view.setUint32(28, targetRate * 2, true); // ByteRate (SampleRate * NumChannels * BitsPerSample/8)
+    view.setUint16(32, 2, true); // BlockAlign
+    view.setUint16(34, 16, true); // BitsPerSample (16-bit)
+    writeStr(36, "data");
+    view.setUint32(40, outLength * 2, true);
+
+    let byteOffset = 44;
+    for (let i = 0; i < outLength; i++) {
+      const srcIdx = Math.min(merged.length - 1, Math.floor(i * ratio));
+      const s = Math.max(-1, Math.min(1, merged[srcIdx]));
+      view.setInt16(byteOffset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+      byteOffset += 2;
+    }
+
+    return new Blob([buffer], { type: "audio/wav" });
+  };
+
+  // Parallel browser SpeechRecognition listener for instant low-latency foreign speech capture
+  const startAmbientForeignSpeechRecognition = () => {
+    if (typeof window === "undefined") return;
+    const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRec) return;
+
+    if (ambientCustomerSpeechRecRef.current) {
+      try {
+        ambientCustomerSpeechRecRef.current.onend = null;
+        ambientCustomerSpeechRecRef.current.stop();
+      } catch (e) {}
+      ambientCustomerSpeechRecRef.current = null;
+    }
+
+    try {
+      const rec = new SpeechRec();
+      const langObj = SUPPORTED_LANGUAGES.find((l) => l.code === customerLangRef.current) || SUPPORTED_LANGUAGES[0];
+      rec.lang = langObj.speechLang || "en-US";
+      rec.continuous = true;
+      rec.interimResults = false;
+
+      rec.onresult = (event) => {
+        if (!isListeningCustomerRef.current || isRecordingAgentRef.current) return;
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          if (event.results[i].isFinal) {
+            const phrase = String(event.results[i][0].transcript || "").trim();
+            if (phrase.length >= 2 && phrase.toLowerCase() !== lastCustomerTextRef.current.toLowerCase()) {
+              lastCustomerTextRef.current = phrase;
+              console.log("[LiveTranslator] Instant SpeechRecognition captured:", phrase);
+              simulateCustomerForeignPhrase(phrase);
+            }
+          }
+        }
+      };
+
+      rec.onend = () => {
+        if (isListeningCustomerRef.current && !isRecordingAgentRef.current && ambientCustomerSpeechRecRef.current === rec) {
+          setTimeout(() => {
+            if (isListeningCustomerRef.current && !isRecordingAgentRef.current) {
+              try {
+                const updatedLangObj =
+                  SUPPORTED_LANGUAGES.find((l) => l.code === customerLangRef.current) || SUPPORTED_LANGUAGES[0];
+                rec.lang = updatedLangObj.speechLang || "en-US";
+                rec.start();
+              } catch (e) {}
+            }
+          }, 300);
+        }
+      };
+
+      rec.start();
+      ambientCustomerSpeechRecRef.current = rec;
+    } catch (e) {
+      console.warn("[LiveTranslator] Ambient SpeechRecognition warning:", e);
+    }
+  };
+
   const attachRecorderToRemoteStream = (remoteStream) => {
     try {
       if (customerCaptureIntervalRef.current) {
         clearInterval(customerCaptureIntervalRef.current);
         customerCaptureIntervalRef.current = null;
       }
-      if (customerAudioCtxRef.current) {
+      if (customerScriptNodeRef.current) {
         try {
-          customerAudioCtxRef.current.close();
+          customerScriptNodeRef.current.disconnect();
         } catch (e) {}
-        customerAudioCtxRef.current = null;
+        customerScriptNodeRef.current = null;
+      }
+      if (customerSourceNodeRef.current) {
+        try {
+          customerSourceNodeRef.current.disconnect();
+        } catch (e) {}
+        customerSourceNodeRef.current = null;
       }
 
-      // Passive WebAudio keepalive consumer so Chromium pulls RTP frames continuously,
-      // while MediaRecorder records directly from remoteStream tracks (never blocked by suspended AudioContext!)
-      try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        const ctx = new AudioCtx();
+      const ctx =
+        webphoneManager.getUnlockedAudioContext() ||
+        customerAudioCtxRef.current ||
+        new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
+      customerAudioCtxRef.current = ctx;
+
+      const source = ctx.createMediaStreamSource(remoteStream);
+      customerSourceNodeRef.current = source;
+
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      customerScriptNodeRef.current = processor;
+
+      let pcmWindowChunks = [];
+      let windowMaxRms = 0;
+
+      processor.onaudioprocess = (audioEvent) => {
+        const input = audioEvent.inputBuffer.getChannelData(0);
+        let sumSq = 0;
+        for (let i = 0; i < input.length; i++) {
+          sumSq += input[i] * input[i];
+        }
+        const rms = Math.sqrt(sumSq / input.length);
+        if (rms > windowMaxRms) {
+          windowMaxRms = rms;
+        }
+        pcmWindowChunks.push(new Float32Array(input));
+      };
+
+      // Connect processor through a near-silent gain node so WebAudio pulls frames continuously
+      const silentGain = ctx.createGain();
+      silentGain.gain.value = 0.0001;
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(ctx.destination);
+
+      const flushWavWindow = async () => {
         if (ctx.state === "suspended") {
           ctx.resume().catch(() => {});
         }
-        customerAudioCtxRef.current = ctx;
-        const source = ctx.createMediaStreamSource(remoteStream);
-        const keepAliveGain = ctx.createGain();
-        keepAliveGain.gain.value = 0.0001;
-        source.connect(keepAliveGain);
-        keepAliveGain.connect(ctx.destination);
-      } catch (audioGraphErr) {
-        console.warn("[LiveTranslator] Passive AudioContext keepalive warning:", audioGraphErr);
-      }
+        if (pcmWindowChunks.length === 0) return;
+        const chunksToProcess = pcmWindowChunks;
+        const maxRms = windowMaxRms;
+        pcmWindowChunks = [];
+        windowMaxRms = 0;
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : "";
+        // Skip silent windows (no customer speech on the line)
+        if (maxRms < 0.005 || inFlightCustomerReqRef.current) return;
 
-      const recordWindow = () => {
-        const liveRemote = webphoneManager.getActiveRemoteStream() || remoteStream;
-        if (!liveRemote) return;
-        const audioTracks = liveRemote.getAudioTracks ? liveRemote.getAudioTracks() : [];
-        if (audioTracks.length === 0) return;
-
-        try {
-          const streamForRecorder = new MediaStream([audioTracks[0].clone()]);
-          const chunks = [];
-          const recorder = mimeType
-            ? new MediaRecorder(streamForRecorder, { mimeType })
-            : new MediaRecorder(streamForRecorder);
-          customerMediaRecorderRef.current = recorder;
-
-          recorder.ondataavailable = (ev) => {
-            if (ev.data && ev.data.size > 0) chunks.push(ev.data);
-          };
-
-          recorder.onstop = async () => {
-            try {
-              streamForRecorder.getTracks().forEach((t) => t.stop());
-            } catch (e) {}
-            if (chunks.length === 0 || inFlightCustomerReqRef.current) return;
-            const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-            if (blob.size < 200) return;
-            await processCustomerAudioBlob(blob, recorder.mimeType || "audio/webm");
-          };
-
-          recorder.start(500);
-          setTimeout(() => {
-            if (recorder.state === "recording") {
-              try {
-                recorder.stop();
-              } catch (e) {}
-            }
-          }, 3200);
-        } catch (err) {
-          console.error("[LiveTranslator] Recorder window error:", err);
-        }
+        const wavBlob = encodeWavFromFloat32Chunks(chunksToProcess, ctx.sampleRate || 48000, 16000);
+        if (!wavBlob || wavBlob.size < 1000) return;
+        await processCustomerAudioBlob(wavBlob, "audio/wav");
       };
 
       hasAttachedStreamRef.current = true;
-      console.log("[LiveTranslator] Attached MediaRecorder to active WebRTC remote stream");
-      recordWindow();
-      customerCaptureIntervalRef.current = setInterval(recordWindow, 3400);
+      console.log("[LiveTranslator] Attached 16kHz WAV PCM recorder to active WebRTC remote stream");
+      customerCaptureIntervalRef.current = setInterval(flushWavWindow, 3200);
       setStatusBanner("Müşteri ses kanalı canlı dinleniyor ve anlık Türkçeye çevriliyor...");
     } catch (err) {
       console.error("[LiveTranslator] attachRecorderToRemoteStream error:", err);
@@ -250,10 +375,13 @@ export default function LiveTranslatorPanel({
     }
   };
 
-  // Start capturing customer's incoming WebRTC audio stream in 3.2-second speech windows
+  // Start capturing customer's incoming WebRTC audio stream + ambient speech recognition
   const startCustomerListener = async (forceReattach = false) => {
     if (isListeningCustomer && hasAttachedStreamRef.current && !forceReattach) return;
     setIsListeningCustomer(true);
+    isListeningCustomerRef.current = true;
+
+    startAmbientForeignSpeechRecognition();
 
     const remoteStream = webphoneManager.getActiveRemoteStream();
     if (remoteStream) {
@@ -266,7 +394,7 @@ export default function LiveTranslatorPanel({
     }
 
     setStatusBanner(
-      "Çağrı ses kanalı bekleniyor... Karşı taraf bağlandığında otomatik dinleme başlayacak (veya 'Örnek Müşteri Cümlesi Simüle Et' ile test edebilirsiniz)."
+      "Canlı çeviri aktif ve dinlemede... Çağrı ses kanalı ve mikrofon üzerinden yabancı dil konuşmalar anlık Türkçeye çevrilir."
     );
 
     if (!customerStreamWaitIntervalRef.current) {
@@ -282,6 +410,14 @@ export default function LiveTranslatorPanel({
   };
 
   const stopCustomerListener = () => {
+    isListeningCustomerRef.current = false;
+    if (ambientCustomerSpeechRecRef.current) {
+      try {
+        ambientCustomerSpeechRecRef.current.onend = null;
+        ambientCustomerSpeechRecRef.current.stop();
+      } catch (e) {}
+      ambientCustomerSpeechRecRef.current = null;
+    }
     if (customerStreamWaitIntervalRef.current) {
       clearInterval(customerStreamWaitIntervalRef.current);
       customerStreamWaitIntervalRef.current = null;
@@ -290,18 +426,24 @@ export default function LiveTranslatorPanel({
       clearInterval(customerCaptureIntervalRef.current);
       customerCaptureIntervalRef.current = null;
     }
+    if (customerScriptNodeRef.current) {
+      try {
+        customerScriptNodeRef.current.disconnect();
+      } catch (e) {}
+      customerScriptNodeRef.current = null;
+    }
+    if (customerSourceNodeRef.current) {
+      try {
+        customerSourceNodeRef.current.disconnect();
+      } catch (e) {}
+      customerSourceNodeRef.current = null;
+    }
     if (customerMediaRecorderRef.current && customerMediaRecorderRef.current.state === "recording") {
       try {
         customerMediaRecorderRef.current.stop();
       } catch (e) {}
     }
     customerMediaRecorderRef.current = null;
-    if (customerAudioCtxRef.current) {
-      try {
-        customerAudioCtxRef.current.close();
-      } catch (e) {}
-      customerAudioCtxRef.current = null;
-    }
     hasAttachedStreamRef.current = false;
     setIsListeningCustomer(false);
     webphoneManager.setRemoteAudioDucking(false);
@@ -322,9 +464,9 @@ export default function LiveTranslatorPanel({
         },
         body: JSON.stringify({
           audio_base64: b64,
-          mime_type: mimeType.split(";")[0] || "audio/webm",
+          mime_type: mimeType.split(";")[0] || "audio/wav",
           direction: "customer_to_agent",
-          source_lang: customerLang,
+          source_lang: customerLangRef.current || customerLang,
           target_lang: agentLang,
           generate_tts: shouldTts,
           call_id: callId
@@ -335,10 +477,22 @@ export default function LiveTranslatorPanel({
       const data = await res.json();
       if (!data.original_text && !data.translated_text) return;
 
+      // Avoid duplicate consecutive turns if ambient SpeechRecognition already emitted the exact same phrase
+      if (
+        data.original_text &&
+        lastCustomerTextRef.current &&
+        data.original_text.trim().toLowerCase() === lastCustomerTextRef.current.trim().toLowerCase()
+      ) {
+        return;
+      }
+      if (data.original_text) {
+        lastCustomerTextRef.current = data.original_text.trim();
+      }
+
       const newItem = {
         id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         direction: "customer_to_agent",
-        sourceLang: data.detected_lang || customerLang,
+        sourceLang: data.detected_lang || customerLangRef.current || customerLang,
         targetLang: agentLang,
         originalText: data.original_text || "",
         translatedText: data.translated_text || "",
@@ -362,10 +516,11 @@ export default function LiveTranslatorPanel({
     }
   };
 
-  // Simulate customer speaking foreign language (also useful for testing/demo or manual customer phrase)
+  // Simulate customer speaking foreign language (also used by instant SpeechRecognition & demo buttons)
   const simulateCustomerForeignPhrase = async (sampleText) => {
     setProcessingCustomerChunk(true);
     try {
+      const activeSrcLang = customerLangRef.current || customerLang;
       const shouldTts = Boolean(canVoiceInterpret && autoSpeakCustomerInTurkish);
       const res = await fetch(`${API_BASE}/api/live-translator/translate-text`, {
         method: "POST",
@@ -376,7 +531,7 @@ export default function LiveTranslatorPanel({
         body: JSON.stringify({
           text: sampleText,
           direction: "customer_to_agent",
-          source_lang: customerLang,
+          source_lang: activeSrcLang,
           target_lang: agentLang,
           generate_tts: shouldTts,
           call_id: callId
@@ -387,7 +542,7 @@ export default function LiveTranslatorPanel({
       const newItem = {
         id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         direction: "customer_to_agent",
-        sourceLang: customerLang,
+        sourceLang: activeSrcLang,
         targetLang: agentLang,
         originalText: data.original_text || sampleText,
         translatedText: data.translated_text || "",
@@ -413,6 +568,15 @@ export default function LiveTranslatorPanel({
   const startAgentPushToTalk = async () => {
     if (!canVoiceInterpret || isRecordingAgentSpeech) return;
     try {
+      isRecordingAgentRef.current = true;
+      if (ambientCustomerSpeechRecRef.current) {
+        try {
+          ambientCustomerSpeechRecRef.current.onend = null;
+          ambientCustomerSpeechRecRef.current.stop();
+        } catch (e) {}
+        ambientCustomerSpeechRecRef.current = null;
+      }
+
       // Suppress raw Turkish mic on the WebRTC call so customer only hears the translated foreign voice
       webphoneManager.setRawMicSuppressed(true);
       agentSttTranscriptRef.current = "";
@@ -438,80 +602,116 @@ export default function LiveTranslatorPanel({
         }
       } catch (sttErr) {}
 
-      const selectedMic = typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null;
-      const stream = await webphoneManager.requestSafeMicrophoneStream(selectedMic);
+      const stream = await webphoneManager.acquireAudioStreamWithFallback();
       agentMicStreamRef.current = stream;
       agentChunksRef.current = [];
 
-      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
-        ? "audio/webm;codecs=opus"
-        : MediaRecorder.isTypeSupported("audio/webm")
-        ? "audio/webm"
-        : "";
+      const ctx =
+        webphoneManager.getUnlockedAudioContext() ||
+        customerAudioCtxRef.current ||
+        new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
 
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      agentMediaRecorderRef.current = recorder;
+      const source = ctx.createMediaStreamSource(stream);
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      const silentGain = ctx.createGain();
+      silentGain.gain.value = 0.0001;
 
-      recorder.ondataavailable = (ev) => {
-        if (ev.data && ev.data.size > 0) agentChunksRef.current.push(ev.data);
+      processor.onaudioprocess = (audioEvent) => {
+        const input = audioEvent.inputBuffer.getChannelData(0);
+        agentChunksRef.current.push(new Float32Array(input));
       };
 
-      recorder.onstop = async () => {
-        const chunks = [...agentChunksRef.current];
-        const fallbackStt = agentSttTranscriptRef.current;
-        agentChunksRef.current = [];
-        agentSttTranscriptRef.current = "";
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(ctx.destination);
 
-        if (agentMicStreamRef.current) {
-          agentMicStreamRef.current.getTracks().forEach((t) => t.stop());
-          agentMicStreamRef.current = null;
+      agentMediaRecorderRef.current = {
+        state: "recording",
+        sampleRate: ctx.sampleRate || 48000,
+        stop: () => {
+          try {
+            processor.disconnect();
+            source.disconnect();
+            silentGain.disconnect();
+          } catch (e) {}
         }
-        if (chunks.length === 0 && !fallbackStt) {
-          webphoneManager.setRawMicSuppressed(false);
-          return;
-        }
-        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-        await translateAndSpeakAgentAudioToCustomer(blob, recorder.mimeType || "audio/webm", fallbackStt);
       };
 
-      recorder.start();
       setIsRecordingAgentSpeech(true);
       setStatusBanner(
         `Türkçe konuşun... Bitirdiğinizde '${selectedCustomerLangObj.label}' sesli çeviri doğrudan müşterinin telefon hattına iletilecek.`
       );
     } catch (err) {
       console.error("[LiveTranslator] Agent mic error:", err);
+      isRecordingAgentRef.current = false;
       webphoneManager.setRawMicSuppressed(false);
       setStatusBanner("Mikrofon erişimi sağlanamadı.");
+      if (isListeningCustomerRef.current) {
+        startAmbientForeignSpeechRecognition();
+      }
     }
   };
 
-  const stopAgentPushToTalk = (cancelOnly = false) => {
+  const stopAgentPushToTalk = async (cancelOnly = false) => {
+    isRecordingAgentRef.current = false;
     if (agentSpeechRecRef.current) {
       try {
         agentSpeechRecRef.current.stop();
       } catch (e) {}
       agentSpeechRecRef.current = null;
     }
-    if (cancelOnly) {
-      agentChunksRef.current = [];
-      agentSttTranscriptRef.current = "";
-    }
-    if (agentMediaRecorderRef.current && agentMediaRecorderRef.current.state === "recording") {
+
+    const recObj = agentMediaRecorderRef.current;
+    agentMediaRecorderRef.current = null;
+    if (recObj && recObj.state === "recording") {
       try {
-        agentMediaRecorderRef.current.stop();
+        recObj.stop();
       } catch (e) {}
     }
-    agentMediaRecorderRef.current = null;
-    if (agentMicStreamRef.current && cancelOnly) {
+
+    if (agentMicStreamRef.current) {
       try {
         agentMicStreamRef.current.getTracks().forEach((t) => t.stop());
       } catch (e) {}
       agentMicStreamRef.current = null;
     }
+
     setIsRecordingAgentSpeech(false);
+
     if (cancelOnly) {
+      agentChunksRef.current = [];
+      agentSttTranscriptRef.current = "";
       webphoneManager.setRawMicSuppressed(false);
+      return;
+    }
+
+    // Give SpeechRecognition 250ms to flush its final Turkish phrase if still pending
+    await new Promise((r) => setTimeout(r, 250));
+
+    const floatChunks = [...agentChunksRef.current];
+    const fallbackStt = agentSttTranscriptRef.current;
+    agentChunksRef.current = [];
+    agentSttTranscriptRef.current = "";
+
+    const wavBlob =
+      floatChunks.length > 0
+        ? encodeWavFromFloat32Chunks(floatChunks, recObj?.sampleRate || 48000, 16000)
+        : null;
+
+    if (!wavBlob && !fallbackStt) {
+      webphoneManager.setRawMicSuppressed(false);
+      if (isListeningCustomerRef.current) {
+        startAmbientForeignSpeechRecognition();
+      }
+      return;
+    }
+
+    await translateAndSpeakAgentAudioToCustomer(wavBlob, "audio/wav", fallbackStt);
+    if (isListeningCustomerRef.current) {
+      startAmbientForeignSpeechRecognition();
     }
   };
 

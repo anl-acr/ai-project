@@ -19941,7 +19941,7 @@ def _resolve_translator_ai_keys(user_info: Optional[dict] = None) -> dict:
                 any_tenant_openai = any_tenant_openai or tp.get("openai_api_key") or ""
                 any_tenant_el = any_tenant_el or tp.get("elevenlabs_api_key") or ""
 
-    gemini_key = (
+    raw_gemini_key = (
         tenant_prov.get("google_api_key")
         or tenant_prov.get("gemini_api_key")
         or global_prov.get("google_api_key")
@@ -19952,6 +19952,7 @@ def _resolve_translator_ai_keys(user_info: Optional[dict] = None) -> dict:
         or os.getenv("GOOGLE_API_KEY")
         or ""
     ).strip()
+    gemini_key = raw_gemini_key if raw_gemini_key.startswith("AIza") else ""
 
     groq_key = (
         tenant_prov.get("groq_api_key")
@@ -20032,21 +20033,136 @@ async def _synthesize_translator_tts_base64(text: str, lang_code: str = "tr", us
 
 
 async def _fallback_google_text_translate(text: str, source_lang: str, target_lang: str) -> str:
-    """Fallback text translator when Gemini key is unavailable or rate-limited."""
+    """Multi-provider text translator when Gemini key is unavailable or rate-limited."""
+    import urllib.parse
+    clean_q = (text or "").strip()
+    if not clean_q:
+        return ""
+    sl = (source_lang or "auto").split("-")[0].lower()
+    tl = (target_lang or "tr").split("-")[0].lower()
+    if sl == tl:
+        return clean_q
+    q_enc = urllib.parse.quote(clean_q)
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    # 1. Google clients5 dict-chrome-ex endpoint (fast, no 429 on server IPs)
     try:
-        import urllib.parse
-        sl = (source_lang or "auto").split("-")[0].lower()
-        tl = (target_lang or "tr").split("-")[0].lower()
-        q_enc = urllib.parse.quote(text.strip())
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={sl}&tl={tl}&dt=t&q={q_enc}"
-        async with httpx.AsyncClient(timeout=6.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
-            r = await client.get(url)
-            if r.status_code == 200:
-                arr = r.json()
-                if isinstance(arr, list) and len(arr) > 0 and isinstance(arr[0], list):
-                    return "".join(seg[0] for seg in arr[0] if isinstance(seg, list) and len(seg) > 0 and seg[0])
-    except Exception as e:
-        print(f"[LiveTranslator Fallback Error]: {e}")
+        url1 = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl={sl}&tl={tl}&q={q_enc}"
+        async with httpx.AsyncClient(timeout=6.0, headers=headers) as client:
+            r1 = await client.get(url1)
+            if r1.status_code == 200:
+                arr1 = r1.json()
+                if isinstance(arr1, list) and len(arr1) > 0:
+                    first = arr1[0]
+                    if isinstance(first, str) and first.strip():
+                        return first.strip()
+                    if isinstance(first, list) and len(first) > 0 and isinstance(first[0], str):
+                        return first[0].strip()
+    except Exception as e1:
+        print(f"[LiveTranslator clients5 Translate Warning]: {e1}")
+
+    # 2. Google translate_a/single with client=dict-chrome-ex
+    try:
+        url2 = f"https://translate.googleapis.com/translate_a/single?client=dict-chrome-ex&sl={sl}&tl={tl}&dt=t&q={q_enc}"
+        async with httpx.AsyncClient(timeout=6.0, headers=headers) as client:
+            r2 = await client.get(url2)
+            if r2.status_code == 200:
+                arr2 = r2.json()
+                if isinstance(arr2, list) and len(arr2) > 0 and isinstance(arr2[0], list):
+                    joined = "".join(seg[0] for seg in arr2[0] if isinstance(seg, list) and len(seg) > 0 and seg[0])
+                    if joined.strip():
+                        return joined.strip()
+    except Exception as e2:
+        print(f"[LiveTranslator dict-chrome-ex Translate Warning]: {e2}")
+
+    # 3. MyMemory Translation API fallback
+    try:
+        sl_mm = "en" if sl == "auto" else sl
+        url3 = f"https://api.mymemory.translated.net/get?q={q_enc}&langpair={sl_mm}|{tl}"
+        async with httpx.AsyncClient(timeout=6.0, headers=headers) as client:
+            r3 = await client.get(url3)
+            if r3.status_code == 200:
+                t_mm = ((r3.json().get("responseData") or {}).get("translatedText") or "").strip()
+                if t_mm and "MYMEMORY WARNING" not in t_mm.upper():
+                    return t_mm
+    except Exception as e3:
+        print(f"[LiveTranslator MyMemory Translate Warning]: {e3}")
+
+    return ""
+
+
+STT_LANG_TAG_MAP = {
+    "en": "en-US",
+    "tr": "tr-TR",
+    "de": "de-DE",
+    "ru": "ru-RU",
+    "ar": "ar-SA",
+    "fr": "fr-FR",
+    "es": "es-ES"
+}
+
+
+async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, lang_code: str) -> str:
+    """Transcribes 16kHz 16-bit mono WAV (or ffmpeg-converted WebM/OGG) via Google Chromium Speech API v2."""
+    if not audio_bytes or len(audio_bytes) < 400:
+        return ""
+    try:
+        pcm_bytes = b""
+        sample_rate = 16000
+
+        # Check if audio_bytes is already a RIFF WAV container (sent by LiveTranslatorPanel WAV recorder)
+        if audio_bytes[:4] == b"RIFF" and b"WAVE" in audio_bytes[:16]:
+            import struct
+            try:
+                sample_rate = struct.unpack("<I", audio_bytes[24:28])[0]
+                if sample_rate < 8000 or sample_rate > 48000:
+                    sample_rate = 16000
+            except Exception:
+                sample_rate = 16000
+            data_idx = audio_bytes.find(b"data")
+            pcm_bytes = audio_bytes[data_idx + 8:] if data_idx != -1 else audio_bytes[44:]
+        elif shutil.which("ffmpeg"):
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-y", "-i", "pipe:0", "-ar", "16000", "-ac", "1", "-f", "s16le", "pipe:1",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL
+            )
+            stdout_data, _ = await asyncio.wait_for(proc.communicate(input=audio_bytes), timeout=5.0)
+            if stdout_data and len(stdout_data) > 400:
+                pcm_bytes = stdout_data
+                sample_rate = 16000
+
+        if not pcm_bytes or len(pcm_bytes) < 400:
+            return ""
+
+        lang_tag = STT_LANG_TAG_MAP.get(lang_code.split("-")[0].lower(), "en-US")
+        chromium_key = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
+        stt_url = f"http://www.google.com/speech-api/v2/recognize?output=json&lang={lang_tag}&key={chromium_key}&client=chromium"
+
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                stt_url,
+                content=pcm_bytes,
+                headers={
+                    "Content-Type": f"audio/l16; rate={sample_rate}",
+                    "User-Agent": "Mozilla/5.0"
+                }
+            )
+            if resp.status_code == 200 and resp.text:
+                for line in resp.text.splitlines():
+                    line = line.strip()
+                    if not line:
+                        continue
+                    obj = json.loads(line)
+                    results = obj.get("result") or []
+                    if results and results[0].get("alternative"):
+                        alts = results[0]["alternative"]
+                        best = alts[0].get("transcript", "").strip()
+                        if best:
+                            return best
+    except Exception as stt_err:
+        print(f"[LiveTranslator Chromium STT Warning]: {stt_err}")
     return ""
 
 
@@ -20094,6 +20210,13 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     suggested_reply_target = ""
     detected_lang = src_code
 
+    audio_bytes = b""
+    if raw_b64:
+        try:
+            audio_bytes = base64.b64decode(raw_b64)
+        except Exception:
+            audio_bytes = b""
+
     # 1. Primary: Gemini Multimodal Audio -> Transcription + Translation + Suggested Reply in one shot
     if gemini_key and raw_b64:
         prompt_text = (
@@ -20115,7 +20238,7 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
                                 {"text": prompt_text},
                                 {
                                     "inline_data": {
-                                        "mime_type": (payload.mime_type or "audio/webm").split(";")[0],
+                                        "mime_type": (payload.mime_type or "audio/wav").split(";")[0],
                                         "data": raw_b64
                                     }
                                 }
@@ -20148,25 +20271,17 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
             except Exception as g_err:
                 print(f"[LiveTranslator Audio Gemini ({model_name}) Warning]: {g_err}")
 
-    # 2. Secondary Audio STT Fallback: Groq Whisper or OpenAI Whisper if Gemini didn't transcribe
-    if not original_text and raw_b64 and (groq_key or openai_key):
+    # 2. Secondary Audio STT Fallback: Groq Whisper or OpenAI Whisper
+    if not original_text and audio_bytes and (groq_key or openai_key):
         try:
-            audio_bytes = base64.b64decode(raw_b64)
-            ext = "webm"
-            if "ogg" in (payload.mime_type or ""):
-                ext = "ogg"
-            elif "wav" in (payload.mime_type or ""):
-                ext = "wav"
-            elif "mp4" in (payload.mime_type or ""):
-                ext = "mp4"
-
+            ext = "wav" if audio_bytes[:4] == b"RIFF" else "webm"
             if groq_key:
                 async with httpx.AsyncClient(timeout=10.0) as client:
                     r_w = await client.post(
                         "https://api.groq.com/openai/v1/audio/transcriptions",
                         headers={"Authorization": f"Bearer {groq_key}"},
                         data={"model": "whisper-large-v3-turbo", "language": src_code.split("-")[0]},
-                        files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or "audio/webm")}
+                        files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or f"audio/{ext}")}
                     )
                     if r_w.status_code == 200:
                         original_text = (r_w.json().get("text") or "").strip()
@@ -20176,28 +20291,35 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
                         "https://api.openai.com/v1/audio/transcriptions",
                         headers={"Authorization": f"Bearer {openai_key}"},
                         data={"model": "whisper-1", "language": src_code.split("-")[0]},
-                        files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or "audio/webm")}
+                        files={"file": (f"speech.{ext}", audio_bytes, payload.mime_type or f"audio/{ext}")}
                     )
                     if r_w.status_code == 200:
                         original_text = (r_w.json().get("text") or "").strip()
         except Exception as w_err:
             print(f"[LiveTranslator Whisper Fallback Warning]: {w_err}")
 
-    # 3. Browser SpeechRecognition fallback if provided
+    # 3. Built-in Keyless Audio STT: Google Chromium Speech API v2 (16kHz 16-bit WAV/PCM)
+    if not original_text and audio_bytes:
+        original_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", src_code)
+
+    # 4. Browser SpeechRecognition fallback if provided
     if not original_text and fallback_stt:
         original_text = fallback_stt
 
-    # Filter out common Whisper hallucinations on silence
+    # Filter out common hallucinations on silence
     if original_text.lower().strip(".!?, ") in ("you", "thank you", "thanks for watching", "altyazı m.k.", "subtitle", ""):
         if not fallback_stt:
             original_text = ""
 
-    # If we obtained original_text via Whisper or fallback_stt, translate it now
+    # Translate transcribed speech if not yet translated
     if original_text and not translated_text:
         translated_text = await _fallback_google_text_translate(original_text, src_code, tgt_code)
         if payload.direction == "customer_to_agent" and translated_text and not suggested_reply_tr:
             suggested_reply_tr = "Memnuniyetle yardımcı olabilirim, hemen kontrol ediyorum."
             suggested_reply_target = await _fallback_google_text_translate(suggested_reply_tr, "tr", src_code)
+
+    if original_text or translated_text:
+        print(f"[LiveTranslator] ({src_code}->{tgt_code}) Original='{original_text}' | Translated='{translated_text}'")
 
     tts_b64 = ""
     tts_mime = "audio/mpeg"

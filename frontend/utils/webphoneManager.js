@@ -755,6 +755,10 @@ class WebphoneManager {
     }
   }
 
+  async requestSafeMicrophoneStream(preferredDeviceId = null) {
+    return this.acquireAudioStreamWithFallback(preferredDeviceId ? { audio: { deviceId: { ideal: preferredDeviceId } } } : undefined);
+  }
+
   async acquireAudioStreamWithFallback(requestedConstraints) {
     if (typeof window === "undefined") {
       throw new Error("Tarayıcı ortamı bulunamadı.");
@@ -845,7 +849,25 @@ class WebphoneManager {
     };
   }
 
+  getUnlockedAudioContext() {
+    if (typeof window === "undefined") return null;
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return null;
+      if (!this.sharedAudioCtx || this.sharedAudioCtx.state === "closed") {
+        this.sharedAudioCtx = new AudioCtx();
+      }
+      if (this.sharedAudioCtx.state === "suspended") {
+        this.sharedAudioCtx.resume().catch(() => {});
+      }
+      return this.sharedAudioCtx;
+    } catch (e) {
+      return null;
+    }
+  }
+
   async answerCall(targetLineId = null) {
+    this.getUnlockedAudioContext();
     const line =
       (targetLineId && this.linesMap.get(targetLineId)) ||
       Array.from(this.linesMap.values()).find((l) => l.callStatus === "Ringing") ||
@@ -885,6 +907,7 @@ class WebphoneManager {
   }
 
   async makeCall(targetNum, options = {}) {
+    this.getUnlockedAudioContext();
     const cleanTarget = String(targetNum || this.state.dialNumber || "").replace(/[^0-9*#+]/g, "");
     if (!cleanTarget) return;
 
