@@ -1333,3 +1333,4 @@ class WebphoneManager {
 }
 
 export const webphoneManager = new WebphoneManager();
+export default webphoneManager;

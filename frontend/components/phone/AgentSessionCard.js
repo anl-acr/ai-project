@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { LogIn, LogOut, Coffee, ShieldAlert, UserCheck, Play, ChevronDown, ChevronUp, User, Clock, CheckCircle2, Tag, AlertTriangle } from "lucide-react";
-import webphoneManager from "../../utils/webphoneManager";
+import { webphoneManager } from "../../utils/webphoneManager";
 import { useTheme } from "../../utils/theme";
 
 const DEFAULT_DISPOSITIONS = [
