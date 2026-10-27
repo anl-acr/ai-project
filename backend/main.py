@@ -14480,8 +14480,7 @@ async def get_agent_queue_peers(
             elif st in ("missed", "no_answer", "busy", "cancelled", "failed", "abandoned", "blocked"):
                 missed_count += 1
 
-        # Determine real-time status & status_since_utc
-        is_sip_reg = bool((u_ext and u_ext in registered_endpoints) or (u_id and u_id in registered_endpoints))
+        # Determine real-time status & status_since_utc (matching Wallboard /api/reports/agents logic)
         mem_st = get_agent_state(user_id=u_id, extension=u_ext)
         mem_since_utc = None
         if mem_st and mem_st.get("status_since_utc"):
@@ -14491,42 +14490,62 @@ async def get_agent_queue_peers(
                 mem_since_utc = None
 
         has_active_login = bool(last_login_utc and (last_logout_utc is None or last_login_utc >= last_logout_utc))
-        explicitly_logged_out = bool(
-            (mem_st and mem_st.get("status_since_utc") and not mem_st.get("is_logged_in") and mem_st.get("status") == "offline")
-            or (last_logout_utc and (last_login_utc is None or last_logout_utc > last_login_utc) and not is_sip_reg)
-        )
-        is_online = bool((is_sip_reg or (mem_st and mem_st.get("is_logged_in")) or has_active_login) and not explicitly_logged_out)
+        if mem_st and mem_st.get("status_since_utc"):
+            is_online = bool(mem_st.get("is_logged_in", False)) and mem_st.get("status") != "offline"
+        elif active_break_log is not None:
+            is_online = True
+        elif has_active_login:
+            is_online = True
+        else:
+            is_online = False
 
         status_code = "offline"
         status_label = "Çevrimdışı"
         break_name_val = None
+        break_id_val = None
+        break_color_val = None
         active_call_with = None
         status_since_utc = None
+        breaks_cfg = settings.get("breaks", [])
 
-        if active_call_obj is not None or (u_ext and u_ext in live_busy_exts):
-            status_code = "busy"
-            if active_call_obj is not None:
-                other_num = active_call_obj.callee_number if str(active_call_obj.caller_number) == u_ext else active_call_obj.caller_number
-                active_call_with = str(other_num or "")
-                status_since_utc = active_call_obj.start_time
-            else:
-                status_since_utc = live_busy_exts.get(u_ext) or now_utc
-            status_label = f"Meşgul ({active_call_with})" if active_call_with else "Meşgul (Çağrıda)"
-        elif active_break_log is not None or (mem_st and mem_st.get("status") == "break" and mem_st.get("current_break")):
-            status_code = "break"
-            if active_break_log is not None:
-                break_name_val = active_break_log.break_name or "Mola"
-                status_since_utc = active_break_log.start_time
-            else:
-                cb = mem_st.get("current_break") or {}
-                break_name_val = cb.get("name") or "Mola"
+        if is_online:
+            if active_call_obj is not None or (u_ext and u_ext in live_busy_exts):
+                status_code = "busy"
+                if active_call_obj is not None:
+                    other_num = active_call_obj.callee_number if str(active_call_obj.caller_number) == u_ext else active_call_obj.caller_number
+                    active_call_with = str(other_num or "")
+                    status_since_utc = active_call_obj.start_time
+                else:
+                    status_since_utc = live_busy_exts.get(u_ext) or now_utc
+                status_label = f"Meşgul ({active_call_with})" if active_call_with else "Meşgul (Çağrıda)"
+            elif active_break_log is not None or (mem_st and mem_st.get("status") == "break"):
+                status_code = "break"
+                cb = (mem_st.get("current_break") if mem_st else None) or {}
+                if active_break_log is not None:
+                    break_name_val = active_break_log.break_name or cb.get("name") or "Mola"
+                    status_since_utc = active_break_log.start_time
+                else:
+                    break_name_val = cb.get("name") or "Mola"
+                    status_since_utc = mem_since_utc or now_utc
+                break_id_val = cb.get("id")
+                break_color_val = cb.get("color")
+                for b_cfg in breaks_cfg:
+                    if str(b_cfg.get("name", "")).strip().lower() == str(break_name_val).strip().lower():
+                        if not break_id_val:
+                            break_id_val = b_cfg.get("id")
+                        if not break_color_val and b_cfg.get("color"):
+                            break_color_val = b_cfg.get("color")
+                        break
+                status_label = f"Molada ({break_name_val})"
+            elif mem_st and mem_st.get("status") == "acw":
+                status_code = "acw"
+                status_label = "ACW / İşlemde"
                 status_since_utc = mem_since_utc or now_utc
-            status_label = f"Molada ({break_name_val})"
-        elif is_online:
-            status_code = "available"
-            status_label = "Müsait"
-            candidates = [t for t in (last_call_end_utc, last_break_end_utc, last_login_utc, mem_since_utc, first_activity_utc) if t is not None]
-            status_since_utc = max(candidates) if candidates else today_start_utc
+            else:
+                status_code = "available"
+                status_label = "Müsait"
+                candidates = [t for t in (last_call_end_utc, last_break_end_utc, last_login_utc, mem_since_utc, first_activity_utc) if t is not None]
+                status_since_utc = max(candidates) if candidates else today_start_utc
         else:
             status_code = "offline"
             status_label = "Çevrimdışı"
@@ -14551,10 +14570,13 @@ async def get_agent_queue_peers(
             "role": u_obj.get("role") or "agent",
             "avatar": u_obj.get("avatar") or "",
             "is_me": a_key == req_key,
+            "is_logged_in": bool(is_online and status_code != "offline"),
             "queues": agent_queues_map.get(a_key, []),
             "status": status_code,
             "status_label": status_label,
+            "break_id": break_id_val,
             "break_name": break_name_val,
+            "break_color": break_color_val,
             "is_auto_break": is_auto_break_peer,
             "active_call_with": active_call_with,
             "status_since_utc": (status_since_utc.isoformat() + "Z") if status_since_utc else None,

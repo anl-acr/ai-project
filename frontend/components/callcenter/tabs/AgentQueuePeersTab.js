@@ -7,26 +7,26 @@ import {
   PhoneMissed,
   Clock,
   Coffee,
-  CheckCircle2,
   LogIn,
   LogOut,
   RefreshCw,
-  Search,
-  Headphones,
-  Radio,
-  List as ListIcon,
-  LayoutGrid,
-  Grid
+  Headphones
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
-import { loadCallPanelPrefs, saveCallPanelPrefs } from "../AgentPanel";
+import { loadCallPanelPrefs } from "../AgentPanel";
+import {
+  DEFAULT_STATUS_COLORS,
+  hexToRgba,
+  normalizeWallboardLayout
+} from "../../dashboard/WallboardPanel";
 
 export default function AgentQueuePeersTab({ backendHost, currentUser, callPanelPerms, panelPrefs }) {
-  const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const canSeeStatus = callPanelPerms ? callPanelPerms.agentsCanSeeStatus !== false : true;
   const canSeeDuration = callPanelPerms ? callPanelPerms.agentsCanSeeDuration !== false : true;
   const canSeeCallCounts = callPanelPerms ? callPanelPerms.agentsCanSeeCallCounts !== false : true;
   const canSeeLoginLogout = callPanelPerms ? callPanelPerms.agentsCanSeeLoginLogout !== false : true;
+
   const [data, setData] = useState({ queues: [], agents: [] });
   const [loading, setLoading] = useState(true);
   const [selectedQueueId, setSelectedQueueId] = useState("all");
@@ -34,6 +34,16 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
   const [searchQuery, setSearchQuery] = useState("");
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [localPrefs, setLocalPrefs] = useState(() => panelPrefs || loadCallPanelPrefs(currentUser));
+  const [statusColors, setStatusColors] = useState(() => ({ ...DEFAULT_STATUS_COLORS, breakColors: {} }));
+
+  const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
+  const API_BASE = `${typeof window !== "undefined" ? window.location.protocol : "http:"}//${host}`;
+
+  const myUserId = currentUser?.id ? String(currentUser.id) : "";
+  const myExtension = currentUser?.extension ? String(currentUser.extension) : "";
+  const effectiveUid = String(
+    myUserId || (typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null) || "admin"
+  );
 
   useEffect(() => {
     if (panelPrefs) {
@@ -43,23 +53,40 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
     }
   }, [panelPrefs, currentUser]);
 
+  // Load Wallboard status colors so agent cards use the exact same color logic
+  useEffect(() => {
+    try {
+      const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
+      if (localRaw) {
+        const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+        setStatusColors(norm.statusColors);
+      }
+    } catch (e) {}
+
+    fetch(`${API_BASE}/api/wallboard/layout?user_id=${encodeURIComponent(effectiveUid)}`, {
+      headers: { "X-User-ID": effectiveUid }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((resData) => {
+        if (resData?.layout) {
+          const norm = normalizeWallboardLayout(resData.layout);
+          setStatusColors(norm.statusColors);
+        }
+      })
+      .catch(() => {});
+
+    const handleLayoutUpdated = (e) => {
+      if (e?.detail) {
+        const norm = normalizeWallboardLayout(e.detail);
+        setStatusColors(norm.statusColors);
+      }
+    };
+    window.addEventListener("wallboard-layout-updated", handleLayoutUpdated);
+    return () => window.removeEventListener("wallboard-layout-updated", handleLayoutUpdated);
+  }, [effectiveUid, API_BASE]);
+
   const viewMode = localPrefs?.viewMode === "box" ? "box" : "list";
   const boxSize = localPrefs?.boxSize === "small" ? "small" : "large";
-
-  const handleViewChange = (nextMode, nextSize = boxSize) => {
-    const updated = saveCallPanelPrefs(currentUser, {
-      ...localPrefs,
-      viewMode: nextMode,
-      boxSize: nextSize
-    });
-    setLocalPrefs(updated);
-  };
-
-  const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
-  const API_BASE = `${typeof window !== "undefined" ? window.location.protocol : "http:"}//${host}`;
-
-  const myUserId = currentUser?.id ? String(currentUser.id) : "";
-  const myExtension = currentUser?.extension ? String(currentUser.extension) : "";
 
   const fetchQueuePeers = async (showSpinner = false) => {
     if (showSpinner) setLoading(true);
@@ -130,7 +157,12 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
     window.dispatchEvent(new CustomEvent("TRIGGER_CALL", { detail: String(ext) }));
   };
 
-  const filteredAgents = data.agents.filter((agent) => {
+  // Only show logged-in agents (matching Canlı İzleme Paneli / Wallboard logic)
+  const loggedInAgents = data.agents.filter(
+    (agent) => agent.status !== "offline" && agent.is_logged_in !== false
+  );
+
+  const filteredAgents = loggedInAgents.filter((agent) => {
     if (selectedQueueId !== "all") {
       const inQueue = Array.isArray(agent.queues) && agent.queues.some((q) => String(q.id) === String(selectedQueueId));
       if (!inQueue) return false;
@@ -149,24 +181,37 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
   });
 
   const counts = {
-    all: data.agents.length,
-    available: data.agents.filter((a) => a.status === "available").length,
-    busy: data.agents.filter((a) => a.status === "busy").length,
-    break: data.agents.filter((a) => a.status === "break").length,
-    offline: data.agents.filter((a) => a.status === "offline").length
+    all: loggedInAgents.length,
+    available: loggedInAgents.filter((a) => a.status === "available").length,
+    busy: loggedInAgents.filter((a) => a.status === "busy").length,
+    break: loggedInAgents.filter((a) => a.status === "break").length
   };
+
+  const availHex = statusColors?.available || DEFAULT_STATUS_COLORS.available;
+  const busyHex = statusColors?.busy || DEFAULT_STATUS_COLORS.busy;
+  const breakHex = statusColors?.break || DEFAULT_STATUS_COLORS.break;
 
   const getStatusMeta = (agent, liveSec) => {
     const durText = formatDurationText(liveSec);
+    const colors = statusColors || DEFAULT_STATUS_COLORS;
+
     if (agent.status === "busy") {
+      const hex = colors.busy || DEFAULT_STATUS_COLORS.busy;
       return {
-        badgeBg: "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20",
-        dot: "bg-rose-500 animate-ping",
-        solidDot: "bg-rose-500",
-        title: "Meşgul (Çağrıda)",
+        hex,
+        title: agent.active_call_with ? `Meşgul (${agent.active_call_with})` : "Meşgul (Çağrıda)",
         durationPhrase: `${durText} süredir meşgul`
       };
     }
+
+    if (agent.status === "acw") {
+      return {
+        hex: "#8b5cf6",
+        title: "ACW / İşlemde",
+        durationPhrase: `${durText} süredir işlemde`
+      };
+    }
+
     if (agent.status === "break") {
       const bReason = agent.break_reason || agent.break_name || "";
       const isAuto =
@@ -174,38 +219,36 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
         String(bReason).toLowerCase().startsWith("otomatik mola") ||
         String(bReason).toLowerCase().includes("çağrı kaçırma") ||
         String(bReason).toLowerCase().includes("bağlantı koptu");
+
       if (isAuto) {
         return {
-          badgeBg: "bg-slate-800 text-white dark:bg-slate-700 border-slate-600",
-          dot: "bg-slate-300 animate-pulse",
-          solidDot: "bg-slate-800 dark:bg-slate-300",
+          hex: colors.autoBreak || DEFAULT_STATUS_COLORS.autoBreak,
           title: bReason || "Otomatik Mola",
           durationPhrase: `${durText} süredir otomatik molada`
         };
       }
+
+      const bcMap = colors.breakColors || {};
+      const bIdKey = agent.break_id != null ? String(agent.break_id) : "";
+      const bNameKey = bReason ? String(bReason).trim() : "";
+      const resolvedBreakHex =
+        (bIdKey && bcMap[bIdKey]) ||
+        (bNameKey && bcMap[bNameKey]) ||
+        agent.break_color ||
+        colors.break ||
+        DEFAULT_STATUS_COLORS.break;
+
       return {
-        badgeBg: "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20",
-        dot: "bg-amber-500 animate-pulse",
-        solidDot: "bg-amber-500",
+        hex: resolvedBreakHex,
         title: bReason ? `Molada (${bReason})` : "Molada",
         durationPhrase: `${durText} süredir molada`
       };
     }
-    if (agent.status === "available") {
-      return {
-        badgeBg: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20",
-        dot: "bg-emerald-500",
-        solidDot: "bg-emerald-500",
-        title: "Müsait",
-        durationPhrase: `${durText} süredir müsait`
-      };
-    }
+
     return {
-      badgeBg: "bg-slate-500/10 text-slate-600 dark:text-slate-400 border-slate-500/20",
-      dot: "bg-slate-400",
-      solidDot: "bg-slate-400",
-      title: "Çevrimdışı",
-      durationPhrase: liveSec > 0 ? `${durText} süredir çevrimdışı` : "Çevrimdışı"
+      hex: colors.available || DEFAULT_STATUS_COLORS.available,
+      title: "Müsait",
+      durationPhrase: `${durText} süredir müsait`
     };
   };
 
@@ -214,84 +257,110 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
       <div className="max-w-6xl mx-auto space-y-5">
         {/* Header */}
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2.5">
+          <div className="flex items-center gap-2.5">
             <Headphones size={22} className={text} />
-            Kuyruk Temsilcileri
-          </h2>
+            <h2 className="text-xl font-bold text-slate-800 dark:text-white">
+              Kuyruk Temsilcileri
+            </h2>
+            <span className="px-2.5 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-[10px] font-extrabold text-slate-500 uppercase">
+              {counts.all} Aktif (Login) Temsilci
+            </span>
+          </div>
         </div>
 
-        {/* Summary KPI Strip */}
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        {/* Summary KPI Strip (Only Logged-In Statuses: Aktif, Müsait, Meşgul, Molada) */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <button
             onClick={() => setStatusFilter("all")}
-            className={`p-3.5 rounded-2xl border text-left transition-all ${
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
               statusFilter === "all"
                 ? `${lightBg} ${border} shadow-sm`
                 : `bg-white dark:bg-slate-900 ${borderLight}`
             }`}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Toplam Temsilci</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Aktif Temsilci</p>
             <p className="text-2xl font-black text-slate-800 dark:text-white mt-1">{counts.all}</p>
           </button>
 
           <button
             onClick={() => setStatusFilter("available")}
-            className={`p-3.5 rounded-2xl border text-left transition-all ${
+            style={
               statusFilter === "available"
-                ? "bg-emerald-500/10 border-emerald-500/40 shadow-sm"
-                : `bg-white dark:bg-slate-900 ${borderLight}`
+                ? {
+                    backgroundColor: hexToRgba(availHex, 0.12),
+                    borderColor: hexToRgba(availHex, 0.55)
+                  }
+                : undefined
+            }
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
+              statusFilter === "available" ? "shadow-sm" : `bg-white dark:bg-slate-900 ${borderLight}`
             }`}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <p
+              style={{ color: availHex }}
+              className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+            >
+              <span style={{ backgroundColor: availHex }} className="w-2 h-2 rounded-full"></span>
               Müsait
             </p>
-            <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 mt-1">{counts.available}</p>
+            <p style={{ color: availHex }} className="text-2xl font-black mt-1">
+              {counts.available}
+            </p>
+            <span style={{ backgroundColor: availHex }} className="absolute bottom-0 inset-x-0 h-1" />
           </button>
 
           <button
             onClick={() => setStatusFilter("busy")}
-            className={`p-3.5 rounded-2xl border text-left transition-all ${
+            style={
               statusFilter === "busy"
-                ? "bg-rose-500/10 border-rose-500/40 shadow-sm"
-                : `bg-white dark:bg-slate-900 ${borderLight}`
+                ? {
+                    backgroundColor: hexToRgba(busyHex, 0.12),
+                    borderColor: hexToRgba(busyHex, 0.55)
+                  }
+                : undefined
+            }
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
+              statusFilter === "busy" ? "shadow-sm" : `bg-white dark:bg-slate-900 ${borderLight}`
             }`}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span>
+            <p
+              style={{ color: busyHex }}
+              className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+            >
+              <span style={{ backgroundColor: busyHex }} className="w-2 h-2 rounded-full animate-ping"></span>
               Meşgul
             </p>
-            <p className="text-2xl font-black text-rose-600 dark:text-rose-400 mt-1">{counts.busy}</p>
+            <p style={{ color: busyHex }} className="text-2xl font-black mt-1">
+              {counts.busy}
+            </p>
+            <span style={{ backgroundColor: busyHex }} className="absolute bottom-0 inset-x-0 h-1" />
           </button>
 
           <button
             onClick={() => setStatusFilter("break")}
-            className={`p-3.5 rounded-2xl border text-left transition-all ${
+            style={
               statusFilter === "break"
-                ? "bg-amber-500/10 border-amber-500/40 shadow-sm"
-                : `bg-white dark:bg-slate-900 ${borderLight}`
+                ? {
+                    backgroundColor: hexToRgba(breakHex, 0.12),
+                    borderColor: hexToRgba(breakHex, 0.55)
+                  }
+                : undefined
+            }
+            className={`p-3.5 rounded-2xl border text-left transition-all relative overflow-hidden ${
+              statusFilter === "break" ? "shadow-sm" : `bg-white dark:bg-slate-900 ${borderLight}`
             }`}
           >
-            <p className="text-[11px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+            <p
+              style={{ color: breakHex }}
+              className="text-[11px] font-bold uppercase tracking-wider flex items-center gap-1.5"
+            >
+              <span style={{ backgroundColor: breakHex }} className="w-2 h-2 rounded-full"></span>
               Molada
             </p>
-            <p className="text-2xl font-black text-amber-600 dark:text-amber-400 mt-1">{counts.break}</p>
-          </button>
-
-          <button
-            onClick={() => setStatusFilter("offline")}
-            className={`p-3.5 rounded-2xl border text-left transition-all ${
-              statusFilter === "offline"
-                ? "bg-slate-500/10 border-slate-400/40 shadow-sm"
-                : `bg-white dark:bg-slate-900 ${borderLight}`
-            }`}
-          >
-            <p className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
-              <span className="w-2 h-2 rounded-full bg-slate-400"></span>
-              Çevrimdışı
+            <p style={{ color: breakHex }} className="text-2xl font-black mt-1">
+              {counts.break}
             </p>
-            <p className="text-2xl font-black text-slate-600 dark:text-slate-300 mt-1">{counts.offline}</p>
+            <span style={{ backgroundColor: breakHex }} className="absolute bottom-0 inset-x-0 h-1" />
           </button>
         </div>
 
@@ -335,32 +404,57 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
           ) : filteredAgents.length === 0 ? (
             <div className={`p-12 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl text-center text-xs text-slate-400`}>
               <Users size={28} className="mx-auto mb-2 opacity-40" />
-              Filtreye uygun temsilci bulunamadı.
+              {loggedInAgents.length === 0
+                ? "Şu anda çağrı merkezi oturumu açmış (Login) aktif temsilci bulunmuyor."
+                : "Seçilen filtreye uygun aktif temsilci bulunamadı."}
             </div>
           ) : boxSize === "small" ? (
-            /* KÜÇÜK KUTUCUK GÖRÜNÜMÜ */
+            /* KÜÇÜK KUTUCUK GÖRÜNÜMÜ (Canlı İzleme Renk Mantığı) */
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
               {filteredAgents.map((agent) => {
                 const liveSec = getLiveDurationSeconds(agent);
                 const meta = getStatusMeta(agent, liveSec);
+                const activeHex = meta.hex;
                 const isSelf =
-                  Boolean(agent.is_self) ||
+                  Boolean(agent.is_me || agent.is_self) ||
                   (myExtension && String(agent.extension) === myExtension) ||
                   (myUserId && String(agent.id) === myUserId);
 
                 return (
                   <div
                     key={`${agent.id}-${agent.extension}`}
-                    className={`p-3.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-2.5`}
+                    style={{
+                      backgroundColor: hexToRgba(activeHex, 0.10),
+                      borderColor: hexToRgba(activeHex, 0.60),
+                      boxShadow: `0 4px 14px -4px ${hexToRgba(activeHex, 0.18)}`
+                    }}
+                    className="p-3.5 border rounded-2xl transition-all flex flex-col justify-between gap-2.5"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="relative shrink-0">
-                          <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${lightBg} ${text}`}>
+                          <div
+                            style={{
+                              backgroundColor: hexToRgba(activeHex, 0.18),
+                              color: activeHex
+                            }}
+                            className="w-8 h-8 rounded-xl flex items-center justify-center font-extrabold text-xs border border-white/40 dark:border-slate-800"
+                          >
                             {(agent.name || "T").charAt(0).toUpperCase()}
                           </div>
                           {canSeeStatus && (
-                            <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white dark:border-slate-900 ${meta.solidDot}`}></span>
+                            <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
+                              <span className="relative flex h-2.5 w-2.5">
+                                <span
+                                  style={{ backgroundColor: activeHex }}
+                                  className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
+                                />
+                                <span
+                                  style={{ backgroundColor: activeHex }}
+                                  className="relative inline-flex rounded-full h-2.5 w-2.5"
+                                />
+                              </span>
+                            </span>
                           )}
                         </div>
                         <div className="min-w-0">
@@ -372,7 +466,7 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                               </span>
                             )}
                           </div>
-                          <div className="text-[10px] font-mono font-bold text-slate-400">
+                          <div className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-300">
                             Dahili: {agent.extension}
                           </div>
                         </div>
@@ -391,13 +485,23 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                     {(canSeeStatus || canSeeDuration) && (
                       <div className="space-y-1">
                         {canSeeStatus && (
-                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${meta.badgeBg} max-w-full truncate`}>
-                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${meta.solidDot}`}></span>
+                          <span
+                            style={{
+                              backgroundColor: hexToRgba(activeHex, 0.18),
+                              borderColor: hexToRgba(activeHex, 0.50),
+                              color: activeHex
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-extrabold uppercase border max-w-full truncate"
+                          >
+                            <span
+                              style={{ backgroundColor: activeHex }}
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                            />
                             <span className="truncate">{meta.title}</span>
                           </span>
                         )}
                         {canSeeDuration && (
-                          <div className="flex items-center gap-1 text-[10px] font-semibold text-slate-500 dark:text-slate-400 truncate">
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-slate-600 dark:text-slate-300 truncate">
                             <Clock size={10} className="shrink-0" />
                             <span className="truncate">{formatDurationText(liveSec)}</span>
                           </div>
@@ -406,20 +510,20 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                     )}
 
                     {canSeeCallCounts && (
-                      <div className="grid grid-cols-4 gap-1 pt-1.5 border-t border-slate-100 dark:border-slate-800/70 text-center">
-                        <div className="p-1 rounded-lg bg-slate-50 dark:bg-slate-800/70">
+                      <div className="grid grid-cols-4 gap-1 pt-1.5 border-t border-slate-200/60 dark:border-slate-800/70 text-center">
+                        <div className="p-1 rounded-lg bg-white/70 dark:bg-slate-900/70">
                           <div className="text-[8px] font-bold text-slate-400">TOP</div>
                           <div className="text-[11px] font-black text-slate-800 dark:text-white">{agent.total_calls || 0}</div>
                         </div>
-                        <div className="p-1 rounded-lg bg-emerald-500/10">
+                        <div className="p-1 rounded-lg bg-emerald-500/15">
                           <div className="text-[8px] font-bold text-emerald-600">GEL</div>
                           <div className="text-[11px] font-black text-emerald-600">{agent.inbound_calls || 0}</div>
                         </div>
-                        <div className="p-1 rounded-lg bg-blue-500/10">
+                        <div className="p-1 rounded-lg bg-blue-500/15">
                           <div className="text-[8px] font-bold text-blue-600">GİD</div>
                           <div className="text-[11px] font-black text-blue-600">{agent.outbound_calls || 0}</div>
                         </div>
-                        <div className="p-1 rounded-lg bg-rose-500/10">
+                        <div className="p-1 rounded-lg bg-rose-500/15">
                           <div className="text-[8px] font-bold text-rose-600">KAÇ</div>
                           <div className="text-[11px] font-black text-rose-600">{agent.missed_calls || 0}</div>
                         </div>
@@ -427,7 +531,7 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                     )}
 
                     {canSeeLoginLogout && (
-                      <div className="flex items-center justify-between text-[9px] font-mono text-slate-400 pt-1 border-t border-slate-100 dark:border-slate-800/60">
+                      <div className="flex items-center justify-between text-[9px] font-mono text-slate-500 dark:text-slate-300 pt-1 border-t border-slate-200/60 dark:border-slate-800/60">
                         <span className="text-emerald-600 dark:text-emerald-400 font-bold">Giriş: {agent.login_time || "-"}</span>
                         <span>Çıkış: {agent.logout_time || "-"}</span>
                       </div>
@@ -437,30 +541,53 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
               })}
             </div>
           ) : (
-            /* BÜYÜK KUTUCUK GÖRÜNÜMÜ */
+            /* BÜYÜK KUTUCUK GÖRÜNÜMÜ (Canlı İzleme Renk Mantığı) */
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
               {filteredAgents.map((agent) => {
                 const liveSec = getLiveDurationSeconds(agent);
                 const meta = getStatusMeta(agent, liveSec);
+                const activeHex = meta.hex;
                 const isSelf =
-                  Boolean(agent.is_self) ||
+                  Boolean(agent.is_me || agent.is_self) ||
                   (myExtension && String(agent.extension) === myExtension) ||
                   (myUserId && String(agent.id) === myUserId);
 
                 return (
                   <div
                     key={`${agent.id}-${agent.extension}`}
-                    className={`p-5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm hover:shadow-md transition-all flex flex-col justify-between gap-4`}
+                    style={{
+                      backgroundColor: hexToRgba(activeHex, 0.10),
+                      borderColor: hexToRgba(activeHex, 0.60),
+                      boxShadow: `0 4px 14px -4px ${hexToRgba(activeHex, 0.18)}`
+                    }}
+                    className="p-5 border rounded-2xl transition-all flex flex-col justify-between gap-4"
                   >
                     {/* Card Top: Avatar, Name, Extension, Call Button */}
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="relative shrink-0">
-                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-extrabold text-base ${lightBg} ${text}`}>
+                          <div
+                            style={{
+                              backgroundColor: hexToRgba(activeHex, 0.18),
+                              color: activeHex
+                            }}
+                            className="w-12 h-12 rounded-2xl flex items-center justify-center font-extrabold text-base border border-white/40 dark:border-slate-800"
+                          >
                             {(agent.name || "T").charAt(0).toUpperCase()}
                           </div>
                           {canSeeStatus && (
-                            <span className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-white dark:border-slate-900 ${meta.solidDot}`}></span>
+                            <span className="absolute -bottom-1 -right-1 h-4 w-4 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
+                              <span className="relative flex h-2.5 w-2.5">
+                                <span
+                                  style={{ backgroundColor: activeHex }}
+                                  className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
+                                />
+                                <span
+                                  style={{ backgroundColor: activeHex }}
+                                  className="relative inline-flex rounded-full h-2.5 w-2.5"
+                                />
+                              </span>
+                            </span>
                           )}
                         </div>
                         <div className="min-w-0">
@@ -472,7 +599,7 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                               </span>
                             )}
                           </div>
-                          <div className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 mt-0.5">
+                          <div className="text-xs font-mono font-bold text-slate-600 dark:text-slate-300 mt-0.5">
                             Dahili: {agent.extension}
                           </div>
                           {Array.isArray(agent.queues) && agent.queues.length > 0 && (
@@ -480,7 +607,7 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                               {agent.queues.map((q) => (
                                 <span
                                   key={q.id}
-                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                                  className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-white/80 dark:bg-slate-900/80 text-slate-600 dark:text-slate-300"
                                 >
                                   {q.name}
                                 </span>
@@ -504,19 +631,38 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
 
                     {/* Live Status & Duration Banner */}
                     {(canSeeStatus || canSeeDuration) && (
-                      <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                      <div
+                        style={{
+                          backgroundColor: hexToRgba(activeHex, 0.12),
+                          borderColor: hexToRgba(activeHex, 0.35)
+                        }}
+                        className="p-3 rounded-xl border flex items-center justify-between gap-2"
+                      >
                         {canSeeStatus && (
-                          <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${meta.badgeBg}`}>
+                          <span
+                            style={{
+                              backgroundColor: hexToRgba(activeHex, 0.20),
+                              borderColor: hexToRgba(activeHex, 0.55),
+                              color: activeHex
+                            }}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-extrabold uppercase border"
+                          >
                             <span className="relative flex h-2 w-2">
-                              <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${meta.dot}`}></span>
-                              <span className={`relative inline-flex rounded-full h-2 w-2 ${meta.solidDot}`}></span>
+                              <span
+                                style={{ backgroundColor: activeHex }}
+                                className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
+                              />
+                              <span
+                                style={{ backgroundColor: activeHex }}
+                                className="relative inline-flex rounded-full h-2 w-2"
+                              />
                             </span>
                             {meta.title}
                           </span>
                         )}
                         {canSeeDuration && (
-                          <div className="flex items-center gap-1 text-xs font-bold text-slate-600 dark:text-slate-300">
-                            <Clock size={13} className="text-slate-400 shrink-0" />
+                          <div className="flex items-center gap-1 text-xs font-bold text-slate-700 dark:text-slate-200">
+                            <Clock size={13} className="shrink-0 opacity-70" />
                             <span>{meta.durationPhrase}</span>
                           </div>
                         )}
@@ -526,19 +672,19 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                     {/* Call Counts Grid */}
                     {canSeeCallCounts && (
                       <div className="grid grid-cols-4 gap-2">
-                        <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-center">
+                        <div className="p-2 rounded-xl bg-white/80 dark:bg-slate-900/80 text-center">
                           <p className="text-[10px] font-bold text-slate-400 uppercase">Toplam</p>
                           <p className="text-base font-black text-slate-800 dark:text-white mt-0.5">{agent.total_calls || 0}</p>
                         </div>
-                        <div className="p-2 rounded-xl bg-emerald-500/10 text-center">
+                        <div className="p-2 rounded-xl bg-emerald-500/15 text-center">
                           <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">Gelen</p>
                           <p className="text-base font-black text-emerald-600 dark:text-emerald-400 mt-0.5">{agent.inbound_calls || 0}</p>
                         </div>
-                        <div className="p-2 rounded-xl bg-blue-500/10 text-center">
+                        <div className="p-2 rounded-xl bg-blue-500/15 text-center">
                           <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase">Giden</p>
                           <p className="text-base font-black text-blue-600 dark:text-blue-400 mt-0.5">{agent.outbound_calls || 0}</p>
                         </div>
-                        <div className="p-2 rounded-xl bg-rose-500/10 text-center">
+                        <div className="p-2 rounded-xl bg-rose-500/15 text-center">
                           <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase">Kaçan</p>
                           <p className="text-base font-black text-rose-600 dark:text-rose-400 mt-0.5">{agent.missed_calls || 0}</p>
                         </div>
@@ -547,10 +693,10 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
 
                     {/* Footer: Talk/Break & Login/Logout */}
                     {(canSeeDuration || canSeeLoginLogout) && (
-                      <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div className="pt-3 border-t border-slate-200/60 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
                         {canSeeDuration && (
                           <div className="flex items-center gap-3">
-                            <span className="inline-flex items-center gap-1 font-semibold text-slate-600 dark:text-slate-300">
+                            <span className="inline-flex items-center gap-1 font-semibold text-slate-700 dark:text-slate-200">
                               <PhoneCall size={12} className="text-emerald-500" />
                               {formatDurationText(agent.talk_duration_seconds || 0)}
                             </span>
@@ -567,7 +713,7 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
                             <span className="text-emerald-600 dark:text-emerald-400 font-bold">
                               Giriş: {agent.login_time || "-"}
                             </span>
-                            <span className="text-slate-400">
+                            <span className="text-slate-500 dark:text-slate-300">
                               Çıkış: {agent.logout_time || "-"}
                             </span>
                           </div>
@@ -580,207 +726,235 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
             </div>
           )
         ) : (
-        /* LİSTE GÖRÜNÜMÜ (TABLO) */
-        <div className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm overflow-hidden`}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className={`border-b ${borderLight} bg-slate-50/70 dark:bg-slate-800/50 text-[11px] font-bold uppercase tracking-wider text-slate-400`}>
-                  <th className="py-3.5 px-4">Temsilci</th>
-                  {(canSeeStatus || canSeeDuration) && (
-                    <th className="py-3.5 px-4">
-                      {canSeeStatus && canSeeDuration ? "Anlık Durum & Süre" : canSeeStatus ? "Anlık Durum" : "Durum Süresi"}
-                    </th>
-                  )}
-                  {canSeeCallCounts && <th className="py-3.5 px-4 text-center">Çağrı Adetleri (Bugün)</th>}
-                  {canSeeDuration && <th className="py-3.5 px-4 text-center">Mola / Konuşma</th>}
-                  {canSeeLoginLogout && <th className="py-3.5 px-4 text-center">Login / Logout Zamanı</th>}
-                  <th className="py-3.5 px-4 text-right">İşlem</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-sm">
-                {loading && filteredAgents.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-xs text-slate-400">
-                      <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-primary" />
-                      Temsilci bilgileri yükleniyor...
-                    </td>
+          /* LİSTE GÖRÜNÜMÜ (TABLO - Canlı İzleme Renk Mantığı) */
+          <div className={`bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm overflow-hidden`}>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className={`border-b ${borderLight} bg-slate-50/70 dark:bg-slate-800/50 text-[11px] font-bold uppercase tracking-wider text-slate-400`}>
+                    <th className="py-3.5 px-4">Temsilci</th>
+                    {(canSeeStatus || canSeeDuration) && (
+                      <th className="py-3.5 px-4">
+                        {canSeeStatus && canSeeDuration ? "Anlık Durum & Süre" : canSeeStatus ? "Anlık Durum" : "Durum Süresi"}
+                      </th>
+                    )}
+                    {canSeeCallCounts && <th className="py-3.5 px-4 text-center">Çağrı Adetleri (Bugün)</th>}
+                    {canSeeDuration && <th className="py-3.5 px-4 text-center">Mola / Konuşma</th>}
+                    {canSeeLoginLogout && <th className="py-3.5 px-4 text-center">Login / Logout Zamanı</th>}
+                    <th className="py-3.5 px-4 text-right">İşlem</th>
                   </tr>
-                ) : filteredAgents.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} className="py-12 text-center text-xs text-slate-400">
-                      <Users size={28} className="mx-auto mb-2 opacity-40" />
-                      Filtreye uygun temsilci bulunamadı.
-                    </td>
-                  </tr>
-                ) : (
-                  filteredAgents.map((agent) => {
-                    const liveSec = getLiveDurationSeconds(agent);
-                    const meta = getStatusMeta(agent, liveSec);
-                    const isSelf =
-                      Boolean(agent.is_self) ||
-                      (myExtension && String(agent.extension) === myExtension) ||
-                      (myUserId && String(agent.id) === myUserId);
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-sm">
+                  {loading && filteredAgents.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-xs text-slate-400">
+                        <RefreshCw size={20} className="animate-spin mx-auto mb-2 text-primary" />
+                        Temsilci bilgileri yükleniyor...
+                      </td>
+                    </tr>
+                  ) : filteredAgents.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-xs text-slate-400">
+                        <Users size={28} className="mx-auto mb-2 opacity-40" />
+                        {loggedInAgents.length === 0
+                          ? "Şu anda çağrı merkezi oturumu açmış (Login) aktif temsilci bulunmuyor."
+                          : "Seçilen filtreye uygun aktif temsilci bulunamadı."}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAgents.map((agent) => {
+                      const liveSec = getLiveDurationSeconds(agent);
+                      const meta = getStatusMeta(agent, liveSec);
+                      const activeHex = meta.hex;
+                      const isSelf =
+                        Boolean(agent.is_me || agent.is_self) ||
+                        (myExtension && String(agent.extension) === myExtension) ||
+                        (myUserId && String(agent.id) === myUserId);
 
-                    return (
-                      <tr
-                        key={`${agent.id}-${agent.extension}`}
-                        className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40 transition-colors"
-                      >
-                        {/* Agent Info */}
-                        <td className="py-3.5 px-4">
-                          <div className="flex items-center gap-3">
-                            <div className="relative">
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${lightBg} ${text}`}>
-                                {(agent.name || "T").charAt(0).toUpperCase()}
-                              </div>
-                              {canSeeStatus && (
-                                <span className={`absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900 ${meta.solidDot}`}></span>
-                              )}
-                            </div>
-                            <div>
-                              <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                                <span>{agent.name}</span>
-                                {isSelf && (
-                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${lightBg} ${text}`}>
-                                    Siz
-                                  </span>
+                      return (
+                        <tr
+                          key={`${agent.id}-${agent.extension}`}
+                          style={{
+                            backgroundColor: hexToRgba(activeHex, 0.06)
+                          }}
+                          className="transition-colors"
+                        >
+                          {/* Agent Info */}
+                          <td className="py-3.5 px-4">
+                            <div className="flex items-center gap-3">
+                              <div className="relative">
+                                <div
+                                  style={{
+                                    backgroundColor: hexToRgba(activeHex, 0.18),
+                                    color: activeHex
+                                  }}
+                                  className="w-10 h-10 rounded-xl flex items-center justify-center font-extrabold text-sm"
+                                >
+                                  {(agent.name || "T").charAt(0).toUpperCase()}
+                                </div>
+                                {canSeeStatus && (
+                                  <span
+                                    style={{ backgroundColor: activeHex }}
+                                    className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-2 border-white dark:border-slate-900"
+                                  />
                                 )}
                               </div>
-                              <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                                <span className="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
-                                  Dahili: {agent.extension}
-                                </span>
-                                {Array.isArray(agent.queues) &&
-                                  agent.queues.map((q) => (
-                                    <span
-                                      key={q.id}
-                                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
-                                    >
-                                      {q.name}
-                                    </span>
-                                  ))}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Live Status & Duration */}
-                        {(canSeeStatus || canSeeDuration) && (
-                          <td className="py-3.5 px-4">
-                            <div className="flex flex-col items-start gap-1">
-                              {canSeeStatus && (
-                                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold border ${meta.badgeBg}`}>
-                                  <span className="relative flex h-2 w-2">
-                                    <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${meta.dot}`}></span>
-                                    <span className={`relative inline-flex rounded-full h-2 w-2 ${meta.solidDot}`}></span>
-                                  </span>
-                                  {meta.title}
-                                </span>
-                              )}
-                              {canSeeDuration && (
-                                <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 pl-1">
-                                  <Clock size={12} className="text-slate-400 shrink-0" />
-                                  <span>{meta.durationPhrase}</span>
-                                  {liveSec > 0 && (
-                                    <span className="text-[11px] font-mono text-slate-400">
-                                      ({formatClockDuration(liveSec)})
+                              <div>
+                                <div className="font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                  <span>{agent.name}</span>
+                                  {isSelf && (
+                                    <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${lightBg} ${text}`}>
+                                      Siz
                                     </span>
                                   )}
                                 </div>
-                              )}
-                            </div>
-                          </td>
-                        )}
-
-                        {/* Call Counts */}
-                        {canSeeCallCounts && (
-                          <td className="py-3.5 px-4">
-                            <div className="flex items-center justify-center gap-2">
-                              <div className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-center min-w-[54px]" title="Toplam Çağrı">
-                                <p className="text-[10px] font-bold text-slate-400 uppercase">Toplam</p>
-                                <p className="text-sm font-black text-slate-800 dark:text-white">{agent.total_calls || 0}</p>
-                              </div>
-                              <div className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 text-center min-w-[50px]" title="Gelen Çağrı">
-                                <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase flex items-center justify-center gap-0.5">
-                                  <PhoneIncoming size={10} /> Gelen
-                                </p>
-                                <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">{agent.inbound_calls || 0}</p>
-                              </div>
-                              <div className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 text-center min-w-[50px]" title="Giden Çağrı">
-                                <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase flex items-center justify-center gap-0.5">
-                                  <PhoneOutgoing size={10} /> Giden
-                                </p>
-                                <p className="text-sm font-black text-blue-600 dark:text-blue-400">{agent.outbound_calls || 0}</p>
-                              </div>
-                              <div className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 text-center min-w-[50px]" title="Cevapsız Çağrı">
-                                <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase flex items-center justify-center gap-0.5">
-                                  <PhoneMissed size={10} /> Kaçan
-                                </p>
-                                <p className="text-sm font-black text-rose-600 dark:text-rose-400">{agent.missed_calls || 0}</p>
+                                <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                  <span className="text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
+                                    Dahili: {agent.extension}
+                                  </span>
+                                  {Array.isArray(agent.queues) &&
+                                    agent.queues.map((q) => (
+                                      <span
+                                        key={q.id}
+                                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300"
+                                      >
+                                        {q.name}
+                                      </span>
+                                    ))}
+                                </div>
                               </div>
                             </div>
                           </td>
-                        )}
 
-                        {/* Break & Talk Totals Today */}
-                        {canSeeDuration && (
-                          <td className="py-3.5 px-4 text-center">
-                            <div className="inline-flex flex-col gap-1 text-xs">
-                              <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
-                                <PhoneCall size={12} className="text-emerald-500" />
-                                Konuşma: {formatDurationText(agent.talk_duration_seconds || 0)}
-                              </span>
-                              <span className="inline-flex items-center gap-1.5 font-semibold text-amber-600 dark:text-amber-400">
-                                <Coffee size={12} />
-                                Mola:{" "}
-                                {formatDurationText(
-                                  (agent.break_duration_seconds || 0) + (agent.status === "break" ? liveSec : 0)
+                          {/* Live Status & Duration */}
+                          {(canSeeStatus || canSeeDuration) && (
+                            <td className="py-3.5 px-4">
+                              <div className="flex flex-col items-start gap-1">
+                                {canSeeStatus && (
+                                  <span
+                                    style={{
+                                      backgroundColor: hexToRgba(activeHex, 0.18),
+                                      borderColor: hexToRgba(activeHex, 0.50),
+                                      color: activeHex
+                                    }}
+                                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-extrabold uppercase border"
+                                  >
+                                    <span className="relative flex h-2 w-2">
+                                      <span
+                                        style={{ backgroundColor: activeHex }}
+                                        className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
+                                      />
+                                      <span
+                                        style={{ backgroundColor: activeHex }}
+                                        className="relative inline-flex rounded-full h-2 w-2"
+                                      />
+                                    </span>
+                                    {meta.title}
+                                  </span>
                                 )}
-                              </span>
-                            </div>
-                          </td>
-                        )}
-
-                        {/* Login / Logout Time */}
-                        {canSeeLoginLogout && (
-                          <td className="py-3.5 px-4 text-center">
-                            <div className="inline-flex flex-col gap-1 text-xs font-mono">
-                              <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
-                                <LogIn size={12} />
-                                Login: {agent.login_time || "-"}
-                              </span>
-                              <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-semibold">
-                                <LogOut size={12} />
-                                Logout: {agent.logout_time || "-"}
-                              </span>
-                            </div>
-                          </td>
-                        )}
-
-                        {/* Action */}
-                        <td className="py-3.5 px-4 text-right">
-                          {!isSelf && agent.extension ? (
-                            <button
-                              onClick={() => handleCallAgent(agent.extension)}
-                              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all ${bg} ${hover}`}
-                              title={`${agent.name} (${agent.extension}) dahilisini ara`}
-                            >
-                              <PhoneCall size={13} />
-                              Ara
-                            </button>
-                          ) : (
-                            <span className="text-xs text-slate-400 font-medium">-</span>
+                                {canSeeDuration && (
+                                  <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-600 dark:text-slate-300 pl-1">
+                                    <Clock size={12} className="text-slate-400 shrink-0" />
+                                    <span>{meta.durationPhrase}</span>
+                                    {liveSec > 0 && (
+                                      <span className="text-[11px] font-mono text-slate-400">
+                                        ({formatClockDuration(liveSec)})
+                                      </span>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            </td>
                           )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+
+                          {/* Call Counts */}
+                          {canSeeCallCounts && (
+                            <td className="py-3.5 px-4">
+                              <div className="flex items-center justify-center gap-2">
+                                <div className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-center min-w-[54px]" title="Toplam Çağrı">
+                                  <p className="text-[10px] font-bold text-slate-400 uppercase">Toplam</p>
+                                  <p className="text-sm font-black text-slate-800 dark:text-white">{agent.total_calls || 0}</p>
+                                </div>
+                                <div className="px-2.5 py-1.5 rounded-xl bg-emerald-500/10 text-center min-w-[50px]" title="Gelen Çağrı">
+                                  <p className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase flex items-center justify-center gap-0.5">
+                                    <PhoneIncoming size={10} /> Gelen
+                                  </p>
+                                  <p className="text-sm font-black text-emerald-600 dark:text-emerald-400">{agent.inbound_calls || 0}</p>
+                                </div>
+                                <div className="px-2.5 py-1.5 rounded-xl bg-blue-500/10 text-center min-w-[50px]" title="Giden Çağrı">
+                                  <p className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase flex items-center justify-center gap-0.5">
+                                    <PhoneOutgoing size={10} /> Giden
+                                  </p>
+                                  <p className="text-sm font-black text-blue-600 dark:text-blue-400">{agent.outbound_calls || 0}</p>
+                                </div>
+                                <div className="px-2.5 py-1.5 rounded-xl bg-rose-500/10 text-center min-w-[50px]" title="Cevapsız Çağrı">
+                                  <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase flex items-center justify-center gap-0.5">
+                                    <PhoneMissed size={10} /> Kaçan
+                                  </p>
+                                  <p className="text-sm font-black text-rose-600 dark:text-rose-400">{agent.missed_calls || 0}</p>
+                                </div>
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Break & Talk Totals Today */}
+                          {canSeeDuration && (
+                            <td className="py-3.5 px-4 text-center">
+                              <div className="inline-flex flex-col gap-1 text-xs">
+                                <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700 dark:text-slate-300">
+                                  <PhoneCall size={12} className="text-emerald-500" />
+                                  Konuşma: {formatDurationText(agent.talk_duration_seconds || 0)}
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 font-semibold text-amber-600 dark:text-amber-400">
+                                  <Coffee size={12} />
+                                  Mola:{" "}
+                                  {formatDurationText(
+                                    (agent.break_duration_seconds || 0) + (agent.status === "break" ? liveSec : 0)
+                                  )}
+                                </span>
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Login / Logout Time */}
+                          {canSeeLoginLogout && (
+                            <td className="py-3.5 px-4 text-center">
+                              <div className="inline-flex flex-col gap-1 text-xs font-mono">
+                                <span className="inline-flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold">
+                                  <LogIn size={12} />
+                                  Login: {agent.login_time || "-"}
+                                </span>
+                                <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400 font-semibold">
+                                  <LogOut size={12} />
+                                  Logout: {agent.logout_time || "-"}
+                                </span>
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Action */}
+                          <td className="py-3.5 px-4 text-right">
+                            {!isSelf && agent.extension ? (
+                              <button
+                                onClick={() => handleCallAgent(agent.extension)}
+                                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm transition-all ${bg} ${hover}`}
+                                title={`${agent.name} (${agent.extension}) dahilisini ara`}
+                              >
+                                <PhoneCall size={13} />
+                                Ara
+                              </button>
+                            ) : (
+                              <span className="text-xs text-slate-400 font-medium">-</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
         )}
       </div>
     </div>
