@@ -3,6 +3,7 @@ import { Phone, PhoneOff, ShieldAlert, Wifi, WifiOff, MessageSquare, Send, X, Cl
 import { findContactByPhone, maskPhoneLast4 } from "../../utils/contactUtils";
 import { webphoneManager } from "../../utils/webphoneManager";
 import DictationButton from "../common/DictationButton";
+import LiveTranslatorPanel from "../phone/LiveTranslatorPanel";
 
 export default function CallChatWidget({
   onActiveCall = () => {},
@@ -61,6 +62,23 @@ export default function CallChatWidget({
       ? true
       : rolePermissions.includes("call_panel:webphone_reject");
   const maskPhoneNumbers = Array.isArray(rolePermissions) && rolePermissions.includes("call_panel:webphone_mask_number");
+  const isRoleAdmin = String(currentUser?.role || "").toLowerCase() === "admin";
+  const canLiveTranslate =
+    isRoleAdmin ||
+    Boolean(
+      Array.isArray(rolePermissions) &&
+        (rolePermissions.includes("call_panel:live_translation") ||
+          rolePermissions.includes("live_translator:access") ||
+          rolePermissions.includes("live_translator"))
+    );
+  const canVoiceInterpret =
+    isRoleAdmin ||
+    Boolean(
+      Array.isArray(rolePermissions) &&
+        (rolePermissions.includes("call_panel:voice_interpreter") ||
+          rolePermissions.includes("live_translator:access") ||
+          rolePermissions.includes("live_translator"))
+    );
 
   // Voice Biometric States
   const [biometricStatus, setBiometricStatus] = useState(null);
@@ -1009,6 +1027,18 @@ export default function CallChatWidget({
                   )}
 
                 </div>
+
+                {/* Live Translator & Simultaneous Interpreter inside Floating Widget */}
+                {callStatus !== "Idle" && (canLiveTranslate || canVoiceInterpret) && (
+                  <LiveTranslatorPanel
+                    backendHost={backendHost}
+                    callId={activeSipCallId}
+                    callStatus={callStatus}
+                    canLiveTranslate={canLiveTranslate}
+                    canVoiceInterpret={canVoiceInterpret}
+                    isActiveInstance={!isWebphoneScreenActive}
+                  />
+                )}
 
                 {/* Error Banner */}
                 {error && (

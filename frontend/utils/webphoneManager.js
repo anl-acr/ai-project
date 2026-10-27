@@ -564,19 +564,31 @@ class WebphoneManager {
     const bindTrack = (track) => {
       if (track && track.kind === "audio") {
         line.remoteTrack = track;
+        if (line.boundTrackId === track.id && audioEl.srcObject) {
+          audioEl.muted = Boolean(line.isOnHold && !this.state.isConferenceActive);
+          if (audioEl.paused) {
+            audioEl.play().catch(() => {});
+          }
+          return;
+        }
+        line.boundTrackId = track.id;
         const remoteStream = new MediaStream([track]);
+        line.remoteStream = remoteStream;
         if (selectedSpeaker && typeof audioEl.setSinkId === "function") {
           audioEl.setSinkId(selectedSpeaker).catch(() => {});
         }
         audioEl.srcObject = remoteStream;
         audioEl.muted = Boolean(line.isOnHold && !this.state.isConferenceActive);
-        audioEl.play().catch((e) => console.error("[WebphoneManager] Audio play error:", e));
+        audioEl.play().catch((e) => console.warn("[WebphoneManager] Audio play warning:", e));
       }
     };
 
-    peerConnection.addEventListener("track", (event) => {
-      bindTrack(event.track);
-    });
+    if (!line.trackListenerBound) {
+      line.trackListenerBound = true;
+      peerConnection.addEventListener("track", (event) => {
+        bindTrack(event.track);
+      });
+    }
     peerConnection.getReceivers().forEach((receiver) => {
       bindTrack(receiver.track);
     });
@@ -1485,16 +1497,52 @@ class WebphoneManager {
     const line = lineId ? this.linesMap.get(lineId) : Array.from(this.linesMap.values())[0];
     if (!line) return null;
 
+    if (line.remoteStream && line.remoteTrack && line.remoteTrack.readyState === "live") {
+      return line.remoteStream;
+    }
+
     if (line.remoteTrack && line.remoteTrack.readyState === "live") {
-      return new MediaStream([line.remoteTrack]);
+      line.remoteStream = new MediaStream([line.remoteTrack]);
+      return line.remoteStream;
     }
 
     const pc = line.session?.sessionDescriptionHandler?.peerConnection;
     if (!pc) return null;
-    const receivers = pc.getReceivers().filter((r) => r.track && r.track.kind === "audio");
+    const receivers = pc.getReceivers().filter((r) => r.track && r.track.kind === "audio" && r.track.readyState === "live");
     if (receivers.length > 0) {
       line.remoteTrack = receivers[0].track;
-      return new MediaStream([receivers[0].track]);
+      line.remoteStream = new MediaStream([receivers[0].track]);
+      return line.remoteStream;
+    }
+    return null;
+  }
+
+  /**
+   * Returns a MediaStream containing the active call line's outgoing microphone audio track
+   * so LiveTranslatorPanel can perform hands-free agent speech translation without extra getUserMedia calls.
+   */
+  getActiveLocalStream() {
+    if (typeof window === "undefined") return null;
+    const lineId = this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : Array.from(this.linesMap.values())[0];
+    if (!line) return null;
+
+    if (line.origMicTrack && line.origMicTrack.readyState === "live") {
+      if (!line.localStream) {
+        line.localStream = new MediaStream([line.origMicTrack]);
+      }
+      return line.localStream;
+    }
+
+    const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+    if (!pc) return null;
+    const senders = pc.getSenders().filter((s) => s.track && s.track.kind === "audio" && s.track.readyState === "live");
+    if (senders.length > 0) {
+      if (!line.origMicTrack) {
+        line.origMicTrack = senders[0].track;
+      }
+      line.localStream = new MediaStream([senders[0].track]);
+      return line.localStream;
     }
     return null;
   }

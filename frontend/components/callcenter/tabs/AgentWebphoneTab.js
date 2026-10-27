@@ -438,12 +438,13 @@ export default function AgentWebphoneTab({
             </div>
           )}
 
-          {callStatus !== "Idle" ? (
-            <div className="flex flex-col h-full gap-4 overflow-y-auto">
-              {/* Multi-Line Switcher & Action Bar */}
-              <div className={`p-3.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex flex-col gap-3 shrink-0`}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
+          <div className="flex flex-col h-full gap-4 overflow-y-auto">
+            {callStatus !== "Idle" && (
+              <>
+                {/* Multi-Line Switcher & Action Bar */}
+                <div className={`p-3.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex flex-col gap-3 shrink-0`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
                     <span className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
                       Aktif Hatlar ({lines.length})
                     </span>
@@ -1017,93 +1018,53 @@ export default function AgentWebphoneTab({
                   </div>
                 </div>
               </div>
+              </>
+            )}
 
-              {/* Live Translator & Interpreter Panel (Permission-Gated) */}
-              {hasAnyTranslatorPerm && (
-                <div className="shrink-0">
-                  {!isTranslatorOpen ? (
-                    <div
-                      onClick={() => setIsTranslatorOpen(true)}
-                      className={`cursor-pointer px-4 py-2.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex items-center justify-between hover:opacity-95 transition-all`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
-                          <Languages size={16} />
-                        </div>
-                        <div>
-                          <span className="text-xs font-extrabold text-slate-800 dark:text-white">
-                            Canlı Konuşma Çevirisi & Simultane Tercüman (TR ↔ Yabancı Dil)
-                          </span>
-                          <span className="ml-2 text-[10px] text-slate-400">
-                            Müşteri konuşmasını Türkçe metne/sese çevirmek için tıklayın
-                          </span>
-                        </div>
+            {/* Persistent Live Translator & Interpreter Panel (Never unmounts on Idle <-> Calling <-> InCall) */}
+            {hasAnyTranslatorPerm && (
+              <div className="shrink-0">
+                {!isTranslatorOpen ? (
+                  <div
+                    onClick={() => setIsTranslatorOpen(true)}
+                    className={`cursor-pointer px-4 py-3 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex items-center justify-between hover:opacity-95 transition-all`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                        <Languages size={17} />
                       </div>
-                      <span className={`px-3 py-1 rounded-xl text-[10px] font-extrabold text-white ${bg}`}>
-                        Canlı Çeviriyi Aç
-                      </span>
+                      <div>
+                        <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                          Canlı Konuşma Çevirisi & Simultane Tercüman (TR ↔ Yabancı Dil)
+                        </h4>
+                        <p className="text-[10px] text-slate-400 mt-0.5">
+                          Görüşme sırasında yabancı dil konuşmaları anlık Türkçe metne ve sese dönüştürür (Çift yönlü çeviri).
+                        </p>
+                      </div>
                     </div>
-                  ) : (
-                    <LiveTranslatorPanel
-                      backendHost={backendHost}
-                      callId={activeCallId}
-                      callStatus={callStatus}
-                      canLiveTranslate={canLiveTranslate}
-                      canVoiceInterpret={canVoiceInterpret}
-                      onClose={() => setIsTranslatorOpen(false)}
-                    />
-                  )}
-                </div>
-              )}
+                    <span className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg}`}>
+                      Tercüman Panelini Aç
+                    </span>
+                  </div>
+                ) : (
+                  <LiveTranslatorPanel
+                    backendHost={backendHost}
+                    callId={activeCallId}
+                    callStatus={callStatus}
+                    canLiveTranslate={canLiveTranslate}
+                    canVoiceInterpret={canVoiceInterpret}
+                    isActiveInstance={Boolean(isWebphoneScreenActive)}
+                    onClose={() => setIsTranslatorOpen(false)}
+                  />
+                )}
+              </div>
+            )}
 
-              {/* Transcript Panel shrinks to fill remaining space */}
-              <div className="flex-1 min-h-[220px] overflow-hidden">
-                <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
-              </div>
+            {/* Persistent Transcript Panel */}
+            <div className="flex-1 min-h-[260px] overflow-hidden">
+              <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
             </div>
-          ) : (
-            <div className="flex flex-col h-full gap-3 overflow-y-auto">
-              {hasAnyTranslatorPerm && (
-                <div className="shrink-0">
-                  {!isTranslatorOpen ? (
-                    <div
-                      onClick={() => setIsTranslatorOpen(true)}
-                      className={`cursor-pointer px-4 py-3 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex items-center justify-between hover:opacity-95 transition-all`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
-                          <Languages size={17} />
-                        </div>
-                        <div>
-                          <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                            Canlı Konuşma Çevirisi & Simultane Tercüman
-                          </h4>
-                          <p className="text-[10px] text-slate-400 mt-0.5">
-                            Görüşme sırasında yabancı dil konuşmaları anlık Türkçe metne ve sese dönüştürür (Çift yönlü çeviri).
-                          </p>
-                        </div>
-                      </div>
-                      <span className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg}`}>
-                        Tercüman Panelini Aç
-                      </span>
-                    </div>
-                  ) : (
-                    <LiveTranslatorPanel
-                      backendHost={backendHost}
-                      callId={activeCallId}
-                      callStatus={callStatus}
-                      canLiveTranslate={canLiveTranslate}
-                      canVoiceInterpret={canVoiceInterpret}
-                      onClose={() => setIsTranslatorOpen(false)}
-                    />
-                  )}
-                </div>
-              )}
-              <div className="flex-1 min-h-[300px]">
-                <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
 

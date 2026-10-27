@@ -20107,12 +20107,15 @@ async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, l
     if not audio_bytes or len(audio_bytes) < 400:
         return ""
     try:
+        from array import array
+        import math
+        import struct
+
         pcm_bytes = b""
         sample_rate = 16000
 
-        # Check if audio_bytes is already a RIFF WAV container (sent by LiveTranslatorPanel WAV recorder)
+        # Check if audio_bytes is already a RIFF WAV container (sent by LiveTranslatorPanel WAV encoder)
         if audio_bytes[:4] == b"RIFF" and b"WAVE" in audio_bytes[:16]:
-            import struct
             try:
                 sample_rate = struct.unpack("<I", audio_bytes[24:28])[0]
                 if sample_rate < 8000 or sample_rate > 48000:
@@ -20135,6 +20138,25 @@ async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, l
 
         if not pcm_bytes or len(pcm_bytes) < 400:
             return ""
+
+        if len(pcm_bytes) % 2 != 0:
+            pcm_bytes = pcm_bytes[:-1]
+
+        samples = array("h")
+        samples.frombytes(pcm_bytes)
+        if not samples:
+            return ""
+
+        peak = max(abs(x) for x in samples)
+        rms = int(math.sqrt(sum(x * x for x in samples) / len(samples)))
+        if rms < 35 or peak < 140:
+            return ""
+
+        # Auto-gain normalize quiet telephone/WebRTC RTP audio so speech recognition never misses low volume
+        if 140 <= peak < 18000:
+            gain = min(8.0, 22000.0 / float(peak))
+            samples = array("h", [max(-32767, min(32767, int(x * gain))) for x in samples])
+            pcm_bytes = samples.tobytes()
 
         lang_tag = STT_LANG_TAG_MAP.get(lang_code.split("-")[0].lower(), "en-US")
         chromium_key = "AIzaSyBOti4mM-6x9WDnZIjIeyEU21OpBXqWBgw"
@@ -20160,6 +20182,7 @@ async def _keyless_chromium_stt_from_audio(audio_bytes: bytes, mime_type: str, l
                         alts = results[0]["alternative"]
                         best = alts[0].get("transcript", "").strip()
                         if best:
+                            print(f"[LiveTranslator Chromium STT] ({lang_tag}, rms={rms}, peak={peak}) -> '{best}'")
                             return best
     except Exception as stt_err:
         print(f"[LiveTranslator Chromium STT Warning]: {stt_err}")
