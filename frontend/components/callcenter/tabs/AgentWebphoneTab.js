@@ -599,10 +599,19 @@ export default function AgentWebphoneTab({
                     </div>
                   ) : (
                     recentCalls.map((c) => {
-                      const rawNum = c.caller_number || "";
+                      const isOutbound = c.caller_number === myExt && c.callee_number && c.callee_number !== myExt;
+                      const rawNum = isOutbound
+                        ? c.callee_number
+                        : c.caller_number || c.callee_number || "";
                       const m = findContactByPhone(rawNum, contacts, directory);
                       const shownNum = maskPhoneNumbers ? maskPhoneLast4(rawNum, true) : rawNum;
                       const isMissed = c.status === "missed" || c.status === "no_answer" || c.status === "busy";
+                      const rawTime = String(c.start_time || "");
+                      const utcTimeStr = rawTime
+                        ? /[Zz]|[+-]\d{2}:?\d{2}$/.test(rawTime)
+                          ? rawTime
+                          : `${rawTime}Z`
+                        : "";
                       return (
                         <div
                           key={c.id}
@@ -616,18 +625,25 @@ export default function AgentWebphoneTab({
                                   : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400"
                               }`}
                             >
-                              {isMissed ? <PhoneMissed size={15} /> : <PhoneOutgoing size={15} />}
+                              {isMissed ? (
+                                <PhoneMissed size={15} />
+                              ) : isOutbound ? (
+                                <PhoneOutgoing size={15} />
+                              ) : (
+                                <PhoneIncoming size={15} />
+                              )}
                             </div>
                             <div className="min-w-0">
                               <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
-                                {m?.displayName || c.caller_name || shownNum || "Bilinmeyen"}
+                                {m?.displayName || (!isOutbound && c.caller_name) || shownNum || "Bilinmeyen"}
                               </p>
                               <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
                                 <span>{shownNum}</span>
-                                {c.start_time && (
+                                {utcTimeStr && (
                                   <span>
                                     •{" "}
-                                    {new Date(c.start_time).toLocaleTimeString("tr-TR", {
+                                    {new Date(utcTimeStr).toLocaleTimeString("tr-TR", {
+                                      timeZone: "Europe/Istanbul",
                                       hour: "2-digit",
                                       minute: "2-digit"
                                     })}
