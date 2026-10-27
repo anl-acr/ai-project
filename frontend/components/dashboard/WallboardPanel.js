@@ -13,11 +13,9 @@ import {
   Bot,
   Send,
   X,
-  Sliders,
   LayoutGrid,
   Sparkles,
   RotateCcw,
-  Save,
   GripVertical,
   ArrowUp,
   ArrowDown,
@@ -30,14 +28,13 @@ import {
   PhoneMissed,
   PhoneIncoming,
   Timer,
-  Filter,
   Search,
   AlertTriangle,
   Layers
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
-const DEFAULT_KPI_CARDS = [
+export const DEFAULT_KPI_CARDS = [
   { id: "queue_waiting", label: "Sırada Bekleyen", unit: "Kişi", enabled: true },
   { id: "ai_resolved", label: "AI Başarılı Çözüm", unit: "Çağrı", enabled: true },
   { id: "service_level", label: "Servis Seviyesi", unit: "SL %", enabled: true },
@@ -49,7 +46,7 @@ const DEFAULT_KPI_CARDS = [
   { id: "total_calls", label: "Toplam Çağrı", unit: "Bugün", enabled: false }
 ];
 
-const DEFAULT_MAIN_WIDGETS = [
+export const DEFAULT_MAIN_WIDGETS = [
   {
     id: "agents_grid",
     title: "Temsilci & AI Çağrı Meşguliyet Durumları",
@@ -87,16 +84,16 @@ const DEFAULT_MAIN_WIDGETS = [
   }
 ];
 
-const DEFAULT_THRESHOLDS = {
+export const DEFAULT_THRESHOLDS = {
   maxQueueWaiters: 3,
   minServiceLevel: 80,
   maxCallDurationSec: 300,
   maxBreakDurationSec: 900
 };
 
-const PRESET_TEMPLATES = {
+export const PRESET_TEMPLATES = {
   standard: {
-    name: "Standart Görünüm",
+    name: "Standart",
     description: "6 temel KPI kartı ve tam genişlikte Temsilci & AI Meşguliyet Panosu",
     kpiCards: DEFAULT_KPI_CARDS,
     mainWidgets: DEFAULT_MAIN_WIDGETS,
@@ -104,7 +101,7 @@ const PRESET_TEMPLATES = {
     agentSortBy: "status"
   },
   supervisor: {
-    name: "Süpervizör Komuta Merkezi",
+    name: "Süpervizör",
     description: "Tüm KPI sayaçları, Temsilci Panosu, Aktif Görüşmeler, Kuyruklar ve Mola Takibi bir arada",
     kpiCards: DEFAULT_KPI_CARDS.map((c) => ({ ...c, enabled: true })),
     mainWidgets: [
@@ -118,7 +115,7 @@ const PRESET_TEMPLATES = {
     agentSortBy: "status"
   },
   queue_focus: {
-    name: "Kuyruk & Çağrı Odaklı",
+    name: "Kuyruk & Çağrı",
     description: "Kuyruk performansı, aktif çağrı tablosu ve temsilci meşguliyet görünümü",
     kpiCards: DEFAULT_KPI_CARDS.map((c) => ({
       ...c,
@@ -135,7 +132,7 @@ const PRESET_TEMPLATES = {
     agentSortBy: "calls_desc"
   },
   compact_dense: {
-    name: "Kompakt Yoğun Görünüm",
+    name: "Kompakt",
     description: "Çok sayıda temsilciyi tek ekranda kompakt kartlarla ve liderlik tablosuyla izleyin",
     kpiCards: DEFAULT_KPI_CARDS,
     mainWidgets: [
@@ -150,8 +147,613 @@ const PRESET_TEMPLATES = {
   }
 };
 
+export function normalizeWallboardLayout(saved) {
+  let kpiCards = DEFAULT_KPI_CARDS;
+  let mainWidgets = DEFAULT_MAIN_WIDGETS;
+  let agentCardDensity = "standard";
+  let agentSortBy = "status";
+  let thresholds = DEFAULT_THRESHOLDS;
+  let activePresetKey = "standard";
+
+  if (saved && typeof saved === "object") {
+    if (Array.isArray(saved.kpiCards) && saved.kpiCards.length > 0) {
+      const savedMap = new Map(saved.kpiCards.map((c) => [c.id, c]));
+      const ordered = [];
+      saved.kpiCards.forEach((sc) => {
+        const def = DEFAULT_KPI_CARDS.find((d) => d.id === sc.id);
+        if (def) ordered.push({ ...def, enabled: Boolean(sc.enabled) });
+      });
+      DEFAULT_KPI_CARDS.forEach((def) => {
+        if (!savedMap.has(def.id)) ordered.push(def);
+      });
+      kpiCards = ordered;
+    }
+
+    if (Array.isArray(saved.mainWidgets) && saved.mainWidgets.length > 0) {
+      const savedMap = new Map(saved.mainWidgets.map((w) => [w.id, w]));
+      const ordered = [];
+      saved.mainWidgets.forEach((sw) => {
+        const def = DEFAULT_MAIN_WIDGETS.find((d) => d.id === sw.id);
+        if (def) {
+          ordered.push({
+            ...def,
+            enabled: Boolean(sw.enabled),
+            colSpan: Number(sw.colSpan) || def.colSpan
+          });
+        }
+      });
+      DEFAULT_MAIN_WIDGETS.forEach((def) => {
+        if (!savedMap.has(def.id)) ordered.push(def);
+      });
+      mainWidgets = ordered;
+    }
+
+    if (saved.agentCardDensity) agentCardDensity = saved.agentCardDensity;
+    if (saved.agentSortBy) agentSortBy = saved.agentSortBy;
+    if (saved.thresholds && typeof saved.thresholds === "object") {
+      thresholds = { ...DEFAULT_THRESHOLDS, ...saved.thresholds };
+    }
+    if (saved.activePresetKey) activePresetKey = saved.activePresetKey;
+  }
+
+  return {
+    kpiCards,
+    mainWidgets,
+    agentCardDensity,
+    agentSortBy,
+    thresholds,
+    activePresetKey
+  };
+}
+
+/**
+ * WallboardStudioSettings: Rendered inside the Profile Settings Modal ("Canlı İzleme Paneli" tab)
+ */
+export function WallboardStudioSettings({ backendHost = "localhost:8000", currentUserId = "admin" }) {
+  const { bg, hover, text, lightBg, borderLight } = useTheme();
+  const [customizerTab, setCustomizerTab] = useState("widgets"); // 'widgets' | 'cards' | 'thresholds'
+  const [kpiCards, setKpiCards] = useState(DEFAULT_KPI_CARDS);
+  const [mainWidgets, setMainWidgets] = useState(DEFAULT_MAIN_WIDGETS);
+  const [agentCardDensity, setAgentCardDensity] = useState("standard");
+  const [agentSortBy, setAgentSortBy] = useState("status");
+  const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
+  const [activePresetKey, setActivePresetKey] = useState("standard");
+  const [draggedKpiIndex, setDraggedKpiIndex] = useState(null);
+  const [draggedWidgetIndex, setDraggedWidgetIndex] = useState(null);
+
+  const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : "";
+  const effectiveUid = String(
+    currentUserId || (typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null) || "admin"
+  );
+
+  useEffect(() => {
+    try {
+      const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
+      if (localRaw) {
+        const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+        setKpiCards(norm.kpiCards);
+        setMainWidgets(norm.mainWidgets);
+        setAgentCardDensity(norm.agentCardDensity);
+        setAgentSortBy(norm.agentSortBy);
+        setThresholds(norm.thresholds);
+        setActivePresetKey(norm.activePresetKey);
+      }
+    } catch (e) {}
+
+    fetch(`${API_BASE}/api/wallboard/layout?user_id=${encodeURIComponent(effectiveUid)}`, {
+      headers: { "X-User-ID": effectiveUid }
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.layout) {
+          const norm = normalizeWallboardLayout(data.layout);
+          setKpiCards(norm.kpiCards);
+          setMainWidgets(norm.mainWidgets);
+          setAgentCardDensity(norm.agentCardDensity);
+          setAgentSortBy(norm.agentSortBy);
+          setThresholds(norm.thresholds);
+          setActivePresetKey(norm.activePresetKey);
+          if (typeof window !== "undefined") {
+            localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(norm));
+          }
+        }
+      })
+      .catch(() => {});
+  }, [effectiveUid, API_BASE]);
+
+  const syncLayout = (nextPatch = {}) => {
+    const payload = {
+      kpiCards: nextPatch.kpiCards ?? kpiCards,
+      mainWidgets: nextPatch.mainWidgets ?? mainWidgets,
+      agentCardDensity: nextPatch.agentCardDensity ?? agentCardDensity,
+      agentSortBy: nextPatch.agentSortBy ?? agentSortBy,
+      thresholds: nextPatch.thresholds ?? thresholds,
+      activePresetKey: nextPatch.activePresetKey ?? activePresetKey
+    };
+
+    if (typeof window !== "undefined") {
+      localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(payload));
+      window.dispatchEvent(new CustomEvent("wallboard-layout-updated", { detail: payload }));
+    }
+
+    fetch(`${API_BASE}/api/wallboard/layout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-ID": effectiveUid
+      },
+      body: JSON.stringify({
+        user_id: effectiveUid,
+        layout: payload
+      })
+    }).catch(() => {});
+  };
+
+  const applyPreset = (presetKey) => {
+    const preset = PRESET_TEMPLATES[presetKey];
+    if (!preset) return;
+    setKpiCards(preset.kpiCards);
+    setMainWidgets(preset.mainWidgets);
+    setAgentCardDensity(preset.agentCardDensity);
+    setAgentSortBy(preset.agentSortBy);
+    setActivePresetKey(presetKey);
+    syncLayout({
+      kpiCards: preset.kpiCards,
+      mainWidgets: preset.mainWidgets,
+      agentCardDensity: preset.agentCardDensity,
+      agentSortBy: preset.agentSortBy,
+      activePresetKey: presetKey
+    });
+  };
+
+  const handleResetDefault = () => {
+    setThresholds(DEFAULT_THRESHOLDS);
+    const preset = PRESET_TEMPLATES.standard;
+    setKpiCards(preset.kpiCards);
+    setMainWidgets(preset.mainWidgets);
+    setAgentCardDensity(preset.agentCardDensity);
+    setAgentSortBy(preset.agentSortBy);
+    setActivePresetKey("standard");
+    syncLayout({
+      kpiCards: preset.kpiCards,
+      mainWidgets: preset.mainWidgets,
+      agentCardDensity: preset.agentCardDensity,
+      agentSortBy: preset.agentSortBy,
+      thresholds: DEFAULT_THRESHOLDS,
+      activePresetKey: "standard"
+    });
+  };
+
+  const toggleKpiCard = (id) => {
+    const next = kpiCards.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c));
+    setKpiCards(next);
+    setActivePresetKey("custom");
+    syncLayout({ kpiCards: next, activePresetKey: "custom" });
+  };
+
+  const moveKpiCard = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= kpiCards.length) return;
+    const updated = [...kpiCards];
+    const [moved] = updated.splice(index, 1);
+    updated.splice(targetIndex, 0, moved);
+    setKpiCards(updated);
+    setActivePresetKey("custom");
+    syncLayout({ kpiCards: updated, activePresetKey: "custom" });
+  };
+
+  const handleKpiDrop = (targetIdx) => {
+    if (draggedKpiIndex === null || draggedKpiIndex === targetIdx) return;
+    const updated = [...kpiCards];
+    const [moved] = updated.splice(draggedKpiIndex, 1);
+    updated.splice(targetIdx, 0, moved);
+    setKpiCards(updated);
+    setDraggedKpiIndex(null);
+    setActivePresetKey("custom");
+    syncLayout({ kpiCards: updated, activePresetKey: "custom" });
+  };
+
+  const toggleMainWidget = (id) => {
+    const next = mainWidgets.map((w) => (w.id === id ? { ...w, enabled: !w.enabled } : w));
+    setMainWidgets(next);
+    setActivePresetKey("custom");
+    syncLayout({ mainWidgets: next, activePresetKey: "custom" });
+  };
+
+  const setWidgetColSpan = (id, colSpan) => {
+    const next = mainWidgets.map((w) => (w.id === id ? { ...w, colSpan: Number(colSpan) } : w));
+    setMainWidgets(next);
+    setActivePresetKey("custom");
+    syncLayout({ mainWidgets: next, activePresetKey: "custom" });
+  };
+
+  const moveMainWidget = (index, direction) => {
+    const targetIndex = index + direction;
+    if (targetIndex < 0 || targetIndex >= mainWidgets.length) return;
+    const updated = [...mainWidgets];
+    const [moved] = updated.splice(index, 1);
+    updated.splice(targetIndex, 0, moved);
+    setMainWidgets(updated);
+    setActivePresetKey("custom");
+    syncLayout({ mainWidgets: updated, activePresetKey: "custom" });
+  };
+
+  const handleWidgetDrop = (targetIdx) => {
+    if (draggedWidgetIndex === null || draggedWidgetIndex === targetIdx) return;
+    const updated = [...mainWidgets];
+    const [moved] = updated.splice(draggedWidgetIndex, 1);
+    updated.splice(targetIdx, 0, moved);
+    setMainWidgets(updated);
+    setDraggedWidgetIndex(null);
+    setActivePresetKey("custom");
+    syncLayout({ mainWidgets: updated, activePresetKey: "custom" });
+  };
+
+  return (
+    <div className="space-y-5 animate-in fade-in duration-200">
+      {/* Top Bar: Presets & Reset */}
+      <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/70 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Sparkles size={15} className={text} />
+            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+              Canlı İzleme Paneli (Wallboard) Görünüm Şablonları
+            </h5>
+          </div>
+          <p className="text-[10px] text-slate-500 dark:text-slate-400">
+            Hazır şablonlardan birini seçin veya aşağıdaki sekmelerden kendi özel panelinizi oluşturun.
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-200 dark:border-slate-700">
+            {[
+              { key: "standard", label: "Standart" },
+              { key: "supervisor", label: "Süpervizör" },
+              { key: "queue_focus", label: "Kuyruk & Çağrı" },
+              { key: "compact_dense", label: "Kompakt" }
+            ].map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => applyPreset(p.key)}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold transition-all ${
+                  activePresetKey === p.key
+                    ? `${bg} text-white shadow-sm`
+                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={handleResetDefault}
+            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5"
+            title="Varsayılan Standart Görünüme Dön"
+          >
+            <RotateCcw size={12} />
+            <span>Sıfırla</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Studio Sub-tabs */}
+      <div className="flex flex-wrap items-center gap-2">
+        {[
+          { id: "widgets", label: "Ana Modüller & Genişlik", icon: <LayoutGrid size={13} /> },
+          { id: "cards", label: "Üst KPI Sayaç Kartları", icon: <Layers size={13} /> },
+          { id: "thresholds", label: "Kart Görünümü & Alarm Eşikleri", icon: <AlertTriangle size={13} /> }
+        ].map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            onClick={() => setCustomizerTab(t.id)}
+            className={`px-3.5 py-2 rounded-xl text-[11px] font-extrabold flex items-center gap-1.5 border transition-all ${
+              customizerTab === t.id
+                ? `${lightBg} ${text} ${borderLight}`
+                : "bg-slate-50 dark:bg-slate-950 text-slate-500 border-slate-200/60 dark:border-slate-800"
+            }`}
+          >
+            {t.icon}
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Tab 1: Main Widgets Management */}
+      {customizerTab === "widgets" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {mainWidgets.map((w, idx) => (
+            <div
+              key={w.id}
+              draggable
+              onDragStart={() => setDraggedWidgetIndex(idx)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleWidgetDrop(idx)}
+              className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between gap-3 cursor-grab active:cursor-grabbing ${
+                w.enabled
+                  ? "bg-slate-50/70 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800"
+                  : "bg-slate-50/30 dark:bg-slate-950/20 border-slate-200/40 dark:border-slate-800/40 opacity-60"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <GripVertical size={15} className="text-slate-400 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-xs font-extrabold text-slate-800 dark:text-white">{w.title}</p>
+                    <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{w.description}</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => toggleMainWidget(w.id)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 shrink-0 ${
+                    w.enabled
+                      ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
+                      : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                  }`}
+                >
+                  {w.enabled ? <Eye size={11} /> : <EyeOff size={11} />}
+                  <span>{w.enabled ? "Açık" : "Gizli"}</span>
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+                <div className="flex items-center gap-1">
+                  <span className="text-[9px] font-bold text-slate-400 uppercase mr-1">Genişlik:</span>
+                  {[
+                    { span: 4, label: "1/3" },
+                    { span: 6, label: "1/2" },
+                    { span: 8, label: "2/3" },
+                    { span: 12, label: "Tam" }
+                  ].map((sz) => (
+                    <button
+                      key={sz.span}
+                      type="button"
+                      onClick={() => setWidgetColSpan(w.id, sz.span)}
+                      className={`px-2 py-0.5 rounded text-[9px] font-extrabold border ${
+                        Number(w.colSpan) === sz.span
+                          ? `${bg} text-white border-transparent`
+                          : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-700"
+                      }`}
+                    >
+                      {sz.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    disabled={idx === 0}
+                    onClick={() => moveMainWidget(idx, -1)}
+                    className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-800"
+                    title="Yukarı / Öne Taşı"
+                  >
+                    <ArrowUp size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    disabled={idx === mainWidgets.length - 1}
+                    onClick={() => moveMainWidget(idx, 1)}
+                    className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-800"
+                    title="Aşağı / Arkaya Taşı"
+                  >
+                    <ArrowDown size={12} />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tab 2: KPI Cards Selection & Ordering */}
+      {customizerTab === "cards" && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+          {kpiCards.map((c, idx) => (
+            <div
+              key={c.id}
+              draggable
+              onDragStart={() => setDraggedKpiIndex(idx)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleKpiDrop(idx)}
+              className={`p-3 rounded-2xl border flex items-center justify-between gap-2 cursor-grab active:cursor-grabbing ${
+                c.enabled
+                  ? "bg-slate-50/80 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800"
+                  : "bg-slate-50/30 dark:bg-slate-950/20 border-slate-200/40 dark:border-slate-800/40 opacity-60"
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <GripVertical size={14} className="text-slate-400 shrink-0" />
+                <div className="truncate">
+                  <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">{c.label}</p>
+                  <p className="text-[9px] font-bold text-slate-400 uppercase">{c.unit}</p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                <button
+                  type="button"
+                  disabled={idx === 0}
+                  onClick={() => moveKpiCard(idx, -1)}
+                  className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 disabled:opacity-30"
+                  title="Sola Taşı"
+                >
+                  <ArrowLeft size={11} />
+                </button>
+                <button
+                  type="button"
+                  disabled={idx === kpiCards.length - 1}
+                  onClick={() => moveKpiCard(idx, 1)}
+                  className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 disabled:opacity-30"
+                  title="Sağa Taşı"
+                >
+                  <ArrowRight size={11} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleKpiCard(c.id)}
+                  className={`px-2 py-1 rounded-lg text-[10px] font-extrabold ${
+                    c.enabled
+                      ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
+                      : "bg-slate-200 dark:bg-slate-800 text-slate-500"
+                  }`}
+                >
+                  {c.enabled ? "Açık" : "Gizli"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tab 3: Card Density, Default Sort & Personal Thresholds */}
+      {customizerTab === "thresholds" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="space-y-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800">
+            <h5 className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
+              Temsilci Kartı Görünüm Yoğunluğu & Sıralama
+            </h5>
+            <div className="space-y-2">
+              <label className="block text-[10px] font-bold text-slate-500">Kart Boyutu / Detay Seviyesi</label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: "compact", label: "Kompakt (Mini)" },
+                  { id: "standard", label: "Standart" },
+                  { id: "detailed", label: "Detaylı (+Sayaç)" }
+                ].map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => {
+                      setAgentCardDensity(d.id);
+                      syncLayout({ agentCardDensity: d.id });
+                    }}
+                    className={`py-2 px-2.5 rounded-xl text-[10px] font-extrabold border ${
+                      agentCardDensity === d.id
+                        ? `${bg} text-white border-transparent shadow-sm`
+                        : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2 pt-2">
+              <label className="block text-[10px] font-bold text-slate-500">Varsayılan Temsilci Sıralaması</label>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { id: "status", label: "Duruma Göre" },
+                  { id: "calls_desc", label: "En Çok Çağrı" },
+                  { id: "name", label: "İsme Göre" },
+                  { id: "extension", label: "Dahili No" }
+                ].map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => {
+                      setAgentSortBy(s.id);
+                      syncLayout({ agentSortBy: s.id });
+                    }}
+                    className={`py-1.5 px-2 rounded-xl text-[10px] font-extrabold border ${
+                      agentSortBy === s.id
+                        ? `${lightBg} ${text} ${borderLight}`
+                        : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
+                    }`}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800">
+            <h5 className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
+              Kişisel Görsel Alarm Eşikleri
+            </h5>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                  Sırada Bekleyen Alarm Eşiği (Kişi)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={thresholds.maxQueueWaiters}
+                  onChange={(e) => {
+                    const next = { ...thresholds, maxQueueWaiters: Math.max(1, Number(e.target.value) || 1) };
+                    setThresholds(next);
+                    syncLayout({ thresholds: next });
+                  }}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                  Min. Servis Seviyesi Alarmı (%)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="100"
+                  value={thresholds.minServiceLevel}
+                  onChange={(e) => {
+                    const next = { ...thresholds, minServiceLevel: Math.max(1, Number(e.target.value) || 80) };
+                    setThresholds(next);
+                    syncLayout({ thresholds: next });
+                  }}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                  Uzun Görüşme Uyarı Süresi (Sn)
+                </label>
+                <input
+                  type="number"
+                  min="30"
+                  value={thresholds.maxCallDurationSec}
+                  onChange={(e) => {
+                    const next = { ...thresholds, maxCallDurationSec: Math.max(30, Number(e.target.value) || 300) };
+                    setThresholds(next);
+                    syncLayout({ thresholds: next });
+                  }}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 mb-1">
+                  Uzun Mola Uyarı Süresi (Sn)
+                </label>
+                <input
+                  type="number"
+                  min="60"
+                  value={thresholds.maxBreakDurationSec}
+                  onChange={(e) => {
+                    const next = { ...thresholds, maxBreakDurationSec: Math.max(60, Number(e.target.value) || 900) };
+                    setThresholds(next);
+                    syncLayout({ thresholds: next });
+                  }}
+                  className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function WallboardPanel({ backendHost = "localhost:8000" }) {
-  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
+  const { bg, hover, text, lightBg, borderLight } = useTheme();
   const [authorized, setAuthorized] = useState(true);
   const [users, setUsers] = useState([]);
   const [roles, setRoles] = useState([]);
@@ -188,22 +790,14 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   const [totalTodayCalls, setTotalTodayCalls] = useState(0);
   const [agentsState, setAgentsState] = useState({});
 
-  // Customizer & Personal Layout States
-  const [isCustomizing, setIsCustomizing] = useState(false);
-  const [customizerTab, setCustomizerTab] = useState("widgets"); // 'widgets' | 'cards' | 'thresholds'
+  // Personal Layout States (Configured via Profile Settings -> Canlı İzleme Paneli tab)
   const [kpiCards, setKpiCards] = useState(DEFAULT_KPI_CARDS);
   const [mainWidgets, setMainWidgets] = useState(DEFAULT_MAIN_WIDGETS);
-  const [agentCardDensity, setAgentCardDensity] = useState("standard"); // 'compact' | 'standard' | 'detailed'
-  const [agentSortBy, setAgentSortBy] = useState("status"); // 'status' | 'calls_desc' | 'name' | 'extension'
-  const [agentStatusFilter, setAgentStatusFilter] = useState("ALL"); // 'ALL' | 'Görüşmede' | 'Müsait' | 'Molada' | 'Çevrimdışı'
+  const [agentCardDensity, setAgentCardDensity] = useState("standard");
+  const [agentSortBy, setAgentSortBy] = useState("status");
+  const [agentStatusFilter, setAgentStatusFilter] = useState("ALL");
   const [agentSearchQuery, setAgentSearchQuery] = useState("");
   const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
-  const [activePresetKey, setActivePresetKey] = useState("standard");
-  const [savingLayout, setSavingLayout] = useState(false);
-
-  // Drag and Drop state
-  const [draggedKpiIndex, setDraggedKpiIndex] = useState(null);
-  const [draggedWidgetIndex, setDraggedWidgetIndex] = useState(null);
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -217,49 +811,24 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // Merge saved layout safely with defaults so newly added widgets/cards are preserved
   const applyLoadedLayout = (saved) => {
-    if (!saved || typeof saved !== "object") return;
-
-    if (Array.isArray(saved.kpiCards) && saved.kpiCards.length > 0) {
-      const savedMap = new Map(saved.kpiCards.map((c) => [c.id, c]));
-      const ordered = [];
-      saved.kpiCards.forEach((sc) => {
-        const def = DEFAULT_KPI_CARDS.find((d) => d.id === sc.id);
-        if (def) ordered.push({ ...def, enabled: Boolean(sc.enabled) });
-      });
-      DEFAULT_KPI_CARDS.forEach((def) => {
-        if (!savedMap.has(def.id)) ordered.push(def);
-      });
-      setKpiCards(ordered);
-    }
-
-    if (Array.isArray(saved.mainWidgets) && saved.mainWidgets.length > 0) {
-      const savedMap = new Map(saved.mainWidgets.map((w) => [w.id, w]));
-      const ordered = [];
-      saved.mainWidgets.forEach((sw) => {
-        const def = DEFAULT_MAIN_WIDGETS.find((d) => d.id === sw.id);
-        if (def) {
-          ordered.push({
-            ...def,
-            enabled: Boolean(sw.enabled),
-            colSpan: Number(sw.colSpan) || def.colSpan
-          });
-        }
-      });
-      DEFAULT_MAIN_WIDGETS.forEach((def) => {
-        if (!savedMap.has(def.id)) ordered.push(def);
-      });
-      setMainWidgets(ordered);
-    }
-
-    if (saved.agentCardDensity) setAgentCardDensity(saved.agentCardDensity);
-    if (saved.agentSortBy) setAgentSortBy(saved.agentSortBy);
-    if (saved.thresholds && typeof saved.thresholds === "object") {
-      setThresholds({ ...DEFAULT_THRESHOLDS, ...saved.thresholds });
-    }
-    if (saved.activePresetKey) setActivePresetKey(saved.activePresetKey);
+    const norm = normalizeWallboardLayout(saved);
+    setKpiCards(norm.kpiCards);
+    setMainWidgets(norm.mainWidgets);
+    setAgentCardDensity(norm.agentCardDensity);
+    setAgentSortBy(norm.agentSortBy);
+    setThresholds(norm.thresholds);
   };
+
+  useEffect(() => {
+    const handleLayoutUpdated = (e) => {
+      if (e?.detail) {
+        applyLoadedLayout(e.detail);
+      }
+    };
+    window.addEventListener("wallboard-layout-updated", handleLayoutUpdated);
+    return () => window.removeEventListener("wallboard-layout-updated", handleLayoutUpdated);
+  }, []);
 
   const loadUserLayout = async (uid) => {
     const effectiveUid = String(uid || "admin");
@@ -286,75 +855,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     } catch (err) {
       console.error("Wallboard layout load error:", err);
     }
-  };
-
-  const saveUserLayout = async (customPayload = null, showFeedback = true) => {
-    const effectiveUid = String(currentUserId || (typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null) || "admin");
-    const layoutPayload = customPayload || {
-      kpiCards,
-      mainWidgets,
-      agentCardDensity,
-      agentSortBy,
-      thresholds,
-      activePresetKey
-    };
-
-    if (typeof window !== "undefined") {
-      localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(layoutPayload));
-    }
-
-    setSavingLayout(true);
-    try {
-      await fetch(`${API_BASE}/api/wallboard/layout`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-User-ID": effectiveUid
-        },
-        body: JSON.stringify({
-          user_id: effectiveUid,
-          layout: layoutPayload
-        })
-      });
-      if (showFeedback) {
-        setMonitorStatus({
-          type: "success",
-          text: "Kişisel Canlı İzleme Paneli tasarımınız başarıyla kaydedildi."
-        });
-        setTimeout(() => setMonitorStatus(null), 3500);
-      }
-    } catch (err) {
-      console.error("Failed to save wallboard layout:", err);
-    } finally {
-      setSavingLayout(false);
-    }
-  };
-
-  const applyPreset = (presetKey) => {
-    const preset = PRESET_TEMPLATES[presetKey];
-    if (!preset) return;
-    setKpiCards(preset.kpiCards);
-    setMainWidgets(preset.mainWidgets);
-    setAgentCardDensity(preset.agentCardDensity);
-    setAgentSortBy(preset.agentSortBy);
-    setActivePresetKey(presetKey);
-
-    saveUserLayout(
-      {
-        kpiCards: preset.kpiCards,
-        mainWidgets: preset.mainWidgets,
-        agentCardDensity: preset.agentCardDensity,
-        agentSortBy: preset.agentSortBy,
-        thresholds,
-        activePresetKey: presetKey
-      },
-      true
-    );
-  };
-
-  const handleResetDefault = () => {
-    applyPreset("standard");
-    setThresholds(DEFAULT_THRESHOLDS);
   };
 
   const checkAccess = async () => {
@@ -639,63 +1139,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     return st?.status === "Molada";
   }).length;
 
-  // KPI Card Reorder & Toggle Helpers
-  const toggleKpiCard = (id) => {
-    setKpiCards((prev) => prev.map((c) => (c.id === id ? { ...c, enabled: !c.enabled } : c)));
-    setActivePresetKey("custom");
-  };
-
-  const moveKpiCard = (index, direction) => {
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= kpiCards.length) return;
-    const updated = [...kpiCards];
-    const [moved] = updated.splice(index, 1);
-    updated.splice(targetIndex, 0, moved);
-    setKpiCards(updated);
-    setActivePresetKey("custom");
-  };
-
-  const handleKpiDrop = (targetIdx) => {
-    if (draggedKpiIndex === null || draggedKpiIndex === targetIdx) return;
-    const updated = [...kpiCards];
-    const [moved] = updated.splice(draggedKpiIndex, 1);
-    updated.splice(targetIdx, 0, moved);
-    setKpiCards(updated);
-    setDraggedKpiIndex(null);
-    setActivePresetKey("custom");
-  };
-
-  // Main Widget Reorder, Toggle & Resize Helpers
-  const toggleMainWidget = (id) => {
-    setMainWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, enabled: !w.enabled } : w)));
-    setActivePresetKey("custom");
-  };
-
-  const setWidgetColSpan = (id, colSpan) => {
-    setMainWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, colSpan: Number(colSpan) } : w)));
-    setActivePresetKey("custom");
-  };
-
-  const moveMainWidget = (index, direction) => {
-    const targetIndex = index + direction;
-    if (targetIndex < 0 || targetIndex >= mainWidgets.length) return;
-    const updated = [...mainWidgets];
-    const [moved] = updated.splice(index, 1);
-    updated.splice(targetIndex, 0, moved);
-    setMainWidgets(updated);
-    setActivePresetKey("custom");
-  };
-
-  const handleWidgetDrop = (targetIdx) => {
-    if (draggedWidgetIndex === null || draggedWidgetIndex === targetIdx) return;
-    const updated = [...mainWidgets];
-    const [moved] = updated.splice(draggedWidgetIndex, 1);
-    updated.splice(targetIdx, 0, moved);
-    setMainWidgets(updated);
-    setDraggedWidgetIndex(null);
-    setActivePresetKey("custom");
-  };
-
   // Render individual KPI Card data
   const getKpiCardMeta = (cardId) => {
     const isQueueAlarm = queueCount >= (Number(thresholds.maxQueueWaiters) || 3) && queueCount > 0;
@@ -836,7 +1279,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
         if (agentSortBy === "extension") {
           return String(a.extension || "").localeCompare(String(b.extension || ""), undefined, { numeric: true });
         }
-        // Default: status priority
         const pA = statusPriority[stA.status] || 99;
         const pB = statusPriority[stB.status] || 99;
         if (pA !== pB) return pA - pB;
@@ -894,405 +1336,22 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
   return (
     <div ref={menuContainerRef} className="w-full space-y-5 max-h-[90vh] overflow-y-auto pr-1">
-      {/* Wallboard Header - Full Width with Customization Controls */}
-      <div className="p-5 bg-gradient-to-br from-white via-white to-slate-50/40 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      {/* Wallboard Header - Clean without description text or inline customization buttons */}
+      <div className="p-5 bg-gradient-to-br from-white via-white to-slate-50/40 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl shadow-sm flex items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="p-3 bg-gradient-to-tr from-violet-500 to-indigo-600 text-white rounded-2xl shadow-md shadow-violet-500/10">
             <Monitor size={22} className="animate-pulse" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="font-extrabold text-sm text-slate-800 dark:text-white uppercase tracking-wider">CANLI İZLEME PANELİ</h3>
-              <span className="flex h-2.5 w-2.5 relative">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
-              </span>
-              <span className="text-[9px] font-extrabold text-red-500 uppercase tracking-widest">LIVE</span>
-            </div>
-            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 font-medium leading-relaxed">
-              Kendi çalışma tarzınıza göre sayaçları, tabloları ve temsilci kartlarını özelleştirin; düzeniniz hesabınıza özel kaydedilir.
-            </p>
+          <div className="flex items-center gap-2">
+            <h3 className="font-extrabold text-sm text-slate-800 dark:text-white uppercase tracking-wider">CANLI İZLEME PANELİ</h3>
+            <span className="flex h-2.5 w-2.5 relative">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+            </span>
+            <span className="text-[9px] font-extrabold text-red-500 uppercase tracking-widest">LIVE</span>
           </div>
-        </div>
-
-        {/* Right Header Controls: Presets + Customize Button */}
-        <div className="flex flex-wrap items-center gap-2">
-          {/* Quick Preset Selector */}
-          <div className="flex items-center bg-slate-100/80 dark:bg-slate-800/70 p-1 rounded-2xl border border-slate-200/70 dark:border-slate-700/60">
-            {[
-              { key: "standard", label: "Standart" },
-              { key: "supervisor", label: "Süpervizör" },
-              { key: "queue_focus", label: "Kuyruk & Çağrı" },
-              { key: "compact_dense", label: "Kompakt" }
-            ].map((p) => (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => applyPreset(p.key)}
-                className={`px-2.5 py-1.5 rounded-xl text-[10px] font-extrabold transition-all ${
-                  activePresetKey === p.key
-                    ? `${bg} text-white shadow-sm`
-                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsCustomizing(!isCustomizing)}
-            className={`px-3.5 py-2 rounded-2xl text-xs font-extrabold border flex items-center gap-2 transition-all ${
-              isCustomizing
-                ? `${bg} text-white border-transparent shadow-md`
-                : "bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:border-slate-300"
-            }`}
-          >
-            <Sliders size={14} />
-            <span>{isCustomizing ? "Özelleştirmeyi Kapat" : "Paneli Özelleştir"}</span>
-          </button>
         </div>
       </div>
-
-      {/* Interactive Wallboard Studio Customizer Drawer */}
-      {isCustomizing && (
-        <div className="p-5 bg-white dark:bg-slate-900 border-2 border-dashed border-violet-300 dark:border-violet-800/70 rounded-3xl shadow-lg space-y-5 animate-in fade-in duration-200">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
-            <div className="flex items-center gap-2.5">
-              <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
-                <Sparkles size={16} />
-              </div>
-              <div>
-                <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-                  Kişisel Wallboard Tasarım Stüdyosu
-                </h4>
-                <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                  Bileşenleri açıp kapatın, sürükleyerek veya oklarla sıralayın, genişliklerini ve kişisel alarm eşiklerinizi belirleyin.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={handleResetDefault}
-                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5"
-              >
-                <RotateCcw size={13} />
-                <span>Varsayılana Dön</span>
-              </button>
-              <button
-                type="button"
-                disabled={savingLayout}
-                onClick={() => {
-                  saveUserLayout(null, true);
-                  setIsCustomizing(false);
-                }}
-                className={`px-4 py-1.5 rounded-xl text-[11px] font-extrabold text-white ${bg} ${hover} shadow-sm flex items-center gap-1.5`}
-              >
-                <Save size={13} />
-                <span>{savingLayout ? "Kaydediliyor..." : "Düzeni Kaydet"}</span>
-              </button>
-            </div>
-          </div>
-
-          {/* Studio Sub-tabs */}
-          <div className="flex flex-wrap items-center gap-2">
-            {[
-              { id: "widgets", label: "Ana Modüller & Genişlik", icon: <LayoutGrid size={13} /> },
-              { id: "cards", label: "Üst KPI Sayaç Kartları", icon: <Layers size={13} /> },
-              { id: "thresholds", label: "Kart Görünümü & Alarm Eşikleri", icon: <AlertTriangle size={13} /> }
-            ].map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => setCustomizerTab(t.id)}
-                className={`px-3.5 py-2 rounded-xl text-[11px] font-extrabold flex items-center gap-1.5 border transition-all ${
-                  customizerTab === t.id
-                    ? `${lightBg} ${text} ${borderLight}`
-                    : "bg-slate-50 dark:bg-slate-950 text-slate-500 border-slate-200/60 dark:border-slate-800"
-                }`}
-              >
-                {t.icon}
-                <span>{t.label}</span>
-              </button>
-            ))}
-          </div>
-
-          {/* Tab 1: Main Widgets Management */}
-          {customizerTab === "widgets" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {mainWidgets.map((w, idx) => (
-                <div
-                  key={w.id}
-                  draggable
-                  onDragStart={() => setDraggedWidgetIndex(idx)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleWidgetDrop(idx)}
-                  className={`p-3.5 rounded-2xl border transition-all flex flex-col justify-between gap-3 cursor-grab active:cursor-grabbing ${
-                    w.enabled
-                      ? "bg-slate-50/70 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800"
-                      : "bg-slate-50/30 dark:bg-slate-950/20 border-slate-200/40 dark:border-slate-800/40 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2">
-                      <GripVertical size={15} className="text-slate-400 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-xs font-extrabold text-slate-800 dark:text-white">{w.title}</p>
-                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">{w.description}</p>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => toggleMainWidget(w.id)}
-                      className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 shrink-0 ${
-                        w.enabled
-                          ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
-                          : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
-                      }`}
-                    >
-                      {w.enabled ? <Eye size={11} /> : <EyeOff size={11} />}
-                      <span>{w.enabled ? "Açık" : "Gizli"}</span>
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
-                    <div className="flex items-center gap-1">
-                      <span className="text-[9px] font-bold text-slate-400 uppercase mr-1">Genişlik:</span>
-                      {[
-                        { span: 4, label: "1/3" },
-                        { span: 6, label: "1/2" },
-                        { span: 8, label: "2/3" },
-                        { span: 12, label: "Tam" }
-                      ].map((sz) => (
-                        <button
-                          key={sz.span}
-                          type="button"
-                          onClick={() => setWidgetColSpan(w.id, sz.span)}
-                          className={`px-2 py-0.5 rounded text-[9px] font-extrabold border ${
-                            Number(w.colSpan) === sz.span
-                              ? `${bg} text-white border-transparent`
-                              : "bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-700"
-                          }`}
-                        >
-                          {sz.label}
-                        </button>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center gap-1">
-                      <button
-                        type="button"
-                        disabled={idx === 0}
-                        onClick={() => moveMainWidget(idx, -1)}
-                        className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-800"
-                        title="Yukarı / Öne Taşı"
-                      >
-                        <ArrowUp size={12} />
-                      </button>
-                      <button
-                        type="button"
-                        disabled={idx === mainWidgets.length - 1}
-                        onClick={() => moveMainWidget(idx, 1)}
-                        className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 disabled:opacity-30 hover:bg-white dark:hover:bg-slate-800"
-                        title="Aşağı / Arkaya Taşı"
-                      >
-                        <ArrowDown size={12} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Tab 2: KPI Cards Selection & Ordering */}
-          {customizerTab === "cards" && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {kpiCards.map((c, idx) => (
-                <div
-                  key={c.id}
-                  draggable
-                  onDragStart={() => setDraggedKpiIndex(idx)}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={() => handleKpiDrop(idx)}
-                  className={`p-3 rounded-2xl border flex items-center justify-between gap-2 cursor-grab active:cursor-grabbing ${
-                    c.enabled
-                      ? "bg-slate-50/80 dark:bg-slate-950/60 border-slate-200 dark:border-slate-800"
-                      : "bg-slate-50/30 dark:bg-slate-950/20 border-slate-200/40 dark:border-slate-800/40 opacity-60"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <GripVertical size={14} className="text-slate-400 shrink-0" />
-                    <div className="truncate">
-                      <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">{c.label}</p>
-                      <p className="text-[9px] font-bold text-slate-400 uppercase">{c.unit}</p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-1 shrink-0">
-                    <button
-                      type="button"
-                      disabled={idx === 0}
-                      onClick={() => moveKpiCard(idx, -1)}
-                      className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 disabled:opacity-30"
-                      title="Sola Taşı"
-                    >
-                      <ArrowLeft size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      disabled={idx === kpiCards.length - 1}
-                      onClick={() => moveKpiCard(idx, 1)}
-                      className="p-1 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 disabled:opacity-30"
-                      title="Sağa Taşı"
-                    >
-                      <ArrowRight size={11} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => toggleKpiCard(c.id)}
-                      className={`px-2 py-1 rounded-lg text-[10px] font-extrabold ${
-                        c.enabled
-                          ? "bg-emerald-100 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300"
-                          : "bg-slate-200 dark:bg-slate-800 text-slate-500"
-                      }`}
-                    >
-                      {c.enabled ? "Açık" : "Gizli"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Tab 3: Card Density, Default Sort & Personal Thresholds */}
-          {customizerTab === "thresholds" && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800">
-                <h5 className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
-                  Temsilci Kartı Görünüm Yoğunluğu & Sıralama
-                </h5>
-                <div className="space-y-2">
-                  <label className="block text-[10px] font-bold text-slate-500">Kart Boyutu / Detay Seviyesi</label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { id: "compact", label: "Kompakt (Mini)" },
-                      { id: "standard", label: "Standart" },
-                      { id: "detailed", label: "Detaylı (+Sayaç)" }
-                    ].map((d) => (
-                      <button
-                        key={d.id}
-                        type="button"
-                        onClick={() => setAgentCardDensity(d.id)}
-                        className={`py-2 px-2.5 rounded-xl text-[10px] font-extrabold border ${
-                          agentCardDensity === d.id
-                            ? `${bg} text-white border-transparent shadow-sm`
-                            : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
-                        }`}
-                      >
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="space-y-2 pt-2">
-                  <label className="block text-[10px] font-bold text-slate-500">Varsayılan Temsilci Sıralaması</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                    {[
-                      { id: "status", label: "Duruma Göre" },
-                      { id: "calls_desc", label: "En Çok Çağrı" },
-                      { id: "name", label: "İsme Göre" },
-                      { id: "extension", label: "Dahili No" }
-                    ].map((s) => (
-                      <button
-                        key={s.id}
-                        type="button"
-                        onClick={() => setAgentSortBy(s.id)}
-                        className={`py-1.5 px-2 rounded-xl text-[10px] font-extrabold border ${
-                          agentSortBy === s.id
-                            ? `${lightBg} ${text} ${borderLight}`
-                            : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700"
-                        }`}
-                      >
-                        {s.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              <div className="space-y-3 p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800">
-                <h5 className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200 uppercase">
-                  Kişisel Görsel Alarm Eşikleri
-                </h5>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                      Sırada Bekleyen Alarm Eşiği (Kişi)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      value={thresholds.maxQueueWaiters}
-                      onChange={(e) =>
-                        setThresholds({ ...thresholds, maxQueueWaiters: Math.max(1, Number(e.target.value) || 1) })
-                      }
-                      className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                      Min. Servis Seviyesi Alarmı (%)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="100"
-                      value={thresholds.minServiceLevel}
-                      onChange={(e) =>
-                        setThresholds({ ...thresholds, minServiceLevel: Math.max(1, Number(e.target.value) || 80) })
-                      }
-                      className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                      Uzun Görüşme Uyarı Süresi (Sn)
-                    </label>
-                    <input
-                      type="number"
-                      min="30"
-                      value={thresholds.maxCallDurationSec}
-                      onChange={(e) =>
-                        setThresholds({ ...thresholds, maxCallDurationSec: Math.max(30, Number(e.target.value) || 300) })
-                      }
-                      className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[10px] font-bold text-slate-500 mb-1">
-                      Uzun Mola Uyarı Süresi (Sn)
-                    </label>
-                    <input
-                      type="number"
-                      min="60"
-                      value={thresholds.maxBreakDurationSec}
-                      onChange={(e) =>
-                        setThresholds({ ...thresholds, maxBreakDurationSec: Math.max(60, Number(e.target.value) || 900) })
-                      }
-                      className="w-full px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-xs font-bold text-slate-800 dark:text-white"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Monitor Status Notification Banner */}
       {monitorStatus && (
@@ -1451,7 +1510,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
                     {/* Quick Filters, Search & Card Density Switcher */}
                     <div className="flex flex-wrap items-center gap-2">
-                      {/* Status Filter Pills */}
                       <div className="flex items-center bg-slate-100/70 dark:bg-slate-950 p-0.5 rounded-xl border border-slate-200/60 dark:border-slate-800">
                         {[
                           { id: "ALL", label: "Tümü" },
@@ -1475,7 +1533,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                         ))}
                       </div>
 
-                      {/* Search Box */}
                       <div className="relative">
                         <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
@@ -1487,7 +1544,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                         />
                       </div>
 
-                      {/* Density Quick Switch */}
                       <div className="flex items-center bg-slate-100/70 dark:bg-slate-950 p-0.5 rounded-xl border border-slate-200/60 dark:border-slate-800">
                         {[
                           { id: "compact", label: "Mini" },
@@ -1839,7 +1895,6 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                               </div>
                             </div>
 
-                            {/* Detailed Density Extra Footer Row */}
                             {agentCardDensity === "detailed" && (
                               <div className="pt-2 mt-1 border-t border-slate-200/50 dark:border-slate-800/60 flex items-center justify-between text-[9px] font-bold text-slate-500">
                                 <span>Dahili: #{u.extension}</span>

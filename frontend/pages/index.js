@@ -63,7 +63,8 @@ import {
   RotateCcw,
   Mail,
   Copy,
-  RefreshCw
+  RefreshCw,
+  X
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
@@ -91,7 +92,7 @@ import LiveDashboardPanel from "../components/dashboard/LiveDashboardPanel";
 import SystemStatusPanel from "../components/dashboard/SystemStatusPanel";
 import AgentSessionCard from "../components/phone/AgentSessionCard";
 import AgentPanel, { ALL_TABS as CALL_PANEL_ALL_TABS, loadCallPanelPrefs, saveCallPanelPrefs, DEFAULT_CALL_PANEL_PREFS } from "../components/callcenter/AgentPanel";
-import WallboardPanel from "../components/dashboard/WallboardPanel";
+import WallboardPanel, { WallboardStudioSettings } from "../components/dashboard/WallboardPanel";
 import DialerSettings from "../components/settings/DialerSettings";
 import CallFlowEditor from "../components/settings/CallFlowEditor";
 import AIAgentsSettings from "../components/settings/AIAgentsSettings";
@@ -2528,10 +2529,10 @@ export default function Home() {
           </p>
           <button
             onClick={() => setActiveTab("changelog")}
-            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.6.7 On-Premise)"
+            title="Sistem Versiyonu ve Değişiklik Günlüğü (v2.6.8 On-Premise)"
             className="flex items-center gap-1 text-[10px] font-bold text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-indigo-400 hover:underline transition cursor-pointer bg-transparent border-0 p-0 outline-none"
           >
-            <span>{isSidebarCollapsed ? "v2.6.7" : "v2.6.7 (On-Premise)"}</span>
+            <span>{isSidebarCollapsed ? "v2.6.8" : "v2.6.8 (On-Premise)"}</span>
           </button>
         </div>
       </aside>
@@ -3028,65 +3029,110 @@ export default function Home() {
 
         {/* Profile & Ringtone Settings Modal */}
         {settingsModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4">
-            <div className="w-full max-w-4xl p-7 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl space-y-6 animate-in zoom-in-95 duration-150">
+          <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[150] flex items-center justify-center p-4 transition-all duration-300">
+            <div className="w-full max-w-6xl max-h-[92vh] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
               
               {/* Modal Header */}
-              <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-3">
-                <div className="p-2 bg-violet-50 dark:bg-violet-950/20 text-violet-500 rounded-xl">
-                  <Settings size={18} />
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800/60 bg-slate-50/50 dark:bg-slate-950/20 shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-violet-50 dark:bg-violet-950/20 text-violet-500 rounded-xl">
+                    <Settings size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider">Temsilci Profil Ayarları</h3>
+                    <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Kişisel arayüz tercihlerinizi, çağrı zil sesini ve canlı izleme panelinizi özelleştirin.</p>
+                  </div>
                 </div>
-                <div>
-                  <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">Temsilci Profil Ayarları</h4>
-                  <p className="text-[9px] text-slate-400 dark:text-slate-500 font-medium">Kişisel arayüz tercihlerinizi ve çağrı zil sesini özelleştirin.</p>
-                </div>
-              </div>
-
-              {/* Modal Tabs */}
-              <div className="flex flex-wrap gap-1.5 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl mb-4">
-                <button 
-                  onClick={() => setActiveModalTab("profile")}
-                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "profile" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
+                <button
+                  type="button"
+                  onClick={() => {
+                    stopRingtoneSound();
+                    localStorage.setItem("temp_playing", "false");
+                    setSettingsModalOpen(false);
+                  }}
+                  className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
                 >
-                  Profil & Tema
-                </button>
-                <button 
-                  onClick={() => setActiveModalTab("profiles")}
-                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "profiles" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
-                >
-                  Profiller
-                </button>
-                <button 
-                  onClick={() => setActiveModalTab("hardware")}
-                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "hardware" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
-                >
-                  Donanım & Santral
-                </button>
-                <button 
-                  onClick={() => setActiveModalTab("forwarding")}
-                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "forwarding" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
-                >
-                  Yönlendirme
-                </button>
-                <button 
-                  onClick={() => setActiveModalTab("security")}
-                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "security" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
-                >
-                  Güvenlik
-                </button>
-                <button 
-                  onClick={() => setActiveModalTab("call_panel")}
-                  className={`flex-1 py-2 px-2 text-[10px] font-extrabold uppercase tracking-wider rounded-lg transition-all ${activeModalTab === "call_panel" ? "bg-white dark:bg-slate-800 text-slate-800 dark:text-white shadow-sm" : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"}`}
-                >
-                  Çağrı Paneli
+                  <X size={16} />
                 </button>
               </div>
 
-              {/* Modal Body */}
-              <div className="space-y-4">
+              <div className="flex flex-1 overflow-hidden">
+                {/* Left Sidebar Tabs (UserSettings style) */}
+                <div className="w-64 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto">
+                  <nav className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab("profile")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "profile" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <User size={16} />
+                      Profil & Tema
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab("profiles")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "profiles" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <Users size={16} />
+                      Profiller
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab("hardware")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "hardware" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <Volume2 size={16} />
+                      Donanım & Santral
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab("forwarding")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "forwarding" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <PhoneForwarded size={16} />
+                      Yönlendirme
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab("security")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "security" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <ShieldCheck size={16} />
+                      Güvenlik
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab("call_panel")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "call_panel" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <LayoutGrid size={16} />
+                      Çağrı Paneli
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setActiveModalTab("wallboard")}
+                      className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeModalTab === "wallboard" ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    >
+                      <Monitor size={16} />
+                      Canlı İzleme Paneli
+                    </button>
+                  </nav>
+                </div>
 
-                {/* Çağrı Paneli Görünüm ve Sıralama Özelleştirme Sekmesi */}
-                {activeModalTab === "call_panel" && (() => {
+                {/* Right Tab Content Area */}
+                <div className="flex-1 overflow-y-auto p-7 flex flex-col justify-between space-y-6">
+                  <div className="space-y-4">
+
+                    {/* Canlı İzleme Paneli (Wallboard) Özelleştirme Sekmesi */}
+                    {activeModalTab === "wallboard" && (
+                      <WallboardStudioSettings
+                        backendHost={backendHost}
+                        currentUserId={currentUser?.id || currentUser?.extension || "admin"}
+                      />
+                    )}
+
+                    {/* Çağrı Paneli Görünüm ve Sıralama Özelleştirme Sekmesi */}
+                    {activeModalTab === "call_panel" && (() => {
                   const currentOrder = Array.isArray(callPanelPrefs?.tabOrder) && callPanelPrefs.tabOrder.length > 0
                     ? callPanelPrefs.tabOrder
                     : DEFAULT_CALL_PANEL_PREFS.tabOrder;
@@ -4419,120 +4465,126 @@ export default function Home() {
                   </div>
 
                 </div>
-              </div>
+                  </div>
 
-              {/* Modal Footer */}
-              <div className="flex gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                <button
-                  onClick={() => {
-                    stopRingtoneSound();
-                    localStorage.setItem("temp_playing", "false");
-                    setSettingsModalOpen(false);
-                  }}
-                  className="flex-1 py-2 rounded-xl border dark: hover: dark:hover: font-bold dark: transition-all uppercase tracking-wider bg-slate-500 hover:bg-slate-600 text-white border-transparent"
-                >Vazgeç</button>
-                <button
-                  onClick={async () => {
-                    stopRingtoneSound();
-                    localStorage.setItem("temp_playing", "false");
-                    localStorage.setItem("agent_avatar", agentAvatar);
-                    localStorage.setItem("ringtone", agentRingtone);
-                    localStorage.setItem("selected_mic", selectedMic);
-                    localStorage.setItem("selected_speaker", selectedSpeaker);
-                    localStorage.setItem("selected_ringtone_speaker", selectedRingtoneSpeaker);
-                    
-                    localStorage.setItem("auto_logout_enabled", autoLogoutEnabled ? "true" : "false");
-                    localStorage.setItem("auto_logout_duration", autoLogoutDuration.toString());
-                    localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
-                    localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
-                    localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
-                    saveCallPanelPrefs(currentUser, callPanelPrefs);
+                  {/* Modal Footer */}
+                  <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 dark:border-slate-800/60 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        stopRingtoneSound();
+                        localStorage.setItem("temp_playing", "false");
+                        setSettingsModalOpen(false);
+                      }}
+                      className="px-5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      Vazgeç
+                    </button>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        stopRingtoneSound();
+                        localStorage.setItem("temp_playing", "false");
+                        localStorage.setItem("agent_avatar", agentAvatar);
+                        localStorage.setItem("ringtone", agentRingtone);
+                        localStorage.setItem("selected_mic", selectedMic);
+                        localStorage.setItem("selected_speaker", selectedSpeaker);
+                        localStorage.setItem("selected_ringtone_speaker", selectedRingtoneSpeaker);
+                        
+                        localStorage.setItem("auto_logout_enabled", autoLogoutEnabled ? "true" : "false");
+                        localStorage.setItem("auto_logout_duration", autoLogoutDuration.toString());
+                        localStorage.setItem("two_factor_enabled", twoFactorEnabled ? "true" : "false");
+                        localStorage.setItem("password_expiry_enabled", passwordExpiryEnabled ? "true" : "false");
+                        localStorage.setItem("password_expiry_months", passwordExpiryMonths.toString());
+                        saveCallPanelPrefs(currentUser, callPanelPrefs);
 
-                    let passwordPayload = {};
-                    if (newPassword || confirmPassword) {
-                      if (newPassword !== confirmPassword) {
-                        setPasswordStatusMsg({ type: "error", text: "Yeni şifreler eşleşmiyor!" });
-                        setActiveModalTab("security");
-                        return;
-                      }
-                      if (newPassword.length < 4) {
-                        setPasswordStatusMsg({ type: "error", text: "Yeni şifre en az 4 karakter olmalıdır." });
-                        setActiveModalTab("security");
-                        return;
-                      }
-                      passwordPayload = {
-                        current_password: currentPassword,
-                        new_password: newPassword
-                      };
-                    }
-
-                    if (currentUser) {
-                      try {
-                        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-                        const res = await fetch(`${protocol}//${backendHost}/api/agent/profile/${currentUser.id}`, {
-                          method: "POST",
-                          headers: { "Content-Type": "application/json" },
-                          body: JSON.stringify({
-                            avatar: agentAvatar,
-                            gsm_number: gsmNumber,
-                            mobile_transfer_enabled: mobileTransferEnabled,
-                            theme_color: tempThemeColor,
-                            forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
-                            forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
-                            forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 20 },
-                            active_profile: agentActiveProfile,
-                            profiles: agentProfiles,
-                            call_panel_prefs: callPanelPrefs,
-                            auto_logout_enabled: autoLogoutEnabled,
-                            auto_logout_duration: autoLogoutDuration,
-                            two_factor_enabled: twoFactorEnabled,
-                            two_factor_method: twoFactorMethod || "google_auth",
-                            two_factor_secret: twoFactorSecret || undefined,
-                            two_factor_enrolled: twoFactorEnrolled,
-                            password_expiry_enabled: passwordExpiryEnabled,
-                            password_expiry_months: passwordExpiryMonths,
-                            ...passwordPayload
-                          })
-                        });
-                        if (res.ok) {
-                          const data = await res.json();
-                          setCurrentUser(data.user);
-                          if (newPassword) {
-                            SUPER_ADMIN.password = newPassword;
-                            showNotification("Şifreniz başarılı olarak güncellenmiştir.", "success", "Şifre Güncellendi");
-                            setCurrentPassword("");
-                            setNewPassword("");
-                            setConfirmPassword("");
-                            setPasswordStatusMsg({ type: "success", text: "Şifreniz başarılı olarak güncellenmiştir." });
-                          }
-                          // Force update the UI theme color if they changed it
-                          if (data.user.theme_color) {
-                            const safeColor = getSafeThemeColor(data.user.theme_color);
-                            document.documentElement.style.setProperty("--color-primary", safeColor);
-                            localStorage.setItem("theme_primary_color", safeColor);
-                          }
-                        } else {
-                          const errData = await res.json();
-                          if (errData.detail) {
-                            showNotification(errData.detail, "error", "Şifre Güncellenemedi");
-                            setPasswordStatusMsg({ type: "error", text: errData.detail });
+                        let passwordPayload = {};
+                        if (newPassword || confirmPassword) {
+                          if (newPassword !== confirmPassword) {
+                            setPasswordStatusMsg({ type: "error", text: "Yeni şifreler eşleşmiyor!" });
                             setActiveModalTab("security");
                             return;
                           }
+                          if (newPassword.length < 4) {
+                            setPasswordStatusMsg({ type: "error", text: "Yeni şifre en az 4 karakter olmalıdır." });
+                            setActiveModalTab("security");
+                            return;
+                          }
+                          passwordPayload = {
+                            current_password: currentPassword,
+                            new_password: newPassword
+                          };
                         }
-                      } catch (err) {
-                        console.error("Failed to save profile on backend:", err);
-                        showNotification("Ayarlar kaydedilirken sunucu hatası oluştu.", "error", "Bağlantı Hatası");
-                      }
-                    }
-                    
-                    setSettingsModalOpen(false);
-                  }}
-                  className={`flex-1 py-2 rounded-xl text-xs font-extrabold text-white transition-all uppercase tracking-wider flex items-center justify-center gap-1.5 ${bg} ${hover}`}
-                >
-                  <Check size={12} />
-                  <span>Ayarları Kaydet</span>
-                </button>
+
+                        if (currentUser) {
+                          try {
+                            const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+                            const res = await fetch(`${protocol}//${backendHost}/api/agent/profile/${currentUser.id}`, {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                avatar: agentAvatar,
+                                gsm_number: gsmNumber,
+                                mobile_transfer_enabled: mobileTransferEnabled,
+                                theme_color: tempThemeColor,
+                                forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
+                                forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
+                                forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 20 },
+                                active_profile: agentActiveProfile,
+                                profiles: agentProfiles,
+                                call_panel_prefs: callPanelPrefs,
+                                auto_logout_enabled: autoLogoutEnabled,
+                                auto_logout_duration: autoLogoutDuration,
+                                two_factor_enabled: twoFactorEnabled,
+                                two_factor_method: twoFactorMethod || "google_auth",
+                                two_factor_secret: twoFactorSecret || undefined,
+                                two_factor_enrolled: twoFactorEnrolled,
+                                password_expiry_enabled: passwordExpiryEnabled,
+                                password_expiry_months: passwordExpiryMonths,
+                                ...passwordPayload
+                              })
+                            });
+                            if (res.ok) {
+                              const data = await res.json();
+                              setCurrentUser(data.user);
+                              if (newPassword) {
+                                SUPER_ADMIN.password = newPassword;
+                                showNotification("Şifreniz başarılı olarak güncellenmiştir.", "success", "Şifre Güncellendi");
+                                setCurrentPassword("");
+                                setNewPassword("");
+                                setConfirmPassword("");
+                                setPasswordStatusMsg({ type: "success", text: "Şifreniz başarılı olarak güncellenmiştir." });
+                              }
+                              // Force update the UI theme color if they changed it
+                              if (data.user.theme_color) {
+                                const safeColor = getSafeThemeColor(data.user.theme_color);
+                                document.documentElement.style.setProperty("--color-primary", safeColor);
+                                localStorage.setItem("theme_primary_color", safeColor);
+                              }
+                            } else {
+                              const errData = await res.json();
+                              if (errData.detail) {
+                                showNotification(errData.detail, "error", "Şifre Güncellenemedi");
+                                setPasswordStatusMsg({ type: "error", text: errData.detail });
+                                setActiveModalTab("security");
+                                return;
+                              }
+                            }
+                          } catch (err) {
+                            console.error("Failed to save profile on backend:", err);
+                            showNotification("Ayarlar kaydedilirken sunucu hatası oluştu.", "error", "Bağlantı Hatası");
+                          }
+                        }
+                        
+                        setSettingsModalOpen(false);
+                      }}
+                      className={"px-6 py-2.5 rounded-xl text-xs font-extrabold text-white transition-all shadow-md flex items-center justify-center gap-1.5 " + bg + " " + hover}
+                    >
+                      <Check size={14} />
+                      <span>Ayarları Kaydet</span>
+                    </button>
+                  </div>
+                </div>
               </div>
 
             </div>

@@ -16781,18 +16781,37 @@ async def get_system_version_info():
         pass
 
     return {
-        "version": "v2.6.7",
+        "version": "v2.6.8",
         "commit_hash": live_commit,
-        "release_date": "26 Ekim 2026",
+        "release_date": "27 Ekim 2026",
         "status": "Güncel / Canlı Sürüm",
         "environment": "Production (On-Premise)",
         "changelog": [
             {
-                "version": "v2.6.7",
+                "version": "v2.6.8",
                 "commit_hash": live_commit,
-                "release_date": "26 Ekim 2026",
+                "release_date": "27 Ekim 2026",
                 "badge": "Canlı Sürüm (Güncel)",
                 "badge_type": "current",
+                "title": "Profil Ayarları Sol Dikey Sekme Düzeni & Canlı İzleme Paneli Özelleştirme Sekmesi",
+                "summary": "Canlı İzleme Paneli başlığındaki alt açıklama ve şablon/özelleştirme butonları kaldırılarak sağ üst Profil Ayarları penceresine 'Canlı İzleme Paneli' sekmesi olarak taşındı; Temsilci Profil Ayarları popup penceresi Kullanıcı Düzenleme penceresi gibi sol dikey sekmeli yapıya kavuşturuldu.",
+                "features": [
+                    {
+                        "title": "🗂️ Temsilci Profil Ayarları Sol Dikey Sekme Mimarisi",
+                        "desc": "Sağ üst avatar menüsünden açılan Temsilci Profil Ayarları penceresindeki sekmeler (Profil & Tema, Profiller, Donanım & Santral, Yönlendirme, Güvenlik, Çağrı Paneli, Canlı İzleme Paneli) sol tarafa dikey menü olarak hizalandı."
+                    },
+                    {
+                        "title": "🖥️ Canlı İzleme Paneli Özelleştirme Sekmesi & Sadeleştirilmiş Başlık",
+                        "desc": "Canlı İzleme Paneli içerisindeki açıklama metni ve şablon/özelleştirme barı kaldırılarak tüm Wallboard Studio ayarları Profil Ayarları altındaki 'Canlı İzleme Paneli' sekmesine konumlandırıldı."
+                    }
+                ]
+            },
+            {
+                "version": "v2.6.7",
+                "commit_hash": "1882bed",
+                "release_date": "26 Ekim 2026",
+                "badge": "Önceki Sürüm",
+                "badge_type": "previous",
                 "title": "Kişiselleştirilebilir Canlı İzleme Paneli (Wallboard Studio) & Hazır Şablonlar",
                 "summary": "Her kullanıcının Canlı İzleme Paneli'ni kendi çalışma tarzına göre tasarlayıp kaydedebileceği Wallboard Tasarım Stüdyosu, hazır görünüm şablonları, sürükle-bırak modül/sayaç yönetimi, temsilci kart yoğunluğu/filtreleme ve kişisel alarm eşikleri eklendi.",
                 "features": [
