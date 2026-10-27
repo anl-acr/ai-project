@@ -30,9 +30,66 @@ import {
   Timer,
   Search,
   AlertTriangle,
-  Layers
+  Layers,
+  Palette
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
+
+export const DEFAULT_STATUS_COLORS = {
+  available: "#10b981", // Yeşil (Login / Müsait)
+  busy: "#ef4444",      // Kırmızı (Meşgul / Görüşmede)
+  break: "#eab308",     // Sarı (Molada - Genel Varsayılan)
+  breakColors: {}       // Mola bazlı kişisel renk tercihleri: { [breakId_or_breakName]: "#..." }
+};
+
+export const COLOR_SWATCHES = [
+  { hex: "#10b981", label: "Yeşil" },
+  { hex: "#22c55e", label: "Zümrüt" },
+  { hex: "#eab308", label: "Sarı" },
+  { hex: "#f59e0b", label: "Kehribar" },
+  { hex: "#f97316", label: "Turuncu" },
+  { hex: "#ef4444", label: "Kırmızı" },
+  { hex: "#e11d48", label: "Gül" },
+  { hex: "#3b82f6", label: "Mavi" },
+  { hex: "#6366f1", label: "İndigo" },
+  { hex: "#a855f7", label: "Mor" },
+  { hex: "#06b6d4", label: "Turkuaz" },
+  { hex: "#64748b", label: "Gri" }
+];
+
+export function hexToRgba(hex, alpha = 1) {
+  const clean = String(hex || "#10b981").replace("#", "").trim();
+  if (clean.length === 3) {
+    const r = parseInt(clean[0] + clean[0], 16) || 16;
+    const g = parseInt(clean[1] + clean[1], 16) || 185;
+    const b = parseInt(clean[2] + clean[2], 16) || 129;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  const r = parseInt(clean.substring(0, 2), 16);
+  const g = parseInt(clean.substring(2, 4), 16);
+  const b = parseInt(clean.substring(4, 6), 16);
+  if (isNaN(r) || isNaN(g) || isNaN(b)) {
+    return `rgba(16, 185, 129, ${alpha})`;
+  }
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+export function resolveAgentStatusHex(state, statusColors = DEFAULT_STATUS_COLORS) {
+  const colors = statusColors || DEFAULT_STATUS_COLORS;
+  const st = state?.status || "Müsait";
+  if (st === "Görüşmede" || st === "Meşgul") {
+    return colors.busy || DEFAULT_STATUS_COLORS.busy;
+  }
+  if (st === "Molada") {
+    const bcMap = colors.breakColors || {};
+    const bIdKey = state?.breakId != null ? String(state.breakId) : "";
+    const bNameKey = state?.breakType ? String(state.breakType).trim() : "";
+    if (bIdKey && bcMap[bIdKey]) return bcMap[bIdKey];
+    if (bNameKey && bcMap[bNameKey]) return bcMap[bNameKey];
+    return colors.break || DEFAULT_STATUS_COLORS.break;
+  }
+  return colors.available || DEFAULT_STATUS_COLORS.available;
+}
 
 export const DEFAULT_KPI_CARDS = [
   { id: "queue_waiting", label: "Sırada Bekleyen", unit: "Kişi", enabled: true },
@@ -154,6 +211,7 @@ export function normalizeWallboardLayout(saved) {
   let agentSortBy = "status";
   let agentStatusFilter = "ALL";
   let thresholds = DEFAULT_THRESHOLDS;
+  let statusColors = { ...DEFAULT_STATUS_COLORS, breakColors: {} };
   let activePresetKey = "standard";
 
   if (saved && typeof saved === "object") {
@@ -191,9 +249,22 @@ export function normalizeWallboardLayout(saved) {
 
     if (saved.agentCardDensity) agentCardDensity = saved.agentCardDensity;
     if (saved.agentSortBy) agentSortBy = saved.agentSortBy;
-    if (saved.agentStatusFilter) agentStatusFilter = saved.agentStatusFilter;
+    if (saved.agentStatusFilter && saved.agentStatusFilter !== "Çevrimdışı") {
+      agentStatusFilter = saved.agentStatusFilter;
+    }
     if (saved.thresholds && typeof saved.thresholds === "object") {
       thresholds = { ...DEFAULT_THRESHOLDS, ...saved.thresholds };
+    }
+    if (saved.statusColors && typeof saved.statusColors === "object") {
+      statusColors = {
+        available: saved.statusColors.available || DEFAULT_STATUS_COLORS.available,
+        busy: saved.statusColors.busy || DEFAULT_STATUS_COLORS.busy,
+        break: saved.statusColors.break || DEFAULT_STATUS_COLORS.break,
+        breakColors:
+          saved.statusColors.breakColors && typeof saved.statusColors.breakColors === "object"
+            ? { ...saved.statusColors.breakColors }
+            : {}
+      };
     }
     if (saved.activePresetKey) activePresetKey = saved.activePresetKey;
   }
@@ -205,6 +276,7 @@ export function normalizeWallboardLayout(saved) {
     agentSortBy,
     agentStatusFilter,
     thresholds,
+    statusColors,
     activePresetKey
   };
 }
@@ -214,13 +286,15 @@ export function normalizeWallboardLayout(saved) {
  */
 export function WallboardStudioSettings({ backendHost = "localhost:8000", currentUserId = "admin" }) {
   const { bg, hover, text, lightBg, borderLight } = useTheme();
-  const [customizerTab, setCustomizerTab] = useState("widgets"); // 'widgets' | 'cards' | 'thresholds'
+  const [customizerTab, setCustomizerTab] = useState("colors"); // 'colors' | 'widgets' | 'cards' | 'thresholds'
   const [kpiCards, setKpiCards] = useState(DEFAULT_KPI_CARDS);
   const [mainWidgets, setMainWidgets] = useState(DEFAULT_MAIN_WIDGETS);
   const [agentCardDensity, setAgentCardDensity] = useState("standard");
   const [agentSortBy, setAgentSortBy] = useState("status");
   const [agentStatusFilter, setAgentStatusFilter] = useState("ALL");
   const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
+  const [statusColors, setStatusColors] = useState({ ...DEFAULT_STATUS_COLORS, breakColors: {} });
+  const [systemBreaks, setSystemBreaks] = useState([]);
   const [activePresetKey, setActivePresetKey] = useState("standard");
   const [draggedKpiIndex, setDraggedKpiIndex] = useState(null);
   const [draggedWidgetIndex, setDraggedWidgetIndex] = useState(null);
@@ -241,9 +315,18 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
         setAgentSortBy(norm.agentSortBy);
         setAgentStatusFilter(norm.agentStatusFilter);
         setThresholds(norm.thresholds);
+        setStatusColors(norm.statusColors);
         setActivePresetKey(norm.activePresetKey);
       }
     } catch (e) {}
+
+    fetch(`${API_BASE}/api/settings/breaks`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : data?.breaks || [];
+        setSystemBreaks(list);
+      })
+      .catch(() => {});
 
     fetch(`${API_BASE}/api/wallboard/layout?user_id=${encodeURIComponent(effectiveUid)}`, {
       headers: { "X-User-ID": effectiveUid }
@@ -258,6 +341,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
           setAgentSortBy(norm.agentSortBy);
           setAgentStatusFilter(norm.agentStatusFilter);
           setThresholds(norm.thresholds);
+          setStatusColors(norm.statusColors);
           setActivePresetKey(norm.activePresetKey);
           if (typeof window !== "undefined") {
             localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(norm));
@@ -275,6 +359,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
       agentSortBy: nextPatch.agentSortBy ?? agentSortBy,
       agentStatusFilter: nextPatch.agentStatusFilter ?? agentStatusFilter,
       thresholds: nextPatch.thresholds ?? thresholds,
+      statusColors: nextPatch.statusColors ?? statusColors,
       activePresetKey: nextPatch.activePresetKey ?? activePresetKey
     };
 
@@ -314,7 +399,9 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
   };
 
   const handleResetDefault = () => {
+    const defaultColors = { ...DEFAULT_STATUS_COLORS, breakColors: {} };
     setThresholds(DEFAULT_THRESHOLDS);
+    setStatusColors(defaultColors);
     const preset = PRESET_TEMPLATES.standard;
     setKpiCards(preset.kpiCards);
     setMainWidgets(preset.mainWidgets);
@@ -329,6 +416,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
       agentSortBy: preset.agentSortBy,
       agentStatusFilter: "ALL",
       thresholds: DEFAULT_THRESHOLDS,
+      statusColors: defaultColors,
       activePresetKey: "standard"
     });
   };
@@ -452,6 +540,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
       {/* Studio Sub-tabs */}
       <div className="flex flex-wrap items-center gap-2">
         {[
+          { id: "colors", label: "Durum & Mola Renkleri", icon: <Palette size={13} /> },
           { id: "widgets", label: "Ana Modüller & Genişlik", icon: <LayoutGrid size={13} /> },
           { id: "cards", label: "Üst KPI Sayaç Kartları", icon: <Layers size={13} /> },
           { id: "thresholds", label: "Kart Görünümü & Alarm Eşikleri", icon: <AlertTriangle size={13} /> }
@@ -471,6 +560,264 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
           </button>
         ))}
       </div>
+
+      {/* Tab 0: Status & Break Colors Customization */}
+      {customizerTab === "colors" && (
+        <div className="space-y-4">
+          <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800 space-y-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <div>
+                <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                  Temsilci Durum Kutucuğu Renkleri
+                </h5>
+                <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                  Canlı İzleme Panelindeki temsilci kartlarının durum renklerini kendinize göre özelleştirin (Varsayılan: Müsait Yeşil, Meşgul Kırmızı, Mola Sarı).
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const resetColors = { ...DEFAULT_STATUS_COLORS, breakColors: {} };
+                  setStatusColors(resetColors);
+                  syncLayout({ statusColors: resetColors });
+                }}
+                className="px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1 shrink-0"
+              >
+                <RotateCcw size={11} />
+                <span>Varsayılan Renkler</span>
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              {[
+                {
+                  key: "available",
+                  title: "Login / Müsait",
+                  subtitle: "Çağrı Bekleyen Temsilci",
+                  badge: "MÜSAİT",
+                  defaultHex: DEFAULT_STATUS_COLORS.available
+                },
+                {
+                  key: "busy",
+                  title: "Meşgul / Görüşmede",
+                  subtitle: "Aktif Çağrıdaki Temsilci",
+                  badge: "MEŞGUL",
+                  defaultHex: DEFAULT_STATUS_COLORS.busy
+                },
+                {
+                  key: "break",
+                  title: "Molada (Genel)",
+                  subtitle: "Varsayılan Mola Rengi",
+                  badge: "MOLADA",
+                  defaultHex: DEFAULT_STATUS_COLORS.break
+                }
+              ].map((item) => {
+                const currentHex = statusColors?.[item.key] || item.defaultHex;
+                return (
+                  <div
+                    key={item.key}
+                    style={{
+                      backgroundColor: hexToRgba(currentHex, 0.10),
+                      borderColor: hexToRgba(currentHex, 0.55)
+                    }}
+                    className="p-3.5 rounded-2xl border space-y-3 transition-all"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span
+                          style={{ backgroundColor: currentHex }}
+                          className="w-3 h-3 rounded-full shrink-0 shadow-sm"
+                        />
+                        <div className="truncate">
+                          <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">{item.title}</p>
+                          <p className="text-[9px] font-bold text-slate-500 dark:text-slate-400 truncate">{item.subtitle}</p>
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          backgroundColor: hexToRgba(currentHex, 0.18),
+                          borderColor: hexToRgba(currentHex, 0.5),
+                          color: currentHex
+                        }}
+                        className="px-2 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0"
+                      >
+                        {item.badge}
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-200/50 dark:border-slate-800/50">
+                      <div className="flex flex-wrap items-center gap-1">
+                        {COLOR_SWATCHES.slice(0, 8).map((sw) => (
+                          <button
+                            key={sw.hex}
+                            type="button"
+                            title={sw.label}
+                            onClick={() => {
+                              const next = { ...statusColors, [item.key]: sw.hex };
+                              setStatusColors(next);
+                              syncLayout({ statusColors: next });
+                            }}
+                            style={{ backgroundColor: sw.hex }}
+                            className={`w-4 h-4 rounded-full border transition-transform ${
+                              currentHex.toLowerCase() === sw.hex.toLowerCase()
+                                ? "scale-125 ring-2 ring-slate-800 dark:ring-white border-white"
+                                : "border-black/10 hover:scale-110"
+                            }`}
+                          />
+                        ))}
+                      </div>
+
+                      <label
+                        title="Özel Renk Seç"
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"
+                      >
+                        <input
+                          type="color"
+                          value={currentHex}
+                          onChange={(e) => {
+                            const next = { ...statusColors, [item.key]: e.target.value };
+                            setStatusColors(next);
+                            syncLayout({ statusColors: next });
+                          }}
+                          className="w-4 h-4 rounded border-0 p-0 bg-transparent cursor-pointer"
+                        />
+                        <span className="text-[9px] font-mono font-bold text-slate-600 dark:text-slate-300 uppercase">
+                          {currentHex}
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Per-Break Custom Colors */}
+          <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800 space-y-3">
+            <div>
+              <h5 className="text-[11px] font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                Mola Türlerine Özel Renkler
+              </h5>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                Her bir mola türü için ayrı bir kutucuk rengi belirleyebilirsiniz. Özel seçim yapılmayan molalar yukarıdaki genel <strong>Molada (Sarı)</strong> rengini kullanır.
+              </p>
+            </div>
+
+            {systemBreaks.length === 0 ? (
+              <div className="py-4 text-center text-xs text-slate-400 italic">
+                Sistemde tanımlı mola türü bulunamadı.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {systemBreaks.map((b) => {
+                  const bIdStr = String(b.id ?? "");
+                  const bNameStr = String(b.name || "").trim();
+                  const bcMap = statusColors?.breakColors || {};
+                  const customHex = (bIdStr && bcMap[bIdStr]) || (bNameStr && bcMap[bNameStr]) || "";
+                  const effectiveHex = customHex || statusColors?.break || DEFAULT_STATUS_COLORS.break;
+
+                  const handleSetBreakColor = (newHex) => {
+                    const nextBreakColors = { ...(statusColors?.breakColors || {}) };
+                    if (bIdStr) nextBreakColors[bIdStr] = newHex;
+                    if (bNameStr) nextBreakColors[bNameStr] = newHex;
+                    const next = { ...statusColors, breakColors: nextBreakColors };
+                    setStatusColors(next);
+                    syncLayout({ statusColors: next });
+                  };
+
+                  const handleResetBreakColor = () => {
+                    const nextBreakColors = { ...(statusColors?.breakColors || {}) };
+                    if (bIdStr) delete nextBreakColors[bIdStr];
+                    if (bNameStr) delete nextBreakColors[bNameStr];
+                    const next = { ...statusColors, breakColors: nextBreakColors };
+                    setStatusColors(next);
+                    syncLayout({ statusColors: next });
+                  };
+
+                  return (
+                    <div
+                      key={b.id || b.name}
+                      style={{
+                        backgroundColor: hexToRgba(effectiveHex, 0.08),
+                        borderColor: hexToRgba(effectiveHex, 0.45)
+                      }}
+                      className="p-3 rounded-2xl border flex flex-col justify-between gap-2.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            style={{ backgroundColor: effectiveHex }}
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                          />
+                          <span className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
+                            {b.name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {customHex && (
+                            <button
+                              type="button"
+                              onClick={handleResetBreakColor}
+                              className="text-[9px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white underline"
+                              title="Genel Mola Rengine Döndür"
+                            >
+                              Varsayılan
+                            </button>
+                          )}
+                          <span
+                            style={{
+                              backgroundColor: hexToRgba(effectiveHex, 0.18),
+                              borderColor: hexToRgba(effectiveHex, 0.45),
+                              color: effectiveHex
+                            }}
+                            className="px-1.5 py-0.5 rounded-md border text-[8px] font-extrabold uppercase"
+                          >
+                            {customHex ? "Özel Renk" : "Genel Mola Rengi"}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-slate-200/40 dark:border-slate-800/40">
+                        <div className="flex flex-wrap items-center gap-1">
+                          {COLOR_SWATCHES.slice(0, 8).map((sw) => (
+                            <button
+                              key={sw.hex}
+                              type="button"
+                              title={sw.label}
+                              onClick={() => handleSetBreakColor(sw.hex)}
+                              style={{ backgroundColor: sw.hex }}
+                              className={`w-3.5 h-3.5 rounded-full border transition-transform ${
+                                effectiveHex.toLowerCase() === sw.hex.toLowerCase()
+                                  ? "scale-125 ring-2 ring-slate-800 dark:ring-white border-white"
+                                  : "border-black/10 hover:scale-110"
+                              }`}
+                            />
+                          ))}
+                        </div>
+
+                        <label
+                          title={`${b.name} için özel renk seç`}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 cursor-pointer shrink-0"
+                        >
+                          <input
+                            type="color"
+                            value={effectiveHex}
+                            onChange={(e) => handleSetBreakColor(e.target.value)}
+                            className="w-3.5 h-3.5 rounded border-0 p-0 bg-transparent cursor-pointer"
+                          />
+                          <span className="text-[9px] font-mono font-bold text-slate-600 dark:text-slate-300 uppercase">
+                            {effectiveHex}
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Tab 1: Main Widgets Management */}
       {customizerTab === "widgets" && (
@@ -655,14 +1002,13 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
             </div>
 
             <div className="space-y-2 pt-2">
-              <label className="block text-[10px] font-bold text-slate-500">Temsilci Durum Filtresi</label>
-              <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+              <label className="block text-[10px] font-bold text-slate-500">Aktif Temsilci Durum Filtresi</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                 {[
-                  { id: "ALL", label: "Tümü" },
-                  { id: "Görüşmede", label: "Görüşmede" },
+                  { id: "ALL", label: "Tüm Aktifler" },
                   { id: "Müsait", label: "Müsait" },
-                  { id: "Molada", label: "Molada" },
-                  { id: "Çevrimdışı", label: "Çevrimdışı" }
+                  { id: "Görüşmede", label: "Görüşmede" },
+                  { id: "Molada", label: "Molada" }
                 ].map((st) => (
                   <button
                     key={st.id}
@@ -837,6 +1183,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   const [agentSearchQuery, setAgentSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
+  const [statusColors, setStatusColors] = useState({ ...DEFAULT_STATUS_COLORS, breakColors: {} });
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -858,6 +1205,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     setAgentSortBy(norm.agentSortBy);
     setAgentStatusFilter(norm.agentStatusFilter);
     setThresholds(norm.thresholds);
+    setStatusColors(norm.statusColors);
   };
 
   useEffect(() => {
@@ -1163,21 +1511,30 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const availableCount = users.filter((u) => {
+  const loggedInUsers = users.filter((u) => {
+    const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
+    return Boolean(st?.is_logged_in) && st?.status && st.status !== "Çevrimdışı";
+  });
+
+  const availableCount = loggedInUsers.filter((u) => {
     const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
     return st?.status === "Müsait";
   }).length;
 
   const busyCount =
-    users.filter((u) => {
+    loggedInUsers.filter((u) => {
       const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
       return st?.status === "Görüşmede" || st?.status === "Meşgul";
     }).length + activeCallsList.length;
 
-  const breakCount = users.filter((u) => {
+  const breakCount = loggedInUsers.filter((u) => {
     const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
     return st?.status === "Molada";
   }).length;
+
+  const availHex = statusColors?.available || DEFAULT_STATUS_COLORS.available;
+  const busyHex = statusColors?.busy || DEFAULT_STATUS_COLORS.busy;
+  const breakHex = statusColors?.break || DEFAULT_STATUS_COLORS.break;
 
   // Render individual KPI Card data
   const getKpiCardMeta = (cardId) => {
@@ -1223,8 +1580,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
           value: availableCount,
           unit: "Temsilci",
           icon: <ShieldCheck size={14} />,
-          iconClass: "bg-emerald-50 dark:bg-emerald-950/20 text-emerald-500",
-          barClass: "from-emerald-500 to-teal-500",
+          customHex: availHex,
           alarm: false
         };
       case "busy_agents":
@@ -1233,8 +1589,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
           value: busyCount,
           unit: "Görüşmede",
           icon: <PhoneCall size={14} />,
-          iconClass: "bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500",
-          barClass: "from-indigo-500 to-blue-500",
+          customHex: busyHex,
           alarm: false
         };
       case "break_agents":
@@ -1243,8 +1598,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
           value: breakCount,
           unit: "Temsilci",
           icon: <Clock size={14} />,
-          iconClass: "bg-orange-50 dark:bg-orange-950/20 text-orange-500",
-          barClass: "from-orange-500 to-amber-500",
+          customHex: breakHex,
           alarm: false
         };
       case "missed_calls":
@@ -1282,17 +1636,16 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
     }
   };
 
-  // Filtered & Sorted Human Agents for `agents_grid`
+  // Filtered & Sorted Logged-in Human Agents for `agents_grid`
   const getFilteredAndSortedUsers = () => {
     const statusPriority = {
       Görüşmede: 1,
       Meşgul: 1,
       Müsait: 2,
-      Molada: 3,
-      Çevrimdışı: 4
+      Molada: 3
     };
 
-    return users
+    return loggedInUsers
       .filter((u) => {
         const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)] || { status: "Çevrimdışı" };
         if (agentStatusFilter !== "ALL" && st.status !== agentStatusFilter) {
@@ -1360,12 +1713,12 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   }
 
   const filteredUsers = getFilteredAndSortedUsers();
-  const onBreakUsers = users.filter((u) => {
+  const onBreakUsers = loggedInUsers.filter((u) => {
     const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
     return st?.status === "Molada";
   });
 
-  const rankedLeaderboardUsers = [...users]
+  const rankedLeaderboardUsers = [...loggedInUsers]
     .map((u) => {
       const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)] || { status: "Çevrimdışı", callsToday: 0 };
       return { ...u, state: st, callsToday: Number(st.callsToday) || 0 };
@@ -1487,7 +1840,19 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                     <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-widest truncate">
                       {meta.title}
                     </span>
-                    <div className={`p-2 rounded-xl shrink-0 ${meta.iconClass}`}>{meta.icon}</div>
+                    <div
+                      style={
+                        meta.customHex
+                          ? {
+                              backgroundColor: hexToRgba(meta.customHex, 0.14),
+                              color: meta.customHex
+                            }
+                          : undefined
+                      }
+                      className={`p-2 rounded-xl shrink-0 ${meta.customHex ? "" : meta.iconClass}`}
+                    >
+                      {meta.icon}
+                    </div>
                   </div>
                   <div className="flex items-baseline gap-1.5 justify-between">
                     <div className="flex items-baseline gap-1.5">
@@ -1509,7 +1874,14 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                       </span>
                     )}
                   </div>
-                  <span className={`absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r ${meta.barClass}`} />
+                  {meta.customHex ? (
+                    <span
+                      style={{ backgroundColor: meta.customHex }}
+                      className="absolute bottom-0 inset-x-0 h-1"
+                    />
+                  ) : (
+                    <span className={`absolute bottom-0 inset-x-0 h-1 bg-gradient-to-r ${meta.barClass}`} />
+                  )}
                 </div>
               );
             })}
@@ -1543,7 +1915,9 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                         Temsilci & AI Çağrı Meşguliyet Durumları
                       </h4>
                       <span className="px-2 py-0.5 rounded-lg bg-slate-50 dark:bg-slate-950 border border-slate-200/50 dark:border-slate-800 text-[9px] font-extrabold text-slate-500 uppercase">
-                        {filteredUsers.length}/{users.length} Temsilci{" "}
+                        {agentStatusFilter === "ALL" && !agentSearchQuery.trim()
+                          ? `${loggedInUsers.length} Aktif Temsilci`
+                          : `${filteredUsers.length}/${loggedInUsers.length} Aktif Temsilci`}{" "}
                         {activeCallsList.length > 0 ? `• ${activeCallsList.length} AI/Aktif` : ""}
                       </span>
                     </div>
@@ -1596,7 +1970,9 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
                   {filteredUsers.length === 0 && activeCallsList.length === 0 ? (
                     <div className="py-12 text-center text-xs text-slate-400 italic">
-                      Seçilen filtreye uygun temsilci bulunamadı.
+                      {loggedInUsers.length === 0
+                        ? "Şu anda çağrı merkezi oturumu açmış (Login) aktif temsilci bulunmuyor."
+                        : "Seçilen filtreye uygun aktif temsilci bulunamadı."}
                     </div>
                   ) : (
                     <div className={`grid ${gridColsClass}`}>
@@ -1737,11 +2113,11 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                           );
                         })}
 
-                      {/* Human Agents Cards */}
+                      {/* Logged-In Human Agents Cards */}
                       {filteredUsers.map((u) => {
                         const state = agentsState[u.id] ||
                           agentsState[String(u.id)] ||
-                          agentsState[String(u.extension)] || { status: "Çevrimdışı", duration: 0, callsToday: 0 };
+                          agentsState[String(u.extension)] || { status: "Müsait", duration: 0, callsToday: 0 };
                         const cardId = `user-${u.id}`;
                         const isMenuOpen = openMenuCardId === cardId;
 
@@ -1752,36 +2128,29 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                           state.status === "Molada" &&
                           Number(state.duration) >= (Number(thresholds.maxBreakDurationSec) || 900);
 
-                        let statusBorder = "border-slate-200/70 dark:border-slate-800/80";
-                        let dotColor = "bg-slate-400";
-                        let radarPulse = null;
-                        let detailsText = `Dahili: ${u.extension}`;
+                        const activeHex = resolveAgentStatusHex(state, statusColors);
+                        const isAlarm = isLongCallAlarm || isLongBreakAlarm;
 
-                        if (state.status === "Müsait") {
-                          statusBorder = "border-emerald-200/80 dark:border-emerald-900/30";
-                          dotColor = "bg-primary";
-                          radarPulse = "bg-emerald-450 animate-ping";
-                        } else if (state.status === "Görüşmede") {
-                          statusBorder = isLongCallAlarm
-                            ? "border-rose-400 dark:border-rose-600 ring-2 ring-rose-500/20"
-                            : "border-indigo-200/80 dark:border-indigo-900/30";
-                          dotColor = "bg-primary";
-                          radarPulse = "bg-primary animate-ping";
+                        let detailsText = `Dahili: ${u.extension}`;
+                        if (state.status === "Görüşmede") {
                           detailsText = `${state.caller || "Aktif Çağrı"} (${formatSeconds(state.duration)})`;
                         } else if (state.status === "Molada") {
-                          statusBorder = isLongBreakAlarm
-                            ? "border-rose-400 dark:border-rose-600 ring-2 ring-rose-500/20"
-                            : "border-orange-200/80 dark:border-orange-900/30";
-                          dotColor = "bg-orange-500";
                           detailsText = `${state.breakType || "Mola"} (${formatSeconds(state.duration)})`;
                         }
 
                         return (
                           <div
                             key={u.id}
+                            style={{
+                              backgroundColor: hexToRgba(activeHex, 0.10),
+                              borderColor: isAlarm ? "#ef4444" : hexToRgba(activeHex, 0.60),
+                              boxShadow: `0 4px 14px -4px ${hexToRgba(activeHex, 0.18)}`
+                            }}
                             className={`${
                               agentCardDensity === "compact" ? "p-2.5" : "p-3.5"
-                            } bg-slate-50/50 dark:bg-slate-950/20 border rounded-2xl flex flex-col justify-between gap-2 shadow-inner relative ${statusBorder}`}
+                            } border rounded-2xl flex flex-col justify-between gap-2 relative transition-all ${
+                              isAlarm ? "ring-2 ring-rose-500/30" : ""
+                            }`}
                           >
                             <div className="flex items-center justify-between gap-2">
                               <div className="flex items-center gap-2.5 min-w-0 flex-1">
@@ -1795,12 +2164,14 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                   />
                                   <span className="absolute -bottom-1 -right-1 h-3.5 w-3.5 rounded-full bg-white dark:bg-slate-900 flex items-center justify-center border border-slate-100/50">
                                     <span className="relative flex h-2.5 w-2.5">
-                                      {radarPulse && (
-                                        <span
-                                          className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${radarPulse}`}
-                                        ></span>
-                                      )}
-                                      <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${dotColor}`}></span>
+                                      <span
+                                        style={{ backgroundColor: activeHex }}
+                                        className="absolute inline-flex h-full w-full rounded-full opacity-75 animate-ping"
+                                      />
+                                      <span
+                                        style={{ backgroundColor: activeHex }}
+                                        className="relative inline-flex rounded-full h-2.5 w-2.5"
+                                      />
                                     </span>
                                   </span>
                                 </div>
@@ -1809,10 +2180,10 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                   <p className="text-[11px] font-extrabold text-slate-800 dark:text-white truncate">
                                     {u.full_name}
                                   </p>
-                                  <p className="text-[9px] font-bold text-slate-450 dark:text-slate-500 truncate mt-0.5 flex items-center gap-1">
+                                  <p className="text-[9px] font-bold text-slate-600 dark:text-slate-300 truncate mt-0.5 flex items-center gap-1">
                                     {state.status === "Molada" && (
                                       <span
-                                        style={{ backgroundColor: state.breakColor || "#f97316" }}
+                                        style={{ backgroundColor: activeHex }}
                                         className="w-1.5 h-1.5 rounded-full shrink-0"
                                       />
                                     )}
@@ -1823,15 +2194,12 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
                               <div className="flex items-center gap-1.5 shrink-0">
                                 <span
-                                  className={`px-1.5 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0 ${
-                                    state.status === "Müsait"
-                                      ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100"
-                                      : state.status === "Görüşmede"
-                                        ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100"
-                                        : state.status === "Molada"
-                                          ? "bg-orange-50 dark:bg-orange-950/20 text-orange-600 dark:text-orange-455 border-orange-100"
-                                          : "bg-slate-100 dark:bg-slate-800 text-slate-500 border-slate-200"
-                                  }`}
+                                  style={{
+                                    backgroundColor: hexToRgba(activeHex, 0.18),
+                                    borderColor: hexToRgba(activeHex, 0.50),
+                                    color: activeHex
+                                  }}
+                                  className="px-2 py-0.5 rounded-lg border text-[8px] font-extrabold uppercase shrink-0"
                                 >
                                   {state.status}
                                 </span>
@@ -1923,9 +2291,12 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                             </div>
 
                             {agentCardDensity === "detailed" && (
-                              <div className="pt-2 mt-1 border-t border-slate-200/50 dark:border-slate-800/60 flex items-center justify-between text-[9px] font-bold text-slate-500">
+                              <div
+                                style={{ borderColor: hexToRgba(activeHex, 0.25) }}
+                                className="pt-2 mt-1 border-t flex items-center justify-between text-[9px] font-bold text-slate-600 dark:text-slate-300"
+                              >
                                 <span>Dahili: {u.extension}</span>
-                                <span className="px-2 py-0.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 font-extrabold text-slate-700 dark:text-slate-300">
+                                <span className="px-2 py-0.5 rounded-md bg-white/90 dark:bg-slate-900/90 border border-slate-200/60 dark:border-slate-800 font-extrabold text-slate-700 dark:text-slate-200">
                                   Bugün: {state.callsToday || 0} Çağrı
                                 </span>
                               </div>
@@ -1941,7 +2312,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
             /* WIDGET 2: Canlı Aktif Görüşmeler Listesi */
             if (widget.id === "active_calls_table") {
-              const busyHumanUsers = users.filter((u) => {
+              const busyHumanUsers = loggedInUsers.filter((u) => {
                 const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)];
                 return st?.status === "Görüşmede";
               });
@@ -1953,12 +2324,18 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                 >
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
                     <div className="flex items-center gap-2">
-                      <PhoneCall size={15} className="text-indigo-500" />
+                      <PhoneCall size={15} style={{ color: busyHex }} />
                       <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">
                         Canlı Aktif Görüşmeler Listesi
                       </h4>
                     </div>
-                    <span className="px-2 py-0.5 rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 text-[9px] font-extrabold">
+                    <span
+                      style={{
+                        backgroundColor: hexToRgba(busyHex, 0.14),
+                        color: busyHex
+                      }}
+                      className="px-2 py-0.5 rounded-lg text-[9px] font-extrabold"
+                    >
                       {activeCallsList.length + busyHumanUsers.length} Aktif Görüşme
                     </span>
                   </div>
@@ -2054,7 +2431,11 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                         return (
                           <div
                             key={`tbl-hum-${u.id}`}
-                            className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between gap-3"
+                            style={{
+                              backgroundColor: hexToRgba(busyHex, 0.08),
+                              borderColor: hexToRgba(busyHex, 0.45)
+                            }}
+                            className="p-3 rounded-2xl border flex items-center justify-between gap-3"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <img
@@ -2064,9 +2445,9 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                               />
                               <div className="min-w-0">
                                 <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
-                                  {u.full_name} (#{u.extension}) ↔ {st.caller || "Aktif Çağrı"}
+                                  {u.full_name} ({u.extension}) ↔ {st.caller || "Aktif Çağrı"}
                                 </p>
-                                <p className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400">
+                                <p style={{ color: busyHex }} className="text-[10px] font-bold">
                                   Süre: {formatSeconds(st.duration)}
                                 </p>
                               </div>
@@ -2172,7 +2553,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                         <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60 text-xs">
                           {queues.map((q) => {
                             const memberList = Array.isArray(q.members) ? q.members : [];
-                            const qUsers = users.filter(
+                            const qUsers = loggedInUsers.filter(
                               (u) =>
                                 memberList.includes(String(u.extension)) ||
                                 memberList.includes(String(u.id)) ||
@@ -2199,12 +2580,24 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                                   {memberList.length || qUsers.length}
                                 </td>
                                 <td className="py-2.5 px-2 text-center">
-                                  <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 font-mono text-[10px] font-extrabold">
+                                  <span
+                                    style={{
+                                      backgroundColor: hexToRgba(availHex, 0.14),
+                                      color: availHex
+                                    }}
+                                    className="px-2 py-0.5 rounded-md font-mono text-[10px] font-extrabold"
+                                  >
                                     {qAvail}
                                   </span>
                                 </td>
                                 <td className="py-2.5 pl-2 text-right">
-                                  <span className="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 font-mono text-[10px] font-extrabold">
+                                  <span
+                                    style={{
+                                      backgroundColor: hexToRgba(busyHex, 0.14),
+                                      color: busyHex
+                                    }}
+                                    className="px-2 py-0.5 rounded-md font-mono text-[10px] font-extrabold"
+                                  >
                                     {qBusy}
                                   </span>
                                 </td>
@@ -2236,43 +2629,49 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                     <span className="text-[9px] font-extrabold text-slate-400 uppercase">Bugün (00:00'dan İtibaren)</span>
                   </div>
 
-                  <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
-                    {rankedLeaderboardUsers.slice(0, 8).map((u, idx) => {
-                      const pct = Math.min(100, Math.round((u.callsToday / maxCallsToday) * 100));
-                      return (
-                        <div key={`lb-${u.id}`} className="space-y-1">
-                          <div className="flex items-center justify-between text-xs">
-                            <div className="flex items-center gap-2 min-w-0">
-                              <span
-                                className={`w-5 h-5 rounded-lg flex items-center justify-center text-[10px] font-black ${
-                                  idx === 0
-                                    ? "bg-amber-100 text-amber-700"
-                                    : idx === 1
-                                      ? "bg-slate-200 text-slate-700"
-                                      : idx === 2
-                                        ? "bg-orange-100 text-orange-700"
-                                        : "bg-slate-100 dark:bg-slate-800 text-slate-500"
-                                }`}
-                              >
-                                {idx + 1}
+                  {rankedLeaderboardUsers.length === 0 ? (
+                    <div className="py-10 text-center text-xs text-slate-400 italic">
+                      Şu anda oturumu açık temsilci bulunmuyor.
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-[340px] overflow-y-auto pr-1">
+                      {rankedLeaderboardUsers.slice(0, 8).map((u, idx) => {
+                        const pct = Math.min(100, Math.round((u.callsToday / maxCallsToday) * 100));
+                        return (
+                          <div key={`lb-${u.id}`} className="space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span
+                                  className={`w-5 h-5 rounded-lg flex items-center justify-center text-[10px] font-black ${
+                                    idx === 0
+                                      ? "bg-amber-100 text-amber-700"
+                                      : idx === 1
+                                        ? "bg-slate-200 text-slate-700"
+                                        : idx === 2
+                                          ? "bg-orange-100 text-orange-700"
+                                          : "bg-slate-100 dark:bg-slate-800 text-slate-500"
+                                  }`}
+                                >
+                                  {idx + 1}
+                                </span>
+                                <span className="font-extrabold text-slate-800 dark:text-white truncate">{u.full_name}</span>
+                                <span className="text-[10px] font-bold text-slate-400">({u.extension})</span>
+                              </div>
+                              <span className="font-mono font-black text-slate-800 dark:text-white">
+                                {u.callsToday} <span className="text-[9px] font-bold text-slate-400 uppercase">Çağrı</span>
                               </span>
-                              <span className="font-extrabold text-slate-800 dark:text-white truncate">{u.full_name}</span>
-                              <span className="text-[10px] font-bold text-slate-400">#{u.extension}</span>
                             </div>
-                            <span className="font-mono font-black text-slate-800 dark:text-white">
-                              {u.callsToday} <span className="text-[9px] font-bold text-slate-400 uppercase">Çağrı</span>
-                            </span>
+                            <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                              <div
+                                style={{ width: `${pct}%` }}
+                                className={`h-full rounded-full ${bg} transition-all duration-500`}
+                              />
+                            </div>
                           </div>
-                          <div className="w-full h-1.5 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                            <div
-                              style={{ width: `${pct}%` }}
-                              className={`h-full rounded-full ${bg} transition-all duration-500`}
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             }
@@ -2286,12 +2685,18 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                 >
                   <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800/60 pb-3">
                     <div className="flex items-center gap-2">
-                      <Coffee size={15} className="text-orange-500" />
+                      <Coffee size={15} style={{ color: breakHex }} />
                       <h4 className="font-extrabold text-xs text-slate-850 dark:text-white uppercase tracking-wider">
                         Canlı Mola Takip Kutusu
                       </h4>
                     </div>
-                    <span className="px-2 py-0.5 rounded-lg bg-orange-50 dark:bg-orange-950/40 text-orange-600 dark:text-orange-400 text-[9px] font-extrabold">
+                    <span
+                      style={{
+                        backgroundColor: hexToRgba(breakHex, 0.14),
+                        color: breakHex
+                      }}
+                      className="px-2 py-0.5 rounded-lg text-[9px] font-extrabold"
+                    >
                       {onBreakUsers.length} Temsilci Molada
                     </span>
                   </div>
@@ -2305,14 +2710,15 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                       {onBreakUsers.map((u) => {
                         const st = agentsState[u.id] || agentsState[String(u.id)] || agentsState[String(u.extension)] || {};
                         const exceeded = Number(st.duration) >= (Number(thresholds.maxBreakDurationSec) || 900);
+                        const itemBreakHex = resolveAgentStatusHex(st, statusColors);
                         return (
                           <div
                             key={`brk-${u.id}`}
-                            className={`p-3 rounded-2xl border flex items-center justify-between gap-3 ${
-                              exceeded
-                                ? "bg-rose-50/50 dark:bg-rose-950/20 border-rose-300 dark:border-rose-800"
-                                : "bg-orange-50/40 dark:bg-orange-950/20 border-orange-200/70 dark:border-orange-900/40"
-                            }`}
+                            style={{
+                              backgroundColor: exceeded ? hexToRgba("#ef4444", 0.10) : hexToRgba(itemBreakHex, 0.10),
+                              borderColor: exceeded ? "#ef4444" : hexToRgba(itemBreakHex, 0.50)
+                            }}
+                            className="p-3 rounded-2xl border flex items-center justify-between gap-3"
                           >
                             <div className="flex items-center gap-2.5 min-w-0">
                               <img
@@ -2322,9 +2728,9 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
                               />
                               <div className="min-w-0">
                                 <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
-                                  {u.full_name} (#{u.extension})
+                                  {u.full_name} ({u.extension})
                                 </p>
-                                <p className="text-[10px] font-bold text-orange-600 dark:text-orange-400">
+                                <p style={{ color: itemBreakHex }} className="text-[10px] font-bold">
                                   {st.breakType || "Mola"}
                                 </p>
                               </div>

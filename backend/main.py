@@ -4240,25 +4240,30 @@ async def get_agent_status_endpoint(
         for tv in target_vals:
             conds.append(AgentBreakLog.user_id == tv)
             conds.append(AgentBreakLog.extension == tv)
+        all_today_logs = []
         if conds:
-            stmt_act = select(AgentBreakLog).where(
-                AgentBreakLog.end_time.is_(None),
+            stmt_today_logs = select(AgentBreakLog).where(
                 AgentBreakLog.start_time >= today_start_utc,
                 or_(*conds)
             ).order_by(AgentBreakLog.start_time.desc())
-            res_act = await db.execute(stmt_act)
+            res_today_logs = await db.execute(stmt_today_logs)
+            all_today_logs = res_today_logs.scalars().all()
+
             active_brk = next(
-                (b for b in res_act.scalars().all() if not str(b.break_name or "").startswith("__")),
+                (b for b in all_today_logs if b.end_time is None and not str(b.break_name or "").startswith("__")),
                 None
             )
             if active_brk:
-                brk_color = "#f59e0b"
+                brk_color = "#eab308"
+                brk_id = None
                 for b_cfg in settings.get("breaks", []):
                     if str(b_cfg.get("name", "")).strip().lower() == str(active_brk.break_name or "").strip().lower():
-                        brk_color = b_cfg.get("color") or "#f59e0b"
+                        brk_color = b_cfg.get("color") or "#eab308"
+                        brk_id = b_cfg.get("id")
                         break
                 elapsed_sec = max(0, int((now_utc - active_brk.start_time).total_seconds()))
                 brk_obj = {
+                    "id": brk_id,
                     "name": active_brk.break_name or "Mola",
                     "color": brk_color,
                     "start_time_utc": active_brk.start_time.isoformat() + "Z",
@@ -4274,20 +4279,24 @@ async def get_agent_status_endpoint(
                 return {**st, "elapsed_seconds": elapsed_sec, "break_start_utc": active_brk.start_time.isoformat() + "Z"}
     except Exception as e_st:
         print(f"[Get Agent Status DB Check Error]: {e_st}")
+        all_today_logs = []
 
     mem_state = get_agent_state(user_id=uid_str, extension=ext_str)
     if mem_state and mem_state.get("status_since_utc"):
         return mem_state
 
-    # Auto-online when user is actively logged into the web interface
-    auto_state = update_agent_state(
-        is_logged_in=True,
-        status="online",
-        current_break=None,
-        user_id=uid_str,
-        extension=ext_str
-    )
-    return auto_state
+    # Restore online state after backend restart only if the agent had logged in today and not logged out
+    if all_today_logs and str(all_today_logs[0].break_name or "") != "__LOGOUT__":
+        auto_state = update_agent_state(
+            is_logged_in=True,
+            status="online",
+            current_break=None,
+            user_id=uid_str,
+            extension=ext_str
+        )
+        return auto_state
+
+    return get_agent_state(user_id=uid_str, extension=ext_str)
 
 @app.post("/api/agent/status")
 @app.post("/agent/status")
@@ -10564,13 +10573,15 @@ async def save_user_wallboard_layout(
 
 @app.get("/api/reports/agents")
 async def get_reports_agents():
-    from backend.database.models import SystemUser, Call
-    from backend.services.ami_manager import active_channels, channel_states, registered_endpoints
-    from backend.services.agent_presence import active_agent_status
+    from backend.database.models import SystemUser, Call, AgentBreakLog
+    from backend.services.ami_manager import active_channels, channel_states
+    from backend.services.agent_presence import active_agent_status, update_agent_state
     import datetime
 
     now_utc = datetime.datetime.utcnow()
     today_start_utc = (now_utc + datetime.timedelta(hours=3)).replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(hours=3)
+    settings = load_settings()
+    breaks_cfg = settings.get("breaks", [])
 
     async with AsyncSessionLocal() as session:
         stmt = select(SystemUser)
@@ -10586,6 +10597,13 @@ async def get_reports_agents():
         stmt_today = select(Call).where(Call.start_time >= today_start_utc)
         res_today = await session.execute(stmt_today)
         today_calls = res_today.scalars().all()
+
+        # Fetch today's agent session/break logs to restore login/break state accurately
+        stmt_brk = select(AgentBreakLog).where(
+            AgentBreakLog.start_time >= today_start_utc
+        ).order_by(AgentBreakLog.start_time.desc())
+        res_brk = await session.execute(stmt_brk)
+        today_break_logs = res_brk.scalars().all()
 
         ext_call_counts = {}
         for tc in today_calls:
@@ -10650,31 +10668,76 @@ async def get_reports_agents():
                         caller_number = oc_callee if oc_caller == u_ext_str else oc_caller
                     break
 
+            user_logs = [
+                b for b in today_break_logs
+                if str(b.user_id or "").strip() in (u_id_str, u_ext_str)
+                or str(b.extension or "").strip() in (u_id_str, u_ext_str)
+            ]
+            active_brk_log = next(
+                (b for b in user_logs if b.end_time is None and not str(b.break_name or "").startswith("__")),
+                None
+            )
+
             agent_sess = (
                 active_agent_status.get(u.id) or
                 active_agent_status.get(u_id_str) or
                 active_agent_status.get(u_ext_str) or
                 {}
             )
-            is_logged_in = agent_sess.get("is_logged_in", False)
-            session_status = agent_sess.get("status", "offline")
+
+            if agent_sess and agent_sess.get("status_since_utc"):
+                is_logged_in = bool(agent_sess.get("is_logged_in", False))
+                session_status = agent_sess.get("status", "offline")
+            elif active_brk_log:
+                is_logged_in = True
+                session_status = "break"
+            elif user_logs and str(user_logs[0].break_name or "") != "__LOGOUT__":
+                is_logged_in = True
+                session_status = "online"
+                agent_sess = update_agent_state(
+                    is_logged_in=True,
+                    status="online",
+                    current_break=None,
+                    user_id=u_id_str,
+                    extension=u_ext_str
+                )
+            else:
+                is_logged_in = False
+                session_status = "offline"
 
             status = "Çevrimdışı"
             break_type = None
+            break_id = None
             break_color = None
             status_duration = call_duration
 
-            if is_logged_in or u_ext_str in registered_endpoints or is_in_call:
+            if is_logged_in:
                 if is_in_call:
                     status = "Görüşmede"
-                elif session_status == "break":
+                elif session_status == "break" or active_brk_log:
                     status = "Molada"
                     curr_b = agent_sess.get("current_break") or {}
-                    break_type = curr_b.get("name", "Mola")
-                    break_color = curr_b.get("color", "#f97316")
-                    b_start = agent_sess.get("break_start_time")
-                    if isinstance(b_start, datetime.datetime):
-                        status_duration = max(0, int((now_utc - b_start.replace(tzinfo=None)).total_seconds()))
+                    break_type = (active_brk_log.break_name if active_brk_log else None) or curr_b.get("name") or "Mola"
+                    break_id = curr_b.get("id")
+                    break_color = curr_b.get("color") or "#eab308"
+                    for b_cfg in breaks_cfg:
+                        if str(b_cfg.get("name", "")).strip().lower() == str(break_type).strip().lower():
+                            if not break_id:
+                                break_id = b_cfg.get("id")
+                            if not curr_b.get("color") and b_cfg.get("color"):
+                                break_color = b_cfg.get("color")
+                            break
+
+                    if active_brk_log and active_brk_log.start_time:
+                        status_duration = max(0, int((now_utc - active_brk_log.start_time.replace(tzinfo=None)).total_seconds()))
+                    else:
+                        b_start_str = curr_b.get("start_time_utc") or agent_sess.get("status_since_utc")
+                        if b_start_str:
+                            try:
+                                dt_s = datetime.datetime.fromisoformat(str(b_start_str).replace("Z", ""))
+                                status_duration = max(0, int((now_utc - dt_s).total_seconds()))
+                            except Exception:
+                                status_duration = 0
                 else:
                     status = "Müsait"
 
@@ -10683,7 +10746,9 @@ async def get_reports_agents():
                 "name": u.full_name,
                 "role": u.role,
                 "extension": u.extension,
+                "is_logged_in": bool(is_logged_in),
                 "status": status,
+                "breakId": break_id,
                 "breakType": break_type,
                 "breakColor": break_color,
                 "caller": caller_number,
