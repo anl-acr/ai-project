@@ -17,6 +17,13 @@ export const SUPERVISOR_SUB_PERMS = [
 
 export const DEFAULT_SUPERVISOR_SUB_PERMS = SUPERVISOR_SUB_PERMS.map((p) => p.id);
 
+export const LIVE_TRANSLATOR_SUB_PERMS = [
+  { id: "call_panel:live_translation", name: "Anlık Konuşmayı Metne Dönüştürme (Müşteri Konuşması → Türkçe Metin)" },
+  { id: "call_panel:voice_interpreter", name: "Anlık Sesli Çeviri & Çift Yönlü Tercüman (Gerçek Zamanlı Sesli TR ↔ Yabancı Dil)" }
+];
+
+export const DEFAULT_LIVE_TRANSLATOR_SUB_PERMS = LIVE_TRANSLATOR_SUB_PERMS.map((p) => p.id);
+
 export const CALL_PANEL_SUB_GROUPS = [
   {
     id: "tabs",
@@ -42,6 +49,8 @@ export const CALL_PANEL_SUB_GROUPS = [
       { id: "call_panel:webphone_transfer", name: "Çağrı Transferi" },
       { id: "call_panel:webphone_conference", name: "Konferans" },
       { id: "call_panel:webphone_reject", name: "Çağrı Reddi" },
+      { id: "call_panel:live_translation", name: "Anlık Konuşma Metni Çevirisi (İngilizce/Yabancı Dil → Türkçe Metin)" },
+      { id: "call_panel:voice_interpreter", name: "Anlık Sesli Çeviri & Çift Yönlü Tercüman (TR ↔ Yabancı Dil Ses)" },
       {
         id: "call_panel:webphone_mask_number",
         name: "Numara Maskeleme (Kayıtlı İsim ve Son 4 Hane ** **)",
@@ -101,6 +110,7 @@ const SYSTEM_FEATURES = [
   { id: "supervisor", name: "Supervizor İşlemleri (Canlı Durum Müdahale & Ekip/Kuyruk Yönetimi)", icon: Shield, type: "access", color: "indigo" },
   { id: "call_monitor", name: "Araya Girme, Sufle ve Fısıldama (Canlı Çağrı Müdahale)", icon: Headphones, type: "call_monitor", color: "amber" },
   { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: PhoneCall, type: "access", color: "emerald" },
+  { id: "live_translator", name: "Canlı Çeviri & Simultane Tercüman (Anlık Altyazı & Çift Yönlü Sesli Çeviri)", icon: Languages, type: "access", color: "indigo" },
   { id: "omnichannel", name: "Ortak Gelen Kutusu", icon: MessageSquare, type: "access", color: "purple" },
   { id: "api_budgets", name: "API Bütçe ve Tüketim", icon: Database, type: "crud_partial", color: "emerald" },
 
@@ -206,6 +216,13 @@ export const normalizeRolePermissionsList = (rawPerms = []) => {
   const hasAnySupSubPerm = perms.some((p) => DEFAULT_SUPERVISOR_SUB_PERMS.includes(p));
   if (hasSupervisorAccess && !hasAnySupSubPerm) {
     perms = Array.from(new Set([...perms, "supervisor:access", ...DEFAULT_SUPERVISOR_SUB_PERMS]));
+  }
+
+  // Live Translator sub-permissions fallback
+  const hasLiveTranslatorAccess = perms.includes("live_translator:access") || perms.includes("live_translator");
+  const hasAnyLiveTranslatorSubPerm = perms.some((p) => DEFAULT_LIVE_TRANSLATOR_SUB_PERMS.includes(p));
+  if (hasLiveTranslatorAccess && !hasAnyLiveTranslatorSubPerm) {
+    perms = Array.from(new Set([...perms, "live_translator:access", ...DEFAULT_LIVE_TRANSLATOR_SUB_PERMS]));
   }
 
   // Reports granular sub-permissions fallback if role has legacy reports:access
@@ -387,7 +404,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "operations",
       name: "Operasyon ve İzleme",
       icon: Activity,
-      items: ["dashboard", "wallboard", "supervisor", "call_monitor", "call_panel", "omnichannel", "api_budgets"]
+      items: ["dashboard", "wallboard", "supervisor", "call_monitor", "call_panel", "live_translator", "omnichannel", "api_budgets"]
     },
     {
       id: "supervisor_ops",
@@ -496,6 +513,11 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       if (feat.id === "supervisor") {
         SUPERVISOR_SUB_PERMS.forEach((sp) => {
           if (!codes.includes(sp.id)) codes.push(sp.id);
+        });
+      }
+      if (feat.id === "live_translator") {
+        LIVE_TRANSLATOR_SUB_PERMS.forEach((lp) => {
+          if (!codes.includes(lp.id)) codes.push(lp.id);
         });
       }
       if (feat.id === "call_panel") {
@@ -627,6 +649,12 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
             (p) => p !== "supervisor:access" && p !== "supervisor" && !DEFAULT_SUPERVISOR_SUB_PERMS.includes(p)
           )
         );
+      } else if (permCode === "live_translator:access") {
+        setSelectedPermissions(
+          selectedPermissions.filter(
+            (p) => p !== "live_translator:access" && p !== "live_translator" && !DEFAULT_LIVE_TRANSLATOR_SUB_PERMS.includes(p)
+          )
+        );
       } else {
         setSelectedPermissions(selectedPermissions.filter((p) => p !== permCode));
       }
@@ -637,6 +665,10 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         setSelectedPermissions(Array.from(new Set([...selectedPermissions, "supervisor:access", ...DEFAULT_SUPERVISOR_SUB_PERMS])));
       } else if (DEFAULT_SUPERVISOR_SUB_PERMS.includes(permCode)) {
         setSelectedPermissions(Array.from(new Set([...selectedPermissions, "supervisor:access", permCode])));
+      } else if (permCode === "live_translator:access") {
+        setSelectedPermissions(Array.from(new Set([...selectedPermissions, "live_translator:access", ...DEFAULT_LIVE_TRANSLATOR_SUB_PERMS])));
+      } else if (DEFAULT_LIVE_TRANSLATOR_SUB_PERMS.includes(permCode)) {
+        setSelectedPermissions(Array.from(new Set([...selectedPermissions, "live_translator:access", permCode])));
       } else {
         setSelectedPermissions([...selectedPermissions, permCode]);
       }
@@ -1301,6 +1333,43 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                                               {isSupSelected && <Check size={9} strokeWidth={3} />}
                                             </div>
                                             <span>{supItem.name}</span>
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Nested Sub-Options for Canlı Çeviri & Simultane Tercüman (live_translator) */}
+                                {feat.id === "live_translator" && (
+                                  <div className="mt-1 pt-3 border-t border-slate-200/70 dark:border-slate-800/80 space-y-2">
+                                    <span className="text-[10px] font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-wider block">
+                                      Canlı Çeviri & Simultane Tercüman Alt Yetkileri
+                                    </span>
+                                    <div className="flex flex-wrap gap-2">
+                                      {LIVE_TRANSLATOR_SUB_PERMS.map((ltItem) => {
+                                        const isLtSelected = selectedPermissions.includes(ltItem.id);
+                                        return (
+                                          <button
+                                            key={ltItem.id}
+                                            type="button"
+                                            onClick={() => togglePermission(ltItem.id)}
+                                            className={`px-2.5 py-1.5 rounded-xl border text-[10px] font-bold transition-all flex items-center gap-1.5 text-left ${
+                                              isLtSelected
+                                                ? `${lightBg} ${text} ${border}`
+                                                : "bg-white dark:bg-slate-900 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60"
+                                            }`}
+                                          >
+                                            <div
+                                              className={`w-3.5 h-3.5 rounded flex items-center justify-center border shrink-0 ${
+                                                isLtSelected
+                                                  ? `${bg} border-transparent text-white`
+                                                  : "border-slate-300 dark:border-slate-700"
+                                              }`}
+                                            >
+                                              {isLtSelected && <Check size={9} strokeWidth={3} />}
+                                            </div>
+                                            <span>{ltItem.name}</span>
                                           </button>
                                         );
                                       })}

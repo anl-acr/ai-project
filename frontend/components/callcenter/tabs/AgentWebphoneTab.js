@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import TranscriptPanel from "../../dashboard/TranscriptPanel";
 import AgentSessionCard from "../../phone/AgentSessionCard";
+import LiveTranslatorPanel from "../../phone/LiveTranslatorPanel";
 import {
   Phone,
   PhoneOff,
@@ -17,7 +18,8 @@ import {
   Radio,
   GitMerge,
   PhoneForwarded,
-  Users
+  Users,
+  Languages
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
@@ -39,13 +41,17 @@ export default function AgentWebphoneTab({
   const canTransfer = callPanelPerms.canTransfer !== false;
   const canConference = callPanelPerms.canConference !== false;
   const canRejectCall = callPanelPerms.canRejectCall !== false;
+  const canLiveTranslate = Boolean(callPanelPerms.canLiveTranslate);
+  const canVoiceInterpret = Boolean(callPanelPerms.canVoiceInterpret);
+  const hasAnyTranslatorPerm = canLiveTranslate || canVoiceInterpret;
   const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
 
-  // In-Call Transfer & Conference Popovers
+  // In-Call Transfer, Conference & Live Translator Popovers/Panels
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTarget, setTransferTarget] = useState("");
   const [conferenceOpen, setConferenceOpen] = useState(false);
   const [conferenceTarget, setConferenceTarget] = useState("");
+  const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
   const [newCallInput, setNewCallInput] = useState("");
   const [isNewCallOpen, setIsNewCallOpen] = useState(false);
 
@@ -981,6 +987,21 @@ export default function AgentWebphoneTab({
                           </div>
                         )}
 
+                        {hasAnyTranslatorPerm && (
+                          <button
+                            type="button"
+                            onClick={() => setIsTranslatorOpen((p) => !p)}
+                            title="Canlı Konuşma Çevirisi & Simultane Tercüman (TR ↔ Yabancı Dil)"
+                            className={`w-13 h-13 p-3.5 rounded-full border flex items-center justify-center transition-all hover:scale-110 ${
+                              isTranslatorOpen
+                                ? `${lightBg} ${text} ${borderLight}`
+                                : "bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 dark:bg-white/5 dark:border-white/10 dark:text-white dark:hover:bg-white/10"
+                            }`}
+                          >
+                            <Languages size={20} />
+                          </button>
+                        )}
+
                         <button
                           onClick={() => handleHangup()}
                           title="Seçili Hattı Sonlandır"
@@ -994,13 +1015,91 @@ export default function AgentWebphoneTab({
                 </div>
               </div>
 
+              {/* Live Translator & Interpreter Panel (Permission-Gated) */}
+              {hasAnyTranslatorPerm && (
+                <div className="shrink-0">
+                  {!isTranslatorOpen ? (
+                    <div
+                      onClick={() => setIsTranslatorOpen(true)}
+                      className={`cursor-pointer px-4 py-2.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex items-center justify-between hover:opacity-95 transition-all`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
+                          <Languages size={16} />
+                        </div>
+                        <div>
+                          <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                            Canlı Konuşma Çevirisi & Simultane Tercüman (TR ↔ Yabancı Dil)
+                          </span>
+                          <span className="ml-2 text-[10px] text-slate-400">
+                            Müşteri konuşmasını Türkçe metne/sese çevirmek için tıklayın
+                          </span>
+                        </div>
+                      </div>
+                      <span className={`px-3 py-1 rounded-xl text-[10px] font-extrabold text-white ${bg}`}>
+                        Canlı Çeviriyi Aç
+                      </span>
+                    </div>
+                  ) : (
+                    <LiveTranslatorPanel
+                      backendHost={backendHost}
+                      callId={activeCallId}
+                      callStatus={callStatus}
+                      canLiveTranslate={canLiveTranslate}
+                      canVoiceInterpret={canVoiceInterpret}
+                      onClose={() => setIsTranslatorOpen(false)}
+                    />
+                  )}
+                </div>
+              )}
+
               {/* Transcript Panel shrinks to fill remaining space */}
               <div className="flex-1 min-h-[220px] overflow-hidden">
                 <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
               </div>
             </div>
           ) : (
-            <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
+            <div className="flex flex-col h-full gap-3 overflow-y-auto">
+              {hasAnyTranslatorPerm && (
+                <div className="shrink-0">
+                  {!isTranslatorOpen ? (
+                    <div
+                      onClick={() => setIsTranslatorOpen(true)}
+                      className={`cursor-pointer px-4 py-3 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex items-center justify-between hover:opacity-95 transition-all`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div className={`p-2 rounded-xl ${lightBg} ${text}`}>
+                          <Languages size={17} />
+                        </div>
+                        <div>
+                          <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                            Canlı Konuşma Çevirisi & Simultane Tercüman
+                          </h4>
+                          <p className="text-[10px] text-slate-400 mt-0.5">
+                            Görüşme sırasında yabancı dil konuşmaları anlık Türkçe metne ve sese dönüştürür (Çift yönlü çeviri).
+                          </p>
+                        </div>
+                      </div>
+                      <span className={`px-3.5 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg}`}>
+                        Tercüman Panelini Aç
+                      </span>
+                    </div>
+                  ) : (
+                    <LiveTranslatorPanel
+                      backendHost={backendHost}
+                      callId={activeCallId}
+                      callStatus={callStatus}
+                      canLiveTranslate={canLiveTranslate}
+                      canVoiceInterpret={canVoiceInterpret}
+                      onClose={() => setIsTranslatorOpen(false)}
+                    />
+                  )}
+                </div>
+              )}
+              <div className="flex-1 min-h-[300px]">
+                <TranscriptPanel callId={activeCallId} backendHost={backendHost} callPanelPerms={callPanelPerms} />
+              </div>
+            </div>
           )}
         </div>
       </div>

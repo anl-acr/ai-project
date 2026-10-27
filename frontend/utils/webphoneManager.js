@@ -1330,6 +1330,154 @@ class WebphoneManager {
       this.confAudioCtx = null;
     }
   }
+
+  /**
+   * Returns a MediaStream containing the active call line's incoming remote audio track
+   * so LiveTranslatorPanel can capture customer speech in real-time.
+   */
+  getActiveRemoteStream() {
+    if (typeof window === "undefined") return null;
+    const lineId = this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : Array.from(this.linesMap.values())[0];
+    if (!line) return null;
+
+    if (line.remoteTrack && line.remoteTrack.readyState === "live") {
+      return new MediaStream([line.remoteTrack]);
+    }
+
+    const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+    if (!pc) return null;
+    const receivers = pc.getReceivers().filter((r) => r.track && r.track.kind === "audio");
+    if (receivers.length > 0) {
+      line.remoteTrack = receivers[0].track;
+      return new MediaStream([receivers[0].track]);
+    }
+    return null;
+  }
+
+  /**
+   * Lowers or restores the customer's raw audio volume in the agent's headset
+   * while Turkish voice translation is being played (Simultaneous Interpreter Ducking).
+   */
+  setRemoteAudioDucking(ducked = false, duckVolume = 0.2) {
+    if (typeof window === "undefined") return;
+    const lineId = this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : null;
+    if (!line) return;
+    const audioEl = this.ensureAudioElement(line.id);
+    if (audioEl) {
+      audioEl.volume = ducked ? Math.max(0.05, Math.min(1.0, duckVolume)) : 1.0;
+    }
+  }
+
+  /**
+   * Temporarily suppresses outgoing raw microphone audio to the customer while the agent
+   * records Turkish speech for translation into target language.
+   */
+  setRawMicSuppressed(suppressed = false) {
+    const lineId = this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : null;
+    if (!line) return;
+    const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+    if (!pc) return;
+    const shouldEnable = !suppressed && !line.isMuted && !line.isOnHold;
+    pc.getSenders().forEach((sender) => {
+      if (sender.track && sender.track.kind === "audio") {
+        sender.track.enabled = shouldEnable;
+      }
+    });
+  }
+
+  /**
+   * Decodes base64 synthesized speech (e.g. English TTS) and injects it directly into
+   * the active WebRTC call's outgoing RTP audio track so the customer on the phone hears it,
+   * while also playing a gentle monitor copy for the agent.
+   */
+  async playAudioIntoActiveCallLine(audioBase64, mimeType = "audio/mpeg", alsoPlayLocalMonitor = true) {
+    if (typeof window === "undefined" || !audioBase64) return false;
+    const lineId = this.state.activeLineId;
+    const line = lineId ? this.linesMap.get(lineId) : Array.from(this.linesMap.values())[0];
+
+    // Convert base64 to ArrayBuffer
+    const cleanB64 = audioBase64.includes(",") ? audioBase64.split(",")[1] : audioBase64;
+    const binaryStr = window.atob(cleanB64);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.charCodeAt(i);
+    }
+
+    // If there is no active WebRTC peerConnection (e.g. Demo Mode), play locally only
+    const pc = line?.session?.sessionDescriptionHandler?.peerConnection;
+    if (!pc) {
+      if (alsoPlayLocalMonitor) {
+        const audio = new Audio(`data:${mimeType};base64,${cleanB64}`);
+        await audio.play().catch(() => {});
+      }
+      return true;
+    }
+
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const ctx = new AudioCtx();
+      const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
+
+      const dest = ctx.createMediaStreamDestination();
+      const source = ctx.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(dest);
+
+      if (alsoPlayLocalMonitor) {
+        const monitorGain = ctx.createGain();
+        monitorGain.gain.value = 0.55;
+        source.connect(monitorGain);
+        monitorGain.connect(ctx.destination);
+      }
+
+      const ttsTrack = dest.stream.getAudioTracks()[0];
+      const audioSenders = pc.getSenders().filter((s) => s.track && s.track.kind === "audio");
+
+      // Save original mic track reference
+      audioSenders.forEach((sender) => {
+        if (sender.track && !line.origMicTrack) {
+          line.origMicTrack = sender.track;
+        }
+      });
+
+      if (ttsTrack && audioSenders.length > 0) {
+        await Promise.all(audioSenders.map((s) => s.replaceTrack(ttsTrack).catch(() => {})));
+      }
+
+      return await new Promise((resolve) => {
+        source.onended = async () => {
+          try {
+            if (line.origMicTrack) {
+              line.origMicTrack.enabled = !line.isMuted && !line.isOnHold;
+              await Promise.all(
+                pc
+                  .getSenders()
+                  .filter((s) => s.track && s.track.kind === "audio")
+                  .map((s) => s.replaceTrack(line.origMicTrack).catch(() => {}))
+              );
+            }
+          } catch (e) {}
+          try {
+            await ctx.close();
+          } catch (e) {}
+          resolve(true);
+        };
+        source.start(0);
+      });
+    } catch (err) {
+      console.error("[WebphoneManager] playAudioIntoActiveCallLine error:", err);
+      // Fallback local playback
+      if (alsoPlayLocalMonitor) {
+        const audio = new Audio(`data:${mimeType};base64,${cleanB64}`);
+        await audio.play().catch(() => {});
+      }
+      return false;
+    }
+  }
 }
 
 export const webphoneManager = new WebphoneManager();

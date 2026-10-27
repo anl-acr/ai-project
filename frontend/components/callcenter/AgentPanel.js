@@ -175,6 +175,24 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       return perms.includes(permCode);
     };
 
+    const isRoleAdmin = String(currentUser?.role || "").toLowerCase() === "admin";
+    const canLiveTranslate =
+      isRoleAdmin ||
+      Boolean(
+        perms &&
+          (perms.includes("call_panel:live_translation") ||
+            perms.includes("live_translator:access") ||
+            perms.includes("live_translator"))
+      );
+    const canVoiceInterpret =
+      isRoleAdmin ||
+      Boolean(
+        perms &&
+          (perms.includes("call_panel:voice_interpreter") ||
+            perms.includes("live_translator:access") ||
+            perms.includes("live_translator"))
+      );
+
     return {
       rawPermissions: perms || [],
       canListenRecords: checkWebphoneFeature("call_panel:listen_records"),
@@ -182,6 +200,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       canTransfer: checkWebphoneFeature("call_panel:webphone_transfer"),
       canConference: checkWebphoneFeature("call_panel:webphone_conference"),
       canRejectCall: checkWebphoneFeature("call_panel:webphone_reject"),
+      canLiveTranslate,
+      canVoiceInterpret,
       maskPhoneNumbers: Boolean(perms && perms.includes("call_panel:webphone_mask_number")),
       agentsCanSeeStatus: checkAgentsFeature("call_panel:agents_status"),
       agentsCanSeeDuration: checkAgentsFeature("call_panel:agents_duration"),

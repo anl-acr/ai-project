@@ -906,6 +906,7 @@ DEFAULT_SETTINGS = {
                 # Operasyon & İzleme
                 "dashboard:access", "wallboard:access", "supervisor:access",
                 "supervisor:agent_status", "supervisor:agent_logout", "supervisor:scope_filter",
+                "live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter",
                 "call_panel:access", "call_panel:listen_records", "omnichannel:access",
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
@@ -987,6 +988,7 @@ DEFAULT_SETTINGS = {
             "permissions": [
                 "dashboard:access", "wallboard:access", "supervisor:access",
                 "supervisor:agent_status", "supervisor:agent_logout", "supervisor:scope_filter",
+                "live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter",
                 "call_panel:access", "call_panel:listen_records", "omnichannel:access",
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
                 "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
@@ -1261,6 +1263,9 @@ def load_settings():
                     new_perms.append("call_monitor:barge")
                 if "sip_debugger:access" not in new_perms:
                     new_perms.append("sip_debugger:access")
+                for tr_perm in ["live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter"]:
+                    if tr_perm not in new_perms:
+                        new_perms.append(tr_perm)
             
             # Auto assign omnichannel to admin, supervisor, and agent if missing
             if r.get("role_code") in ["admin", "supervisor", "agent"]:
@@ -19356,6 +19361,307 @@ async def upload_user_avatar_endpoint(file: UploadFile = File(...), user_info: d
         "status": "success",
         "avatar_url": avatar_url,
         "message": "Özel avatar görseli başarıyla yüklendi."
+    }
+
+
+# ==============================================================================
+# LIVE SPEECH-TO-TEXT TRANSLATION & TWO-WAY VOICE INTERPRETER ENDPOINTS
+# ==============================================================================
+class LiveTranslateAudioPayload(BaseModel):
+    audio_base64: str
+    mime_type: Optional[str] = "audio/webm"
+    direction: Optional[str] = "customer_to_agent"
+    source_lang: Optional[str] = "en"
+    target_lang: Optional[str] = "tr"
+    generate_tts: Optional[bool] = False
+    call_id: Optional[str] = None
+
+
+class LiveTranslateTextPayload(BaseModel):
+    text: str
+    direction: Optional[str] = "customer_to_agent"
+    source_lang: Optional[str] = "en"
+    target_lang: Optional[str] = "tr"
+    generate_tts: Optional[bool] = False
+    call_id: Optional[str] = None
+
+
+LANG_NAME_MAP = {
+    "tr": "Turkish (Türkçe)",
+    "en": "English (İngilizce)",
+    "de": "German (Almanca)",
+    "ru": "Russian (Rusça)",
+    "ar": "Arabic (Arapça)",
+    "fr": "French (Fransızca)",
+    "es": "Spanish (İspanyolca)"
+}
+
+
+async def _synthesize_translator_tts_base64(text: str, lang_code: str = "tr") -> tuple[str, str]:
+    """Synthesizes natural speech audio (MP3 base64) for real-time voice interpretation."""
+    clean_text = (text or "").strip()
+    if not clean_text:
+        return "", "audio/mpeg"
+
+    # 1. Try ElevenLabs Multilingual v2 if API key is configured
+    try:
+        ai_prov = settings_db.get("ai_providers", {}) if isinstance(settings_db.get("ai_providers"), dict) else {}
+        el_key = (ai_prov.get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY") or "").strip()
+        if el_key:
+            voice_id = ai_prov.get("elevenlabs_voice_id") or "EXAVITQu4vr4xnSDxMaL"
+            url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?optimize_streaming_latency=3"
+            async with httpx.AsyncClient(timeout=8.0) as client:
+                r = await client.post(
+                    url,
+                    headers={"xi-api-key": el_key, "Content-Type": "application/json"},
+                    json={
+                        "text": clean_text[:350],
+                        "model_id": "eleven_multilingual_v2",
+                        "voice_settings": {"stability": 0.5, "similarity_boost": 0.75}
+                    }
+                )
+                if r.status_code == 200 and r.content:
+                    return base64.b64encode(r.content).decode("utf-8"), "audio/mpeg"
+    except Exception as el_err:
+        print(f"[LiveTranslator ElevenLabs TTS Fallback]: {el_err}")
+
+    # 2. Fast zero-cost Google Translate TTS stream fallback (works for tr, en, de, ru, ar, fr, es)
+    try:
+        import urllib.parse
+        tl = (lang_code or "tr").split("-")[0].lower()
+        q_enc = urllib.parse.quote(clean_text[:200])
+        tts_url = f"https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl={tl}&q={q_enc}"
+        async with httpx.AsyncClient(timeout=6.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            r = await client.get(tts_url)
+            if r.status_code == 200 and r.content:
+                return base64.b64encode(r.content).decode("utf-8"), "audio/mpeg"
+    except Exception as g_err:
+        print(f"[LiveTranslator Google TTS Warning]: {g_err}")
+
+    return "", "audio/mpeg"
+
+
+async def _fallback_google_text_translate(text: str, source_lang: str, target_lang: str) -> str:
+    """Fallback text translator when Gemini key is unavailable or rate-limited."""
+    try:
+        import urllib.parse
+        sl = (source_lang or "auto").split("-")[0].lower()
+        tl = (target_lang or "tr").split("-")[0].lower()
+        q_enc = urllib.parse.quote(text.strip())
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl={sl}&tl={tl}&dt=t&q={q_enc}"
+        async with httpx.AsyncClient(timeout=6.0, headers={"User-Agent": "Mozilla/5.0"}) as client:
+            r = await client.get(url)
+            if r.status_code == 200:
+                arr = r.json()
+                if isinstance(arr, list) and len(arr) > 0 and isinstance(arr[0], list):
+                    return "".join(seg[0] for seg in arr[0] if isinstance(seg, list) and len(seg) > 0 and seg[0])
+    except Exception as e:
+        print(f"[LiveTranslator Fallback Error]: {e}")
+    return ""
+
+
+async def _record_bilingual_transcript_turn(call_id: Optional[str], direction: str, original_text: str, translated_text: str, source_lang: str, target_lang: str):
+    if not call_id or call_id == "demo-call-99" or not translated_text:
+        return
+    try:
+        speaker = "customer" if direction == "customer_to_agent" else "human"
+        bilingual_line = f"[{source_lang.upper()} -> {target_lang.upper()}] {translated_text} ({original_text})"
+        await ws_manager.broadcast_to_call(
+            call_id,
+            {
+                "type": "transcript",
+                "speaker": speaker,
+                "text": bilingual_line
+            }
+        )
+    except Exception:
+        pass
+
+
+@app.post("/api/live-translator/translate-audio")
+@app.post("/live-translator/translate-audio")
+async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user_info: dict = Depends(get_user_info)):
+    raw_b64 = (payload.audio_base64 or "").strip()
+    if "," in raw_b64:
+        raw_b64 = raw_b64.split(",", 1)[1]
+    if not raw_b64:
+        return {"original_text": "", "translated_text": ""}
+
+    src_code = (payload.source_lang or "en").lower()
+    tgt_code = (payload.target_lang or "tr").lower()
+    src_name = LANG_NAME_MAP.get(src_code, src_code)
+    tgt_name = LANG_NAME_MAP.get(tgt_code, tgt_code)
+
+    ai_prov = settings_db.get("ai_providers", {}) if isinstance(settings_db.get("ai_providers"), dict) else {}
+    gemini_key = (ai_prov.get("gemini_api_key") or os.getenv("GEMINI_API_KEY") or "").strip()
+
+    original_text = ""
+    translated_text = ""
+    suggested_reply_tr = ""
+    suggested_reply_target = ""
+    detected_lang = src_code
+
+    if gemini_key:
+        prompt_text = (
+            f"You are a real-time call center simultaneous interpreter. "
+            f"Listen to this audio clip spoken in {src_name}. "
+            f"If the audio contains only silence, static, or unintelligible background noise, return empty strings. "
+            f"Otherwise, transcribe the exact speech into `original_text` and translate it accurately and naturally into {tgt_name} as `translated_text`. "
+            f"Also provide a polite, helpful call-center agent reply suggestion in Turkish (`suggested_reply_tr`) and in {src_name} (`suggested_reply_target`). "
+            f"Return ONLY valid JSON with keys: "
+            f'{{"detected_lang": "{src_code}", "original_text": "...", "translated_text": "...", "suggested_reply_tr": "...", "suggested_reply_target": "..."}}'
+        )
+        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash"]:
+            try:
+                g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+                req_body = {
+                    "contents": [
+                        {
+                            "parts": [
+                                {"text": prompt_text},
+                                {
+                                    "inline_data": {
+                                        "mime_type": payload.mime_type or "audio/webm",
+                                        "data": raw_b64
+                                    }
+                                }
+                            ]
+                        }
+                    ],
+                    "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
+                }
+                async with httpx.AsyncClient(timeout=12.0) as client:
+                    resp = await client.post(g_url, json=req_body)
+                    if resp.status_code == 200:
+                        r_json = resp.json()
+                        cand_text = (
+                            r_json.get("candidates", [{}])[0]
+                            .get("content", {})
+                            .get("parts", [{}])[0]
+                            .get("text", "")
+                        )
+                        if cand_text:
+                            cleaned = cand_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                            parsed = json.loads(cleaned)
+                            original_text = (parsed.get("original_text") or "").strip()
+                            translated_text = (parsed.get("translated_text") or "").strip()
+                            suggested_reply_tr = (parsed.get("suggested_reply_tr") or "").strip()
+                            suggested_reply_target = (parsed.get("suggested_reply_target") or "").strip()
+                            detected_lang = (parsed.get("detected_lang") or src_code).strip()
+                            break
+            except Exception as g_err:
+                print(f"[LiveTranslator Audio Gemini ({model_name}) Warning]: {g_err}")
+
+    tts_b64 = ""
+    tts_mime = "audio/mpeg"
+    if payload.generate_tts and translated_text:
+        tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code)
+
+    if original_text and translated_text:
+        await _record_bilingual_transcript_turn(
+            payload.call_id,
+            payload.direction or "customer_to_agent",
+            original_text,
+            translated_text,
+            src_code,
+            tgt_code
+        )
+
+    return {
+        "detected_lang": detected_lang,
+        "original_text": original_text,
+        "translated_text": translated_text,
+        "suggested_reply_tr": suggested_reply_tr,
+        "suggested_reply_target": suggested_reply_target,
+        "tts_audio_base64": tts_b64,
+        "tts_mime_type": tts_mime
+    }
+
+
+@app.post("/api/live-translator/translate-text")
+@app.post("/live-translator/translate-text")
+async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_info: dict = Depends(get_user_info)):
+    clean_text = (payload.text or "").strip()
+    if not clean_text:
+        return {"original_text": "", "translated_text": ""}
+
+    src_code = (payload.source_lang or "en").lower()
+    tgt_code = (payload.target_lang or "tr").lower()
+    src_name = LANG_NAME_MAP.get(src_code, src_code)
+    tgt_name = LANG_NAME_MAP.get(tgt_code, tgt_code)
+
+    ai_prov = settings_db.get("ai_providers", {}) if isinstance(settings_db.get("ai_providers"), dict) else {}
+    gemini_key = (ai_prov.get("gemini_api_key") or os.getenv("GEMINI_API_KEY") or "").strip()
+
+    translated_text = ""
+    suggested_reply_tr = ""
+    suggested_reply_target = ""
+
+    if gemini_key:
+        prompt_text = (
+            f"You are a professional call-center simultaneous interpreter. "
+            f"Translate the following message from {src_name} into {tgt_name} naturally and accurately.\n"
+            f"Message: \"{clean_text}\"\n"
+            f"Also provide a polite call-center agent reply suggestion in Turkish (`suggested_reply_tr`) and in {src_name if payload.direction == 'customer_to_agent' else tgt_name} (`suggested_reply_target`). "
+            f"Return ONLY valid JSON: "
+            f'{{"translated_text": "...", "suggested_reply_tr": "...", "suggested_reply_target": "..."}}'
+        )
+        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash"]:
+            try:
+                g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+                req_body = {
+                    "contents": [{"parts": [{"text": prompt_text}]}],
+                    "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
+                }
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    resp = await client.post(g_url, json=req_body)
+                    if resp.status_code == 200:
+                        r_json = resp.json()
+                        cand_text = (
+                            r_json.get("candidates", [{}])[0]
+                            .get("content", {})
+                            .get("parts", [{}])[0]
+                            .get("text", "")
+                        )
+                        if cand_text:
+                            cleaned = cand_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                            parsed = json.loads(cleaned)
+                            translated_text = (parsed.get("translated_text") or "").strip()
+                            suggested_reply_tr = (parsed.get("suggested_reply_tr") or "").strip()
+                            suggested_reply_target = (parsed.get("suggested_reply_target") or "").strip()
+                            break
+            except Exception as g_err:
+                print(f"[LiveTranslator Text Gemini ({model_name}) Warning]: {g_err}")
+
+    if not translated_text:
+        translated_text = await _fallback_google_text_translate(clean_text, src_code, tgt_code)
+        if payload.direction == "customer_to_agent" and not suggested_reply_tr:
+            suggested_reply_tr = "Memnuniyetle yardımcı olabilirim, hemen kontrol ediyorum."
+            suggested_reply_target = await _fallback_google_text_translate(suggested_reply_tr, "tr", src_code)
+
+    tts_b64 = ""
+    tts_mime = "audio/mpeg"
+    if payload.generate_tts and translated_text:
+        tts_b64, tts_mime = await _synthesize_translator_tts_base64(translated_text, tgt_code)
+
+    if translated_text:
+        await _record_bilingual_transcript_turn(
+            payload.call_id,
+            payload.direction or "customer_to_agent",
+            clean_text,
+            translated_text,
+            src_code,
+            tgt_code
+        )
+
+    return {
+        "detected_lang": src_code,
+        "original_text": clean_text,
+        "translated_text": translated_text,
+        "suggested_reply_tr": suggested_reply_tr,
+        "suggested_reply_target": suggested_reply_target,
+        "tts_audio_base64": tts_b64,
+        "tts_mime_type": tts_mime
     }
 
 
