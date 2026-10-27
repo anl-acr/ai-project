@@ -261,12 +261,8 @@ export default function AgentWebphoneTab({
   return (
     <div className="w-full h-full p-4 lg:p-6 overflow-hidden flex flex-col relative">
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
-        {/* Left Column: Phone Controls & Session */}
+        {/* Left Column: Phone Controls */}
         <div className="lg:col-span-4 xl:col-span-3 flex flex-col gap-6 h-full overflow-y-auto hide-scrollbar pb-6">
-          <div className="w-full shrink-0 animate-in fade-in slide-in-from-left-4 duration-500">
-            <AgentSessionCard backendHost={backendHost} currentUser={currentUser} activeCallId={activeCallId} />
-          </div>
-
           {/* Enhanced Dialpad (Always active so user can dial a new line anytime) */}
           <div className={`p-6 bg-white dark:bg-slate-900 border ${borderLight} rounded-3xl shadow-xl shadow-slate-200/40 dark:shadow-slate-900/40 flex flex-col items-center shrink-0 animate-in fade-in slide-in-from-left-4 duration-700`}>
             {callNotification && (

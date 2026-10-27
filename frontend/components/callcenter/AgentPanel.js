@@ -10,6 +10,7 @@ import AgentHistoryTab from "./tabs/AgentHistoryTab";
 import AgentVoicemailTab from "./tabs/AgentVoicemailTab";
 import AgentChatTab from "./tabs/AgentChatTab";
 import AgentQueuePeersTab from "./tabs/AgentQueuePeersTab";
+import AgentSessionCard from "../phone/AgentSessionCard";
 import { useTheme } from "../../utils/theme";
 
 export const ALL_TABS = [
@@ -263,9 +264,9 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
 
   return (
     <div className="flex h-full w-full max-w-[1600px] gap-5 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
-      {/* Sidebar & Tabs */}
+      {/* Sidebar & Tabs + Agent Session Card */}
       <div
-        className={`w-52 shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:block transition-all duration-200`}
+        className={`w-64 shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:flex md:flex-col transition-all duration-200`}
       >
         <div className="flex flex-col space-y-1.5">
           {tabs.map((tab) => (
@@ -282,6 +283,16 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               <span className="text-sm">{tab.name}</span>
             </button>
           ))}
+        </div>
+
+        {/* Agent Session & Break Status Card placed below Sohbet */}
+        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+          <AgentSessionCard
+            backendHost={backendHost}
+            currentUser={currentUser}
+            activeCallId={activeCallId}
+            compact={true}
+          />
         </div>
       </div>
 

@@ -11,7 +11,7 @@ const DEFAULT_DISPOSITIONS = [
   "İptal / Şikayet"
 ];
 
-export default function AgentSessionCard({ backendHost = "localhost:8000", currentUser, activeCallId = null }) {
+export default function AgentSessionCard({ backendHost = "localhost:8000", currentUser, activeCallId = null, compact = false }) {
   const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [agentState, setAgentState] = useState({
     is_logged_in: false,
@@ -403,30 +403,36 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   const statusDisplay = getStatusDisplay();
 
   return (
-    <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm transition-all duration-300">
-      <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60 mb-4 flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <h4 className="font-bold text-xs text-slate-700 dark:text-slate-300 uppercase tracking-wide">
+    <div
+      className={`${
+        compact
+          ? "p-3.5 bg-slate-50/70 dark:bg-slate-950/50 border border-slate-200/70 dark:border-slate-800/80 rounded-2xl"
+          : "p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/85 rounded-2xl shadow-sm"
+      } transition-all duration-300`}
+    >
+      <div className="pb-3 border-b border-slate-100 dark:border-slate-800/60 mb-3 flex flex-col gap-2">
+        <div className={`flex ${compact ? "flex-col items-start gap-1.5" : "items-center justify-between"}`}>
+          <h4 className="font-bold text-[11px] text-slate-700 dark:text-slate-300 uppercase tracking-wide">
             Temsilci Oturumu
           </h4>
           
           {/* Status Indicator Badge */}
           <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${statusDisplay.badgeClass}`}>
             <span 
-              className={`h-1.5 w-1.5 rounded-full ${statusDisplay.customColor ? "" : statusDisplay.indicatorClass}`} 
+              className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusDisplay.customColor ? "" : statusDisplay.indicatorClass}`} 
               style={statusDisplay.customColor ? { backgroundColor: statusDisplay.customColor } : {}}
             />
-            {statusDisplay.text}
+            <span className="truncate">{statusDisplay.text}</span>
           </span>
         </div>
 
         {/* Logged In User Profile Summary */}
         {agentState.is_logged_in && loggedInUser && (
-          <div className="flex items-center gap-2.5 p-2 bg-slate-50 dark:bg-slate-950 border border-slate-200/40 dark:border-slate-800/60 rounded-xl mt-1">
-            <img src={loggedInUser.avatar} className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200/20" alt="" />
-            <div>
-              <p className="text-[10px] font-bold text-slate-800 dark:text-white leading-tight">{loggedInUser.full_name}</p>
-              <p className="text-[8px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mt-0.5">
+          <div className="flex items-center gap-2.5 p-2 bg-white dark:bg-slate-900 border border-slate-200/50 dark:border-slate-800/60 rounded-xl mt-0.5">
+            <img src={loggedInUser.avatar} className="w-8 h-8 rounded-lg bg-slate-100 dark:bg-slate-900 border border-slate-200/20 shrink-0" alt="" />
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold text-slate-800 dark:text-white leading-tight truncate">{loggedInUser.full_name}</p>
+              <p className="text-[8px] font-bold text-slate-450 dark:text-slate-500 uppercase tracking-wider mt-0.5 truncate">
                 Dahili: {loggedInUser.extension} • {loggedInUserRoleObj ? loggedInUserRoleObj.name : loggedInUser.role}
               </p>
             </div>
