@@ -666,7 +666,7 @@ export default function AgentWebphoneTab({
                               className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
                                 isMissed
                                   ? "bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400"
-                                  : "bg-emerald-100 text-emerald-600 dark:bg-emerald-950/50 dark:text-emerald-400"
+                                  : `${lightBg} ${text}`
                               }`}
                             >
                               {isMissed ? (
@@ -704,7 +704,7 @@ export default function AgentWebphoneTab({
                                 setDialNumber(rawNum);
                                 handleCall(rawNum);
                               }}
-                              className="h-8 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white text-[11px] font-bold flex items-center gap-1.5 shrink-0 transition-all"
+                              className={`h-8 px-3 rounded-xl ${bg} ${hover} text-white text-[11px] font-bold flex items-center gap-1.5 shrink-0 transition-all`}
                               title="Hemen Ara"
                             >
                               <Phone size={12} className="fill-current" />
