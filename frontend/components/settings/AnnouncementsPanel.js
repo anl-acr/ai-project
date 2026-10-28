@@ -1,9 +1,34 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square, Edit2 } from "lucide-react";
+import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square, Edit2, Bot, Sparkles } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 import { createPortal } from "react-dom";
+
+const GEMINI_VOICE_OPTIONS = [
+  "Aoede (Dişi - Türkçe / İngilizce)",
+  "Kore (Dişi - Yumuşak)",
+  "tr-TR-EmelNeural (Emel - Doğal Türkçe Kadın)",
+  "Puck (Erkek - Dinamik)",
+  "Charon (Erkek - Tok & Resmi)",
+  "Fenrir (Erkek - Derin)",
+  "tr-TR-AhmetNeural (Ahmet - Doğal Türkçe Erkek)",
+  "Sophia (Female - English)",
+  "John (Male - English)"
+];
+
+const DEFAULT_ELEVENLABS_VOICES = [
+  { voice_id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel (Female - Conversational)" },
+  { voice_id: "AZnzlk1XvdvUeBnXmlld", name: "Domi (Female - Energetic)" },
+  { voice_id: "EXAVITQu4vr4xnSDxMaL", name: "Bella (Female - Professional)" },
+  { voice_id: "ErXwobaYiN019PkySvjV", name: "Antoni (Male - Professional)" },
+  { voice_id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli (Female - Emotional)" },
+  { voice_id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh (Male - Deep & Trustworthy)" },
+  { voice_id: "VR6AewLTigWG4xSOukaG", name: "Arnold (Male - Authoritative)" },
+  { voice_id: "pNInz6obpgDQGcFmaJgB", name: "Adam (Male - Conversational)" },
+  { voice_id: "yoZ06aGfZXsp3F3Dfd0g", name: "Sam (Male - Dynamic)" },
+  { voice_id: "JBFqnCBsd6RMkjVDRZzb", name: "George (Male - Warm & Friendly)" }
+];
 
 export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -31,6 +56,24 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const [isGenerating, setIsGenerating] = useState(false);
   const [modalError, setModalError] = useState("");
 
+  // AI Agent & Voice Selection States for TTS
+  const [aiAgents, setAiAgents] = useState([]);
+  const [selectedAgentId, setSelectedAgentId] = useState("");
+  const [ttsProvider, setTtsProvider] = useState("google");
+  const [ttsVoice, setTtsVoice] = useState("Aoede (Dişi - Türkçe / İngilizce)");
+  const [ttsTone, setTtsTone] = useState("normal");
+  const [ttsSpeakingRate, setTtsSpeakingRate] = useState(1.0);
+  const [elevenlabsVoiceId, setElevenlabsVoiceId] = useState("");
+  const [elevenlabsStability, setElevenlabsStability] = useState(0.5);
+  const [elevenlabsSimilarity, setElevenlabsSimilarity] = useState(0.75);
+  const [elevenlabsStyle, setElevenlabsStyle] = useState(0.0);
+  const [elevenlabsVoiceList, setElevenlabsVoiceList] = useState([]);
+
+  // Modal TTS Preview States
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState(false);
+  const previewAudioRef = useRef(null);
+
   const API_BASE = getApiBaseUrl(backendHost);
 
   const formatDuration = (sec) => {
@@ -44,15 +87,120 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
   useEffect(() => {
     fetchAnnouncements();
-    const handleTenantChange = () => fetchAnnouncements();
+    fetchAiAgentsAndVoices();
+    const handleTenantChange = () => {
+      fetchAnnouncements();
+      fetchAiAgentsAndVoices();
+    };
     window.addEventListener("tenantChanged", handleTenantChange);
     return () => {
       window.removeEventListener("tenantChanged", handleTenantChange);
       if (audioRef.current) {
         audioRef.current.pause();
       }
+      stopPreviewAudio();
     };
   }, []);
+
+  const fetchAiAgentsAndVoices = async () => {
+    try {
+      const [agRes, elRes] = await Promise.all([
+        tenantFetch(`${API_BASE}/api/settings/ai-agents`),
+        tenantFetch(`${API_BASE}/api/settings/ai-providers/elevenlabs-voices`)
+      ]);
+      if (agRes.ok) {
+        const agData = await agRes.json();
+        setAiAgents(Array.isArray(agData) ? agData : (agData?.agents || []));
+      }
+      if (elRes.ok) {
+        const elData = await elRes.json();
+        if (Array.isArray(elData?.voices) && elData.voices.length > 0) {
+          setElevenlabsVoiceList(elData.voices);
+        }
+      }
+    } catch (err) {
+      console.error("AI Temsilcileri ve ses listesi yüklenemedi", err);
+    }
+  };
+
+  const stopPreviewAudio = () => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      previewAudioRef.current.currentTime = 0;
+      previewAudioRef.current = null;
+    }
+    setIsPreviewPlaying(false);
+  };
+
+  const handleSelectAiAgent = (agentIdVal) => {
+    setSelectedAgentId(agentIdVal);
+    if (!agentIdVal) return;
+    const found = aiAgents.find((a) => String(a.id) === String(agentIdVal));
+    if (!found) return;
+    const resolvedProvider = found.tts_provider || (found.provider === "elevenlabs" || found.elevenlabs_voice_id ? "elevenlabs" : "google");
+    setTtsProvider(resolvedProvider);
+    if (found.voice) setTtsVoice(found.voice);
+    if (found.tone) setTtsTone(found.tone);
+    if (found.speaking_rate) setTtsSpeakingRate(Number(found.speaking_rate) || 1.0);
+    if (found.elevenlabs_voice_id) setElevenlabsVoiceId(found.elevenlabs_voice_id);
+    if (found.elevenlabs_stability !== undefined) setElevenlabsStability(Number(found.elevenlabs_stability));
+    if (found.elevenlabs_similarity !== undefined) setElevenlabsSimilarity(Number(found.elevenlabs_similarity));
+    if (found.elevenlabs_style !== undefined) setElevenlabsStyle(Number(found.elevenlabs_style));
+  };
+
+  const handlePreviewTts = async () => {
+    if (!ttsText.trim()) return;
+    if (isPreviewPlaying) {
+      stopPreviewAudio();
+      return;
+    }
+    stopPreviewAudio();
+    setIsPreviewLoading(true);
+    setModalError("");
+    try {
+      const res = await tenantFetch(`${API_BASE}/api/settings/ai-agents/tts-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: ttsText.trim(),
+          voice: ttsVoice,
+          tone: ttsTone,
+          tts_provider: ttsProvider,
+          speaking_rate: ttsSpeakingRate,
+          elevenlabs_voice_id: elevenlabsVoiceId,
+          elevenlabs_stability: elevenlabsStability,
+          elevenlabs_similarity: elevenlabsSimilarity,
+          elevenlabs_style: elevenlabsStyle
+        })
+      });
+      if (res.ok) {
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        previewAudioRef.current = audio;
+        setIsPreviewPlaying(true);
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          setIsPreviewPlaying(false);
+          previewAudioRef.current = null;
+        };
+        audio.onerror = () => {
+          URL.revokeObjectURL(url);
+          setIsPreviewPlaying(false);
+          previewAudioRef.current = null;
+        };
+        await audio.play();
+      } else {
+        const errData = await res.json().catch(() => ({}));
+        setModalError(errData?.detail || "Ses ön izlemesi oluşturulamadı.");
+      }
+    } catch (err) {
+      console.error("TTS ön izleme hatası:", err);
+      setModalError("Ses ön izlemesi sırasında bağlantı hatası oluştu.");
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
 
   // Preload durations in browser for any announcement missing backend duration
   useEffect(() => {
@@ -99,28 +247,49 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   };
 
   const resetModal = () => {
+    stopPreviewAudio();
     setShowModal(false);
     setEditingAnn(null);
     setNewAnnName("");
     setAnnType("announcement");
     setSelectedFile(null);
     setTtsText("");
+    setSelectedAgentId("");
+    setTtsProvider("google");
+    setTtsVoice("Aoede (Dişi - Türkçe / İngilizce)");
+    setTtsTone("normal");
+    setTtsSpeakingRate(1.0);
+    setElevenlabsVoiceId("");
+    setElevenlabsStability(0.5);
+    setElevenlabsSimilarity(0.75);
+    setElevenlabsStyle(0.0);
     setModalError("");
     setActiveTab("upload");
   };
 
   const openCreateModal = () => {
+    stopPreviewAudio();
     setEditingAnn(null);
     setNewAnnName("");
     setAnnType("announcement");
     setSelectedFile(null);
     setTtsText("");
+    setSelectedAgentId("");
+    setTtsProvider("google");
+    setTtsVoice("Aoede (Dişi - Türkçe / İngilizce)");
+    setTtsTone("normal");
+    setTtsSpeakingRate(1.0);
+    setElevenlabsVoiceId("");
+    setElevenlabsStability(0.5);
+    setElevenlabsSimilarity(0.75);
+    setElevenlabsStyle(0.0);
     setModalError("");
     setActiveTab("upload");
     setShowModal(true);
   };
 
   const openEditModal = (ann) => {
+    stopPreviewAudio();
     if (playingId === ann.id) {
       if (audioRef.current) {
         audioRef.current.pause();
@@ -134,6 +303,15 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     setAnnType(ann.type || "announcement");
     setSelectedFile(null);
     setTtsText(ann.text || "");
+    setSelectedAgentId(ann.agent_id || "");
+    setTtsProvider(ann.tts_provider || "google");
+    setTtsVoice(ann.voice || "Aoede (Dişi - Türkçe / İngilizce)");
+    setTtsTone(ann.tone || "normal");
+    setTtsSpeakingRate(Number(ann.speaking_rate) || 1.0);
+    setElevenlabsVoiceId(ann.elevenlabs_voice_id || "");
+    setElevenlabsStability(ann.elevenlabs_stability !== undefined ? Number(ann.elevenlabs_stability) : 0.5);
+    setElevenlabsSimilarity(ann.elevenlabs_similarity !== undefined ? Number(ann.elevenlabs_similarity) : 0.75);
+    setElevenlabsStyle(ann.elevenlabs_style !== undefined ? Number(ann.elevenlabs_style) : 0.0);
     setModalError("");
     setActiveTab(ann.text || ann.source === "tts" ? "tts" : "upload");
     setShowModal(true);
@@ -156,7 +334,6 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     try {
       let res;
       if (editingAnn && !selectedFile) {
-        // Metadata-only update (name / type) when no new audio file is selected
         res = await tenantFetch(`${API_BASE}/api/settings/announcements/${editingAnn.id}`, {
           method: "PUT",
           headers: {
@@ -200,13 +377,23 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     e.preventDefault();
     if (!newAnnName.trim() || !ttsText.trim()) return;
 
+    stopPreviewAudio();
     setIsGenerating(true);
     setModalError("");
     try {
       const payload = {
         name: newAnnName.trim(),
         type: annType,
-        text: ttsText.trim()
+        text: ttsText.trim(),
+        agent_id: selectedAgentId,
+        tts_provider: ttsProvider,
+        voice: ttsVoice,
+        tone: ttsTone,
+        speaking_rate: ttsSpeakingRate,
+        elevenlabs_voice_id: elevenlabsVoiceId,
+        elevenlabs_stability: elevenlabsStability,
+        elevenlabs_similarity: elevenlabsSimilarity,
+        elevenlabs_style: elevenlabsStyle
       };
       if (editingAnn?.id) {
         payload.id = editingAnn.id;
@@ -221,6 +408,13 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       });
 
       if (res.ok) {
+        const savedData = await res.json().catch(() => ({}));
+        if (savedData?.announcement?.id && savedData?.announcement?.duration > 0) {
+          setDurations((prev) => ({
+            ...prev,
+            [savedData.announcement.id]: savedData.announcement.duration
+          }));
+        }
         resetModal();
         fetchAnnouncements();
       } else {
@@ -409,6 +603,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
               const totalDur = durations[ann.id] || ann.duration || 0;
               const isPlayingThis = playingId === ann.id;
               const progressRatio = isPlayingThis && totalDur > 0 ? Math.min(1, currentTime / totalDur) : 0;
+              const shortVoiceLabel = ann.voice ? String(ann.voice).split("(")[0].trim() : "";
 
               return (
               <div key={ann.id} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 rounded-[24px] p-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:shadow-md transition-all shadow-sm">
@@ -432,7 +627,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                       </span>
                       {isTtsItem && (
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${lightBg} ${text}`}>
-                          TTS
+                          TTS{shortVoiceLabel ? ` • ${shortVoiceLabel}` : ""}
                         </span>
                       )}
                       {subFileLabel && (
@@ -510,176 +705,404 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
         )}
       </div>
 
-      {/* Upload / Edit Modal */}
+      {/* Upload / Edit Modal (Spacious max-w-4xl Layout) */}
       {showModal && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
-              <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                {editingAnn ? <Edit2 size={16} className={text} /> : <Volume2 size={16} className={text} />}
-                {editingAnn ? "Anonsu Düzenle" : "Yeni Medya Yükle"}
-              </h3>
+          <div className="w-full max-w-4xl max-h-[88vh] flex flex-col bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 shrink-0">
+              <div>
+                <h3 className="text-base font-black text-slate-800 dark:text-white flex items-center gap-2">
+                  {editingAnn ? <Edit2 size={18} className={text} /> : <Volume2 size={18} className={text} />}
+                  {editingAnn ? "Anonsu Düzenle" : "Yeni Medya / Anons Oluştur"}
+                </h3>
+                <p className="text-xs text-slate-500 font-medium mt-0.5">
+                  Ses dosyası yükleyin veya Yapay Zeka Temsilcisi sesleriyle doğal Türkçe anons oluşturun.
+                </p>
+              </div>
               <button
                 onClick={resetModal}
-                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
+                className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
               >
-                <X size={16} />
+                <X size={18} />
               </button>
             </div>
 
             {/* Main Body with Left Sidebar Navigation */}
             <div className="flex flex-1 overflow-hidden">
               {/* Left Sidebar */}
-              <div className="w-48 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-3 shrink-0 overflow-y-auto">
-                <nav className="space-y-1">
+              <div className="w-60 bg-slate-50/50 dark:bg-slate-950/30 border-r border-slate-100 dark:border-slate-800/60 p-4 shrink-0 overflow-y-auto">
+                <nav className="space-y-1.5">
                   <button
                     type="button"
-                    onClick={() => setActiveTab("upload")}
-                    className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'upload' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    onClick={() => {
+                      stopPreviewAudio();
+                      setActiveTab("upload");
+                    }}
+                    className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'upload' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                   >
-                    <Volume2 size={15} /> Dosya Yükle
+                    <Volume2 size={16} /> Dosya Yükle
                   </button>
                   <button
                     type="button"
                     onClick={() => setActiveTab("tts")}
-                    className={"w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'tts' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                    className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'tts' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                   >
-                    <FileAudio size={15} /> Metinden Sese (TTS)
+                    <Bot size={16} /> Yapay Zeka Seslendirme (TTS)
                   </button>
                 </nav>
               </div>
 
               {/* Right Content */}
               <div className="flex-1 overflow-y-auto">
-                <form onSubmit={activeTab === "upload" ? handleUpload : handleTTSUpload} className="p-6 space-y-5">
+                <form onSubmit={activeTab === "upload" ? handleUpload : handleTTSUpload} className="p-6 sm:p-7 space-y-6">
               
-              {activeTab === "upload" ? (
-                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex items-start gap-3">
-                  <Info size={16} className="text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
-                  <div>
-                    <h5 className="text-[11px] font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider mb-1">Asterisk Uyumlu Ses Formatı</h5>
-                    <p className="text-[10px] text-amber-700/80 dark:text-amber-500/80 leading-relaxed font-medium">
-                      Santralin anonsu hatasız oynatabilmesi için yükleyeceğiniz dosyanın <strong>WAV, 8000Hz, 16-bit, Mono</strong> formatında olması gerekmektedir. Farklı formatlar görüşme esnasında çalmayabilir.
-                    </p>
+                  {modalError && (
+                    <div className="p-3.5 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-bold">
+                      {modalError}
+                    </div>
+                  )}
+
+                  {/* Ortak Alan: Medya Adı & Medya Tipi */}
+                  <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 grid grid-cols-1 sm:grid-cols-3 gap-5 items-center">
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Medya / Anons Adı</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Örn: Karşılama Anonsu, Mesai Dışı Bilgilendirme..."
+                        value={newAnnName}
+                        onChange={(e) => setNewAnnName(e.target.value)}
+                        className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all`}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">Medya Tipi</label>
+                      <div className="flex flex-col gap-2">
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="radio" value="announcement" checked={annType === "announcement"} onChange={(e) => setAnnType(e.target.value)} className="accent-rose-600" />
+                          <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">Anons</span>
+                        </label>
+                        <label className="flex items-center gap-2 cursor-pointer">
+                          <input type="radio" value="moh" checked={annType === "moh"} onChange={(e) => setAnnType(e.target.value)} className="accent-rose-600" />
+                          <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">Bekletme Müziği (MoH)</span>
+                        </label>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ) : (
-                <div className={`border rounded-xl p-4 flex items-start gap-3 ${lightBg} ${borderLight}`}>
-                  <Info size={16} className={`${text} shrink-0 mt-0.5`} />
-                  <div>
-                    <h5 className={`text-[11px] font-bold uppercase tracking-wider mb-1 ${text}`}>Otomatik Ses Sentezi (TTS)</h5>
-                    <p className="text-[10px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
-                      Yazdığınız metin doğal Türkçe ses ile sentezlenerek santral uyumlu <strong>8000Hz, 16-bit, Mono WAV</strong> formatına otomatik dönüştürülür.
-                    </p>
-                  </div>
-                </div>
-              )}
 
-              {modalError && (
-                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-bold">
-                  {modalError}
-                </div>
-              )}
+                  {activeTab === "upload" ? (
+                    <div className="space-y-5">
+                      <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-2xl p-4 flex items-start gap-3">
+                        <Info size={16} className="text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                        <div>
+                          <h5 className="text-xs font-bold text-amber-800 dark:text-amber-400 mb-0.5">Asterisk Uyumlu Ses Formatı</h5>
+                          <p className="text-[11px] text-amber-700/80 dark:text-amber-500/80 leading-relaxed font-medium">
+                            Yüklediğiniz WAV veya MP3 dosyası santralin hatasız oynatabilmesi için otomatik olarak <strong>WAV, 8000Hz, 16-bit, Mono</strong> formatına dönüştürülür.
+                          </p>
+                        </div>
+                      </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Medya Tipi</label>
-                <div className="flex gap-4">
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" value="announcement" checked={annType === "announcement"} onChange={(e) => setAnnType(e.target.value)} className={`text-${bg.split('-')[1] || 'primary'}-600 focus:ring-${bg.split('-')[1] || 'primary'}-500`} />
-                    <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">Anons</span>
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer">
-                    <input type="radio" value="moh" checked={annType === "moh"} onChange={(e) => setAnnType(e.target.value)} className={`text-${bg.split('-')[1] || 'primary'}-600 focus:ring-${bg.split('-')[1] || 'primary'}-500`} />
-                    <span className="text-xs text-slate-700 dark:text-slate-300 font-bold">Bekletme Müziği (MoH)</span>
-                  </label>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Medya Adı</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Örn: Mesai Dışı Karşılama"
-                  value={newAnnName}
-                  onChange={(e) => setNewAnnName(e.target.value)}
-                  className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-800 transition-all"
-                />
-              </div>
-
-              {activeTab === "upload" ? (
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">
-                    Ses Dosyası {editingAnn && <span className="text-slate-400 font-normal normal-case">(Değiştirmek istemiyorsanız boş bırakabilirsiniz)</span>}
-                  </label>
-                  <div className="w-full flex items-center justify-center">
-                      <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-all ${selectedFile ? 'border-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10' : 'border-slate-300 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800/80'}`}>
-                          <div className="flex flex-col items-center justify-center pt-5 pb-6 px-3 text-center">
-                              {selectedFile ? (
-                                  <>
-                                    <FileAudio className="w-8 h-8 mb-3 text-emerald-500" />
-                                    <p className="mb-1 text-xs font-bold text-slate-700 dark:text-slate-200">{selectedFile.name}</p>
-                                    <p className="text-[10px] text-slate-500 dark:text-slate-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
-                                  </>
-                              ) : (
-                                  <>
-                                    <Volume2 className="w-8 h-8 mb-3 text-slate-400" />
-                                    <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">
-                                      <span className="font-bold">Yüklemek için tıklayın</span> veya sürükleyip bırakın
-                                    </p>
-                                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
-                                      {editingAnn ? `Mevcut: ${editingAnn.name || editingAnn.original_filename}` : "WAV veya MP3 (MAX. 10MB)"}
-                                    </p>
-                                  </>
-                              )}
+                      <div>
+                        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-2">
+                          Ses Dosyası {editingAnn && <span className="text-slate-400 font-normal">(Değiştirmek istemiyorsanız boş bırakabilirsiniz)</span>}
+                        </label>
+                        <label className={`flex flex-col items-center justify-center w-full h-40 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${selectedFile ? 'border-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10' : 'border-slate-300 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800/80'}`}>
+                          <div className="flex flex-col items-center justify-center pt-5 pb-6 px-4 text-center">
+                            {selectedFile ? (
+                              <>
+                                <FileAudio className="w-10 h-10 mb-3 text-emerald-500" />
+                                <p className="mb-1 text-sm font-bold text-slate-700 dark:text-slate-200">{selectedFile.name}</p>
+                                <p className="text-xs text-slate-500 dark:text-slate-400">{(selectedFile.size / 1024).toFixed(1)} KB</p>
+                              </>
+                            ) : (
+                              <>
+                                <Volume2 className="w-10 h-10 mb-3 text-slate-400" />
+                                <p className="mb-1 text-xs text-slate-600 dark:text-slate-300">
+                                  <span className="font-bold">Dosya seçmek için tıklayın</span> veya sürükleyip bırakın
+                                </p>
+                                <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                                  {editingAnn ? `Mevcut Dosya: ${editingAnn.name || editingAnn.original_filename}` : "WAV veya MP3 (Maksimum 10MB)"}
+                                </p>
+                              </>
+                            )}
                           </div>
                           <input type="file" className="hidden" accept=".wav,.mp3" onChange={handleFileChange} required={activeTab === "upload" && !editingAnn} />
-                      </label>
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Okunacak Metin</label>
-                  <textarea
-                    required={activeTab === "tts"}
-                    placeholder="Sistemin okumasını istediğiniz metni buraya yazın..."
-                    value={ttsText}
-                    onChange={(e) => setTtsText(e.target.value)}
-                    rows={4}
-                    className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-200 dark:focus:ring-slate-800 transition-all resize-none"
-                  />
-                </div>
-              )}
-
-              <div className="pt-2 flex gap-3">
-                <button
-                  type="button"
-                  onClick={resetModal}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all"
-                >
-                  Vazgeç
-                </button>
-                <button
-                  type="submit"
-                  disabled={(activeTab === "upload" && ((!selectedFile && !editingAnn) || !newAnnName.trim() || isUploading)) || (activeTab === "tts" && (!ttsText.trim() || !newAnnName.trim() || isGenerating))}
-                  className={`flex-1 py-2.5 rounded-xl text-white text-xs font-extrabold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${bg} ${hover}`}
-                >
-                  {isUploading || isGenerating ? (
-                    <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                        </label>
+                      </div>
+                    </div>
                   ) : (
-                    <>
-                      <Check size={14} />
-                      {editingAnn ? "Güncelle" : (activeTab === "upload" ? "Yükle" : "Oluştur")}
-                    </>
-                  )}
-                </button>
-              </div>
+                    <div className="space-y-5">
+                      {/* AI Temsilci & Ses Motoru Seçim Kartı */}
+                      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
+                        <div className="border-b border-slate-200/60 dark:border-slate-800 pb-3 flex items-center justify-between">
+                          <div>
+                            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                              <Bot size={15} className={text} />
+                              AI Temsilci & Ses Karakteri Seçimi
+                            </h4>
+                            <p className="text-[11px] text-slate-500 mt-0.5">
+                              Hazır bir Yapay Zeka Temsilcinizin ses profilini seçin veya ses karakterini, tonunu ve hızını aşağıdan özelleştirin.
+                            </p>
+                          </div>
+                        </div>
 
-            </form>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          {/* AI Temsilci Seçimi */}
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1.5">
+                              Yapay Zeka Temsilcisi (Hızlı Profil Seçimi)
+                            </label>
+                            <select
+                              value={selectedAgentId}
+                              onChange={(e) => handleSelectAiAgent(e.target.value)}
+                              className={`w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                            >
+                              <option value="">Manuel Ses Seçimi (Özel Ayar)</option>
+                              {aiAgents.map((ag) => (
+                                <option key={ag.id} value={ag.id}>
+                                  🤖 {ag.name} ({ag.voice ? String(ag.voice).split("(")[0].trim() : "Varsayılan Ses"})
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          {/* Seslendirme Motoru (TTS Sağlayıcısı) */}
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1.5">
+                              Seslendirme Motoru (TTS Sağlayıcısı)
+                            </label>
+                            <select
+                              value={ttsProvider}
+                              onChange={(e) => setTtsProvider(e.target.value)}
+                              className={`w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                            >
+                              <option value="google">Google Gemini & Neural Doğal Ses Motoru</option>
+                              <option value="elevenlabs">ElevenLabs TTS (Ses Kütüphanesi & Klonlanmış Ses)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {ttsProvider === "google" ? (
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1.5">
+                              Doğal Ses Karakteri
+                            </label>
+                            <select
+                              value={ttsVoice}
+                              onChange={(e) => setTtsVoice(e.target.value)}
+                              className={`w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                            >
+                              {GEMINI_VOICE_OPTIONS.map((v) => (
+                                <option key={v} value={v}>
+                                  {v}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <div className="p-4 rounded-xl bg-purple-50/40 dark:bg-purple-950/20 border border-purple-200/70 dark:border-purple-900/50 space-y-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-[11px] font-extrabold text-purple-700 dark:text-purple-300 mb-1.5">
+                                  ElevenLabs Ses Kütüphanesi
+                                </label>
+                                <select
+                                  value={elevenlabsVoiceId}
+                                  onChange={(e) => setElevenlabsVoiceId(e.target.value)}
+                                  className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-bold text-slate-800 dark:text-white"
+                                >
+                                  <option value="">Kütüphaneden Ses Seçin...</option>
+                                  {(elevenlabsVoiceList.length > 0 ? elevenlabsVoiceList : DEFAULT_ELEVENLABS_VOICES).map((v) => (
+                                    <option key={v.voice_id} value={v.voice_id}>
+                                      {v.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div>
+                                <label className="block text-[11px] font-extrabold text-purple-700 dark:text-purple-300 mb-1.5">
+                                  Özel / Klonlanmış Ses ID (Voice ID)
+                                </label>
+                                <input
+                                  type="text"
+                                  value={elevenlabsVoiceId}
+                                  onChange={(e) => setElevenlabsVoiceId(e.target.value)}
+                                  placeholder="Örn: EXAVITQu4vr4xnSDxMaL"
+                                  className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-purple-200 dark:border-purple-800 rounded-xl text-xs font-mono font-bold text-slate-800 dark:text-white"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
+                              <div>
+                                <div className="flex justify-between text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                                  <span>Kararlılık (Stability)</span>
+                                  <span className="font-mono text-purple-600">{elevenlabsStability}</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0.0"
+                                  max="1.0"
+                                  step="0.05"
+                                  value={elevenlabsStability}
+                                  onChange={(e) => setElevenlabsStability(parseFloat(e.target.value))}
+                                  className="w-full accent-purple-600 cursor-pointer"
+                                />
+                              </div>
+
+                              <div>
+                                <div className="flex justify-between text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                                  <span>Benzerlik (Similarity)</span>
+                                  <span className="font-mono text-purple-600">{elevenlabsSimilarity}</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0.0"
+                                  max="1.0"
+                                  step="0.05"
+                                  value={elevenlabsSimilarity}
+                                  onChange={(e) => setElevenlabsSimilarity(parseFloat(e.target.value))}
+                                  className="w-full accent-purple-600 cursor-pointer"
+                                />
+                              </div>
+
+                              <div>
+                                <div className="flex justify-between text-[10px] font-bold text-slate-600 dark:text-slate-400 mb-1">
+                                  <span>Vurgu Şiddeti (Style)</span>
+                                  <span className="font-mono text-purple-600">{elevenlabsStyle}</span>
+                                </div>
+                                <input
+                                  type="range"
+                                  min="0.0"
+                                  max="1.0"
+                                  step="0.05"
+                                  value={elevenlabsStyle}
+                                  onChange={(e) => setElevenlabsStyle(parseFloat(e.target.value))}
+                                  className="w-full accent-purple-600 cursor-pointer"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Konuşma Üslubu & Konuşma Hızı */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                          <div>
+                            <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-400 mb-1.5">
+                              Konuşma Üslubu / Tonu
+                            </label>
+                            <select
+                              value={ttsTone}
+                              onChange={(e) => setTtsTone(e.target.value)}
+                              className={`w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                            >
+                              <option value="normal">Normal / Standart (Kibar & Profesyonel)</option>
+                              <option value="calm">Sakin (Yavaş, Sabırlı & Rahatlatıcı)</option>
+                              <option value="attractive">Çekici / Cana Yakın (Canlı & Sempatik)</option>
+                              <option value="firm">Sert / Kararlı (Kısa, Ciddi & Otoriter)</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <div className="flex justify-between items-center mb-1.5">
+                              <label className="text-[11px] font-bold text-slate-600 dark:text-slate-400">
+                                Konuşma Hızı (Speaking Rate)
+                              </label>
+                              <span className={`text-xs font-mono font-extrabold ${text}`}>{ttsSpeakingRate.toFixed(2)}x</span>
+                            </div>
+                            <input
+                              type="range"
+                              min="0.75"
+                              max="1.35"
+                              step="0.05"
+                              value={ttsSpeakingRate}
+                              onChange={(e) => setTtsSpeakingRate(parseFloat(e.target.value))}
+                              className="w-full accent-rose-600 cursor-pointer"
+                            />
+                            <div className="flex justify-between text-[10px] text-slate-400 font-bold mt-1">
+                              <button type="button" onClick={() => setTtsSpeakingRate(0.85)} className="hover:text-slate-600 dark:hover:text-slate-200">0.85x (Yavaş)</button>
+                              <button type="button" onClick={() => setTtsSpeakingRate(1.0)} className="hover:text-slate-600 dark:hover:text-slate-200">1.00x (Normal)</button>
+                              <button type="button" onClick={() => setTtsSpeakingRate(1.15)} className="hover:text-slate-600 dark:hover:text-slate-200">1.15x (Akıcı Hızlı)</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Okunacak Metin & Ön İzleme */}
+                      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-3">
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          <div>
+                            <label className="block text-xs font-bold text-slate-800 dark:text-white">Okunacak Anons Metni</label>
+                            <p className="text-[11px] text-slate-500">
+                              Santralin müşteriye okumasını istediğiniz karşılama veya bilgilendirme metnini yazın.
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={handlePreviewTts}
+                            disabled={!ttsText.trim() || isPreviewLoading}
+                            className={`px-4 py-2 rounded-xl text-xs font-extrabold flex items-center gap-2 transition-all shadow-sm shrink-0 disabled:opacity-50 ${
+                              isPreviewPlaying
+                                ? "bg-rose-600 hover:bg-rose-500 text-white"
+                                : `bg-white dark:bg-slate-800 ${text} border ${borderLight} hover:shadow`
+                            }`}
+                          >
+                            {isPreviewLoading ? (
+                              <div className="w-3.5 h-3.5 rounded-full border-2 border-current border-t-transparent animate-spin" />
+                            ) : isPreviewPlaying ? (
+                              <Square size={13} fill="currentColor" />
+                            ) : (
+                              <Play size={13} fill="currentColor" />
+                            )}
+                            <span>{isPreviewPlaying ? "Ön İzlemeyi Durdur" : "Sesi Dinle / Ön İzle"}</span>
+                          </button>
+                        </div>
+
+                        <textarea
+                          required={activeTab === "tts"}
+                          placeholder="Örn: Aida test sistemine hoşgeldiniz. Dahili numarayı biliyorsanız lütfen tuşlayınız, bilmiyorsanız lütfen hatta kalınız..."
+                          value={ttsText}
+                          onChange={(e) => setTtsText(e.target.value)}
+                          rows={4}
+                          className={`w-full text-sm px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 ${ring} transition-all resize-none leading-relaxed`}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Footer Actions */}
+                  <div className="pt-2 flex items-center justify-end gap-3 border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      type="button"
+                      onClick={resetModal}
+                      className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all"
+                    >
+                      Vazgeç
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={(activeTab === "upload" && ((!selectedFile && !editingAnn) || !newAnnName.trim() || isUploading)) || (activeTab === "tts" && (!ttsText.trim() || !newAnnName.trim() || isGenerating))}
+                      className={`px-7 py-2.5 rounded-xl text-white text-xs font-extrabold uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${bg} ${hover}`}
+                    >
+                      {isUploading || isGenerating ? (
+                        <div className="w-4 h-4 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                      ) : (
+                        <>
+                          <Check size={14} />
+                          {editingAnn ? "Güncelle" : (activeTab === "upload" ? "Yükle" : "Anonsu Oluştur")}
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                </form>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-    </div>,
+        </div>,
         document.body
       )}
 

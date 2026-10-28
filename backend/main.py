@@ -5927,6 +5927,104 @@ class TTSAnnouncementSchema(BaseModel):
     text: str
 
 
+async def _synthesize_announcement_tts_async(
+    text: str,
+    voice: str = "Aoede (Dişi - Türkçe / İngilizce)",
+    tts_provider: str = "google",
+    tone: str = "normal",
+    speaking_rate: float = 1.0,
+    elevenlabs_voice_id: str = "",
+    elevenlabs_stability: float = 0.5,
+    elevenlabs_similarity: float = 0.75,
+    elevenlabs_style: float = 0.0
+) -> bytes:
+    """Synthesizes announcement audio using the same AI Agent voice pipeline (ElevenLabs -> Microsoft Neural Edge-TTS with tone & speed -> Google TTS fallback)."""
+    clean_text = re.sub(r"\s+", " ", str(text or "").strip())
+    if not clean_text:
+        return b""
+
+    prov = str(tts_provider or "google").lower()
+
+    # 1. ElevenLabs synthesis if selected and API key is available
+    if prov == "elevenlabs":
+        el_key = settings_db.get("ai_providers", {}).get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", "")
+        target_vid = elevenlabs_voice_id or "EXAVITQu4vr4xnSDxMaL"
+        if el_key and target_vid:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=15.0) as client:
+                    el_res = await client.post(
+                        f"https://api.elevenlabs.io/v1/text-to-speech/{target_vid}",
+                        headers={
+                            "xi-api-key": el_key,
+                            "Content-Type": "application/json",
+                            "Accept": "audio/mpeg"
+                        },
+                        json={
+                            "text": clean_text,
+                            "model_id": "eleven_multilingual_v2",
+                            "voice_settings": {
+                                "stability": float(elevenlabs_stability or 0.5),
+                                "similarity_boost": float(elevenlabs_similarity or 0.75),
+                                "style": float(elevenlabs_style or 0.0),
+                                "use_speaker_boost": True
+                            }
+                        }
+                    )
+                    if el_res.status_code == 200 and len(el_res.content) > 200:
+                        return el_res.content
+            except Exception as el_err:
+                print(f"[Announcement ElevenLabs TTS Fallback]: {el_err}")
+
+    # 2. Primary Neural TTS (edge-tts) with AI Agent Voice, Tone & Speaking Rate
+    try:
+        import edge_tts
+
+        v_lower = str(voice or "").lower()
+        edge_voice = "tr-TR-EmelNeural"
+        if any(m in v_lower for m in ["ahmet", "eser", "puck", "charon", "fenrir", "erkek", "male", "josh", "antoni", "adam", "arnold", "sam", "george"]):
+            edge_voice = "tr-TR-AhmetNeural"
+        elif any(f in v_lower for f in ["selin", "dilara", "emel", "aoede", "kore", "dişi", "female"]):
+            edge_voice = "tr-TR-EmelNeural"
+        elif "sophia" in v_lower or "aria" in v_lower:
+            edge_voice = "en-US-AriaNeural"
+        elif "john" in v_lower or "guy" in v_lower:
+            edge_voice = "en-US-GuyNeural"
+
+        base_rate_pct = int(round((float(speaking_rate or 1.0) - 1.0) * 100))
+        pitch_hz = 0
+        if tone == "calm":
+            base_rate_pct -= 12
+            pitch_hz = -3
+        elif tone == "attractive":
+            base_rate_pct += 5
+            pitch_hz = 4
+        elif tone == "firm":
+            base_rate_pct += 8
+            pitch_hz = -2
+
+        base_rate_pct = max(-50, min(60, base_rate_pct))
+        rate_str = f"{'+' if base_rate_pct >= 0 else ''}{base_rate_pct}%"
+        pitch_str = f"{'+' if pitch_hz >= 0 else ''}{pitch_hz}Hz"
+
+        for attempt_params in [(rate_str, pitch_str), ("+0%", "+0Hz")]:
+            try:
+                communicate = edge_tts.Communicate(clean_text, edge_voice, rate=attempt_params[0], pitch=attempt_params[1])
+                audio_data = bytearray()
+                async for chunk in communicate.stream():
+                    if chunk.get("type") == "audio" and chunk.get("data"):
+                        audio_data.extend(chunk["data"])
+                if len(audio_data) > 200:
+                    return bytes(audio_data)
+            except Exception as inner_e:
+                print(f"[Announcement Edge-TTS Attempt Warning] ({edge_voice}, {attempt_params}): {inner_e}")
+    except Exception as edge_err:
+        print(f"[Announcement Edge-TTS Fallback]: {edge_err}")
+
+    # 3. Fallback to Google TTS stream
+    return _synthesize_tts_mp3_bytes(clean_text, voice)
+
+
 @app.post("/api/settings/announcements/tts")
 async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_user_info)):
     import os
@@ -5934,7 +6032,15 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
     text = str(payload.get("text") or "").strip()
     name = str(payload.get("name") or "TTS Anons").strip() or "TTS Anons"
     ann_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else "announcement"
-    voice = payload.get("voice") or "tr-TR-EmelNeural"
+    voice = str(payload.get("voice") or "Aoede (Dişi - Türkçe / İngilizce)").strip()
+    tts_provider = str(payload.get("tts_provider") or "google").strip().lower()
+    tone = str(payload.get("tone") or "normal").strip()
+    speaking_rate = float(payload.get("speaking_rate") or 1.0)
+    agent_id = str(payload.get("agent_id") or "").strip()
+    elevenlabs_voice_id = str(payload.get("elevenlabs_voice_id") or "").strip()
+    elevenlabs_stability = float(payload.get("elevenlabs_stability") if payload.get("elevenlabs_stability") is not None else 0.5)
+    elevenlabs_similarity = float(payload.get("elevenlabs_similarity") if payload.get("elevenlabs_similarity") is not None else 0.75)
+    elevenlabs_style = float(payload.get("elevenlabs_style") if payload.get("elevenlabs_style") is not None else 0.0)
     existing_id = str(payload.get("id") or payload.get("announcement_id") or "").strip()
 
     if not text:
@@ -5953,48 +6059,55 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
     orig_fname = f"{name}.mp3"
     filepath = os.path.join("uploads/announcements", filename)
 
-    audio_bytes = _synthesize_tts_mp3_bytes(text, voice)
+    audio_bytes = await _synthesize_announcement_tts_async(
+        text=text,
+        voice=voice,
+        tts_provider=tts_provider,
+        tone=tone,
+        speaking_rate=speaking_rate,
+        elevenlabs_voice_id=elevenlabs_voice_id,
+        elevenlabs_stability=elevenlabs_stability,
+        elevenlabs_similarity=elevenlabs_similarity,
+        elevenlabs_style=elevenlabs_style
+    )
     if not audio_bytes:
-        try:
-            import edge_tts
-            communicate = edge_tts.Communicate(text, voice)
-            await communicate.save(filepath)
-        except Exception as e:
-            print(f"[TTS Error]: {e}")
-            raise HTTPException(status_code=500, detail=f"TTS ses dosyası oluşturulamadı: {e}")
-    else:
-        with open(filepath, "wb") as f:
-            f.write(audio_bytes)
+        raise HTTPException(status_code=500, detail="TTS ses dosyası oluşturulamadı.")
+
+    with open(filepath, "wb") as f:
+        f.write(audio_bytes)
 
     _convert_and_sync_announcement_wav(filepath, ann_id)
     dur_sec = _calc_audio_duration_seconds(filepath)
 
     now_ts = datetime.datetime.now().timestamp()
+    meta_fields = {
+        "name": name,
+        "filename": filename,
+        "original_filename": orig_fname,
+        "type": ann_type,
+        "text": text,
+        "voice": voice,
+        "tts_provider": tts_provider,
+        "tone": tone,
+        "speaking_rate": speaking_rate,
+        "agent_id": agent_id,
+        "elevenlabs_voice_id": elevenlabs_voice_id,
+        "elevenlabs_stability": elevenlabs_stability,
+        "elevenlabs_similarity": elevenlabs_similarity,
+        "elevenlabs_style": elevenlabs_style,
+        "duration": dur_sec,
+        "duration_formatted": _format_duration_mmss(dur_sec),
+        "updated_at": now_ts
+    }
     if existing_ann:
-        existing_ann["name"] = name
-        existing_ann["filename"] = filename
-        existing_ann["original_filename"] = orig_fname
-        existing_ann["type"] = ann_type
-        existing_ann["text"] = text
-        existing_ann["voice"] = voice
-        existing_ann["duration"] = dur_sec
-        existing_ann["duration_formatted"] = _format_duration_mmss(dur_sec)
-        existing_ann["updated_at"] = now_ts
+        existing_ann.update(meta_fields)
         ann = existing_ann
     else:
         ann = {
             "id": ann_id,
-            "name": name,
-            "filename": filename,
-            "original_filename": orig_fname,
-            "type": ann_type,
             "tenant_id": target_tenant,
-            "text": text,
-            "voice": voice,
-            "duration": dur_sec,
-            "duration_formatted": _format_duration_mmss(dur_sec),
             "created_at": now_ts,
-            "updated_at": now_ts
+            **meta_fields
         }
         settings_db["announcements"].append(ann)
 
@@ -6015,7 +6128,15 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
     new_name = str(payload.get("name") or target.get("name") or "Anons").strip() or "Anons"
     new_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else (target.get("type") or "announcement")
     new_text = str(payload.get("text") if payload.get("text") is not None else (target.get("text") or "")).strip()
-    voice = payload.get("voice") or target.get("voice") or "tr-TR-EmelNeural"
+    voice = str(payload.get("voice") or target.get("voice") or "Aoede (Dişi - Türkçe / İngilizce)").strip()
+    tts_provider = str(payload.get("tts_provider") or target.get("tts_provider") or "google").strip().lower()
+    tone = str(payload.get("tone") or target.get("tone") or "normal").strip()
+    speaking_rate = float(payload.get("speaking_rate") if payload.get("speaking_rate") is not None else (target.get("speaking_rate") or 1.0))
+    agent_id = str(payload.get("agent_id") if payload.get("agent_id") is not None else (target.get("agent_id") or "")).strip()
+    elevenlabs_voice_id = str(payload.get("elevenlabs_voice_id") if payload.get("elevenlabs_voice_id") is not None else (target.get("elevenlabs_voice_id") or "")).strip()
+    elevenlabs_stability = float(payload.get("elevenlabs_stability") if payload.get("elevenlabs_stability") is not None else (target.get("elevenlabs_stability") or 0.5))
+    elevenlabs_similarity = float(payload.get("elevenlabs_similarity") if payload.get("elevenlabs_similarity") is not None else (target.get("elevenlabs_similarity") or 0.75))
+    elevenlabs_style = float(payload.get("elevenlabs_style") if payload.get("elevenlabs_style") is not None else (target.get("elevenlabs_style") or 0.0))
     now_ts = datetime.datetime.now().timestamp()
 
     target["name"] = new_name
@@ -6032,7 +6153,17 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
         filename = f"{ann_id}.mp3"
         filepath = os.path.join("uploads/announcements", filename)
         os.makedirs("uploads/announcements", exist_ok=True)
-        audio_bytes = _synthesize_tts_mp3_bytes(new_text, voice)
+        audio_bytes = await _synthesize_announcement_tts_async(
+            text=new_text,
+            voice=voice,
+            tts_provider=tts_provider,
+            tone=tone,
+            speaking_rate=speaking_rate,
+            elevenlabs_voice_id=elevenlabs_voice_id,
+            elevenlabs_stability=elevenlabs_stability,
+            elevenlabs_similarity=elevenlabs_similarity,
+            elevenlabs_style=elevenlabs_style
+        )
         if audio_bytes:
             with open(filepath, "wb") as f:
                 f.write(audio_bytes)
@@ -6041,6 +6172,14 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
             target["original_filename"] = f"{new_name}.mp3"
             target["text"] = new_text
             target["voice"] = voice
+            target["tts_provider"] = tts_provider
+            target["tone"] = tone
+            target["speaking_rate"] = speaking_rate
+            target["agent_id"] = agent_id
+            target["elevenlabs_voice_id"] = elevenlabs_voice_id
+            target["elevenlabs_stability"] = elevenlabs_stability
+            target["elevenlabs_similarity"] = elevenlabs_similarity
+            target["elevenlabs_style"] = elevenlabs_style
 
     valid_fp = _ensure_announcement_audio_valid(target)
     dur_sec = _calc_audio_duration_seconds(valid_fp) if valid_fp else 0.0
@@ -9569,97 +9708,23 @@ async def tts_test_endpoint(payload: dict):
     if not text:
         raise HTTPException(status_code=400, detail="Test metni boş olamaz.")
 
-    # 1. If ElevenLabs is selected and API key is configured, try ElevenLabs synthesis first
-    if tts_provider == "elevenlabs":
-        el_key = settings_db.get("ai_providers", {}).get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", "")
-        target_vid = elevenlabs_voice_id or "EXAVITQu4vr4xnSDxMaL"
-        if el_key and target_vid:
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    el_res = await client.post(
-                        f"https://api.elevenlabs.io/v1/text-to-speech/{target_vid}",
-                        headers={
-                            "xi-api-key": el_key,
-                            "Content-Type": "application/json",
-                            "Accept": "audio/mpeg"
-                        },
-                        json={
-                            "text": text,
-                            "model_id": "eleven_multilingual_v2",
-                            "voice_settings": {
-                                "stability": elevenlabs_stability,
-                                "similarity_boost": elevenlabs_similarity,
-                                "style": elevenlabs_style,
-                                "use_speaker_boost": True
-                            }
-                        }
-                    )
-                    if el_res.status_code == 200 and len(el_res.content) > 200:
-                        fp = io.BytesIO(el_res.content)
-                        fp.seek(0)
-                        return StreamingResponse(fp, media_type="audio/mpeg")
-            except Exception as el_err:
-                print(f"[TTS Test ElevenLabs Fallback]: {el_err}")
-        
-    try:
-        # 2. Try using premium edge-tts
-        import edge_tts
-        
-        v_lower = str(voice).lower()
-        edge_voice = "tr-TR-EmelNeural"
-        if any(m in v_lower for m in ["ahmet", "eser", "puck", "charon", "fenrir", "erkek", "male", "josh", "antoni", "adam", "arnold", "sam", "george"]):
-            edge_voice = "tr-TR-AhmetNeural"
-        elif any(f in v_lower for f in ["selin", "dilara", "aoede", "kore", "dişi", "female"]):
-            edge_voice = "tr-TR-EmelNeural"
-        elif "sophia" in v_lower:
-            edge_voice = "en-US-AriaNeural"
-        elif "john" in v_lower:
-            edge_voice = "en-US-GuyNeural"
-            
-        base_rate_pct = int(round((speaking_rate - 1.0) * 100))
-        pitch_hz = 0
-        if tone == "calm":
-            base_rate_pct -= 12
-            pitch_hz = -3
-        elif tone == "attractive":
-            base_rate_pct += 5
-            pitch_hz = 4
-        elif tone == "firm":
-            base_rate_pct += 8
-            pitch_hz = -2
-            
-        base_rate_pct = max(-50, min(60, base_rate_pct))
-        rate_str = f"{'+' if base_rate_pct >= 0 else ''}{base_rate_pct}%"
-        pitch_str = f"{'+' if pitch_hz >= 0 else ''}{pitch_hz}Hz"
-            
-        communicate = edge_tts.Communicate(text, edge_voice, rate=rate_str, pitch=pitch_str)
-        fp = io.BytesIO()
-        
-        async def gather_audio():
-            audio_data = b""
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    audio_data += chunk["data"]
-            return audio_data
-            
-        audio_bytes = await gather_audio()
-        if not audio_bytes or len(audio_bytes) < 200:
-            raise RuntimeError("Empty audio from edge-tts")
-        fp.write(audio_bytes)
-        fp.seek(0)
-        
-        print(f"[TTS] Synthesized successfully using edge-tts (voice={edge_voice}, tone={tone}, rate={rate_str})")
-        return StreamingResponse(fp, media_type="audio/mpeg")
-        
-    except Exception as e:
-        print(f"[TTS] edge-tts failed ({e}), falling back to _synthesize_tts_mp3_bytes.")
-        audio_bytes = await _synthesize_tts_mp3_bytes(text, voice)
-        if not audio_bytes:
-            raise HTTPException(status_code=500, detail="TTS ses sentezi başarısız oldu.")
-        fp = io.BytesIO(audio_bytes)
-        fp.seek(0)
-        return StreamingResponse(fp, media_type="audio/mpeg")
+    audio_bytes = await _synthesize_announcement_tts_async(
+        text=text,
+        voice=voice or "Aoede (Dişi - Türkçe / İngilizce)",
+        tts_provider=tts_provider,
+        tone=tone,
+        speaking_rate=speaking_rate,
+        elevenlabs_voice_id=elevenlabs_voice_id,
+        elevenlabs_stability=elevenlabs_stability,
+        elevenlabs_similarity=elevenlabs_similarity,
+        elevenlabs_style=elevenlabs_style
+    )
+    if not audio_bytes:
+        raise HTTPException(status_code=500, detail="TTS ses sentezi başarısız oldu.")
+
+    fp = io.BytesIO(audio_bytes)
+    fp.seek(0)
+    return StreamingResponse(fp, media_type="audio/mpeg")
 
 @app.post("/api/rag/manual")
 async def add_manual_text(payload: ManualTextSchema, user_info: dict = Depends(get_user_info)):
