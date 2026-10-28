@@ -515,51 +515,51 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
   return (
     <div className="space-y-5 animate-in fade-in duration-200">
       {/* Top Bar: Presets & Reset */}
-      <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/70 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2">
-            <Sparkles size={15} className={text} />
-            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
-              Canlı İzleme Paneli (Wallboard) Görünüm Şablonları
-            </h5>
-          </div>
-          <p className="text-[10px] text-slate-500 dark:text-slate-400">
-            Hazır şablonlardan birini seçin veya aşağıdaki sekmelerden kendi özel panelinizi oluşturun.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-200 dark:border-slate-700">
-            {[
-              { key: "standard", label: "Standart" },
-              { key: "supervisor", label: "Süpervizör" },
-              { key: "queue_focus", label: "Kuyruk & Çağrı" },
-              { key: "compact_dense", label: "Kompakt" }
-            ].map((p) => (
-              <button
-                key={p.key}
-                type="button"
-                onClick={() => applyPreset(p.key)}
-                className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold transition-all ${
-                  activePresetKey === p.key
-                    ? `${bg} text-white shadow-sm`
-                    : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-                }`}
-              >
-                {p.label}
-              </button>
-            ))}
+      <div className="p-4 rounded-2xl bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/70 dark:border-slate-800 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <Sparkles size={15} className={text} />
+              <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                Canlı İzleme Paneli (Wallboard) Görünüm Şablonları
+              </h5>
+            </div>
+            <p className="text-[10px] text-slate-500 dark:text-slate-400">
+              Hazır şablonlardan birini seçin veya aşağıdaki sekmelerden kendi özel panelinizi oluşturun.
+            </p>
           </div>
 
           <button
             type="button"
             onClick={handleResetDefault}
-            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5"
+            className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-[10px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors"
             title="Varsayılan Standart Görünüme Dön"
           >
             <RotateCcw size={12} />
             <span>Sıfırla</span>
           </button>
+        </div>
+
+        <div className="flex items-center bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-200 dark:border-slate-700 w-fit max-w-full overflow-x-auto">
+          {[
+            { key: "standard", label: "Standart" },
+            { key: "supervisor", label: "Süpervizör" },
+            { key: "queue_focus", label: "Kuyruk & Çağrı" },
+            { key: "compact_dense", label: "Kompakt" }
+          ].map((p) => (
+            <button
+              key={p.key}
+              type="button"
+              onClick={() => applyPreset(p.key)}
+              className={`px-3.5 py-1.5 rounded-xl text-[10px] font-extrabold transition-all whitespace-nowrap cursor-pointer ${
+                activePresetKey === p.key
+                  ? `${bg} text-white shadow-sm`
+                  : "text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
         </div>
       </div>
 

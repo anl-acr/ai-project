@@ -4063,7 +4063,7 @@ export default function Home() {
 
                 {/* Speaker Selection (Call output) */}
                 <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
-                  <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Konuşma Çıkış Aygıtı (Kulaklık)</label>
+                  <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Konuşma Çıkış Aygıtı (Kulaklık)</label>
                   <select
                     value={selectedSpeaker}
                     onChange={(e) => {
@@ -4092,7 +4092,7 @@ export default function Home() {
 
                 {/* Ringtone Speaker Selection */}
                 <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
-                  <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Zil Sesi Çıkış Aygıtı (Hoparlör)</label>
+                  <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Zil Sesi Çıkış Aygıtı (Hoparlör)</label>
                   <select
                     value={selectedRingtoneSpeaker}
                     onChange={(e) => {
@@ -4122,11 +4122,11 @@ export default function Home() {
                 </div>
                 
                 {/* Mobile Transfer */}
-                <div className={`p-4 bg-violet-50/40 dark:bg-violet-955/10 border border-violet-105 dark:border-violet-900/30 rounded-2xl space-y-3 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
+                <div className={`p-4 bg-slate-50/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Smartphone size={15} className="text-violet-500" />
-                      <span className="text-[10px] font-extrabold text-slate-700 dark:text-slate-200 uppercase tracking-wide">Akıllı Mobil Aktarım (AI GSM)</span>
+                      <span className="text-[10px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide">Akıllı Mobil Aktarım (AI GSM)</span>
                     </div>
                     {hasMobileTransferPermission ? (
                       <button
@@ -4139,28 +4139,28 @@ export default function Home() {
                         <span className="w-4 h-4 rounded-full bg-white shadow-sm" />
                       </button>
                     ) : (
-                      <span className="text-[8px] font-bold text-primary bg-rose-50 dark:bg-rose-955/20 px-2 py-0.5 rounded-lg">Yetkisiz</span>
+                      <span className="text-[9px] font-extrabold text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border border-rose-200/60 dark:border-rose-800/60 px-2.5 py-0.5 rounded-lg">Yetkisiz</span>
                     )}
                   </div>
                   
                   {hasMobileTransferPermission ? (
                     <div className="space-y-1.5">
-                      <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">GSM Numarası</label>
+                      <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">GSM Numarası</label>
                       <input
                         type="tel"
                         placeholder="Örn: +905553332211"
                         value={gsmNumber}
                         onChange={(e) => setGsmNumber(e.target.value)}
                         disabled={!mobileTransferEnabled}
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-955/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500 disabled:opacity-50"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500 disabled:opacity-50"
                       />
-                      <p className="text-[8px] text-slate-400 dark:text-slate-500 font-medium">
+                      <p className="text-[9px] text-slate-500 dark:text-slate-400 font-medium">
                         WebPhone kapalıyken mesai saatlerinde gelen çağrılar bu numaraya aktarılır ve yapay zeka size çağrı özetini fısıldar.
                       </p>
                     </div>
                   ) : (
-                    <p className="text-[8.5px] text-slate-400 dark:text-slate-500 font-medium italic">
-                      Mobil yönlendirme özelliğini yönetmek için "mobile_transfer:write" yetkisine sahip olmalısınız.
+                    <p className="text-[9.5px] text-slate-500 dark:text-slate-400 font-medium italic">
+                      Mobil yönlendirme özelliğini yönetmek için &quot;mobile_transfer:write&quot; yetkisine sahip olmalısınız.
                     </p>
                   )}
                 </div>
