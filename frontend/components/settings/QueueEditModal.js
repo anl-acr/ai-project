@@ -503,49 +503,75 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         <button 
           type="button"
           onClick={() => setActiveTab("general")}
-          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'general' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'general' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <Settings size={16} /> Genel
         </button>
         <button 
           type="button"
+          onClick={() => setActiveTab("disposition")}
+          className={"w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'disposition' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <span className="flex items-center gap-3">
+            <BarChart2 size={16} /> Çağrı Sonuç Kodları
+          </span>
+          {(formData.disposition_codes || []).length > 0 && (
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${lightBg} ${text}`}>
+              {(formData.disposition_codes || []).length}
+            </span>
+          )}
+        </button>
+        <button 
+          type="button"
+          onClick={() => setActiveTab("auto_pause")}
+          className={"w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'auto_pause' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+        >
+          <span className="flex items-center gap-3">
+            <Shield size={16} /> Otomatik Mola (RONA)
+          </span>
+          {(formData.auto_pause_missed_enabled || formData.auto_pause_disconnect_enabled) && (
+            <span className={"w-2 h-2 rounded-full " + bg + " shrink-0"} title="Otomatik Mola Aktif" />
+          )}
+        </button>
+        <button 
+          type="button"
           onClick={() => setActiveTab("announcements")}
-          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'announcements' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'announcements' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <Volume2 size={16} /> Anons & Bekleme
         </button>
         <button 
           type="button"
           onClick={() => setActiveTab("max_wait_time")}
-          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'max_wait_time' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'max_wait_time' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <Clock size={16} /> Maksimum Bekleme Süresi
         </button>
         <button 
           type="button"
           onClick={() => setActiveTab("ivr")}
-          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'ivr' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'ivr' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <PhoneForwarded size={16} /> Periyodik Anons
         </button>
         <button 
           type="button"
           onClick={() => setActiveTab("members")}
-          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'members' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'members' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <Users size={16} /> Üyeler & Yöneticiler
         </button>
         <button 
           type="button"
           onClick={() => setActiveTab("busy_routing")}
-          className={"w-full flex items-center gap-3 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'busy_routing' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'busy_routing' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <Bot size={16} /> Tüm Agent'lar Meşgul
         </button>
         <button 
           type="button"
           onClick={() => setActiveTab("smart_callback")}
-          className={"w-full flex items-center justify-between gap-2 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'smart_callback' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'smart_callback' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <span className="flex items-center gap-3">
             <Shuffle size={16} /> Otomatik Geri Arama
@@ -557,7 +583,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         <button 
           type="button"
           onClick={() => setActiveTab("survey")}
-          className={"w-full flex items-center justify-between gap-2 px-3.5 py-3 rounded-xl text-xs font-bold transition-all " + (activeTab === 'survey' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'survey' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
           <span className="flex items-center gap-3">
             <Star size={16} /> Memnuniyet Anketi
@@ -571,75 +597,176 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   );
 
   const renderGeneralTab = () => (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6 p-6 animate-in fade-in slide-in-from-bottom-2 duration-300 items-start">
-      <div>
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Kuyruk Numarası</label>
-        <input type="number" name="extension" value={formData.extension} onChange={handleChange} placeholder="Örn: 2000" className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-        <p className="text-[10px] text-slate-500 mt-1">Numara Planına göre 2000-2999 aralığında olmalıdır.</p>
-      </div>
-
-      <div>
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Maksimum Çağrı Sayısı</label>
-        <input type="number" name="max_calls" value={formData.max_calls} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-        <p className="text-[10px] text-slate-500 mt-1">Kuyrukta bekleyebilecek max çağrı sayısı (0 = sınırsız).</p>
-      </div>
-
-      <div>
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Kuyruk İsmi</label>
-        <input type="text" name="name" value={formData.name} onChange={handleChange} placeholder="Örn: Satis_Kuyrugu" className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-      </div>
-
-      <div>
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Çalma Süresi (Sn)</label>
-        <input type="number" name="ring_time" value={formData.ring_time} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-        <p className="text-[10px] text-slate-500 mt-1">Bir temsilcinin telefonu en fazla kaç saniye çalsın?</p>
-      </div>
-
-      <div>
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Çalma Düzeni (Strategy)</label>
-        <select name="strategy" value={formData.strategy} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}>
-          {strategies.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">ACW Süresi (Sn)</label>
-        <input type="number" min={0} name="acw_time" value={formData.acw_time} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-        <p className="text-[10px] text-slate-500 mt-1">Çağrı sonrası işlem/not alma süresi (After Call Work). 0 = Kapalı.</p>
-      </div>
-
-      <div>
-        <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Aynı Anda Maks. Moladaki Temsilci</label>
-        <input type="number" min={0} name="max_concurrent_breaks" value={formData.max_concurrent_breaks ?? 0} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
-        <p className="text-[10px] text-slate-500 mt-1">Bu kuyrukta aynı anda en fazla kaç temsilci molaya çıkabilir? (0 = Sınırsız)</p>
-      </div>
-
-      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between gap-3 self-stretch">
-        <div>
-          <label className="block text-xs font-bold text-slate-800 dark:text-white">Kuyruk İsmini Göster</label>
-          <p className="text-[10px] text-slate-500 mt-0.5">
-            Bu kuyruktan temsilciye çağrı geldiğinde WebPhone ekranında arayan numara ile birlikte kuyruk ismini de gösterir.
+    <div className="p-6 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[68vh]">
+      {/* Grup 1: Temel Kuyruk Kimliği & Görünüm */}
+      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
+        <div className="border-b border-slate-200/60 dark:border-slate-800 pb-3">
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Settings size={15} className={text} />
+            Temel Kuyruk Kimliği
+          </h4>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Kuyruğun santral numarası, görünen adı ve WebPhone ekranındaki karşılama etiketi.
           </p>
         </div>
-        <label className="relative inline-flex items-center cursor-pointer shrink-0">
-          <input
-            type="checkbox"
-            name="show_queue_name"
-            checked={Boolean(formData.show_queue_name)}
-            onChange={handleChange}
-            className="sr-only peer"
-          />
-          <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
-        </label>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Kuyruk İsmi</label>
+            <input
+              type="text"
+              name="name"
+              value={formData.name}
+              onChange={handleChange}
+              placeholder="Örn: Satış Kuyruğu"
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+            />
+            <p className="text-[10px] text-slate-500 mt-1.5">Raporlarda ve canlı izleme ekranında görünecek kuyruk adı.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Kuyruk Numarası (Dahili)</label>
+            <input
+              type="number"
+              name="extension"
+              value={formData.extension}
+              onChange={handleChange}
+              placeholder="Örn: 2000"
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+            />
+            <p className="text-[10px] text-slate-500 mt-1.5">Numara planına göre 2000-2999 aralığında olmalıdır.</p>
+          </div>
+        </div>
+
+        <div className="p-4 rounded-xl border border-slate-200/80 dark:border-slate-800 bg-white dark:bg-slate-900 flex items-center justify-between gap-4">
+          <div>
+            <label className="block text-xs font-bold text-slate-800 dark:text-white">Kuyruk İsmini WebPhone&apos;da Göster</label>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Bu kuyruktan temsilciye çağrı geldiğinde WebPhone ekranında arayan numara ile birlikte kuyruk ismini de gösterir.
+            </p>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              name="show_queue_name"
+              checked={Boolean(formData.show_queue_name)}
+              onChange={handleChange}
+              className="sr-only peer"
+            />
+            <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
+          </label>
+        </div>
       </div>
 
-      <div className="md:col-span-2 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+      {/* Grup 2: Çağrı Dağıtım & Çalma Düzeni */}
+      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
+        <div className="border-b border-slate-200/60 dark:border-slate-800 pb-3">
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <PhoneCall size={15} className={text} />
+            Çağrı Dağıtım & Çalma Ayarları
+          </h4>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Kuyruğa gelen çağrıların temsilcilere hangi strateji ve çalma süresiyle dağıtılacağını belirleyin.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
           <div>
-            <label className="block text-xs font-bold text-slate-800 dark:text-white">Çağrı Sonuç Kodları (Disposition / Wrap-Up Codes)</label>
-            <p className="text-[10px] text-slate-500 mt-0.5">Temsilcilerin görüşme sonunda veya ACW süresinde tek tıkla seçebileceği çağrı sonuç etiketleri.</p>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Çalma Düzeni (Strategy)</label>
+            <select
+              name="strategy"
+              value={formData.strategy}
+              onChange={handleChange}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+            >
+              {strategies.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+            <p className="text-[10px] text-slate-500 mt-1.5">Çağrının müsait temsilciler arasında dağıtılma algoritması.</p>
           </div>
-          <div className="flex items-center gap-2">
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Temsilci Çalma Süresi (Sn)</label>
+            <input
+              type="number"
+              name="ring_time"
+              value={formData.ring_time}
+              onChange={handleChange}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+            />
+            <p className="text-[10px] text-slate-500 mt-1.5">Bir temsilcinin telefonu sıradaki temsilciye geçmeden önce en fazla kaç saniye çalsın?</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Grup 3: Kapasite & Temsilci Çalışma Kuralları */}
+      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
+        <div className="border-b border-slate-200/60 dark:border-slate-800 pb-3">
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Users size={15} className={text} />
+            Kapasite, ACW & Mola Limitleri
+          </h4>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Kuyruk bekleme kapasitesi, çağrı sonrası işlem süresi (ACW) ve eşzamanlı mola kuralları.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Maksimum Bekleyen Çağrı</label>
+            <input
+              type="number"
+              name="max_calls"
+              value={formData.max_calls}
+              onChange={handleChange}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+            />
+            <p className="text-[10px] text-slate-500 mt-1.5">Kuyrukta bekleyebilecek maksimum çağrı (0 = Sınırsız).</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">ACW Süresi (Sn)</label>
+            <input
+              type="number"
+              min={0}
+              name="acw_time"
+              value={formData.acw_time}
+              onChange={handleChange}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+            />
+            <p className="text-[10px] text-slate-500 mt-1.5">Çağrı sonrası işlem/not alma süresi (0 = Kapalı).</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Maks. Eşzamanlı Mola</label>
+            <input
+              type="number"
+              min={0}
+              name="max_concurrent_breaks"
+              value={formData.max_concurrent_breaks ?? 0}
+              onChange={handleChange}
+              className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`}
+            />
+            <p className="text-[10px] text-slate-500 mt-1.5">Aynı anda molaya çıkabilecek temsilci sayısı (0 = Sınırsız).</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderDispositionTab = () => (
+    <div className="p-6 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[68vh]">
+      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-200/60 dark:border-slate-800 pb-4">
+          <div>
+            <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+              <BarChart2 size={15} className={text} />
+              Çağrı Sonuç Kodları (Disposition / Wrap-Up Codes)
+            </h4>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Temsilcilerin görüşme sonunda veya ACW süresinde tek tıkla seçebileceği çağrı sonuç etiketleri.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             <input
               type="text"
               value={newDispositionCode}
@@ -658,7 +785,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                 }
               }}
               placeholder="Yeni sonuç kodu ekle..."
-              className={`text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+              className={`w-56 text-xs px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
             />
             <button
               type="button"
@@ -679,11 +806,12 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
             </button>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
+
+        <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 min-h-[110px] flex flex-wrap items-start content-start gap-2.5">
           {(formData.disposition_codes || []).map((code, idx) => (
             <span
               key={`${code}-${idx}`}
-              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold ${lightBg} ${text} border ${borderLight}`}
+              className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold ${lightBg} ${text} border ${borderLight} shadow-sm`}
             >
               <span>{code}</span>
               <button
@@ -694,58 +822,93 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                     disposition_codes: (prev.disposition_codes || []).filter((_, i) => i !== idx)
                   }))
                 }
-                className="hover:opacity-75"
+                className="hover:opacity-75 p-0.5 rounded-md transition-opacity"
                 title="Kaldır"
               >
-                <X size={12} />
+                <X size={13} />
               </button>
             </span>
           ))}
           {(!formData.disposition_codes || formData.disposition_codes.length === 0) && (
-            <span className="text-[11px] text-slate-400 italic">Henüz çağrı sonuç kodu tanımlanmadı.</span>
+            <div className="w-full py-6 text-center text-xs text-slate-400 italic">
+              Henüz çağrı sonuç kodu tanımlanmadı. Sağ üstteki alandan yeni etiket ekleyebilirsiniz.
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Otomatik Mola (Auto-Pause / RONA) & Temsilci Bildirim Kuralları */}
-      <div className="md:col-span-2 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-4">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="inline-block w-2.5 h-2.5 rounded-full bg-slate-700 dark:bg-slate-400" />
-              <label className="text-xs font-bold text-slate-800 dark:text-white">
-                Otomatik Mola (Auto-Pause / RONA) & Temsilci Bildirim Kuralları
-              </label>
-            </div>
-            <p className="text-[10px] text-slate-500 mt-0.5">
-              Temsilci çağrı kaçırdığında veya WebPhone/SIP bağlantısı koptuğunda otomatik molaya alınır, yeni çağrı gönderilmez ve canlı izleme panelinde antrasit/siyah renkte işaretlenir.
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Hızlı Ekle:</span>
+          {["Satış Yapıldı", "Bilgi Verildi", "Tekrar Aranacak", "Teknik Destek", "İptal / Şikayet", "Randevu Oluşturuldu", "Yanlış Numara"].map((preset) => {
+            const exists = (formData.disposition_codes || []).includes(preset);
+            return (
+              <button
+                key={preset}
+                type="button"
+                disabled={exists}
+                onClick={() => {
+                  if (!exists) {
+                    setFormData(prev => ({
+                      ...prev,
+                      disposition_codes: [...(prev.disposition_codes || []), preset]
+                    }));
+                  }
+                }}
+                className={`text-[11px] px-2.5 py-1 rounded-lg border font-semibold transition-all ${
+                  exists
+                    ? "border-slate-200 dark:border-slate-800 text-slate-300 dark:text-slate-600 cursor-not-allowed"
+                    : "border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 hover:border-slate-400"
+                }`}
+              >
+                + {preset}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  const renderAutoPauseTab = () => (
+    <div className="p-6 space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300 overflow-y-auto max-h-[68vh]">
+      <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-5">
+        <div className="border-b border-slate-200/60 dark:border-slate-800 pb-4">
+          <h4 className="text-xs font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <Shield size={15} className={text} />
+            Otomatik Mola (Auto-Pause / RONA) & Temsilci Bildirim Kuralları
+          </h4>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Temsilci çağrı kaçırdığında veya WebPhone/SIP bağlantısı koptuğunda otomatik molaya alınır, yeni çağrı gönderilmez ve canlı izleme panelinde antrasit/siyah renkte işaretlenir.
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* 1. Çağrı Kaçırmada Otomatik Mola (RONA) */}
-          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/70 space-y-3">
-            <label className="flex items-center justify-between gap-2 cursor-pointer">
+          <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-xs font-bold text-slate-800 dark:text-white">Çağrı Kaçırmada Otomatik Mola (RONA)</div>
-                <div className="text-[10px] text-slate-500">Temsilci çalan çağrıyı açmazsa veya reddederse otomatik molaya al.</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  Temsilci çalan çağrıyı açmazsa veya reddederse otomatik molaya al.
+                </div>
               </div>
-              <input
-                type="checkbox"
-                name="auto_pause_missed_enabled"
-                checked={Boolean(formData.auto_pause_missed_enabled)}
-                onChange={handleChange}
-                className="w-4 h-4 rounded accent-slate-800 cursor-pointer shrink-0"
-              />
-            </label>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                <input
+                  type="checkbox"
+                  name="auto_pause_missed_enabled"
+                  checked={Boolean(formData.auto_pause_missed_enabled)}
+                  onChange={handleChange}
+                  className="sr-only peer"
+                />
+                <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
+              </label>
+            </div>
 
             {formData.auto_pause_missed_enabled && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 space-y-1.5">
+                <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300">
                   Üst Üste Kaçırılan Çağrı Limiti
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   <input
                     type="number"
                     min={1}
@@ -753,34 +916,39 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                     name="auto_pause_missed_count"
                     value={formData.auto_pause_missed_count ?? 1}
                     onChange={handleChange}
-                    className={`w-24 text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                    className={`w-24 text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
                   />
-                  <span className="text-[10px] text-slate-500">çağrı cevapsız kalırsa &quot;Otomatik Mola (Çağrı Kaçırma)&quot; başlatılır.</span>
+                  <span className="text-[11px] text-slate-500">çağrı cevapsız kalırsa otomatik mola başlatılır.</span>
                 </div>
               </div>
             )}
           </div>
 
           {/* 2. Bağlantı Koptuğunda Otomatik Mola */}
-          <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/70 space-y-3">
-            <label className="flex items-center justify-between gap-2 cursor-pointer">
+          <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4">
+            <div className="flex items-start justify-between gap-3">
               <div>
                 <div className="text-xs font-bold text-slate-800 dark:text-white">Bağlantı Koptuğunda Otomatik Mola</div>
-                <div className="text-[10px] text-slate-500">WebPhone / SIP bağlantısı koptuğunda temsilciyi otomatik molaya al.</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  WebPhone / SIP bağlantısı koptuğunda temsilciyi otomatik molaya al.
+                </div>
               </div>
-              <input
-                type="checkbox"
-                name="auto_pause_disconnect_enabled"
-                checked={Boolean(formData.auto_pause_disconnect_enabled)}
-                onChange={handleChange}
-                className="w-4 h-4 rounded accent-slate-800 cursor-pointer shrink-0"
-              />
-            </label>
+              <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+                <input
+                  type="checkbox"
+                  name="auto_pause_disconnect_enabled"
+                  checked={Boolean(formData.auto_pause_disconnect_enabled)}
+                  onChange={handleChange}
+                  className="sr-only peer"
+                />
+                <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
+              </label>
+            </div>
 
             {formData.auto_pause_disconnect_enabled && (
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Kopma Tolerans Süresi (Sn)
                   </label>
                   <input
@@ -790,19 +958,19 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
                     name="auto_pause_disconnect_grace_sec"
                     value={formData.auto_pause_disconnect_grace_sec ?? 15}
                     onChange={handleChange}
-                    className={`w-full text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                    className={`w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
                   />
-                  <span className="text-[9px] text-slate-400">Anlık sayfa yenilemelerini tolere eder.</span>
+                  <span className="block text-[10px] text-slate-400 mt-1">Anlık sayfa yenilemelerini tolere eder.</span>
                 </div>
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1">
                     Bağlantı Geldiğinde Davranış
                   </label>
                   <select
                     name="auto_pause_reconnect_mode"
                     value={formData.auto_pause_reconnect_mode || "manual"}
                     onChange={handleChange}
-                    className={`w-full text-xs px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                    className={`w-full text-xs px-2.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
                   >
                     <option value="manual">Molada Kalsın (Manuel Müsait)</option>
                     <option value="auto">Otomatik Müsait&apos;e Döndür</option>
@@ -814,32 +982,36 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         </div>
 
         {/* 3. Otomatik Molaya Düşen Temsilciye Bildirim (E-Posta & WhatsApp) */}
-        <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <label className="flex items-center gap-2.5 cursor-pointer">
-            <input
-              type="checkbox"
-              name="auto_pause_notify_user"
-              checked={Boolean(formData.auto_pause_notify_user ?? true)}
-              onChange={handleChange}
-              className="w-4 h-4 rounded accent-slate-800 cursor-pointer shrink-0"
-            />
-            <div>
+        <div className="p-4 rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start justify-between sm:justify-start gap-3 flex-1">
+            <div className="flex-1">
               <div className="text-xs font-bold text-slate-800 dark:text-white">
                 Otomatik Molaya Düşen Temsilciye Bildirim Gönder (E-Posta / WhatsApp)
               </div>
-              <div className="text-[10px] text-slate-500">
+              <div className="text-[11px] text-slate-500 mt-0.5">
                 Temsilcinin haberi olmayabileceği durumlar için kullanıcı profilindeki E-Posta ve GSM/WhatsApp numarasına anında uyarı iletilir.
               </div>
             </div>
-          </label>
+            <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">
+              <input
+                type="checkbox"
+                name="auto_pause_notify_user"
+                checked={Boolean(formData.auto_pause_notify_user ?? true)}
+                onChange={handleChange}
+                className="sr-only peer"
+              />
+              <div className={`w-10 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:${bg}`}></div>
+            </label>
+          </div>
 
           {Boolean(formData.auto_pause_notify_user ?? true) && (
-            <div className="shrink-0">
+            <div className="shrink-0 sm:border-l border-slate-100 dark:border-slate-800 sm:pl-4">
+              <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">Bildirim Kanalı</label>
               <select
                 name="auto_pause_notify_channels"
                 value={formData.auto_pause_notify_channels || "both"}
                 onChange={handleChange}
-                className={`text-xs px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-white font-semibold focus:outline-none focus:ring-2 ${ring}`}
+                className={`text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-white font-semibold focus:outline-none focus:ring-2 ${ring}`}
               >
                 <option value="both">WhatsApp + E-Posta</option>
                 <option value="whatsapp">Sadece WhatsApp</option>
@@ -2643,6 +2815,8 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           {/* Right Content Area */}
           <div className="flex-1 overflow-y-auto bg-white dark:bg-slate-900">
             {activeTab === "general" && renderGeneralTab()}
+            {activeTab === "disposition" && renderDispositionTab()}
+            {activeTab === "auto_pause" && renderAutoPauseTab()}
             {activeTab === "announcements" && renderAnnouncementsTab()}
             {activeTab === "max_wait_time" && renderMaxWaitTimeTab()}
             {activeTab === "ivr" && renderIvrTab()}
