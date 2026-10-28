@@ -182,9 +182,10 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
   const ext = String(currentUser?.extension || "1000").trim();
   const fullName = currentUser?.full_name || currentUser?.username || `Dahili ${ext}`;
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState(null);
+  const [hasProvisionedDevice, setHasProvisionedDevice] = useState(false);
 
   const [brand, setBrand] = useState("Yealink");
   const [model, setModel] = useState("T46U");
@@ -225,9 +226,11 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
   const fetchDeskphoneConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${getApiBase()}/api/agent/deskphone/${encodeURIComponent(ext)}`);
+      const uidParam = currentUser?.id ? `?user_id=${encodeURIComponent(String(currentUser.id))}` : "";
+      const res = await fetch(`${getApiBase()}/api/agent/deskphone/${encodeURIComponent(ext)}${uidParam}`);
       if (res.ok) {
         const data = await res.json();
+        setHasProvisionedDevice(Boolean(data.has_provisioned_device));
         const cfg = data.config || {};
         if (cfg.brand) setBrand(cfg.brand);
         if (cfg.model) setModel(cfg.model);
@@ -266,7 +269,7 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
     } finally {
       setLoading(false);
     }
-  }, [ext, getApiBase]);
+  }, [ext, currentUser?.id, getApiBase]);
 
   useEffect(() => {
     fetchDeskphoneConfig();
@@ -379,6 +382,49 @@ export default function AgentDeskphoneTab({ backendHost, currentUser }) {
 
   const leftKeys = dssKeys.slice(0, 6);
   const rightKeys = dssKeys.slice(6, 12);
+
+  if (loading) {
+    return (
+      <div className="h-full w-full flex items-center justify-center p-10">
+        <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
+          <RefreshCw size={24} className="animate-spin text-primary" />
+          <span className="text-xs font-bold">Masa telefonu provizyon bağlantısı kontrol ediliyor...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasProvisionedDevice) {
+    return (
+      <div className="h-full w-full flex items-center justify-center p-6">
+        <div className="max-w-lg w-full rounded-2xl border border-amber-200 dark:border-amber-900/50 bg-amber-50/60 dark:bg-amber-950/20 p-7 text-center shadow-sm space-y-4">
+          <div className="mx-auto h-14 w-14 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 flex items-center justify-center shadow-inner">
+            <AlertCircle size={28} />
+          </div>
+          <div className="space-y-1.5">
+            <h3 className="text-base font-extrabold text-slate-800 dark:text-white">
+              Tanımlı Masa Telefonunuz Bulunmamaktadır
+            </h3>
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              Dahili hattınıza (<span className="font-mono font-bold text-slate-900 dark:text-white">{ext}</span>) bağlı bir{" "}
+              <span className="font-bold">Oto-Provizyon (IP Masa Telefonu)</span> kaydı bulunamadı. Masa telefonu üzerindeki{" "}
+              <span className="font-semibold">BLF, Hızlı Arama ve Softkey</span> tuşlarını yönetebilmek için sistem yöneticinizin Oto-Provizyon ekranından fiziksel masa telefonunuzu hesabınıza tanımlaması gerekmektedir.
+            </p>
+          </div>
+          <div className="pt-2 flex justify-center">
+            <button
+              type="button"
+              onClick={fetchDeskphoneConfig}
+              className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-extrabold text-white shadow-sm transition cursor-pointer ${bg} ${hover}`}
+            >
+              <RefreshCw size={14} />
+              <span>Tekrar Kontrol Et</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full overflow-y-auto p-5 space-y-5">

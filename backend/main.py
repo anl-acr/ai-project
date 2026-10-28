@@ -7930,16 +7930,17 @@ def _generate_deskphone_cfg_content(ext: str, user_obj: dict, cfg: dict) -> str:
 
 
 @app.get("/api/agent/deskphone/{extension}")
-async def get_agent_deskphone_config(extension: str, user_info: dict = Depends(get_user_info)):
+async def get_agent_deskphone_config(extension: str, user_id: Optional[str] = None, user_info: dict = Depends(get_user_info)):
     ext_clean = str(extension).strip()
-    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    uid_clean = str(user_id).strip() if user_id and str(user_id).strip() not in ("undefined", "null", "") else None
 
     all_users = settings_db.get("users", [])
     directory_users = []
     matched_user = None
     for u in all_users:
         u_ext = str(u.get("extension") or "").strip()
-        if u_ext == ext_clean:
+        u_id = str(u.get("id") or "").strip()
+        if u_ext == ext_clean or (uid_clean and u_id == uid_clean):
             matched_user = u
         if u_ext:
             directory_users.append({
@@ -7948,7 +7949,7 @@ async def get_agent_deskphone_config(extension: str, user_info: dict = Depends(g
                 "department": u.get("department") or "",
             })
 
-    # Also check PostgreSQL SystemUser if directory_users is empty
+    # Also check PostgreSQL SystemUser if directory_users is empty or matched_user not found
     try:
         async with AsyncSessionLocal() as session:
             res_u = await session.execute(select(SystemUser))
@@ -7956,6 +7957,7 @@ async def get_agent_deskphone_config(extension: str, user_info: dict = Depends(g
             seen_exts = {d["extension"] for d in directory_users}
             for dbu in db_users:
                 u_ext = str(dbu.extension or "").strip()
+                u_id = str(dbu.id or "").strip()
                 if u_ext and u_ext not in seen_exts:
                     directory_users.append({
                         "extension": u_ext,
@@ -7963,7 +7965,7 @@ async def get_agent_deskphone_config(extension: str, user_info: dict = Depends(g
                         "department": dbu.department or "",
                     })
                     seen_exts.add(u_ext)
-                if u_ext == ext_clean and not matched_user:
+                if (u_ext == ext_clean or (uid_clean and u_id == uid_clean)) and not matched_user:
                     matched_user = {
                         "id": dbu.id,
                         "extension": u_ext,
@@ -7978,27 +7980,35 @@ async def get_agent_deskphone_config(extension: str, user_info: dict = Depends(g
     # Find matching autoprovision device if bound
     ap_devices = settings_db.get("autoprovision", [])
     bound_dev = None
+    match_targets = {ext_clean}
+    if uid_clean:
+        match_targets.add(uid_clean)
+    if matched_user and matched_user.get("id") is not None:
+        match_targets.add(str(matched_user.get("id")).strip())
+
     for d in ap_devices:
-        assigned = str(d.get("assigned_user") or "").strip()
-        if assigned == ext_clean or (matched_user and assigned == str(matched_user.get("id"))):
+        assigned = str(d.get("assigned_user") or d.get("extension") or "").strip()
+        if assigned and assigned in match_targets:
             bound_dev = d
             break
 
     saved_deskphones = settings_db.get("user_deskphone_configs", {})
     user_cfg = saved_deskphones.get(ext_clean, {})
-    if bound_dev and not user_cfg.get("mac"):
+    if bound_dev:
         user_cfg = {
             **user_cfg,
-            "brand": user_cfg.get("brand") or bound_dev.get("brand") or "Yealink",
-            "model": user_cfg.get("model") or bound_dev.get("model") or "T46U",
-            "mac": bound_dev.get("mac") or "",
-            "ip": bound_dev.get("ip") or "",
+            "brand": bound_dev.get("brand") or user_cfg.get("brand") or "Yealink",
+            "model": bound_dev.get("model") or user_cfg.get("model") or "T46U",
+            "mac": bound_dev.get("mac") or user_cfg.get("mac") or "",
+            "ip": bound_dev.get("ip") or user_cfg.get("ip") or "",
         }
 
     speed_dials = settings_db.get("speed_dials", [])
     return {
         "status": "success",
         "extension": ext_clean,
+        "has_provisioned_device": bool(bound_dev),
+        "provisioned_device": bound_dev,
         "config": user_cfg,
         "directory_users": directory_users,
         "speed_dials": speed_dials,
@@ -8008,24 +8018,49 @@ async def get_agent_deskphone_config(extension: str, user_info: dict = Depends(g
 @app.post("/api/agent/deskphone/{extension}")
 async def save_agent_deskphone_config(extension: str, payload: dict = Body(...), user_info: dict = Depends(get_user_info)):
     ext_clean = str(extension).strip()
+    uid_clean = str(payload.get("user_id") or "").strip()
+
+    ap_devices = settings_db.get("autoprovision", [])
+    match_targets = {ext_clean}
+    if uid_clean:
+        match_targets.add(uid_clean)
+    for u in settings_db.get("users", []):
+        if str(u.get("extension") or "").strip() == ext_clean and u.get("id") is not None:
+            match_targets.add(str(u.get("id")).strip())
+
+    bound_dev = None
+    for d in ap_devices:
+        assigned = str(d.get("assigned_user") or d.get("extension") or "").strip()
+        if assigned and assigned in match_targets:
+            bound_dev = d
+            break
+
+    if not bound_dev:
+        raise HTTPException(
+            status_code=400,
+            detail="Tanımlı bir masa telefonunuz (Oto-Provizyon bağlantısı) bulunmadığı için işlem yapılamaz."
+        )
+
     if "user_deskphone_configs" not in settings_db or not isinstance(settings_db.get("user_deskphone_configs"), dict):
         settings_db["user_deskphone_configs"] = {}
 
     cfg_to_save = {
         "extension": ext_clean,
-        "brand": str(payload.get("brand") or "Yealink"),
-        "model": str(payload.get("model") or "T46U"),
-        "mac": str(payload.get("mac") or "").strip().lower(),
-        "ip": str(payload.get("ip") or "").strip(),
+        "brand": str(payload.get("brand") or bound_dev.get("brand") or "Yealink"),
+        "model": str(payload.get("model") or bound_dev.get("model") or "T46U"),
+        "mac": str(bound_dev.get("mac") or payload.get("mac") or "").strip().lower(),
+        "ip": str(bound_dev.get("ip") or payload.get("ip") or "").strip(),
         "dss_keys": payload.get("dss_keys") or [],
         "soft_keys": payload.get("soft_keys") or [],
         "updated_at": (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S"),
     }
     settings_db["user_deskphone_configs"][ext_clean] = cfg_to_save
 
-    # Also update or register in autoprovision table if MAC is provided
+    # Also update in autoprovision table
+    bound_dev["dss_keys"] = cfg_to_save["dss_keys"]
+    bound_dev["soft_keys"] = cfg_to_save["soft_keys"]
     mac_val = cfg_to_save["mac"]
-    if mac_val:
+    if False:
         if "autoprovision" not in settings_db:
             settings_db["autoprovision"] = []
         updated_ap = False
