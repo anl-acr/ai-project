@@ -861,8 +861,44 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setSupQueueSearch("");
   };
 
+  const getNextAvailableExtension = (targetTenantId = null) => {
+    const allUsedSet = new Set(
+      users
+        .map((u) => String(u.extension || "").trim())
+        .filter((ext) => /^\d+$/.test(ext))
+        .map((ext) => parseInt(ext, 10))
+    );
+
+    const activeTenant = targetTenantId || userTenantId || "tenant-default";
+    const tenantNumericExts = users
+      .filter((u) => !u.tenant_id || u.tenant_id === activeTenant)
+      .map((u) => String(u.extension || "").trim())
+      .filter((ext) => /^\d+$/.test(ext))
+      .map((ext) => parseInt(ext, 10))
+      .filter((num) => num >= 100);
+
+    const allNumericExts = Array.from(allUsedSet).filter((num) => num >= 100);
+    const referenceExts = tenantNumericExts.length > 0 ? tenantNumericExts : allNumericExts;
+
+    let candidate = 1000;
+    if (referenceExts.length > 0) {
+      const sorted = [...referenceExts].sort((a, b) => a - b);
+      candidate = sorted[0];
+      while (allUsedSet.has(candidate)) {
+        candidate += 1;
+      }
+    } else {
+      while (allUsedSet.has(candidate)) {
+        candidate += 1;
+      }
+    }
+    return String(candidate);
+  };
+
   const openAddModal = () => {
     resetForm();
+    const initialTenant = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+    setExtension(getNextAvailableExtension(initialTenant));
     generateSipUsername();
     generateSipPassword();
     setShowModal(true);
@@ -1689,7 +1725,12 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         </button>
                         <button
                             type="button"
-                            onClick={() => setActiveTab("sip")}
+                            onClick={() => {
+                                if (!editingUser && !extension.trim()) {
+                                    setExtension(getNextAvailableExtension(userTenantId));
+                                }
+                                setActiveTab("sip");
+                            }}
                             className={"w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'sip' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
                         >
                             <KeyRound size={16} />
@@ -1896,7 +1937,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Dahili Numarası (Extension)</label>
-                                            <input type="text" placeholder="Örn: 202" value={extension} onChange={(e) => setExtension(e.target.value)} className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none" />
+                                            <div className="flex gap-2">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Örn: 1000"
+                                                    value={extension}
+                                                    onChange={(e) => setExtension(e.target.value)}
+                                                    className="flex-1 text-xs font-bold px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none font-mono"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setExtension(getNextAvailableExtension(userTenantId))}
+                                                    className="p-2.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 rounded-xl transition-colors"
+                                                    title="Sıradaki Boş Dahili Numarasını Getir"
+                                                >
+                                                    <RefreshCw size={16} />
+                                                </button>
+                                            </div>
                                         </div>
                                         <div>
                                             <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-1.5">Dış Aramada Görünecek Numara</label>
