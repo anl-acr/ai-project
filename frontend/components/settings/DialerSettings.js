@@ -681,7 +681,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => setShowCampaignModal(false)}
-                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition"
+                  className="px-4 py-2 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 transition cursor-pointer"
                 >
                   Vazgeç
                 </button>
@@ -733,7 +733,7 @@ export default function DialerSettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => setShowUploadModal(false)}
-                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-xl font-bold text-xs bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-50 transition"
+                  className="px-4 py-2 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 transition cursor-pointer"
                 >
                   Vazgeç
                 </button>

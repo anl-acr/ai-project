@@ -1078,7 +1078,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                     <button
                       type="button"
                       onClick={resetModal}
-                      className="px-6 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all"
+                      className="px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm shadow-rose-500/20 transition-all cursor-pointer"
                     >
                       Vazgeç
                     </button>

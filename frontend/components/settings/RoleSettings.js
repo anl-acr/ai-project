@@ -1476,7 +1476,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-slate-500 hover:bg-slate-600 text-white transition-all"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 transition-all cursor-pointer"
                 >
                   Vazgeç
                 </button>

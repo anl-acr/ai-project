@@ -308,7 +308,7 @@ export default function QASettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 py-2.5 rounded-xl font-bold border dark: dark: dark: hover: transition-all bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 transition-all cursor-pointer"
                 >Vazgeç</button>
                 <button
                   type="submit"

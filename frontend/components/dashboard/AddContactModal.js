@@ -155,7 +155,7 @@ export default function AddContactModal({ isOpen, onClose, initialPhone = "", in
               type="button"
               onClick={onClose}
               disabled={loading}
-              className="px-4 py-2 hover: dark: dark:hover: dark: border dark: rounded-xl font-bold transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+              className="px-4 py-2 rounded-xl font-bold transition bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 cursor-pointer"
             >Vazgeç</button>
             
             <button

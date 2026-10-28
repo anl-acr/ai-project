@@ -679,7 +679,7 @@ export default function BlacklistSettings({ backendHost }) {
                 <button
                   type="button"
                   onClick={() => { setShowAddModal(false); setEditingItem(null); setFormValue(""); setFormReason(""); }}
-                  className="px-4 py-2 border dark: hover: dark:hover: rounded-xl text-xs font-bold dark: transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                  className="px-4 py-2 rounded-xl text-xs font-bold transition bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 cursor-pointer"
                 >Vazgeç</button>
                 <button
                   type="submit"
@@ -746,7 +746,7 @@ export default function BlacklistSettings({ backendHost }) {
                 <button
                   type="button"
                   onClick={() => { setShowAddWordModal(false); setEditingWord(null); setFormWord(""); }}
-                  className="px-4 py-2 border dark: hover: dark:hover: rounded-xl text-xs font-bold dark: transition bg-slate-500 hover:bg-slate-600 text-white border-transparent"
+                  className="px-4 py-2 rounded-xl text-xs font-bold transition bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20 cursor-pointer"
                 >Vazgeç</button>
                 <button
                   type="submit"

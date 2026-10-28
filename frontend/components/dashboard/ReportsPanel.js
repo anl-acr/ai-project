@@ -3691,7 +3691,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     setSelectedQACall(null);
                     setQaModalData(null);
                   }}
-                  className="px-4 py-2 border dark: dark: font-bold rounded-xl hover: dark:hover: transition cursor-pointer bg-slate-500 hover:bg-slate-600 text-white"
+                  className="px-4 py-2 font-bold rounded-xl transition cursor-pointer bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20"
                 >Vazgeç</button>
                 <button
                   onClick={async () => {
@@ -3825,7 +3825,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     setIsNotesPopupOpen(false);
                     setSelectedNotesCall(null);
                   }}
-                  className="px-4 py-2 border dark: dark: font-bold rounded-xl hover: dark:hover: transition cursor-pointer bg-slate-500 hover:bg-slate-600 text-white"
+                  className="px-4 py-2 font-bold rounded-xl transition cursor-pointer bg-rose-600 hover:bg-rose-500 text-white shadow-sm shadow-rose-500/20"
                 >Vazgeç</button>
                 <button
                   onClick={async () => {
@@ -4145,7 +4145,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               <button
                                 type="button"
                                 onClick={() => setIsIntentRuleFormOpen(false)}
-                                className="px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                                className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm shadow-rose-500/20 transition cursor-pointer"
                               >
                                 Vazgeç
                               </button>
@@ -8540,7 +8540,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               <button
                                 type="button"
                                 onClick={() => setIsIntentRuleFormOpen(false)}
-                                className="px-3.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 cursor-pointer"
+                                className="px-3.5 py-1.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm shadow-rose-500/20 transition cursor-pointer"
                               >
                                 Vazgeç
                               </button>

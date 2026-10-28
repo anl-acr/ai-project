@@ -367,7 +367,7 @@ export default function CannedResponsesSettings({ backendHost = "localhost:8000"
                 <button
                   type="button"
                   onClick={closeFormModal}
-                  className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200/50 dark:border-slate-700 rounded-xl text-xs font-bold transition"
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-sm shadow-rose-500/20 transition cursor-pointer"
                 >
                   İptal
                 </button>

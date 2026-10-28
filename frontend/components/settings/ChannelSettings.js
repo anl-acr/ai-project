@@ -782,7 +782,7 @@ export default function ChannelSettings({ backendHost = "localhost:8000" }) {
                 <button
                   type="button"
                   onClick={() => setShowAccountModal(false)}
-                  className="px-4 py-2 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-bold"
+                  className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold shadow-sm shadow-rose-500/20 transition cursor-pointer"
                 >
                   İptal
                 </button>

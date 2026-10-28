@@ -137,7 +137,7 @@ export default function RuleEditor({ backendHost = "localhost:8000" }) {
               <button
                 type="button"
                 onClick={handleCancelEdit}
-                className="text-[11px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-1"
+                className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-600 hover:bg-rose-500 text-white flex items-center gap-1 transition cursor-pointer"
               >
                 <X size={13} /> Vazgeç
               </button>

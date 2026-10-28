@@ -1699,7 +1699,7 @@ export default function CallFlowEditor({ backendHost = "localhost:8000", onEditS
                                       <button
                                         type="button"
                                         onClick={() => setEditingDidIndex(null)}
-                                        className="px-2 py-1 bg-slate-200 dark:bg-slate-855 text-slate-500 text-[9px] font-bold rounded-lg cursor-pointer"
+                                        className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white text-[9px] font-bold rounded-lg cursor-pointer transition"
                                       >
                                         İptal
                                       </button>
