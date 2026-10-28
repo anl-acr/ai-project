@@ -831,22 +831,6 @@ export default function CallChatWidget({
             <div className="flex items-center gap-1 shrink-0">
               <button
                 type="button"
-                onClick={requestDesktopNotificationPermission}
-                className={`p-1.5 rounded-xl transition-colors ${
-                  notifPermission === "granted"
-                    ? "text-emerald-200/95 hover:text-white hover:bg-white/15"
-                    : "text-amber-200 hover:text-white bg-white/15 hover:bg-white/25 animate-pulse"
-                }`}
-                title={
-                  notifPermission === "granted"
-                    ? "Masaüstü Çağrı Bildirimleri Açık (Test etmek için tıklayın)"
-                    : "Masaüstü Çağrı Bildirimlerini Etkinleştirmek İçin Tıklayın"
-                }
-              >
-                {notifPermission === "granted" ? <BellRing size={13} /> : <Bell size={14} />}
-              </button>
-              <button
-                type="button"
                 onClick={handleOpenFullScreenWebphone}
                 className="px-2 py-1 text-[10px] font-extrabold bg-white/15 hover:bg-white/25 text-white rounded-xl flex items-center gap-1 transition-colors"
                 title="Tam Ekran Çağrı Paneline Git"

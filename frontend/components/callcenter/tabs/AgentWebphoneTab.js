@@ -26,9 +26,7 @@ import {
   Tag,
   Check,
   Search,
-  Save,
-  Bell,
-  BellRing
+  Save
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
@@ -53,9 +51,6 @@ export default function AgentWebphoneTab({
 }) {
   const { bg, hover, text, border, lightBg, borderLight } = useTheme();
   const [wpState, setWpState] = useState(() => webphoneManager.getState());
-  const [notifPermission, setNotifPermission] = useState(() =>
-    typeof window !== "undefined" && "Notification" in window ? Notification.permission : "default"
-  );
   const myExt = String(currentUser?.extension || "1000");
 
   const canSaveContact = callPanelPerms.canSaveContact !== false;
@@ -470,47 +465,15 @@ export default function AgentWebphoneTab({
                     ? `WebPhone Hazır (${currentUser?.extension || "1000"})`
                     : "Bağlantı Bekleniyor"}
                 </span>
-                <div className="flex items-center gap-2">
+                {dialNumber && (
                   <button
                     type="button"
-                    onClick={async () => {
-                      const perm = await webphoneManager.requestAndTestDesktopNotification();
-                      if (perm) setNotifPermission(perm);
-                    }}
-                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold transition-colors border ${
-                      notifPermission === "granted"
-                        ? "bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/30 hover:bg-emerald-100"
-                        : notifPermission === "denied"
-                        ? "bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-500/30"
-                        : "bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-500/30 hover:bg-amber-100 animate-pulse"
-                    }`}
-                    title={
-                      notifPermission === "granted"
-                        ? "Masaüstü Bildirimleri Açık — Test bildirimi göndermek için tıklayın"
-                        : notifPermission === "denied"
-                        ? "Tarayıcı adres çubuğundaki kilit ikonundan Bildirim iznini 'İzin Ver' yapın"
-                        : "Farklı ekrandayken çağrı bildirimi görmek için tıklayıp izin verin"
-                    }
+                    onClick={() => setDialNumber("")}
+                    className="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors"
                   >
-                    {notifPermission === "granted" ? <BellRing size={11} /> : <Bell size={11} />}
-                    <span>
-                      {notifPermission === "granted"
-                        ? "Bildirim Test"
-                        : notifPermission === "denied"
-                        ? "Bildirim Engelli"
-                        : "Masaüstü Bildirimi Aç"}
-                    </span>
+                    Temizle
                   </button>
-                  {dialNumber && (
-                    <button
-                      type="button"
-                      onClick={() => setDialNumber("")}
-                      className="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors"
-                    >
-                      Temizle
-                    </button>
-                  )}
-                </div>
+                )}
               </div>
 
               <div className="relative flex items-center bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3.5 py-2.5">
