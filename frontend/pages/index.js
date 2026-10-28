@@ -136,6 +136,8 @@ export default function Home() {
   const router = useRouter();
   const { theme, colorCode, bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
+  const [isAgentFullScreenMode, setIsAgentFullScreenMode] = useState(false);
+  const [isAgentOnlyUser, setIsAgentOnlyUser] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -1134,6 +1136,8 @@ export default function Home() {
         setHasTrunksPermission(true);
         setHasConferencesPermission(true);
         setHasSpeedDialPermission(true);
+        setIsAgentOnlyUser(false);
+        setIsAgentFullScreenMode(false);
       } else {
         setHasOmnichannelPermission(hasPerm('omnichannel'));
         setHasContactsPermission(hasPerm('contacts'));
@@ -1151,6 +1155,23 @@ export default function Home() {
         setHasTrunksPermission(hasPerm('trunks'));
         setHasConferencesPermission(hasPerm('conferences'));
         setHasSpeedDialPermission(hasPerm('speed_dials'));
+
+        const roleCodeLower = String(currentUserData.role || "").toLowerCase();
+        const hasAdminOrSupModules =
+          hasPerm('dashboard') ||
+          hasPerm('wallboard') ||
+          hasPerm('reports') ||
+          hasPerm('users') ||
+          hasPerm('pbx') ||
+          hasPerm('acd_queues') ||
+          hasPerm('trunks');
+        if (roleCodeLower === 'agent' || !hasAdminOrSupModules) {
+          setIsAgentOnlyUser(true);
+          setIsAgentFullScreenMode(true);
+          setActiveTab('call-center');
+        } else {
+          setIsAgentOnlyUser(false);
+        }
       }
       setIsAuthChecking(false);
     } catch (e) {
@@ -1521,7 +1542,7 @@ export default function Home() {
       </Head>
 
       {/* Sidebar Navigation */}
-      {!isEditingCallFlow && (
+      {!isEditingCallFlow && !(activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode)) && (
         <aside
           onMouseOver={(e) => {
             if (!isSidebarCollapsed) {
@@ -2664,8 +2685,42 @@ export default function Home() {
         
         {/* Top Header Navbar */}
         {!isEditingCallFlow && (
-        <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-8 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
-          <div className="flex items-center gap-4 min-w-[260px]">
+        <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
+          <div className="flex items-center gap-3 min-w-[240px]">
+            {activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode) && (
+              <div className="flex items-center gap-2.5 pr-2">
+                <div className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm">
+                  <Bot size={18} />
+                </div>
+                <div>
+                  <div className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white leading-none">
+                    <span className="text-rose-600 dark:text-rose-500">AI</span>DA
+                  </div>
+                  <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                    TEMSİLCİ ÇAĞRI PANELİ
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "call-center" && !isAgentOnlyUser && (
+              <button
+                type="button"
+                onClick={() => setIsAgentFullScreenMode((prev) => !prev)}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                title={
+                  isAgentFullScreenMode
+                    ? "Sol Menüyü Göster"
+                    : "Sol Menüyü Gizle (Tam Ekran Çağrı Paneli)"
+                }
+              >
+                {isAgentFullScreenMode ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+                <span className="hidden xl:inline">
+                  {isAgentFullScreenMode ? "Menüyü Göster" : "Tam Ekran Panel"}
+                </span>
+              </button>
+            )}
+
             {((currentUser?.username === "admin" || currentUser?.id === "admin") || (typeof window !== "undefined" && (localStorage.getItem("current_user_id") === "admin" || sessionStorage.getItem("current_user_id") === "admin"))) && (
               <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             )}
@@ -2898,7 +2953,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger", "call-center"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 

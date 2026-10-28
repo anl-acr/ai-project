@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { LayoutDashboard, PhoneCall, List, PhoneMissed, Users, History, Voicemail, MessageSquare, Headphones } from "lucide-react";
+import { LayoutDashboard, PhoneCall, List, PhoneMissed, Users, History, Voicemail, MessageSquare, Headphones, Smartphone } from "lucide-react";
 import AgentDashboardTab from "./tabs/AgentDashboardTab";
 import dynamic from "next/dynamic";
 const AgentWebphoneTab = dynamic(() => import("./tabs/AgentWebphoneTab"), { ssr: false });
@@ -10,6 +10,7 @@ import AgentHistoryTab from "./tabs/AgentHistoryTab";
 import AgentVoicemailTab from "./tabs/AgentVoicemailTab";
 import AgentChatTab from "./tabs/AgentChatTab";
 import AgentQueuePeersTab from "./tabs/AgentQueuePeersTab";
+import AgentDeskphoneTab from "./tabs/AgentDeskphoneTab";
 import AgentSessionCard from "../phone/AgentSessionCard";
 import { useTheme } from "../../utils/theme";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -24,6 +25,7 @@ export const ALL_TABS = [
   { id: "history", perm: "call_panel:tab_history", name: "Çağrı Geçmişi", desc: "Geçmiş aramalar ve ses kayıtları", icon: History },
   { id: "voicemail", perm: "call_panel:tab_voicemail", name: "Sesli Posta", desc: "Bırakılan sesli mesaj kayıtları", icon: Voicemail },
   { id: "chat", perm: "call_panel:tab_chat", name: "Sohbet", desc: "Temsilciler arası iç yazışma alanı", icon: MessageSquare },
+  { id: "deskphone", perm: "call_panel:tab_deskphone", name: "Masa Telefonum", desc: "Masa telefonu BLF, hızlı arama ve softkey tuş yönetimi", icon: Smartphone },
 ];
 
 export const DEFAULT_CALL_PANEL_PREFS = {
@@ -368,7 +370,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   }, [host, myExt, myUid, activeTab]);
 
   return (
-    <div className="flex h-full w-full max-w-[1600px] gap-5 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
+    <div className="flex h-full w-full gap-4 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
       {/* Sidebar & Tabs + Agent Session Card */}
       <div
         className={`w-64 shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:flex md:flex-col transition-all duration-200`}
@@ -482,6 +484,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
         {activeTab === "history" && <AgentHistoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
         {activeTab === "voicemail" && <AgentVoicemailTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
         {activeTab === "chat" && <AgentChatTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "deskphone" && <AgentDeskphoneTab backendHost={backendHost} currentUser={currentUser} />}
       </div>
     </div>
   );

@@ -37,7 +37,8 @@ export const CALL_PANEL_SUB_GROUPS = [
       { id: "call_panel:tab_directory", name: "Rehber" },
       { id: "call_panel:tab_history", name: "Çağrı Geçmişi" },
       { id: "call_panel:tab_voicemail", name: "Sesli Posta" },
-      { id: "call_panel:tab_chat", name: "Sohbet" }
+      { id: "call_panel:tab_chat", name: "Sohbet" },
+      { id: "call_panel:tab_deskphone", name: "Masa Telefonum (BLF / Hızlı Arama / Softkey)" }
     ]
   },
   {
