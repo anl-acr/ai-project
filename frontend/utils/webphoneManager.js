@@ -1621,17 +1621,35 @@ class WebphoneManager {
    * records Turkish speech for translation into target language.
    */
   setRawMicSuppressed(suppressed = false) {
+    this.rawMicSuppressed = Boolean(suppressed);
     const lineId = this.state.activeLineId;
-    const line = lineId ? this.linesMap.get(lineId) : null;
+    const line = lineId ? this.linesMap.get(lineId) : Array.from(this.linesMap.values())[0];
     if (!line) return;
     const pc = line.session?.sessionDescriptionHandler?.peerConnection;
     if (!pc) return;
-    const shouldEnable = !suppressed && !line.isMuted && !line.isOnHold;
-    pc.getSenders().forEach((sender) => {
-      if (sender.track && sender.track.kind === "audio") {
-        sender.track.enabled = shouldEnable;
+
+    const audioSenders = pc.getSenders().filter((s) => s.track && s.track.kind === "audio");
+    audioSenders.forEach((sender) => {
+      if (sender.track && !line.origMicTrack) {
+        line.origMicTrack = sender.track;
       }
     });
+
+    if (this.rawMicSuppressed) {
+      if (line.origMicTrack) {
+        line.origMicTrack.enabled = !line.isMuted && !line.isOnHold;
+      }
+      if (!this.silentRtpTrack || this.silentRtpTrack.readyState !== "live") {
+        const sStream = this.createSilentFallbackAudioStream();
+        this.silentRtpTrack = sStream?.getAudioTracks()?.[0] || null;
+      }
+      if (this.silentRtpTrack) {
+        audioSenders.forEach((s) => s.replaceTrack(this.silentRtpTrack).catch(() => {}));
+      }
+    } else if (line.origMicTrack) {
+      line.origMicTrack.enabled = !line.isMuted && !line.isOnHold;
+      audioSenders.forEach((s) => s.replaceTrack(line.origMicTrack).catch(() => {}));
+    }
   }
 
   /**
@@ -1666,6 +1684,9 @@ class WebphoneManager {
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       const ctx = new AudioCtx();
+      if (ctx.state === "suspended") {
+        await ctx.resume().catch(() => {});
+      }
       const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
 
       const dest = ctx.createMediaStreamDestination();
@@ -1685,7 +1706,7 @@ class WebphoneManager {
 
       // Save original mic track reference
       audioSenders.forEach((sender) => {
-        if (sender.track && !line.origMicTrack) {
+        if (sender.track && !line.origMicTrack && sender.track !== this.silentRtpTrack) {
           line.origMicTrack = sender.track;
         }
       });
@@ -1697,13 +1718,19 @@ class WebphoneManager {
       return await new Promise((resolve) => {
         source.onended = async () => {
           try {
+            const restoreTrack =
+              this.rawMicSuppressed && this.silentRtpTrack && this.silentRtpTrack.readyState === "live"
+                ? this.silentRtpTrack
+                : line.origMicTrack;
             if (line.origMicTrack) {
               line.origMicTrack.enabled = !line.isMuted && !line.isOnHold;
+            }
+            if (restoreTrack) {
               await Promise.all(
                 pc
                   .getSenders()
                   .filter((s) => s.track && s.track.kind === "audio")
-                  .map((s) => s.replaceTrack(line.origMicTrack).catch(() => {}))
+                  .map((s) => s.replaceTrack(restoreTrack).catch(() => {}))
               );
             }
           } catch (e) {}

@@ -21062,6 +21062,25 @@ async def live_translate_text_endpoint(payload: LiveTranslateTextPayload, user_i
     }
 
 
+class LiveTranslateTtsPayload(BaseModel):
+    text: str
+    lang: str = "en"
+
+
+@app.post("/api/live-translator/tts")
+@app.post("/live-translator/tts")
+async def live_translator_tts_endpoint(payload: LiveTranslateTtsPayload, user_info: dict = Depends(get_user_info)):
+    clean_text = (payload.text or "").strip()
+    if not clean_text:
+        return {"tts_audio_base64": "", "tts_mime_type": "audio/mpeg"}
+    lang_code = (payload.lang or "en").lower()
+    tts_b64, tts_mime = await _synthesize_translator_tts_base64(clean_text, lang_code, user_info=user_info)
+    return {
+        "tts_audio_base64": tts_b64,
+        "tts_mime_type": tts_mime
+    }
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("backend.main:app", host="0.0.0.0", port=8000, reload=False)

@@ -5,7 +5,12 @@ import {
   Loader2,
   X,
   Trash2,
-  User
+  User,
+  Volume2,
+  VolumeX,
+  Send,
+  Keyboard,
+  Sparkles
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -96,7 +101,7 @@ export default function LiveTranslatorPanel({
   isActiveInstance = true,
   onClose = null
 }) {
-  const { bg, text, border, lightBg, borderLight } = useTheme();
+  const { bg, hover, text, border, lightBg, borderLight } = useTheme();
 
   const [customerLang, setCustomerLang] = useState("en");
   const [agentLang] = useState("tr");
@@ -105,6 +110,13 @@ export default function LiveTranslatorPanel({
   const [items, setItems] = useState([]);
   const [processingCustomerChunk, setProcessingCustomerChunk] = useState(false);
   const [processingAgentSpeech, setProcessingAgentSpeech] = useState(false);
+
+  // Voice Interpreter (Auto TTS) & Type-to-Speak modes (both can be toggled on/off live during a call)
+  const [autoVoiceTts, setAutoVoiceTts] = useState(false);
+  const [showTextInput, setShowTextInput] = useState(true);
+  const [manualTrText, setManualTrText] = useState("");
+  const [sendingManualText, setSendingManualText] = useState(false);
+  const [playingTtsId, setPlayingTtsId] = useState(null);
 
   // Refs for WebRTC remote stream (Customer) recorder
   const customerCaptureIntervalRef = useRef(null);
@@ -127,6 +139,8 @@ export default function LiveTranslatorPanel({
   const lastAgentTextRef = useRef("");
   const isListeningCustomerRef = useRef(true);
   const customerLangRef = useRef(customerLang);
+  const autoVoiceTtsRef = useRef(autoVoiceTts);
+  const isPlayingTtsRef = useRef(false);
 
   const API_BASE =
     typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : `http://${backendHost}`;
@@ -145,6 +159,15 @@ export default function LiveTranslatorPanel({
   useEffect(() => {
     customerLangRef.current = customerLang;
   }, [customerLang]);
+
+  useEffect(() => {
+    autoVoiceTtsRef.current = autoVoiceTts;
+    if (callStatus !== "Idle" && isActiveInstance) {
+      webphoneManager.setRawMicSuppressed(autoVoiceTts);
+    } else {
+      webphoneManager.setRawMicSuppressed(false);
+    }
+  }, [autoVoiceTts, callStatus, isActiveInstance]);
 
   // Sync translation items across multiple mounted panels (e.g. AgentWebphoneTab and CallChatWidget)
   useEffect(() => {
@@ -171,8 +194,10 @@ export default function LiveTranslatorPanel({
   useEffect(() => {
     if (callStatus === "Idle" || !isActiveInstance) {
       stopCustomerListener();
+      webphoneManager.setRawMicSuppressed(false);
     } else if (canLiveTranslate || canVoiceInterpret) {
       startCustomerListener(true);
+      webphoneManager.setRawMicSuppressed(autoVoiceTtsRef.current);
     }
   }, [callStatus, canLiveTranslate, canVoiceInterpret, isActiveInstance]);
 
@@ -250,7 +275,7 @@ export default function LiveTranslatorPanel({
           : "";
 
       const recordWindow = () => {
-        if (!isListeningCustomerRef.current) return;
+        if (!isListeningCustomerRef.current || isPlayingTtsRef.current) return;
         const liveRemote = webphoneManager.getActiveRemoteStream() || remoteStream;
         if (!liveRemote) return;
         const audioTracks = liveRemote.getAudioTracks ? liveRemote.getAudioTracks() : [];
@@ -272,7 +297,7 @@ export default function LiveTranslatorPanel({
             try {
               streamForRecorder.getTracks().forEach((t) => t.stop());
             } catch (e) {}
-            if (chunks.length === 0 || inFlightCustomerReqRef.current) return;
+            if (chunks.length === 0 || inFlightCustomerReqRef.current || isPlayingTtsRef.current) return;
             const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
             if (blob.size < 200) return;
             await processCustomerAudioBlob(blob, recorder.mimeType || "audio/webm");
@@ -337,7 +362,7 @@ export default function LiveTranslatorPanel({
           : "";
 
       const recordAgentWindow = () => {
-        if (!isListeningCustomerRef.current) return;
+        if (!isListeningCustomerRef.current || isPlayingTtsRef.current) return;
         const currentLocal =
           webphoneManager.getActiveLocalStream() ||
           localStream ||
@@ -363,7 +388,7 @@ export default function LiveTranslatorPanel({
             try {
               streamForRecorder.getTracks().forEach((t) => t.stop());
             } catch (e) {}
-            if (chunks.length === 0 || inFlightAgentReqRef.current) return;
+            if (chunks.length === 0 || inFlightAgentReqRef.current || isPlayingTtsRef.current) return;
             const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
             if (blob.size < 300) return;
             inFlightAgentReqRef.current = true;
@@ -531,6 +556,8 @@ export default function LiveTranslatorPanel({
         targetLang: "tr",
         originalText: data.original_text || "",
         translatedText: data.translated_text || data.original_text || "",
+        suggestedReplyTr: data.suggested_reply_tr || "",
+        suggestedReplyTarget: data.suggested_reply_target || "",
         timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       };
 
@@ -543,12 +570,123 @@ export default function LiveTranslatorPanel({
     }
   };
 
+  const playTtsIntoCall = async (ttsB64, ttsMime = "audio/mpeg", itemId = null) => {
+    if (!ttsB64) return;
+    isPlayingTtsRef.current = true;
+    if (itemId) setPlayingTtsId(itemId);
+    try {
+      await webphoneManager.playAudioIntoActiveCallLine(ttsB64, ttsMime || "audio/mpeg", true);
+    } catch (err) {
+      console.error("[LiveTranslator] playTtsIntoCall error:", err);
+    } finally {
+      setTimeout(() => {
+        isPlayingTtsRef.current = false;
+        setPlayingTtsId(null);
+      }, 350);
+    }
+  };
+
+  const handleSpeakBubbleToCustomer = async (item, customTargetText = null) => {
+    const activeTargetLang = item?.targetLang && item.targetLang !== "tr" ? item.targetLang : customerLangRef.current || customerLang;
+    const textToSpeak = String(customTargetText || item?.translatedText || item?.originalText || "").trim();
+    if (!textToSpeak) return;
+
+    const bubbleId = item?.id || `tts-${Date.now()}`;
+    if (item?.ttsAudioBase64 && !customTargetText) {
+      await playTtsIntoCall(item.ttsAudioBase64, item.ttsMimeType || "audio/mpeg", bubbleId);
+      return;
+    }
+
+    setPlayingTtsId(bubbleId);
+    try {
+      const res = await fetch(`${API_BASE}/api/live-translator/tts`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+        },
+        body: JSON.stringify({
+          text: textToSpeak,
+          lang: activeTargetLang
+        })
+      });
+      if (!res.ok) {
+        setPlayingTtsId(null);
+        return;
+      }
+      const data = await res.json();
+      if (data?.tts_audio_base64) {
+        await playTtsIntoCall(data.tts_audio_base64, data.tts_mime_type || "audio/mpeg", bubbleId);
+      } else {
+        setPlayingTtsId(null);
+      }
+    } catch (err) {
+      console.error("[LiveTranslator] TTS speak error:", err);
+      setPlayingTtsId(null);
+    }
+  };
+
+  const handleSendManualTrText = async (e, overrideTrText = null) => {
+    if (e && typeof e.preventDefault === "function") e.preventDefault();
+    const cleanTr = String(overrideTrText !== null ? overrideTrText : manualTrText || "").trim();
+    if (!cleanTr || sendingManualText) return;
+
+    if (overrideTrText === null) {
+      setManualTrText("");
+    }
+    setSendingManualText(true);
+    const activeTargetLang = customerLangRef.current || customerLang;
+
+    try {
+      const res = await fetch(`${API_BASE}/api/live-translator/translate-text`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": localStorage.getItem("current_user_id") || "admin"
+        },
+        body: JSON.stringify({
+          text: cleanTr,
+          direction: "agent_to_customer",
+          source_lang: "tr",
+          target_lang: activeTargetLang,
+          generate_tts: true,
+          call_id: callId
+        })
+      });
+
+      if (!res.ok) return;
+      const data = await res.json();
+      const newItem = {
+        id: `tr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        direction: "agent_to_customer",
+        sourceLang: "tr",
+        targetLang: activeTargetLang,
+        originalText: cleanTr,
+        translatedText: data.translated_text || cleanTr,
+        ttsAudioBase64: data.tts_audio_base64 || "",
+        ttsMimeType: data.tts_mime_type || "audio/mpeg",
+        timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+      };
+
+      emitLiveTurn(newItem);
+
+      if (data.tts_audio_base64) {
+        await playTtsIntoCall(data.tts_audio_base64, data.tts_mime_type || "audio/mpeg", newItem.id);
+      }
+    } catch (err) {
+      console.error("[LiveTranslator] Manual text translate & TTS error:", err);
+    } finally {
+      setSendingManualText(false);
+    }
+  };
+
   const processAgentAudioBlob = async (blob, mimeType) => {
     setProcessingAgentSpeech(true);
     try {
       const converted = await convertRecordedBlobToWavOrFallback(blob, mimeType);
       const b64 = converted.blob && converted.blob.size > 0 ? await blobToBase64(converted.blob) : "";
       const activeTargetLang = customerLangRef.current || customerLang;
+      const shouldAutoSpeakTts = Boolean(autoVoiceTtsRef.current);
       const res = await fetch(`${API_BASE}/api/live-translator/translate-audio`, {
         method: "POST",
         headers: {
@@ -561,7 +699,7 @@ export default function LiveTranslatorPanel({
           direction: "agent_to_customer",
           source_lang: "tr",
           target_lang: activeTargetLang,
-          generate_tts: false,
+          generate_tts: shouldAutoSpeakTts,
           call_id: callId
         })
       });
@@ -588,10 +726,16 @@ export default function LiveTranslatorPanel({
         targetLang: activeTargetLang,
         originalText: data.original_text || "",
         translatedText: data.translated_text || "",
+        ttsAudioBase64: data.tts_audio_base64 || "",
+        ttsMimeType: data.tts_mime_type || "audio/mpeg",
         timestamp: new Date().toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
       };
 
       emitLiveTurn(newItem);
+
+      if (shouldAutoSpeakTts && data.tts_audio_base64) {
+        await playTtsIntoCall(data.tts_audio_base64, data.tts_mime_type || "audio/mpeg", newItem.id);
+      }
     } catch (e) {
       console.error("[LiveTranslator] Agent speech translate error:", e);
     } finally {
@@ -608,7 +752,7 @@ export default function LiveTranslatorPanel({
       className={`p-3.5 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex flex-col gap-2.5`}
     >
       {/* Clean Header Bar */}
-      <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
+      <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-100 dark:border-slate-800">
         <div className="flex items-center gap-2">
           <div className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
             <Languages size={16} />
@@ -622,12 +766,50 @@ export default function LiveTranslatorPanel({
               Dinleniyor
             </span>
           )}
-          {(processingCustomerChunk || processingAgentSpeech) && (
+          {(processingCustomerChunk || processingAgentSpeech || sendingManualText) && (
             <Loader2 size={13} className={`animate-spin ${text}`} />
           )}
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {/* Toggle 1: Auto Voice TTS Interpreter Mode (Temsilci Türkçe konuştuğunda otomatik yabancı dilde müşteriye seslendirir) */}
+          {canVoiceInterpret && (
+            <button
+              type="button"
+              onClick={() => setAutoVoiceTts((prev) => !prev)}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl text-[10px] font-extrabold border transition-all ${
+                autoVoiceTts
+                  ? `${bg} text-white border-transparent shadow-sm`
+                  : "bg-slate-50 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800"
+              }`}
+              title={
+                autoVoiceTts
+                  ? "Otomatik Sesli Tercüman AÇIK: Türkçe konuşmanız müşteriye kendi dilinde sesli (TTS) okunur"
+                  : "Otomatik Sesli Tercüman KAPALI: Açmak için tıklayın"
+              }
+            >
+              {autoVoiceTts ? <Volume2 size={12} /> : <VolumeX size={12} />}
+              <span>Oto. Sesli Çeviri: {autoVoiceTts ? "Açık" : "Kapalı"}</span>
+            </button>
+          )}
+
+          {/* Toggle 2: Type-to-Speak Input Bar Toggle (Türkçe yazıp müşteriye yabancı dilde seslendirme kutusunu aç/kapat) */}
+          {canVoiceInterpret && (
+            <button
+              type="button"
+              onClick={() => setShowTextInput((prev) => !prev)}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-xl text-[10px] font-extrabold border transition-all ${
+                showTextInput
+                  ? `${lightBg} ${text} ${borderLight}`
+                  : "bg-slate-50 dark:bg-slate-800/80 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+              }`}
+              title="Yazarak Çevir & Müşteriye Seslendir alanını aç/kapat"
+            >
+              <Keyboard size={12} />
+              <span>Yazarak Seslendir</span>
+            </button>
+          )}
+
           {/* Customer Foreign Language Selector */}
           <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800/80 px-2 py-1 rounded-xl border border-slate-200 dark:border-slate-700">
             <span className="text-[10px] font-bold text-slate-400">Dil:</span>
@@ -687,13 +869,14 @@ export default function LiveTranslatorPanel({
             const tgtBadgeCode = String(item.targetLang || customerLang || "EN")
               .split("-")[0]
               .toUpperCase();
+            const isSpeakingThis = playingTtsId === item.id;
 
             if (isCust) {
               // LEFT SIDE: Customer's speech (Turkish translation shown as main bold text, original foreign in italic below)
               const mainTurkishText = transClean || origClean;
               const langBadge = `${srcBadgeCode} → TR`;
               return (
-                <div key={item.id} className="flex justify-start">
+                <div key={item.id} className="flex flex-col items-start gap-1">
                   <div className="max-w-[85%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 border shadow-sm bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800">
                     <div className="flex items-center justify-between gap-2 mb-1">
                       <span className="text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 text-amber-600 dark:text-amber-400">
@@ -718,6 +901,28 @@ export default function LiveTranslatorPanel({
                         &ldquo;{origClean}&rdquo;
                       </p>
                     )}
+
+                    {/* Quick 1-Click Suggested Reply TTS Button if AI suggested a response */}
+                    {canVoiceInterpret && item.suggestedReplyTr && (
+                      <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 flex items-center gap-1 truncate">
+                          <Sparkles size={10} className="text-amber-500 shrink-0" />
+                          <span className="truncate" title={item.suggestedReplyTr}>
+                            Öneri: {item.suggestedReplyTr}
+                          </span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleSendManualTrText(null, item.suggestedReplyTr)}
+                          disabled={sendingManualText}
+                          className={`shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-bold ${lightBg} ${text} border ${borderLight} hover:opacity-90 transition-opacity`}
+                          title="Bu Türkçe yanıtı çevirip müşteriye kendi dilinde sesli okut"
+                        >
+                          <Volume2 size={10} />
+                          <span>Seslendir</span>
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               );
@@ -741,6 +946,22 @@ export default function LiveTranslatorPanel({
                           {langBadge}
                         </span>
                       )}
+                      {canVoiceInterpret && (transClean || origClean) && (
+                        <button
+                          type="button"
+                          onClick={() => handleSpeakBubbleToCustomer(item)}
+                          disabled={isSpeakingThis}
+                          className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-extrabold border transition-all ${
+                            isSpeakingThis
+                              ? "bg-emerald-500 text-white border-emerald-500 animate-pulse"
+                              : "bg-white/80 dark:bg-slate-800 text-indigo-600 dark:text-indigo-300 border-indigo-200 dark:border-indigo-700 hover:bg-indigo-100"
+                          }`}
+                          title={`Müşteriye ${selectedCustomerLangObj.label} sesli okut (TTS)`}
+                        >
+                          <Volume2 size={10} />
+                          <span>{isSpeakingThis ? "Okunuyor..." : "Dinlet"}</span>
+                        </button>
+                      )}
                       <span className="text-[9px] text-slate-400 font-mono">{item.timestamp}</span>
                     </div>
                   </div>
@@ -759,6 +980,40 @@ export default function LiveTranslatorPanel({
         )}
         <div ref={feedEndRef} />
       </div>
+
+      {/* Mode 2: Type Turkish -> Translate & Speak Foreign TTS Directly Into Active Call */}
+      {canVoiceInterpret && showTextInput && (
+        <form
+          onSubmit={(e) => handleSendManualTrText(e, null)}
+          className="flex items-center gap-2 pt-1.5 border-t border-slate-100 dark:border-slate-800"
+        >
+          <input
+            type="text"
+            value={manualTrText}
+            onChange={(e) => setManualTrText(e.target.value)}
+            placeholder={`Türkçe yanıt yazın (${selectedCustomerLangObj.flag} ${selectedCustomerLangObj.code.toUpperCase()} sesli okunur)...`}
+            className="flex-1 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-800 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+          <button
+            type="submit"
+            disabled={!manualTrText.trim() || sendingManualText}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-extrabold text-white ${bg} ${hover} disabled:opacity-50 transition-all shrink-0`}
+            title={`Türkçe metni ${selectedCustomerLangObj.label} diline çevirip telefon hattından müşteriye sesli okut`}
+          >
+            {sendingManualText ? <Loader2 size={13} className="animate-spin" /> : <Volume2 size={13} />}
+            <span>Çevir &amp; Seslendir</span>
+          </button>
+          {manualTrText.trim() && (
+            <button
+              type="button"
+              onClick={() => handleSendManualTrText(null, manualTrText)}
+              disabled={sendingManualText}
+              className="hidden"
+              aria-hidden="true"
+            />
+          )}
+        </form>
+      )}
     </div>
   );
 }
