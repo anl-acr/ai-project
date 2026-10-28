@@ -5736,6 +5736,7 @@ def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
     import os
     import shutil
     import subprocess
+    import wave
 
     os.makedirs("uploads/announcements", exist_ok=True)
     wav_filename = f"{ann_id}.wav"
@@ -5750,24 +5751,46 @@ def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
         try:
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=4.0)
             if res.returncode == 0 and os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 44:
-                shutil.move(tmp_wav, wav_filepath)
                 converted = True
                 break
         except Exception:
             pass
-    if os.path.exists(tmp_wav):
-        try:
-            os.remove(tmp_wav)
-        except Exception:
-            pass
 
-    if not converted and src_filepath != wav_filepath and os.path.exists(src_filepath):
+    # Pure-Python 8000Hz 16-bit mono WAV fallback if source is WAV (e.g. Gemini 24kHz WAV) and ffmpeg/sox unavailable
+    if not converted and os.path.exists(src_filepath):
         try:
-            shutil.copy2(src_filepath, wav_filepath)
-        except Exception:
-            pass
+            with open(src_filepath, "rb") as f_chk:
+                hdr = f_chk.read(12)
+            if hdr[:4] == b"RIFF" and hdr[8:12] == b"WAVE":
+                with wave.open(src_filepath, "rb") as wf_in:
+                    in_rate = wf_in.getframerate()
+                    in_ch = wf_in.getnchannels()
+                    in_width = wf_in.getsampwidth()
+                    raw_frames = wf_in.readframes(wf_in.getnframes())
+                if in_width == 2 and in_rate > 0 and len(raw_frames) >= 2:
+                    total_short = len(raw_frames) // 2
+                    samples = struct.unpack(f"<{total_short}h", raw_frames[:total_short * 2])
+                    if in_ch > 1:
+                        samples = samples[0::in_ch]
+                    if in_rate != 8000 and len(samples) > 1:
+                        ratio = float(in_rate) / 8000.0
+                        out_len = max(1, int(len(samples) / ratio))
+                        samples = [samples[min(len(samples) - 1, int(i * ratio))] for i in range(out_len)]
+                    pcm_8k = struct.pack(f"<{len(samples)}h", *samples)
+                    with wave.open(tmp_wav, "wb") as wf_out:
+                        wf_out.setnchannels(1)
+                        wf_out.setsampwidth(2)
+                        wf_out.setframerate(8000)
+                        wf_out.writeframes(pcm_8k)
+                    if os.path.exists(tmp_wav) and os.path.getsize(tmp_wav) > 44:
+                        converted = True
+        except Exception as py_wav_err:
+            print(f"[Pure-Python 8kHz WAV Conversion Warning]: {py_wav_err}")
 
-    if os.path.exists(wav_filepath) and _is_valid_audio_file(wav_filepath):
+    asterisk_src = tmp_wav if (converted and os.path.exists(tmp_wav)) else src_filepath
+
+    # Sync 8kHz WAV to Asterisk playback directories
+    if os.path.exists(asterisk_src) and _is_valid_audio_file(asterisk_src):
         target_dirs = [os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr"), "recordings"]
         if os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk"):
             target_dirs.append("/var/spool/asterisk/monitor")
@@ -5775,10 +5798,24 @@ def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
             try:
                 os.makedirs(d, exist_ok=True)
                 dst = os.path.join(d, wav_filename)
-                shutil.copy2(wav_filepath, dst)
+                shutil.copy2(asterisk_src, dst)
                 os.chmod(dst, 0o644)
             except Exception as e_sync:
                 print(f"[Announcement WAV Sync Warning] ({d}): {e_sync}")
+
+    # Only copy tmp_wav to uploads/announcements/{ann_id}.wav if src_filepath is NOT already {ann_id}.wav
+    if src_filepath != wav_filepath:
+        if os.path.exists(asterisk_src):
+            try:
+                shutil.copy2(asterisk_src, wav_filepath)
+            except Exception:
+                pass
+
+    if os.path.exists(tmp_wav):
+        try:
+            os.remove(tmp_wav)
+        except Exception:
+            pass
     return wav_filepath
 
 
@@ -5829,9 +5866,50 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
         filtered = [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
 
     normalized = []
+    dirty_settings = False
     for a in filtered:
         if not isinstance(a, dict):
             continue
+        # Auto-upgrade any TTS announcement created before Gemini 2.5 Native TTS v2 engine
+        if a.get("text") and a.get("id") and not a.get("tts_engine_v2"):
+            try:
+                ann_id = str(a["id"])
+                audio_bytes = await _synthesize_announcement_tts_async(
+                    text=str(a.get("text")),
+                    voice=str(a.get("voice") or "Aoede (Dişi - Türkçe / İngilizce)"),
+                    tts_provider=str(a.get("tts_provider") or "google"),
+                    tone=str(a.get("tone") or "normal"),
+                    speaking_rate=float(a.get("speaking_rate") or 1.0),
+                    elevenlabs_voice_id=str(a.get("elevenlabs_voice_id") or ""),
+                    elevenlabs_stability=float(a.get("elevenlabs_stability") if a.get("elevenlabs_stability") is not None else 0.5),
+                    elevenlabs_similarity=float(a.get("elevenlabs_similarity") if a.get("elevenlabs_similarity") is not None else 0.75),
+                    elevenlabs_style=float(a.get("elevenlabs_style") if a.get("elevenlabs_style") is not None else 0.0),
+                    target_tenant=target_tenant
+                )
+                if audio_bytes and len(audio_bytes) > 200:
+                    os.makedirs("uploads/announcements", exist_ok=True)
+                    for old_ext in [".wav", ".mp3"]:
+                        old_fp = os.path.join("uploads/announcements", f"{ann_id}{old_ext}")
+                        if os.path.exists(old_fp):
+                            try:
+                                os.remove(old_fp)
+                            except Exception:
+                                pass
+                    is_wav = audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"
+                    ext = ".wav" if is_wav else ".mp3"
+                    fname = f"{ann_id}{ext}"
+                    fpath = os.path.join("uploads/announcements", fname)
+                    with open(fpath, "wb") as f_out:
+                        f_out.write(audio_bytes)
+                    _convert_and_sync_announcement_wav(fpath, ann_id)
+                    a["filename"] = fname
+                    a["original_filename"] = f"{a.get('name') or 'Anons'}{ext}"
+                    a["tts_engine_v2"] = True
+                    a["updated_at"] = datetime.datetime.now().timestamp()
+                    dirty_settings = True
+            except Exception as upg_err:
+                print(f"[Announcement TTS v2 Auto-Upgrade Warning]: {upg_err}")
+
         item = dict(a)
         if not item.get("name"):
             item["name"] = item.get("original_filename") or item.get("filename") or "Anons"
@@ -5847,6 +5925,9 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
         item["duration"] = dur_sec
         item["duration_formatted"] = _format_duration_mmss(dur_sec)
         normalized.append(item)
+
+    if dirty_settings:
+        save_settings(settings_db)
     return normalized
 
 
@@ -5927,6 +6008,157 @@ class TTSAnnouncementSchema(BaseModel):
     text: str
 
 
+def _resolve_tts_provider_keys(target_tenant: str = "tenant-default") -> tuple:
+    """Resolves (gemini_api_key, elevenlabs_api_key) across tenant settings, global settings, env, and .env file."""
+    tenant_prov = {}
+    if isinstance(settings_db.get("tenant_ai_providers"), dict):
+        tenant_prov = settings_db["tenant_ai_providers"].get(target_tenant) or {}
+    global_prov = settings_db.get("ai_providers") if isinstance(settings_db.get("ai_providers"), dict) else {}
+
+    any_tenant_google = ""
+    any_tenant_el = ""
+    if isinstance(settings_db.get("tenant_ai_providers"), dict):
+        for _, tp in settings_db["tenant_ai_providers"].items():
+            if isinstance(tp, dict):
+                any_tenant_google = any_tenant_google or tp.get("google_api_key") or tp.get("gemini_api_key") or ""
+                any_tenant_el = any_tenant_el or tp.get("elevenlabs_api_key") or ""
+
+    env_file_google = ""
+    env_file_el = ""
+    env_path = os.path.join(BASE_DIR, ".env")
+    if os.path.exists(env_path):
+        try:
+            with open(env_path, "r", encoding="utf-8", errors="ignore") as ef:
+                for line in ef:
+                    s_line = line.strip()
+                    if not s_line or s_line.startswith("#") or "=" not in s_line:
+                        continue
+                    k, v = s_line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip('"').strip("'")
+                    if k in ("GEMINI_API_KEY", "GOOGLE_API_KEY") and v:
+                        env_file_google = env_file_google or v
+                    elif k == "ELEVENLABS_API_KEY" and v:
+                        env_file_el = env_file_el or v
+        except Exception:
+            pass
+
+    gemini_key = (
+        tenant_prov.get("google_api_key")
+        or tenant_prov.get("gemini_api_key")
+        or global_prov.get("google_api_key")
+        or global_prov.get("gemini_api_key")
+        or any_tenant_google
+        or settings_db.get("gemini_api_key")
+        or os.getenv("GEMINI_API_KEY")
+        or os.getenv("GOOGLE_API_KEY")
+        or env_file_google
+        or ""
+    ).strip()
+
+    el_key = (
+        tenant_prov.get("elevenlabs_api_key")
+        or global_prov.get("elevenlabs_api_key")
+        or any_tenant_el
+        or os.getenv("ELEVENLABS_API_KEY")
+        or env_file_el
+        or ""
+    ).strip()
+
+    return gemini_key, el_key
+
+
+async def _synthesize_gemini_native_tts_wav(
+    clean_text: str,
+    voice: str,
+    tone: str,
+    speaking_rate: float,
+    gemini_key: str
+) -> bytes:
+    """Synthesizes natural studio-grade audio via Google Gemini 2.5 Flash Native TTS (Aoede, Kore, Puck, Charon, Fenrir)."""
+    if not gemini_key or not clean_text:
+        return b""
+
+    import httpx
+    import io
+    import wave
+
+    v_lower = str(voice or "").lower()
+    gemini_voice = "Aoede"
+    for gv in ["Aoede", "Kore", "Puck", "Charon", "Fenrir", "Leda", "Orus", "Zephyr"]:
+        if gv.lower() in v_lower:
+            gemini_voice = gv
+            break
+    else:
+        if any(m in v_lower for m in ["ahmet", "eser", "john", "guy", "erkek", "male", "josh", "antoni", "adam", "arnold", "sam", "george"]):
+            gemini_voice = "Charon" if tone == "calm" else "Puck"
+        elif "kore" in v_lower or "kurumsal" in v_lower:
+            gemini_voice = "Kore"
+        else:
+            gemini_voice = "Aoede"
+
+    tone_map = {
+        "normal": "doğal, akıcı ve kurumsal",
+        "calm": "sakin, yumuşak, dingin ve huzur veren",
+        "attractive": "sıcak, enerjik, samimi ve etkileyici",
+        "firm": "net, kurumsal, ciddi ve güven veren"
+    }
+    tone_desc = tone_map.get(str(tone or "normal").lower(), "doğal ve kurumsal")
+    prompt_text = f"Say in a {tone_desc} Turkish voice: {clean_text}"
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={gemini_key}"
+    payload = {
+        "contents": [{"parts": [{"text": prompt_text}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {
+                        "voiceName": gemini_voice
+                    }
+                }
+            }
+        }
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(url, json=payload)
+            if resp.status_code != 200:
+                print(f"[Gemini Native TTS Warning] HTTP {resp.status_code}: {resp.text[:200]}")
+                return b""
+            data = resp.json()
+            part = (((data.get("candidates") or [{}])[0].get("content") or {}).get("parts") or [{}])[0].get("inlineData") or {}
+            b64_audio = part.get("data")
+            if not b64_audio:
+                return b""
+            pcm_bytes = base64.b64decode(b64_audio)
+            if len(pcm_bytes) < 200:
+                return b""
+
+            # Apply speaking_rate resampling on 24000Hz 16-bit mono PCM
+            rate = max(0.65, min(1.5, float(speaking_rate or 1.0)))
+            if abs(rate - 1.0) > 0.02 and len(pcm_bytes) >= 4:
+                num_samples = len(pcm_bytes) // 2
+                samples = struct.unpack(f"<{num_samples}h", pcm_bytes[:num_samples * 2])
+                new_len = max(1, int(num_samples / rate))
+                resampled = [samples[min(num_samples - 1, int(i * rate))] for i in range(new_len)]
+                pcm_bytes = struct.pack(f"<{len(resampled)}h", *resampled)
+
+            wav_buf = io.BytesIO()
+            with wave.open(wav_buf, "wb") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(24000)
+                wf.writeframes(pcm_bytes)
+            wav_out = wav_buf.getvalue()
+            print(f"[Gemini Native TTS] Synthesized {len(wav_out)} bytes (voice={gemini_voice}, tone={tone}, rate={rate})")
+            return wav_out
+    except Exception as gem_err:
+        print(f"[Gemini Native TTS Error]: {gem_err}")
+        return b""
+
+
 async def _synthesize_announcement_tts_async(
     text: str,
     voice: str = "Aoede (Dişi - Türkçe / İngilizce)",
@@ -5936,51 +6168,66 @@ async def _synthesize_announcement_tts_async(
     elevenlabs_voice_id: str = "",
     elevenlabs_stability: float = 0.5,
     elevenlabs_similarity: float = 0.75,
-    elevenlabs_style: float = 0.0
+    elevenlabs_style: float = 0.0,
+    target_tenant: str = "tenant-default"
 ) -> bytes:
-    """Synthesizes announcement audio using the same AI Agent voice pipeline (ElevenLabs -> Microsoft Neural Edge-TTS with tone & speed -> Google TTS fallback)."""
+    """Synthesizes announcement audio using the AI Agent voice pipeline (ElevenLabs -> Google Gemini 2.5 Native TTS -> Microsoft Neural Edge-TTS -> Google TTS fallback)."""
     clean_text = re.sub(r"\s+", " ", str(text or "").strip())
     if not clean_text:
         return b""
 
     prov = str(tts_provider or "google").lower()
+    v_lower = str(voice or "").lower()
+    gemini_key, el_key = _resolve_tts_provider_keys(target_tenant)
 
     # 1. ElevenLabs synthesis if selected and API key is available
-    if prov == "elevenlabs":
-        el_key = settings_db.get("ai_providers", {}).get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", "")
+    if prov == "elevenlabs" and el_key:
         target_vid = elevenlabs_voice_id or "EXAVITQu4vr4xnSDxMaL"
-        if el_key and target_vid:
-            try:
-                import httpx
-                async with httpx.AsyncClient(timeout=15.0) as client:
-                    el_res = await client.post(
-                        f"https://api.elevenlabs.io/v1/text-to-speech/{target_vid}",
-                        headers={
-                            "xi-api-key": el_key,
-                            "Content-Type": "application/json",
-                            "Accept": "audio/mpeg"
-                        },
-                        json={
-                            "text": clean_text,
-                            "model_id": "eleven_multilingual_v2",
-                            "voice_settings": {
-                                "stability": float(elevenlabs_stability or 0.5),
-                                "similarity_boost": float(elevenlabs_similarity or 0.75),
-                                "style": float(elevenlabs_style or 0.0),
-                                "use_speaker_boost": True
-                            }
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                el_res = await client.post(
+                    f"https://api.elevenlabs.io/v1/text-to-speech/{target_vid}",
+                    headers={
+                        "xi-api-key": el_key,
+                        "Content-Type": "application/json",
+                        "Accept": "audio/mpeg"
+                    },
+                    json={
+                        "text": clean_text,
+                        "model_id": "eleven_multilingual_v2",
+                        "voice_settings": {
+                            "stability": float(elevenlabs_stability or 0.5),
+                            "similarity_boost": float(elevenlabs_similarity or 0.75),
+                            "style": float(elevenlabs_style or 0.0),
+                            "use_speaker_boost": True
                         }
-                    )
-                    if el_res.status_code == 200 and len(el_res.content) > 200:
-                        return el_res.content
-            except Exception as el_err:
-                print(f"[Announcement ElevenLabs TTS Fallback]: {el_err}")
+                    }
+                )
+                if el_res.status_code == 200 and len(el_res.content) > 200:
+                    return el_res.content
+        except Exception as el_err:
+            print(f"[Announcement ElevenLabs TTS Fallback]: {el_err}")
 
-    # 2. Primary Neural TTS (edge-tts) with AI Agent Voice, Tone & Speaking Rate
+    # Check if user explicitly selected an Edge-TTS Neural voice (EmelNeural, AhmetNeural, Sophia, John)
+    explicit_edge = any(k in v_lower for k in ["emelneural", "ahmetneural", "arianeural", "guyneural", "sophia", "john"])
+
+    # 2. If Gemini voice selected (Aoede, Kore, Puck, Charon, Fenrir), synthesize directly with Gemini 2.5 Native TTS
+    if not explicit_edge and gemini_key:
+        gem_wav = await _synthesize_gemini_native_tts_wav(
+            clean_text=clean_text,
+            voice=voice,
+            tone=tone,
+            speaking_rate=speaking_rate,
+            gemini_key=gemini_key
+        )
+        if gem_wav and len(gem_wav) > 200:
+            return gem_wav
+
+    # 3. Microsoft Edge Neural TTS (edge-tts) with Tone & Speaking Rate
     try:
         import edge_tts
 
-        v_lower = str(voice or "").lower()
         edge_voice = "tr-TR-EmelNeural"
         if any(m in v_lower for m in ["ahmet", "eser", "puck", "charon", "fenrir", "erkek", "male", "josh", "antoni", "adam", "arnold", "sam", "george"]):
             edge_voice = "tr-TR-AhmetNeural"
@@ -6021,7 +6268,19 @@ async def _synthesize_announcement_tts_async(
     except Exception as edge_err:
         print(f"[Announcement Edge-TTS Fallback]: {edge_err}")
 
-    # 3. Fallback to Google TTS stream
+    # 4. If Edge-TTS failed (e.g. 403 on older venv) and we haven't tried Gemini Native TTS yet, try Gemini Native TTS now!
+    if explicit_edge and gemini_key:
+        gem_wav = await _synthesize_gemini_native_tts_wav(
+            clean_text=clean_text,
+            voice=voice,
+            tone=tone,
+            speaking_rate=speaking_rate,
+            gemini_key=gemini_key
+        )
+        if gem_wav and len(gem_wav) > 200:
+            return gem_wav
+
+    # 5. Last resort fallback to Google TTS stream
     return _synthesize_tts_mp3_bytes(clean_text, voice)
 
 
@@ -6055,9 +6314,6 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
         existing_ann = next((a for a in settings_db["announcements"] if str(a.get("id")) == existing_id), None)
 
     ann_id = existing_ann["id"] if existing_ann else str(uuid.uuid4())
-    filename = f"{ann_id}.mp3"
-    orig_fname = f"{name}.mp3"
-    filepath = os.path.join("uploads/announcements", filename)
 
     audio_bytes = await _synthesize_announcement_tts_async(
         text=text,
@@ -6068,10 +6324,26 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
         elevenlabs_voice_id=elevenlabs_voice_id,
         elevenlabs_stability=elevenlabs_stability,
         elevenlabs_similarity=elevenlabs_similarity,
-        elevenlabs_style=elevenlabs_style
+        elevenlabs_style=elevenlabs_style,
+        target_tenant=target_tenant
     )
     if not audio_bytes:
         raise HTTPException(status_code=500, detail="TTS ses dosyası oluşturulamadı.")
+
+    # Remove any stale files for this announcement ID first
+    for old_ext in [".wav", ".mp3"]:
+        old_fp = os.path.join("uploads/announcements", f"{ann_id}{old_ext}")
+        if os.path.exists(old_fp):
+            try:
+                os.remove(old_fp)
+            except Exception:
+                pass
+
+    is_wav = audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"
+    ext = ".wav" if is_wav else ".mp3"
+    filename = f"{ann_id}{ext}"
+    orig_fname = f"{name}{ext}"
+    filepath = os.path.join("uploads/announcements", filename)
 
     with open(filepath, "wb") as f:
         f.write(audio_bytes)
@@ -6095,6 +6367,7 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
         "elevenlabs_stability": elevenlabs_stability,
         "elevenlabs_similarity": elevenlabs_similarity,
         "elevenlabs_style": elevenlabs_style,
+        "tts_engine_v2": True,
         "duration": dur_sec,
         "duration_formatted": _format_duration_mmss(dur_sec),
         "updated_at": now_ts
@@ -6118,6 +6391,7 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
 @app.put("/api/settings/announcements/{announcement_id}")
 async def update_announcement(announcement_id: str, payload: dict, user_info: dict = Depends(get_user_info)):
     import os
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     if "announcements" not in settings_db:
         raise HTTPException(status_code=404, detail="Anons bulunamadı.")
 
@@ -6150,8 +6424,6 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
 
     if new_text:
         ann_id = target["id"]
-        filename = f"{ann_id}.mp3"
-        filepath = os.path.join("uploads/announcements", filename)
         os.makedirs("uploads/announcements", exist_ok=True)
         audio_bytes = await _synthesize_announcement_tts_async(
             text=new_text,
@@ -6162,14 +6434,26 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
             elevenlabs_voice_id=elevenlabs_voice_id,
             elevenlabs_stability=elevenlabs_stability,
             elevenlabs_similarity=elevenlabs_similarity,
-            elevenlabs_style=elevenlabs_style
+            elevenlabs_style=elevenlabs_style,
+            target_tenant=target_tenant
         )
         if audio_bytes:
+            for old_ext in [".wav", ".mp3"]:
+                old_fp = os.path.join("uploads/announcements", f"{ann_id}{old_ext}")
+                if os.path.exists(old_fp):
+                    try:
+                        os.remove(old_fp)
+                    except Exception:
+                        pass
+            is_wav = audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"
+            ext = ".wav" if is_wav else ".mp3"
+            filename = f"{ann_id}{ext}"
+            filepath = os.path.join("uploads/announcements", filename)
             with open(filepath, "wb") as f:
                 f.write(audio_bytes)
             _convert_and_sync_announcement_wav(filepath, ann_id)
             target["filename"] = filename
-            target["original_filename"] = f"{new_name}.mp3"
+            target["original_filename"] = f"{new_name}{ext}"
             target["text"] = new_text
             target["voice"] = voice
             target["tts_provider"] = tts_provider
@@ -6180,6 +6464,7 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
             target["elevenlabs_stability"] = elevenlabs_stability
             target["elevenlabs_similarity"] = elevenlabs_similarity
             target["elevenlabs_style"] = elevenlabs_style
+            target["tts_engine_v2"] = True
 
     valid_fp = _ensure_announcement_audio_valid(target)
     dur_sec = _calc_audio_duration_seconds(valid_fp) if valid_fp else 0.0
@@ -9645,11 +9930,11 @@ async def generate_license_key_endpoint(payload: LicenseGenerateSchema):
     }
 
 @app.get("/api/settings/ai-providers/elevenlabs-voices")
-async def get_elevenlabs_voices():
+async def get_elevenlabs_voices(user_info: dict = Depends(get_user_info)):
     import urllib.request
     import json
-    
-    api_key = settings_db.get("ai_providers", {}).get("elevenlabs_api_key") or os.getenv("ELEVENLABS_API_KEY", "")
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    _, api_key = _resolve_tts_provider_keys(target_tenant)
     
     default_premades = [
         {"voice_id": "21m00Tcm4TlvDq8ikWAM", "name": "Rachel (Female - Conversational)", "category": "premade"},
@@ -9691,10 +9976,11 @@ async def get_elevenlabs_voices():
         return {"status": "success", "voices": default_premades, "source": "fallback"}
 
 @app.post("/api/settings/ai-agents/tts-test")
-async def tts_test_endpoint(payload: dict):
+async def tts_test_endpoint(payload: dict, user_info: dict = Depends(get_user_info)):
     from fastapi.responses import StreamingResponse
     import io
     
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     text = payload.get("text", "")
     voice = payload.get("voice", "")
     tone = payload.get("tone", "normal")
@@ -9717,14 +10003,16 @@ async def tts_test_endpoint(payload: dict):
         elevenlabs_voice_id=elevenlabs_voice_id,
         elevenlabs_stability=elevenlabs_stability,
         elevenlabs_similarity=elevenlabs_similarity,
-        elevenlabs_style=elevenlabs_style
+        elevenlabs_style=elevenlabs_style,
+        target_tenant=target_tenant
     )
     if not audio_bytes:
         raise HTTPException(status_code=500, detail="TTS ses sentezi başarısız oldu.")
 
+    media_type = "audio/wav" if (audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE") else "audio/mpeg"
     fp = io.BytesIO(audio_bytes)
     fp.seek(0)
-    return StreamingResponse(fp, media_type="audio/mpeg")
+    return StreamingResponse(fp, media_type=media_type)
 
 @app.post("/api/rag/manual")
 async def add_manual_text(payload: ManualTextSchema, user_info: dict = Depends(get_user_info)):

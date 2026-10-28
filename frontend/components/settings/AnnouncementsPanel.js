@@ -453,9 +453,10 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       setCurrentTime(0);
     } else {
       audioRef.current.pause();
-      const ver = ann.updated_at || ann.created_at || "1";
+      const ver = `${ann.updated_at || ann.created_at || "1"}_${Date.now()}`;
       const audioUrl = `${API_BASE}/api/uploads/announcements/${ann.filename}?v=${ver}`;
       audioRef.current.src = audioUrl;
+      audioRef.current.load();
       audioRef.current.currentTime = 0;
       setCurrentTime(0);
       setPlayingId(ann.id);
