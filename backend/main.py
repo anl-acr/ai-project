@@ -9497,6 +9497,21 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
             except Exception as e_conc:
                 print(f"[Call Register Concurrent Limit Check Error]: {e_conc}")
 
+            if caller and did:
+                try:
+                    stmt_dup = select(Call).where(
+                        Call.id != call_id,
+                        Call.caller_number == caller,
+                        Call.callee_number == did,
+                        Call.recording_path.is_(None),
+                        Call.start_time >= datetime.datetime.utcnow() - datetime.timedelta(seconds=30)
+                    )
+                    res_dup = await session.execute(stmt_dup)
+                    for dup_c in res_dup.scalars().all():
+                        await session.delete(dup_c)
+                except Exception:
+                    pass
+
             db_call = await session.get(Call, call_id)
             if not db_call:
                 new_call = Call(
@@ -9742,15 +9757,27 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
             call_id = str(uuid.uuid4())
 
         async with AsyncSessionLocal() as session:
-            db_call = await session.get(Call, call_id)
-            if not db_call:
-                stmt_recent = select(Call).where(
-                    Call.caller_number == caller,
-                    Call.callee_number == callee,
-                    Call.start_time >= recent_cutoff
-                ).order_by(Call.start_time.desc())
-                res_recent = await session.execute(stmt_recent)
-                db_call = res_recent.scalars().first()
+            stmt_recent = select(Call).where(
+                Call.caller_number == caller,
+                Call.callee_number == callee,
+                Call.start_time >= now_utc - datetime.timedelta(minutes=60)
+            ).order_by(Call.start_time.desc())
+            res_recent = await session.execute(stmt_recent)
+            recent_matches = res_recent.scalars().all()
+
+            real_calls = [c for c in recent_matches if not str(c.id or "").startswith("webphone-")]
+            webphone_dups = [c for c in recent_matches if str(c.id or "").startswith("webphone-")]
+
+            db_call = None
+            if real_calls:
+                db_call = real_calls[0]
+                for wd in webphone_dups:
+                    if wd.start_time and db_call.start_time and abs((wd.start_time - db_call.start_time).total_seconds()) <= 30:
+                        await session.delete(wd)
+            elif call_id:
+                db_call = await session.get(Call, call_id)
+                if not db_call and recent_matches:
+                    db_call = recent_matches[0]
 
             call_tenant = user_info.get("tenant_id") or "tenant-default"
             if call_tenant in ("all", "global"):
@@ -9768,6 +9795,10 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                 pass
 
             if not db_call:
+                if event_type in ("start", "ringing", "answer"):
+                    # Let Asterisk dialplan (/api/calls/register) create the single authoritative Call record
+                    await session.commit()
+                    return {"status": "deferred_to_asterisk", "call_id": call_id}
                 db_call = Call(
                     id=call_id,
                     caller_number=caller,
@@ -9786,7 +9817,8 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                 if event_type == "answer":
                     db_call.status = "in_progress"
                 elif event_type == "end":
-                    db_call.end_time = now_utc
+                    if not db_call.end_time:
+                        db_call.end_time = now_utc
                     if str(db_call.hangup_source or "").startswith("pickup:"):
                         db_call.status = "completed"
                     elif duration > 0 or status == "completed":
@@ -10236,7 +10268,39 @@ async def list_calls(
         
     stmt = stmt.order_by(Call.start_time.desc())
     result = await db.execute(stmt)
-    calls_list = result.scalars().all()
+    raw_calls_list = result.scalars().all()
+
+    if raw_calls_list:
+        real_calls_by_pair = {}
+        for c in raw_calls_list:
+            cid_s = str(c.id or "")
+            if not cid_s.startswith("webphone-"):
+                pair_k = (str(c.caller_number or "").strip(), str(c.callee_number or "").strip())
+                real_calls_by_pair.setdefault(pair_k, []).append(c)
+
+        filtered_calls = []
+        deleted_any_dup = False
+        for c in raw_calls_list:
+            cid_s = str(c.id or "")
+            if cid_s.startswith("webphone-") and c.start_time:
+                pair_k = (str(c.caller_number or "").strip(), str(c.callee_number or "").strip())
+                matching_reals = real_calls_by_pair.get(pair_k, [])
+                if any(rc.start_time and abs((rc.start_time - c.start_time).total_seconds()) <= 30 for rc in matching_reals):
+                    try:
+                        await db.delete(c)
+                        deleted_any_dup = True
+                    except Exception:
+                        pass
+                    continue
+            filtered_calls.append(c)
+        if deleted_any_dup:
+            try:
+                await db.commit()
+            except Exception:
+                pass
+        calls_list = filtered_calls
+    else:
+        calls_list = []
 
     if calls_list:
         try:
