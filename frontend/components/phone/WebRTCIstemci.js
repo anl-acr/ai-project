@@ -67,7 +67,7 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
       authorizationUsername: agentExtension,
       authorizationPassword: password,
       displayName: `Temsilci ${agentExtension}`,
-      hackIpInContact: true,
+      hackIpInContact: resolvedViaHost || true,
       // Request media permissions for microphone
       delegate: {
         onInvite: (invite) => {
@@ -105,6 +105,16 @@ export default function WebRTCIstemci({ agentExtension, password, asteriskWssUrl
           console.log("[WebRTC] Asterisk REGISTER 200 OK alındı! Hat Müsait / Online!");
           setRegistered(true);
           setError("");
+          if (ua.contact && ua.contact.uri) {
+            const expectedUri = ua.contact.uri.toString();
+            message = message.replace(
+              /^Contact:\s*(?:[^<\r\n]*<[^>]+>|[^\r\n;]+)(.*)$/gim,
+              (fullMatch, tail) => {
+                const safeTail = tail && /expires\s*=/i.test(tail) ? tail : `${tail || ""};expires=600`;
+                return `Contact: <${expectedUri}>${safeTail}`;
+              }
+            );
+          }
         }
         if (originalOnMessage) {
           originalOnMessage.call(ua.transport, message);

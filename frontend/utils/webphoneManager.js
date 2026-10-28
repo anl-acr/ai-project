@@ -325,7 +325,7 @@ class WebphoneManager {
       if (res.ok) {
         const config = await res.json();
         this.setState({ webrtcConfig: config, isLoadingConfig: false });
-        this.startUserAgent(config, false);
+        this.startUserAgent(config);
       } else {
         this.setState({ isLoadingConfig: false });
         this.scheduleReconnect(null, true);
@@ -340,23 +340,22 @@ class WebphoneManager {
   scheduleReconnect(config, refetchConfig = false) {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this._reconnectAttempt = (this._reconnectAttempt || 0) + 1;
-    const delayMs = Math.min(3500 + (this._reconnectAttempt % 3) * 1500, 8000);
+    const delayMs = Math.min(4000 + (this._reconnectAttempt % 3) * 1500, 8000);
     this.reconnectTimer = setTimeout(() => {
       if (this.state.registered) return;
-      if (refetchConfig || !config || this._reconnectAttempt % 2 === 0) {
+      if (refetchConfig || !config || this._reconnectAttempt % 3 === 0) {
         this.activeUserKey = null;
         this.init({
           backendHost: this.state.backendHost,
           currentUser: this.state.currentUser
         });
       } else {
-        const useFallback = this._reconnectAttempt % 2 === 1;
-        this.startUserAgent(config, useFallback);
+        this.startUserAgent(config);
       }
     }, delayMs);
   }
 
-  async startUserAgent(config, useFallback = false) {
+  async startUserAgent(config) {
     if (!config?.asteriskWssUrl || !config?.agentExtension) return;
     if (typeof window === "undefined") return;
 
@@ -375,10 +374,8 @@ class WebphoneManager {
       this.userAgent = null;
     }
 
-    const { asteriskWssUrl, fallbackWssUrl, agentExtension, password, agentName } = config;
+    const { asteriskWssUrl, agentExtension, password, agentName } = config;
     const hostOnly = asteriskWssUrl.split("/")[2].split(":")[0];
-    const fallbackUrl = fallbackWssUrl || (asteriskWssUrl.startsWith("wss://") ? `wss://${hostOnly}/ws` : asteriskWssUrl);
-    const activeWssServer = useFallback && fallbackUrl ? fallbackUrl : asteriskWssUrl;
     const uri = SIP.UserAgent.makeURI(`sip:${agentExtension}@${hostOnly}`);
     const resolvedViaHost = config.viaHost || hostOnly;
     const displayLabel = agentName || this.state.currentUser?.full_name || `Temsilci ${agentExtension}`;
@@ -394,8 +391,8 @@ class WebphoneManager {
       uri,
       contactURI: uri,
       transportOptions: {
-        server: activeWssServer,
-        connectionTimeout: 6,
+        server: asteriskWssUrl,
+        connectionTimeout: 8,
         traceSip: false
       },
       ...(customSdhFactory ? { sessionDescriptionHandlerFactory: customSdhFactory } : {}),
@@ -410,7 +407,7 @@ class WebphoneManager {
       authorizationUsername: agentExtension,
       authorizationPassword: password,
       displayName: displayLabel,
-      hackIpInContact: true,
+      hackIpInContact: resolvedViaHost || true,
       delegate: {
         onInvite: (invite) => this.handleIncomingInvite(invite)
       }
@@ -430,6 +427,16 @@ class WebphoneManager {
           }
           this.setState({ registered: true, error: "" });
           this.startRegisterNotifyLoop();
+          if (ua.contact && ua.contact.uri) {
+            const expectedUri = ua.contact.uri.toString();
+            message = message.replace(
+              /^Contact:\s*(?:[^<\r\n]*<[^>]+>|[^\r\n;]+)(.*)$/gim,
+              (fullMatch, tail) => {
+                const safeTail = tail && /expires\s*=/i.test(tail) ? tail : `${tail || ""};expires=600`;
+                return `Contact: <${expectedUri}>${safeTail}`;
+              }
+            );
+          }
         }
         if (originalOnMessage) {
           originalOnMessage.call(ua.transport, message);
@@ -442,8 +449,6 @@ class WebphoneManager {
             error: `Asterisk WSS Bağlantı Hatası (${err.message || "Bağlantı Kesildi"})`,
             registered: false
           });
-          this.scheduleReconnect(config, false);
-        } else if (!this.state.registered) {
           this.scheduleReconnect(config, false);
         }
       };
@@ -460,9 +465,6 @@ class WebphoneManager {
           if (st === SIP.RegistererState.Registered) {
             this._reconnectAttempt = 0;
             this.setState({ registered: true, error: "" });
-          } else if (st === SIP.RegistererState.Terminated || st === SIP.RegistererState.Unregistered) {
-            this.setState({ registered: false });
-            this.scheduleReconnect(config, false);
           }
         });
         return registerer.register();
