@@ -2727,27 +2727,29 @@ export default function Home() {
           </div>
 
           {/* Global Search & Action Center Bar */}
-          <GlobalSearchBar
-            backendHost={backendHost}
-            currentUser={currentUser}
-            activeTab={activeTab}
-            setActiveTab={setActiveTab}
-            onOpenProfileModal={(modalTab) => {
-              setActiveModalTab(modalTab || "profile");
-              setSettingsModalOpen(true);
-            }}
-            onQuickProfileSwitch={handleQuickProfileSwitch}
-            onToggleTheme={toggleTheme}
-            isDarkMode={isDarkMode}
-            onApplyChanges={handleApplyChanges}
-            hasPendingChanges={hasPendingChanges}
-            onLogout={handleLogout}
-            onUpdateCallPanelPrefs={(patch) => {
-              const current = loadCallPanelPrefs(currentUser);
-              const next = saveCallPanelPrefs(currentUser, { ...current, ...patch });
-              setCallPanelPrefs(next);
-            }}
-          />
+          {!isAgentOnlyUser && currentUser?.role !== "agent" && !(activeTab === "call-center" && isAgentFullScreenMode) && (
+            <GlobalSearchBar
+              backendHost={backendHost}
+              currentUser={currentUser}
+              activeTab={activeTab}
+              setActiveTab={setActiveTab}
+              onOpenProfileModal={(modalTab) => {
+                setActiveModalTab(modalTab || "profile");
+                setSettingsModalOpen(true);
+              }}
+              onQuickProfileSwitch={handleQuickProfileSwitch}
+              onToggleTheme={toggleTheme}
+              isDarkMode={isDarkMode}
+              onApplyChanges={handleApplyChanges}
+              hasPendingChanges={hasPendingChanges}
+              onLogout={handleLogout}
+              onUpdateCallPanelPrefs={(patch) => {
+                const current = loadCallPanelPrefs(currentUser);
+                const next = saveCallPanelPrefs(currentUser, { ...current, ...patch });
+                setCallPanelPrefs(next);
+              }}
+            />
+          )}
 
           <div className="flex items-center gap-3 text-xs font-semibold text-slate-600 dark:text-slate-400 shrink-0">
             {currentUser?.role === 'admin' && hasPendingChanges && (
