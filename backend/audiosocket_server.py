@@ -594,10 +594,10 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
                 print(f"[Recording Sync Error]: {e}")
             
             try:
-                from backend.services.call_analyzer import analyze_call
-                asyncio.create_task(analyze_call(call_id))
+                from backend.main import process_call_recording_and_retention
+                asyncio.create_task(process_call_recording_and_retention(call_id))
             except Exception as e:
-                print(f"[AMI] Failed to schedule call analyzer task: {e}")
+                print(f"[AMI] Failed to schedule dynamic recording retention & analyzer task: {e}")
 
 async def get_all_knowledge_base_context() -> str:
     """Fetches all indexed knowledge base document chunks from PostgreSQL to inject into system_instruction."""

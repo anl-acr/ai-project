@@ -109,13 +109,32 @@ os.makedirs(RECORDINGS_DIR, exist_ok=True)
 @app.get("/api/recordings/{filename}")
 async def get_recording_file(filename: str):
     """Dynamically serves call audio recording files from project recordings directory, Asterisk spool directory, or NAS storage."""
+    safe_name = os.path.basename(filename)
+    call_id_part = os.path.splitext(safe_name)[0]
+    try:
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, call_id_part)
+            if db_call and str(db_call.recording_path or "") in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                for _cand_dir in (RECORDINGS_DIR, "/var/spool/asterisk/monitor", "/mnt/nas/ai-recordings"):
+                    _cand_fp = os.path.join(_cand_dir, safe_name)
+                    if os.path.exists(_cand_fp):
+                        try:
+                            os.remove(_cand_fp)
+                        except Exception:
+                            pass
+                raise HTTPException(status_code=404, detail="Bu çağrının ses kaydı saklama politikası gereği silinmiştir veya kullanıcı için ses kaydı kapalıdır.")
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     # 1. Check project recordings directory
-    project_rec = os.path.join(RECORDINGS_DIR, filename)
+    project_rec = os.path.join(RECORDINGS_DIR, safe_name)
     if os.path.exists(project_rec) and os.path.getsize(project_rec) > 0:
         return FileResponse(project_rec, media_type="audio/wav")
         
     # 2. Check Asterisk spool monitor directory
-    spool_rec = os.path.join("/var/spool/asterisk/monitor", filename)
+    spool_rec = os.path.join("/var/spool/asterisk/monitor", safe_name)
     if os.path.exists(spool_rec) and os.path.getsize(spool_rec) > 0:
         try:
             shutil.copy2(spool_rec, project_rec)
@@ -125,7 +144,7 @@ async def get_recording_file(filename: str):
         
     # 3. Check NAS mount directory
     nas_dir = "/mnt/nas/ai-recordings"
-    nas_rec = os.path.join(nas_dir, filename)
+    nas_rec = os.path.join(nas_dir, safe_name)
     if os.path.exists(nas_rec) and os.path.getsize(nas_rec) > 0:
         return FileResponse(nas_rec, media_type="audio/wav")
         
@@ -1109,11 +1128,22 @@ DEFAULT_SETTINGS = {
         "deepfake_threshold": 80,
         "auto_blacklist": False
     },
-            "recording_retention": {
+    "recording_retention": {
         "delete_by_disk": True,
         "disk_threshold_pct": 80,
         "keep_days": 90,
-        "delete_by_days": False
+        "delete_by_days": False,
+        "dynamic_recording_enabled": False,
+        "dynamic_mode": "keep_on_match",
+        "dynamic_speaker": "both",
+        "dynamic_keywords": [
+            "ses kaydını aktif et",
+            "ses kaydını başlat",
+            "kayıt altına alınsın",
+            "görüşmeyi kaydet"
+        ],
+        "keep_if_no_transcript": True,
+        "keep_transcript_on_delete": True
     },
     "security_geo": {
         "allowed_countries": ["TR"]
@@ -1582,8 +1612,12 @@ def load_settings():
         db["voice_biometrics"] = DEFAULT_SETTINGS["voice_biometrics"].copy()
             
     # Ensure recording_retention config exists (migration)
-    if "recording_retention" not in db:
+    if "recording_retention" not in db or not isinstance(db.get("recording_retention"), dict):
         db["recording_retention"] = DEFAULT_SETTINGS["recording_retention"].copy()
+    else:
+        for _rk, _rv in DEFAULT_SETTINGS["recording_retention"].items():
+            if _rk not in db["recording_retention"]:
+                db["recording_retention"][_rk] = _rv.copy() if isinstance(_rv, list) else _rv
 
     # Ensure roi_settings config exists
     if "roi_settings" not in db:
@@ -2904,8 +2938,12 @@ same => n(hangup_blocked_s),NoOp(KARA LISTE / GUVENLIK ENGELI: Arayan reddedildi
 same => n,Hangup(21)
 
 ; Hangup handler (h uzantısı)
-exten => h,1,NoOp(Cagri sonlandi: ${{EXTEN}})
-same => n,Hangup()
+exten => h,1,NoOp(Cagri sonlandi: ${{EXTEN}}, Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, QueueStatus: ${{QUEUESTATUS}}, Member: ${{MEMBERINTERFACE}}, Cause: ${{HANGUPCAUSE}})
+same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_def_h)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}})}})
+same => n(done_def_h),Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
 exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UNIQUEID}})
@@ -3868,22 +3906,60 @@ async def save_voice_biometrics_settings(payload: VoiceBiometricsSettingsSchema)
     return {"status": "success", "message": "Ses biyometrisi ve deepfake koruma ayarları kaydedildi."}
 
 class RecordingRetentionSettingsSchema(BaseModel):
-    delete_by_disk: bool
-    disk_threshold_pct: int
-    keep_days: int
-    delete_by_days: bool
+    delete_by_disk: bool = True
+    disk_threshold_pct: int = 80
+    keep_days: int = 90
+    delete_by_days: bool = False
+    dynamic_recording_enabled: Optional[bool] = False
+    dynamic_mode: Optional[str] = "keep_on_match"
+    dynamic_speaker: Optional[str] = "both"
+    dynamic_keywords: Optional[List[str]] = [
+        "ses kaydını aktif et",
+        "ses kaydını başlat",
+        "kayıt altına alınsın",
+        "görüşmeyi kaydet"
+    ]
+    keep_if_no_transcript: Optional[bool] = True
+    keep_transcript_on_delete: Optional[bool] = True
+
+
+def get_effective_recording_retention_settings() -> dict:
+    raw = settings_db.get("recording_retention")
+    merged = DEFAULT_SETTINGS["recording_retention"].copy()
+    if isinstance(raw, dict):
+        for k, v in raw.items():
+            if v is not None:
+                merged[k] = v
+    if not isinstance(merged.get("dynamic_keywords"), list):
+        merged["dynamic_keywords"] = list(DEFAULT_SETTINGS["recording_retention"]["dynamic_keywords"])
+    merged["dynamic_recording_enabled"] = bool(merged.get("dynamic_recording_enabled", False))
+    merged["dynamic_mode"] = str(merged.get("dynamic_mode") or "keep_on_match").strip()
+    if merged["dynamic_mode"] not in ("keep_on_match", "delete_on_match"):
+        merged["dynamic_mode"] = "keep_on_match"
+    merged["dynamic_speaker"] = str(merged.get("dynamic_speaker") or "both").strip()
+    if merged["dynamic_speaker"] not in ("both", "agent", "caller"):
+        merged["dynamic_speaker"] = "both"
+    merged["keep_if_no_transcript"] = bool(merged.get("keep_if_no_transcript", True))
+    merged["keep_transcript_on_delete"] = bool(merged.get("keep_transcript_on_delete", True))
+    return merged
+
 
 @app.get("/api/settings/recording-retention")
 @app.get("/settings/recording-retention")
 async def get_recording_retention_settings():
-    return settings_db.get("recording_retention", DEFAULT_SETTINGS["recording_retention"])
+    return get_effective_recording_retention_settings()
+
 
 @app.post("/api/settings/recording-retention")
 @app.post("/settings/recording-retention")
 async def save_recording_retention_settings(payload: RecordingRetentionSettingsSchema):
-    settings_db["recording_retention"] = payload.model_dump()
-    
-    # Run simulated disk cleanup log
+    dumped = payload.model_dump()
+    dumped["dynamic_keywords"] = [
+        str(k).strip() for k in (dumped.get("dynamic_keywords") or []) if str(k).strip()
+    ]
+    settings_db["recording_retention"] = dumped
+    save_settings(settings_db)
+
     try:
         import shutil
         retention = settings_db["recording_retention"]
@@ -3898,7 +3974,370 @@ async def save_recording_retention_settings(payload: RecordingRetentionSettingsS
     except Exception as e:
         print(f"[Retention] Cleanup check error: {e}")
 
-    return {"status": "success", "message": "Ses kayıt saklama ve silme periyodu ayarları kaydedildi."}
+    return {"status": "success", "message": "Ses kayıt saklama ve dinamik kayıt politikası ayarları kaydedildi."}
+
+
+_ACTIVE_RETENTION_CALL_TASKS: set = set()
+
+
+def _delete_call_recording_files_sync(call_id: str) -> bool:
+    if not call_id:
+        return False
+    safe_filename = f"{os.path.basename(str(call_id))}.wav"
+    deleted_any = False
+    for cand_dir in (RECORDINGS_DIR, "/var/spool/asterisk/monitor", "/mnt/nas/ai-recordings"):
+        fp = os.path.join(cand_dir, safe_filename)
+        if os.path.exists(fp):
+            try:
+                os.remove(fp)
+                deleted_any = True
+                print(f"[Dynamic Recording] Deleted audio file: {fp}")
+            except Exception as del_err:
+                print(f"[Dynamic Recording] Failed to delete {fp}: {del_err}")
+    return deleted_any
+
+
+def _sync_spool_recording_to_project_sync(call_id: str) -> Optional[str]:
+    if not call_id:
+        return None
+    safe_filename = f"{os.path.basename(str(call_id))}.wav"
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+    project_fp = os.path.join(RECORDINGS_DIR, safe_filename)
+    spool_fp = os.path.join("/var/spool/asterisk/monitor", safe_filename)
+    nas_fp = os.path.join("/mnt/nas/ai-recordings", safe_filename)
+    if os.path.exists(spool_fp) and os.path.getsize(spool_fp) > 44:
+        try:
+            shutil.copy2(spool_fp, project_fp)
+        except Exception as cp_err:
+            print(f"[Recording Sync Warning ({call_id})]: {cp_err}")
+    for cand in (project_fp, spool_fp, nas_fp):
+        if os.path.exists(cand) and os.path.getsize(cand) > 44:
+            return cand
+    return None
+
+
+def _wav_has_speech_energy(wav_path: Optional[str]) -> bool:
+    """Checks whether a 16-bit PCM WAV file contains actual voice energy (>= 1.5s of speech above noise floor)."""
+    if not wav_path or not os.path.exists(wav_path):
+        return False
+    try:
+        import struct
+        with open(wav_path, "rb") as f:
+            raw = f.read()
+        if len(raw) <= 1600:
+            return False
+        pcm = raw[44:] if raw[:4] == b"RIFF" else raw
+        num_samples = len(pcm) // 2
+        if num_samples < 4000:
+            return False
+        # Inspect 0.5-second windows (4000 samples at 8kHz = 8000 bytes)
+        win_bytes = 8000
+        active_windows = 0
+        for offset in range(0, min(len(pcm) - win_bytes, win_bytes * 120), win_bytes):
+            chunk = pcm[offset : offset + win_bytes : 8]  # sample every 4th 16-bit frame for speed
+            samples = struct.unpack(f"<{len(chunk)//2}h", chunk[: (len(chunk) // 2) * 2])
+            if samples:
+                avg_amp = sum(abs(s) for s in samples) / len(samples)
+                if avg_amp >= 200:
+                    active_windows += 1
+                    if active_windows >= 3:
+                        return True
+        return False
+    except Exception:
+        return True
+
+
+def _normalize_tr_text_for_match(text: str) -> tuple[str, str]:
+    """Returns (tr_normalized, ascii_folded) lowercase strings stripped of punctuation for reliable Turkish keyword matching."""
+    raw = str(text or "")
+    # Remove any [[ORIG:...]] suffix lines if we want to match either Turkish or original text cleanly
+    raw = re.sub(r"\[\[ORIG:[A-Z]+\]\]", " ", raw)
+    tr_map = str.maketrans({
+        "İ": "i",
+        "I": "ı",
+        "Ş": "ş",
+        "Ğ": "ğ",
+        "Ü": "ü",
+        "Ö": "ö",
+        "Ç": "ç",
+    })
+    tr_s = raw.translate(tr_map).lower()
+    tr_s = re.sub(r"[^\w\sğüşıöç]", " ", tr_s)
+    tr_s = re.sub(r"\s+", " ", tr_s).strip()
+
+    ascii_map = str.maketrans({
+        "ı": "i",
+        "ş": "s",
+        "ğ": "g",
+        "ü": "u",
+        "ö": "o",
+        "ç": "c",
+    })
+    ascii_s = tr_s.translate(ascii_map)
+    return tr_s, ascii_s
+
+
+async def _is_user_recording_enabled_for_call(db_call: Call, session: AsyncSession) -> bool:
+    """
+    Checks whether the internal user/extension participating in the call has `recording_active` enabled.
+    - For AI Agent calls or external/queue calls without a specific internal user extension: returns True.
+    - If one or more internal user extensions participated: returns True if ANY participating user has `recording_active=True`,
+      and returns False if ALL participating internal users have `recording_active=False`.
+    """
+    try:
+        q_map = _get_queue_extensions_map()
+        caller_s = str(db_call.caller_number or "").strip()
+        callee_s = str(db_call.callee_number or "").strip()
+        hsrc_s = str(db_call.hangup_source or "").strip()
+
+        involved_exts = set()
+        if caller_s.isdigit() and 3 <= len(caller_s) <= 5 and caller_s not in q_map:
+            involved_exts.add(caller_s)
+        if callee_s.isdigit() and 3 <= len(callee_s) <= 5 and callee_s not in q_map:
+            involved_exts.add(callee_s)
+
+        if ":answered:" in hsrc_s:
+            ans_ext = hsrc_s.split(":answered:", 1)[1].split(":", 1)[0].strip()
+            if ans_ext.isdigit() and 3 <= len(ans_ext) <= 5:
+                involved_exts.add(ans_ext)
+        elif hsrc_s.startswith("pickup:"):
+            pk_ext = hsrc_s.split(":", 1)[1].strip()
+            if pk_ext.isdigit() and 3 <= len(pk_ext) <= 5:
+                involved_exts.add(pk_ext)
+        elif hsrc_s.startswith("transfer:"):
+            tr_ext = hsrc_s.split(":", 1)[1].strip()
+            if tr_ext.isdigit() and 3 <= len(tr_ext) <= 5:
+                involved_exts.add(tr_ext)
+
+        if not involved_exts:
+            return True
+
+        # Check both PostgreSQL SystemUser and settings_db['users']
+        matched_flags = []
+        disk_users_by_ext = {
+            str(u.get("extension") or "").strip(): u
+            for u in (settings_db.get("users") or [])
+            if isinstance(u, dict) and u.get("extension")
+        }
+        try:
+            stmt_u = select(SystemUser).where(SystemUser.extension.in_(list(involved_exts)))
+            res_u = await session.execute(stmt_u)
+            db_users = res_u.scalars().all()
+            db_users_by_ext = {str(u.extension or "").strip(): u for u in db_users if u.extension}
+        except Exception:
+            db_users_by_ext = {}
+
+        for ext in involved_exts:
+            if ext in disk_users_by_ext and "recording_active" in disk_users_by_ext[ext]:
+                matched_flags.append(bool(disk_users_by_ext[ext].get("recording_active")))
+            elif ext in db_users_by_ext:
+                matched_flags.append(bool(getattr(db_users_by_ext[ext], "recording_active", True)))
+
+        if not matched_flags:
+            return True
+
+        return any(matched_flags)
+    except Exception as e:
+        print(f"[User Recording Check Warning]: {e}")
+        return True
+
+
+async def process_call_recording_and_retention(call_id: str):
+    """
+    Post-call audio recording manager and Dynamic Voice Recording policy evaluator.
+    1. Waits briefly for Asterisk MixMonitor / AudioSocket to flush the .wav file and transcripts.
+    2. Checks per-user `recording_active` setting.
+    3. If `dynamic_recording_enabled` is False: preserves the recording 100% unchanged and runs post-call transcription + AI summary.
+    4. If `dynamic_recording_enabled` is True: ensures call transcript is generated, checks trigger keywords/mode/speaker,
+       and either preserves or securely purges the .wav file according to policy.
+    """
+    if not call_id or call_id in _ACTIVE_RETENTION_CALL_TASKS:
+        return
+    _ACTIVE_RETENTION_CALL_TASKS.add(call_id)
+    try:
+        await asyncio.sleep(1.5)
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, call_id)
+            if not db_call:
+                return
+
+            st_lower = str(db_call.status or "").strip().lower()
+            if st_lower in ("no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "blocked", "rejected_limit", "missed"):
+                _delete_call_recording_files_sync(call_id)
+                if db_call.recording_path:
+                    db_call.recording_path = None
+                    await session.commit()
+                return
+
+            # 1. Check per-user `recording_active` setting (Kullanıcılar > Özellikler > Ses Kayıt)
+            user_rec_enabled = await _is_user_recording_enabled_for_call(db_call, session)
+            if not user_rec_enabled:
+                _delete_call_recording_files_sync(call_id)
+                db_call.recording_path = "DISABLED_BY_USER_SETTING"
+                await session.commit()
+                add_system_log("RECORDING", "INFO", f"Kullanıcı ses kayıt ayarı kapalı olduğu için ses kaydı saklanmadı: ID={call_id}")
+                return
+
+            # 2. Sync recording from /var/spool/asterisk/monitor to project recordings/ directory
+            wav_path = await asyncio.to_thread(_sync_spool_recording_to_project_sync, call_id)
+
+            # 3. Check Dynamic Voice Recording setting
+            retention = get_effective_recording_retention_settings()
+            dynamic_enabled = bool(retention.get("dynamic_recording_enabled", False))
+
+            if not dynamic_enabled:
+                # Standard mode: keep recording 100% intact
+                if db_call.recording_path in (None, "", "DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                    db_call.recording_path = f"/api/recordings/{call_id}.wav"
+                    await session.commit()
+
+                # Ensure transcript & AI summary are populated for human calls as well
+                res_tr = await session.execute(
+                    select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
+                )
+                turns = list(res_tr.scalars().all())
+                if not turns and wav_path:
+                    turns = await _auto_transcribe_call_recording(call_id, session)
+                if not db_call.summary or "çıkartılamadı" in str(db_call.summary).lower() or "algılanmadı" in str(db_call.summary).lower():
+                    try:
+                        from backend.services.call_analyzer import analyze_call
+                        await analyze_call(call_id)
+                    except Exception as ex_an:
+                        print(f"[Post-Call Analyzer Warning ({call_id})]: {ex_an}")
+                return
+
+            # 4. Dynamic Recording is ENABLED -> Fetch or generate transcripts
+            res_tr = await session.execute(
+                select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
+            )
+            turns = list(res_tr.scalars().all())
+
+            # Check sibling Call rows within ±15s if turns are empty
+            sibling_ids = []
+            if db_call.start_time:
+                try:
+                    win_start = db_call.start_time - datetime.timedelta(seconds=15)
+                    win_end = db_call.start_time + datetime.timedelta(seconds=15)
+                    sib_stmt = select(Call.id).where(
+                        and_(
+                            Call.id != call_id,
+                            Call.caller_number == db_call.caller_number,
+                            Call.callee_number == db_call.callee_number,
+                            Call.start_time >= win_start,
+                            Call.start_time <= win_end,
+                        )
+                    )
+                    sib_res = await session.execute(sib_stmt)
+                    sibling_ids = [r for r in sib_res.scalars().all() if r]
+                    if not turns:
+                        for sib_id in sibling_ids:
+                            tr_sib = await session.execute(
+                                select(Transcript).where(Transcript.call_id == sib_id).order_by(Transcript.timestamp.asc())
+                            )
+                            sib_list = list(tr_sib.scalars().all())
+                            if sib_list:
+                                turns = sib_list
+                                break
+                except Exception:
+                    pass
+
+            if not turns and wav_path:
+                turns = await _auto_transcribe_call_recording(call_id, session)
+
+            mode = retention.get("dynamic_mode", "keep_on_match")
+            speaker_filter = retention.get("dynamic_speaker", "both")
+            keywords = [str(k).strip() for k in (retention.get("dynamic_keywords") or []) if str(k).strip()]
+            keep_if_no_transcript = bool(retention.get("keep_if_no_transcript", True))
+            keep_transcript_on_delete = bool(retention.get("keep_transcript_on_delete", True))
+
+            # Safety guard: if no keywords are configured, never delete audio
+            if not keywords:
+                db_call.recording_path = f"/api/recordings/{call_id}.wav"
+                await session.commit()
+                return
+
+            # Filter turns by speaker setting
+            filtered_turns = []
+            for t in turns:
+                spk = str(getattr(t, "speaker", "") or "").strip().lower()
+                if speaker_filter == "agent" and spk not in ("human", "ai", "agent"):
+                    continue
+                if speaker_filter == "caller" and spk != "customer":
+                    continue
+                filtered_turns.append(t)
+
+            matched_keyword = None
+            for t in filtered_turns:
+                t_tr, t_ascii = _normalize_tr_text_for_match(getattr(t, "text", "") or "")
+                if not t_tr and not t_ascii:
+                    continue
+                for kw in keywords:
+                    kw_tr, kw_ascii = _normalize_tr_text_for_match(kw)
+                    if not kw_tr:
+                        continue
+                    if (kw_tr and kw_tr in t_tr) or (kw_ascii and kw_ascii in t_ascii):
+                        matched_keyword = kw
+                        break
+                if matched_keyword:
+                    break
+
+            should_keep_audio = True
+            decision_reason = ""
+
+            if mode == "keep_on_match":
+                if matched_keyword:
+                    should_keep_audio = True
+                    decision_reason = f"Tetikleyici kelime ('{matched_keyword}') algılandı, ses kaydı korundu."
+                else:
+                    if not turns:
+                        has_speech = await asyncio.to_thread(_wav_has_speech_energy, wav_path)
+                        if has_speech and keep_if_no_transcript:
+                            should_keep_audio = True
+                            decision_reason = "Transkript oluşturulamadı ancak ses enerjisi tespit edildi (Güvenli Mod: Ses kaydı korundu)."
+                        else:
+                            should_keep_audio = False
+                            decision_reason = "Görüşmede konuşma veya tetikleyici kelime algılanmadığı için ses kaydı silindi."
+                    else:
+                        should_keep_audio = False
+                        decision_reason = "Görüşmede tetikleyici anahtar kelime geçmediği için ses kaydı dinamik politika gereği silindi."
+            else:  # delete_on_match (Opt-Out)
+                if matched_keyword:
+                    should_keep_audio = False
+                    decision_reason = f"Silme tetikleyicisi ('{matched_keyword}') algılandığı için ses kaydı silindi."
+                else:
+                    should_keep_audio = True
+                    decision_reason = "Silme tetikleyicisi geçmediği için ses kaydı korundu."
+
+            if should_keep_audio:
+                db_call.recording_path = f"/api/recordings/{call_id}.wav"
+                await session.commit()
+                print(f"[Dynamic Recording KEEP] call_id={call_id}: {decision_reason}")
+                add_system_log("DYNAMIC_RECORDING", "INFO", f"Ses Kaydı Korundu ({call_id}): {decision_reason}")
+            else:
+                await asyncio.to_thread(_delete_call_recording_files_sync, call_id)
+                for sib_id in sibling_ids:
+                    await asyncio.to_thread(_delete_call_recording_files_sync, sib_id)
+                db_call.recording_path = "DELETED_BY_DYNAMIC_POLICY"
+                if not keep_transcript_on_delete and turns:
+                    for t_obj in turns:
+                        try:
+                            await session.delete(t_obj)
+                        except Exception:
+                            pass
+                await session.commit()
+                print(f"[Dynamic Recording DELETE] call_id={call_id}: {decision_reason}")
+                add_system_log("DYNAMIC_RECORDING", "WARNING", f"Ses Kaydı Silindi ({call_id}): {decision_reason}")
+
+            if keep_transcript_on_delete or should_keep_audio:
+                try:
+                    from backend.services.call_analyzer import analyze_call
+                    await analyze_call(call_id)
+                except Exception as ex_an:
+                    print(f"[Dynamic Recording Analyzer Warning ({call_id})]: {ex_an}")
+    except Exception as err:
+        print(f"[Dynamic Recording Processor Error ({call_id})]: {err}")
+    finally:
+        _ACTIVE_RETENTION_CALL_TASKS.discard(call_id)
 
 @app.get("/api/calls/active/biometrics/{call_id}")
 async def get_active_call_biometrics(call_id: str):
@@ -10556,14 +10995,12 @@ async def end_call_endpoint(
             print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus}, QueueCall: {is_queue_call})")
             add_system_log("ASTERISK", "INFO", f"Arama Sonlandı: ID={call_id}, Durum={resolved_status}")
 
-            # Trigger AI Call Analyzer if summary is not yet populated
-            if not db_call.summary or "çıkartılamadı" in str(db_call.summary).lower():
-                try:
-                    import asyncio
-                    from backend.services.call_analyzer import analyze_call
-                    asyncio.create_task(analyze_call(call_id))
-                except Exception as ex_an:
-                    print(f"[End Call Analyzer Trigger Error]: {ex_an}")
+            # Trigger Post-Call Recording & Dynamic Retention Evaluator (also handles auto-transcription & AI Call Analyzer)
+            try:
+                import asyncio
+                asyncio.create_task(process_call_recording_and_retention(call_id))
+            except Exception as ex_an:
+                print(f"[End Call Retention/Analyzer Trigger Error]: {ex_an}")
 
             # Trigger automated WhatsApp Missed Call greeting if call was unanswered
             if resolved_status in ["no_answer", "busy", "failed", "cancelled"]:
@@ -11384,6 +11821,18 @@ async def list_calls(
                     await db.commit()
                 except Exception:
                     pass
+
+            for c in calls_list:
+                rec_val = str(getattr(c, "recording_path", "") or "").strip()
+                if rec_val in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                    try:
+                        db.expunge(c)
+                    except Exception:
+                        pass
+                    c.recording_deleted_reason = rec_val
+                    c.recording_path = None
+                else:
+                    c.recording_deleted_reason = None
         except Exception as enrich_err:
             print(f"[List Calls Enrich Warning]: {enrich_err}")
 
