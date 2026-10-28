@@ -132,6 +132,47 @@ async def get_recording_file(filename: str):
     raise HTTPException(status_code=404, detail="Ses kaydı dosyası sunucuda bulunamadı.")
 
 os.makedirs("uploads/announcements", exist_ok=True)
+
+@app.get("/api/uploads/announcements/{filename}")
+@app.get("/uploads/announcements/{filename}")
+async def get_announcement_audio_file(filename: str):
+    """Serves announcement audio files and auto-heals any corrupt/missing TTS announcement files on the fly."""
+    safe_name = os.path.basename(filename)
+    ann_id = os.path.splitext(safe_name)[0]
+    filepath = os.path.join("uploads/announcements", safe_name)
+
+    # Find matching announcement in settings_db
+    target_ann = None
+    for a in settings_db.get("announcements", []):
+        if isinstance(a, dict) and (str(a.get("id")) == ann_id or str(a.get("filename")) == safe_name):
+            target_ann = a
+            break
+
+    if target_ann is not None:
+        healed_path = _ensure_announcement_audio_valid(target_ann)
+        if healed_path and os.path.exists(healed_path):
+            filepath = healed_path
+
+    if not os.path.exists(filepath) or not _is_valid_audio_file(filepath):
+        # Fallback search across wav/mp3 variants and asterisk sounds_tr
+        for cand in [
+            os.path.join("uploads/announcements", f"{ann_id}.wav"),
+            os.path.join("uploads/announcements", f"{ann_id}.mp3"),
+            os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr", f"{ann_id}.wav"),
+            os.path.join("recordings", f"{ann_id}.wav"),
+        ]:
+            if os.path.exists(cand) and _is_valid_audio_file(cand):
+                filepath = cand
+                break
+
+    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+        raise HTTPException(status_code=404, detail="Anons ses dosyası bulunamadı.")
+
+    with open(filepath, "rb") as f:
+        head = f.read(12)
+    media_type = "audio/wav" if (head[:4] == b"RIFF" and head[8:12] == b"WAVE") else "audio/mpeg"
+    return FileResponse(filepath, media_type=media_type, headers={"Cache-Control": "no-cache"})
+
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 app.mount("/api/uploads", StaticFiles(directory="uploads"), name="api_uploads")
 
@@ -5512,34 +5553,119 @@ async def save_queues_endpoint(payload: List[Dict[str, Any]], background_tasks: 
 # ----------------------------------------------------
 # API Routes: Announcements
 # ----------------------------------------------------
-@app.get("/api/settings/announcements")
-async def get_announcements(user_info: dict = Depends(get_user_info)):
-    target_tenant = user_info.get("tenant_id") or "tenant-default"
-    all_announcements = settings_db.get("announcements", [])
-    if is_global_tenant(target_tenant):
-        filtered = all_announcements
-    else:
-        filtered = [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
+def _is_valid_audio_file(filepath: str) -> bool:
+    """Checks if an audio file exists, is non-empty, and is not the 28-byte dummy RIFF header."""
+    try:
+        if not filepath or not os.path.exists(filepath):
+            return False
+        size = os.path.getsize(filepath)
+        if size <= 100:
+            return False
+        with open(filepath, "rb") as f:
+            head = f.read(28)
+        if head.startswith(b"RIFF....WAVEfmt"):
+            return False
+        return True
+    except Exception:
+        return False
 
-    normalized = []
-    for a in filtered:
-        if not isinstance(a, dict):
-            continue
-        item = dict(a)
-        if not item.get("name"):
-            item["name"] = item.get("original_filename") or item.get("filename") or "Anons"
-        orig_fn = str(item.get("original_filename") or "")
-        if not orig_fn or re.match(r"^tts_[0-9a-f]{6,}\.(mp3|wav)$", orig_fn, re.IGNORECASE):
-            ext = os.path.splitext(str(item.get("filename") or ".mp3"))[1] or ".mp3"
-            item["original_filename"] = f"{item['name']}{ext}"
-        if not item.get("type") or item.get("type") in ["custom", "tts"]:
-            item["type"] = "announcement"
-        normalized.append(item)
-    return normalized
+
+def _calc_audio_duration_seconds(filepath: str) -> float:
+    """Calculates exact duration in seconds for WAV or MP3 files using pure Python."""
+    import io
+    import struct
+    import wave
+
+    if not _is_valid_audio_file(filepath):
+        return 0.0
+    try:
+        with open(filepath, "rb") as f:
+            data = f.read()
+    except Exception:
+        return 0.0
+
+    n = len(data)
+    if n < 44:
+        return 0.0
+
+    # 1. Standard RIFF WAVE file
+    if data[:4] == b"RIFF" and data[8:12] == b"WAVE":
+        try:
+            with wave.open(io.BytesIO(data), "rb") as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                if rate > 0:
+                    return round(frames / float(rate), 2)
+        except Exception:
+            pass
+        pos = 12
+        byte_rate = 0
+        data_size = 0
+        while pos + 8 <= n:
+            cid = data[pos:pos + 4]
+            csize = struct.unpack("<I", data[pos + 4:pos + 8])[0]
+            if cid == b"fmt " and csize >= 16 and pos + 20 <= n:
+                byte_rate = struct.unpack("<I", data[pos + 16:pos + 20])[0]
+            elif cid == b"data":
+                data_size = min(csize, n - (pos + 8))
+                break
+            pos += 8 + csize + (csize & 1)
+        if byte_rate > 0 and data_size > 0:
+            return round(data_size / float(byte_rate), 2)
+        return 0.0
+
+    # 2. MPEG Audio (MP3) frame header parser
+    br_v1_l3 = [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0]
+    br_v2_l3 = [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160, 0]
+    sr_v1 = [44100, 48000, 32000, 0]
+    sr_v2 = [22050, 24000, 16000, 0]
+    sr_v25 = [11025, 12000, 8000, 0]
+
+    pos = 0
+    if n >= 10 and data[:3] == b"ID3":
+        size = ((data[6] & 0x7F) << 21) | ((data[7] & 0x7F) << 14) | ((data[8] & 0x7F) << 7) | (data[9] & 0x7F)
+        pos = 10 + size
+
+    total_sec = 0.0
+    while pos + 4 <= n:
+        if data[pos] == 0xFF and (data[pos + 1] & 0xE0) == 0xE0:
+            b1, b2 = data[pos + 1], data[pos + 2]
+            ver = (b1 >> 3) & 0x03
+            layer = (b1 >> 1) & 0x03
+            br_idx = (b2 >> 4) & 0x0F
+            sr_idx = (b2 >> 2) & 0x03
+            padding = (b2 >> 1) & 0x01
+            if ver != 1 and layer == 1 and br_idx not in (0, 15) and sr_idx != 3:
+                if ver == 3:
+                    br = br_v1_l3[br_idx] * 1000
+                    sr = sr_v1[sr_idx]
+                    samples = 1152
+                    fsize = int((144 * br) // sr + padding)
+                else:
+                    br = br_v2_l3[br_idx] * 1000
+                    sr = sr_v2[sr_idx] if ver == 2 else sr_v25[sr_idx]
+                    samples = 576
+                    fsize = int((72 * br) // sr + padding)
+                if fsize > 4:
+                    total_sec += samples / float(sr)
+                    pos += fsize
+                    continue
+        pos += 1
+    return round(total_sec, 2)
+
+
+def _format_duration_mmss(sec: float) -> str:
+    if not sec or sec <= 0:
+        return "00:00"
+    total = max(1, int(round(sec)))
+    mins = total // 60
+    secs = total % 60
+    return f"{mins:02d}:{secs:02d}"
 
 
 def _synthesize_tts_mp3_bytes(text: str, voice: str = "tr-TR-EmelNeural") -> bytes:
-    """Synthesizes natural speech MP3 bytes for announcements using chunked Google Translate TTS with edge-tts/gTTS fallback."""
+    """Synthesizes natural speech MP3 bytes for announcements using chunked Google Translate TTS with SSL-tolerant & gTTS fallback."""
+    import ssl
     import urllib.parse
     import urllib.request
 
@@ -5550,43 +5676,44 @@ def _synthesize_tts_mp3_bytes(text: str, voice: str = "tr-TR-EmelNeural") -> byt
     v_lower = str(voice or "").lower()
     lang = "en" if any(k in v_lower for k in ["en-", "english", "john", "sophia", "aria", "guy"]) else "tr"
 
-    # 1. Primary fast & reliable chunked synthesis via Google Translate TTS stream
-    try:
-        # Split on sentence boundaries first, then word boundaries <= 180 chars
-        sentences = re.split(r"(?<=[.!?।;:])\s+", clean)
-        chunks = []
-        cur = ""
-        for sent in sentences:
-            words = sent.split(" ")
-            for w in words:
-                if not w:
-                    continue
-                if len(cur) + len(w) + 1 <= 180:
-                    cur = f"{cur} {w}".strip()
-                else:
-                    if cur:
-                        chunks.append(cur)
-                    cur = w[:180]
-        if cur:
-            chunks.append(cur)
+    sentences = re.split(r"(?<=[.!?।;:])\s+", clean)
+    chunks = []
+    cur = ""
+    for sent in sentences:
+        words = sent.split(" ")
+        for w in words:
+            if not w:
+                continue
+            if len(cur) + len(w) + 1 <= 180:
+                cur = f"{cur} {w}".strip()
+            else:
+                if cur:
+                    chunks.append(cur)
+                cur = w[:180]
+    if cur:
+        chunks.append(cur)
 
-        audio_out = bytearray()
-        for ch in chunks:
-            q = urllib.parse.quote(ch)
-            url = f"https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl={lang}&q={q}"
-            req = urllib.request.Request(
-                url,
-                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
-            )
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                chunk_bytes = resp.read()
-                if chunk_bytes:
-                    audio_out.extend(chunk_bytes)
+    ssl_ctx = ssl._create_unverified_context()
 
-        if len(audio_out) > 200:
-            return bytes(audio_out)
-    except Exception as g_err:
-        print(f"[Announcement Google TTS Warning]: {g_err}")
+    # 1. Try Google Translate TTS endpoints (tw-ob and gtx)
+    for client_id in ["tw-ob", "gtx"]:
+        try:
+            audio_out = bytearray()
+            for ch in chunks:
+                q = urllib.parse.quote(ch)
+                url = f"https://translate.google.com/translate_tts?ie=UTF-8&client={client_id}&tl={lang}&q={q}"
+                req = urllib.request.Request(
+                    url,
+                    headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+                )
+                with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as resp:
+                    chunk_bytes = resp.read()
+                    if chunk_bytes:
+                        audio_out.extend(chunk_bytes)
+            if len(audio_out) > 200:
+                return bytes(audio_out)
+        except Exception as g_err:
+            print(f"[Announcement Google TTS ({client_id}) Warning]: {g_err}")
 
     # 2. Fallback to gTTS if installed
     try:
@@ -5640,7 +5767,7 @@ def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
         except Exception:
             pass
 
-    if os.path.exists(wav_filepath):
+    if os.path.exists(wav_filepath) and _is_valid_audio_file(wav_filepath):
         target_dirs = [os.path.join(ASTERISK_CONFIG_DIR, "sounds_tr"), "recordings"]
         if os.path.exists("/var/spool/asterisk") or os.path.exists("/etc/asterisk"):
             target_dirs.append("/var/spool/asterisk/monitor")
@@ -5653,6 +5780,74 @@ def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
             except Exception as e_sync:
                 print(f"[Announcement WAV Sync Warning] ({d}): {e_sync}")
     return wav_filepath
+
+
+def _ensure_announcement_audio_valid(ann: dict) -> str:
+    """Ensures announcement audio file exists and is valid on disk; auto-heals corrupt 28-byte TTS files."""
+    if not isinstance(ann, dict):
+        return ""
+    ann_id = str(ann.get("id") or "").strip()
+    fname = str(ann.get("filename") or f"{ann_id}.mp3").strip()
+    os.makedirs("uploads/announcements", exist_ok=True)
+    filepath = os.path.join("uploads/announcements", fname)
+
+    if _is_valid_audio_file(filepath):
+        return filepath
+
+    # Check if a valid wav/mp3 sibling exists
+    for ext in [".wav", ".mp3"]:
+        cand = os.path.join("uploads/announcements", f"{ann_id}{ext}")
+        if _is_valid_audio_file(cand):
+            return cand
+
+    # If this is a TTS announcement (or has text), auto-synthesize and repair the broken file!
+    tts_text = str(ann.get("text") or "").strip()
+    if tts_text and ann_id:
+        voice = str(ann.get("voice") or "tr-TR-EmelNeural")
+        mp3_bytes = _synthesize_tts_mp3_bytes(tts_text, voice)
+        if mp3_bytes:
+            mp3_path = os.path.join("uploads/announcements", f"{ann_id}.mp3")
+            try:
+                with open(mp3_path, "wb") as f:
+                    f.write(mp3_bytes)
+                _convert_and_sync_announcement_wav(mp3_path, ann_id)
+                print(f"[Announcement Auto-Healed TTS]: {ann.get('name')} ({ann_id}) -> {len(mp3_bytes)} bytes")
+                return mp3_path
+            except Exception as heal_err:
+                print(f"[Announcement Auto-Heal Error]: {heal_err}")
+
+    return filepath if os.path.exists(filepath) else ""
+
+
+@app.get("/api/settings/announcements")
+async def get_announcements(user_info: dict = Depends(get_user_info)):
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    all_announcements = settings_db.get("announcements", [])
+    if is_global_tenant(target_tenant):
+        filtered = all_announcements
+    else:
+        filtered = [a for a in all_announcements if not a.get("tenant_id") or a.get("tenant_id") in [target_tenant, "tenant-default", "default"]]
+
+    normalized = []
+    for a in filtered:
+        if not isinstance(a, dict):
+            continue
+        item = dict(a)
+        if not item.get("name"):
+            item["name"] = item.get("original_filename") or item.get("filename") or "Anons"
+        orig_fn = str(item.get("original_filename") or "")
+        if not orig_fn or re.match(r"^tts_[0-9a-f]{6,}\.(mp3|wav)$", orig_fn, re.IGNORECASE):
+            ext = os.path.splitext(str(item.get("filename") or ".mp3"))[1] or ".mp3"
+            item["original_filename"] = f"{item['name']}{ext}"
+        if not item.get("type") or item.get("type") in ["custom", "tts"]:
+            item["type"] = "announcement"
+
+        valid_fp = _ensure_announcement_audio_valid(item)
+        dur_sec = _calc_audio_duration_seconds(valid_fp) if valid_fp else 0.0
+        item["duration"] = dur_sec
+        item["duration_formatted"] = _format_duration_mmss(dur_sec)
+        normalized.append(item)
+    return normalized
 
 
 @app.post("/api/settings/announcements")
@@ -5691,15 +5886,21 @@ async def create_announcement(
     elif existing_ann:
         filename = existing_ann.get("filename") or f"{ann_id}.wav"
         orig_fname = existing_ann.get("original_filename") or f"{clean_name}.wav"
+        filepath = os.path.join("uploads/announcements", filename)
     else:
         orig_fname = f"{clean_name}.wav"
         filename = f"{ann_id}.wav"
+        filepath = os.path.join("uploads/announcements", filename)
+
+    dur_sec = _calc_audio_duration_seconds(filepath)
 
     if existing_ann:
         existing_ann["name"] = clean_name
         existing_ann["filename"] = filename
         existing_ann["original_filename"] = orig_fname
         existing_ann["type"] = resolved_type
+        existing_ann["duration"] = dur_sec
+        existing_ann["duration_formatted"] = _format_duration_mmss(dur_sec)
         existing_ann["updated_at"] = now_ts
         ann = existing_ann
     else:
@@ -5710,6 +5911,8 @@ async def create_announcement(
             "original_filename": orig_fname,
             "type": resolved_type,
             "tenant_id": target_tenant,
+            "duration": dur_sec,
+            "duration_formatted": _format_duration_mmss(dur_sec),
             "created_at": now_ts,
             "updated_at": now_ts
         }
@@ -5764,6 +5967,7 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
             f.write(audio_bytes)
 
     _convert_and_sync_announcement_wav(filepath, ann_id)
+    dur_sec = _calc_audio_duration_seconds(filepath)
 
     now_ts = datetime.datetime.now().timestamp()
     if existing_ann:
@@ -5773,6 +5977,8 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
         existing_ann["type"] = ann_type
         existing_ann["text"] = text
         existing_ann["voice"] = voice
+        existing_ann["duration"] = dur_sec
+        existing_ann["duration_formatted"] = _format_duration_mmss(dur_sec)
         existing_ann["updated_at"] = now_ts
         ann = existing_ann
     else:
@@ -5785,6 +5991,8 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
             "tenant_id": target_tenant,
             "text": text,
             "voice": voice,
+            "duration": dur_sec,
+            "duration_formatted": _format_duration_mmss(dur_sec),
             "created_at": now_ts,
             "updated_at": now_ts
         }
@@ -5833,6 +6041,11 @@ async def update_announcement(announcement_id: str, payload: dict, user_info: di
             target["original_filename"] = f"{new_name}.mp3"
             target["text"] = new_text
             target["voice"] = voice
+
+    valid_fp = _ensure_announcement_audio_valid(target)
+    dur_sec = _calc_audio_duration_seconds(valid_fp) if valid_fp else 0.0
+    target["duration"] = dur_sec
+    target["duration_formatted"] = _format_duration_mmss(dur_sec)
 
     save_settings(settings_db)
     return {"status": "success", "announcement": target}

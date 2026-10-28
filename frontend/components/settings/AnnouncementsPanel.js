@@ -22,6 +22,8 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   
   const [deleteTargetId, setDeleteTargetId] = useState(null);
   const [playingId, setPlayingId] = useState(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [durations, setDurations] = useState({});
   const audioRef = useRef(null);
 
   const [activeTab, setActiveTab] = useState("upload");
@@ -31,13 +33,47 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
   const API_BASE = getApiBaseUrl(backendHost);
 
+  const formatDuration = (sec) => {
+    const num = Number(sec);
+    if (!num || isNaN(num) || !isFinite(num) || num <= 0) return "00:00";
+    const total = Math.max(1, Math.round(num));
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
 
   useEffect(() => {
     fetchAnnouncements();
     const handleTenantChange = () => fetchAnnouncements();
     window.addEventListener("tenantChanged", handleTenantChange);
-    return () => window.removeEventListener("tenantChanged", handleTenantChange);
+    return () => {
+      window.removeEventListener("tenantChanged", handleTenantChange);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
   }, []);
+
+  // Preload durations in browser for any announcement missing backend duration
+  useEffect(() => {
+    if (!announcements || announcements.length === 0) return;
+    announcements.forEach((ann) => {
+      if (!ann?.id || !ann?.filename) return;
+      if (ann.duration && ann.duration > 0) {
+        setDurations((prev) => (prev[ann.id] ? prev : { ...prev, [ann.id]: ann.duration }));
+        return;
+      }
+      const probe = new Audio();
+      probe.preload = "metadata";
+      const ver = ann.updated_at || ann.created_at || "1";
+      probe.src = `${API_BASE}/api/uploads/announcements/${ann.filename}?v=${ver}`;
+      probe.onloadedmetadata = () => {
+        if (probe.duration && isFinite(probe.duration) && probe.duration > 0) {
+          setDurations((prev) => ({ ...prev, [ann.id]: probe.duration }));
+        }
+      };
+    });
+  }, [announcements, API_BASE]);
 
   const fetchAnnouncements = async () => {
     setLoading(true);
@@ -46,6 +82,15 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       if (res.ok) {
         const data = await res.json();
         setAnnouncements(data || []);
+        const durMap = {};
+        (data || []).forEach((a) => {
+          if (a?.id && a?.duration > 0) {
+            durMap[a.id] = a.duration;
+          }
+        });
+        if (Object.keys(durMap).length > 0) {
+          setDurations((prev) => ({ ...prev, ...durMap }));
+        }
       }
     } catch (err) {
       console.error("Anonslar yüklenemedi", err);
@@ -82,6 +127,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
         audioRef.current.currentTime = 0;
       }
       setPlayingId(null);
+      setCurrentTime(0);
     }
     setEditingAnn(ann);
     setNewAnnName(ann.name || ann.original_filename || "");
@@ -205,37 +251,53 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   };
 
   const playAudio = (ann) => {
+    if (!audioRef.current) return;
     if (playingId === ann.id) {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-      }
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
       setPlayingId(null);
+      setCurrentTime(0);
     } else {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
+      audioRef.current.pause();
+      const ver = ann.updated_at || ann.created_at || "1";
+      const audioUrl = `${API_BASE}/api/uploads/announcements/${ann.filename}?v=${ver}`;
+      audioRef.current.src = audioUrl;
+      audioRef.current.currentTime = 0;
+      setCurrentTime(0);
       setPlayingId(ann.id);
-      // Wait for React to render audio element
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.load();
-          audioRef.current.play().catch(e => {
-            console.error("Audio playback error", e);
-            setPlayingId(null);
-          });
-          audioRef.current.onended = () => {
-            setPlayingId(null);
-          };
+
+      audioRef.current.onloadedmetadata = () => {
+        if (audioRef.current && audioRef.current.duration && isFinite(audioRef.current.duration)) {
+          setDurations((prev) => ({ ...prev, [ann.id]: audioRef.current.duration }));
         }
-      }, 50);
+      };
+      audioRef.current.ontimeupdate = () => {
+        if (audioRef.current) {
+          setCurrentTime(audioRef.current.currentTime || 0);
+        }
+      };
+      audioRef.current.onended = () => {
+        setPlayingId(null);
+        setCurrentTime(0);
+      };
+      audioRef.current.onerror = (e) => {
+        console.error("Audio playback error", e);
+        setPlayingId(null);
+        setCurrentTime(0);
+      };
+
+      audioRef.current.play().catch((e) => {
+        console.error("Audio playback error", e);
+        setPlayingId(null);
+        setCurrentTime(0);
+      });
     }
   };
 
   const handleDownload = async (ann) => {
     try {
-      const cacheBust = ann.updated_at || ann.created_at || Date.now();
-      const response = await fetch(`${API_BASE}/api/uploads/announcements/${ann.filename}?t=${cacheBust}`);
+      const cacheBust = ann.updated_at || ann.created_at || "1";
+      const response = await fetch(`${API_BASE}/api/uploads/announcements/${ann.filename}?v=${cacheBust}`);
 
       if (!response.ok) throw new Error("Dosya bulunamadı");
       const blob = await response.blob();
@@ -272,8 +334,11 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     return !isNaN(d.getTime()) ? d.toLocaleDateString('tr-TR') : String(val);
   };
 
+  const waveformBars = [2,4,3,6,5,8,4,3,7,9,5,4,8,10,7,5,4,6,8,5,4,3,2,4,5,7,4,3,5,6,4,3,2,1,2,1,3,4,6,5,8,4,3,5,6,7,5,4,3,5,2,4,3,6];
+
   return (
     <div className="w-full space-y-6">
+      <audio ref={audioRef} className="hidden" preload="none" />
       {/* Header and Search & Add Action */}
       <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -341,6 +406,10 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
               const displayName = ann.name || ann.original_filename || ann.filename;
               const isTtsItem = Boolean(ann.text || ann.source === "tts" || /^tts_[0-9a-f]{6,}/i.test(ann.original_filename || ""));
               const subFileLabel = !isTtsItem && ann.original_filename && ann.original_filename !== displayName ? ann.original_filename : "";
+              const totalDur = durations[ann.id] || ann.duration || 0;
+              const isPlayingThis = playingId === ann.id;
+              const progressRatio = isPlayingThis && totalDur > 0 ? Math.min(1, currentTime / totalDur) : 0;
+
               return (
               <div key={ann.id} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 rounded-[24px] p-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:shadow-md transition-all shadow-sm">
                 
@@ -381,23 +450,31 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                   <button 
                     onClick={() => playAudio(ann)}
                     className={`w-[42px] h-[42px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-transform active:scale-95 ${bg} text-white`}
-                    title={playingId === ann.id ? "Durdur" : "Anonsu Dinle"}
+                    title={isPlayingThis ? "Durdur" : "Anonsu Dinle"}
                   >
-                    {playingId === ann.id ? <Square size={16} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-1" />}
+                    {isPlayingThis ? <Square size={16} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-1" />}
                   </button>
                   
                   <div className="hidden sm:flex items-center justify-between h-8 flex-1 min-w-0 mx-2">
-                    {[2,4,3,6,5,8,4,3,7,9,5,4,8,10,7,5,4,6,8,5,4,3,2,4,5,7,4,3,5,6,4,3,2,1,2,1,3,4,6,5,8,4,3,5,6,7,5,4,3,5,2,4,3,6].map((h, i) => (
-                      <div 
-                        key={i} 
-                        className={`w-1 mx-[1px] rounded-full ${bg} transition-all duration-300`} 
-                        style={{ height: `${h * 10}%`, opacity: playingId === ann.id ? 0.8 : 0.25 }} 
-                      />
-                    ))}
+                    {waveformBars.map((h, i) => {
+                      const barRatio = i / waveformBars.length;
+                      const isActiveBar = isPlayingThis && (totalDur <= 0 || barRatio <= progressRatio);
+                      return (
+                        <div 
+                          key={i} 
+                          className={`w-1 mx-[1px] rounded-full ${bg} transition-all duration-150`} 
+                          style={{ height: `${h * 10}%`, opacity: isActiveBar ? 0.9 : 0.25 }} 
+                        />
+                      );
+                    })}
                   </div>
                   
-                  <div className="hidden sm:flex items-center gap-3 shrink-0">
-                    <span className={`text-[11px] font-bold ${text} font-mono tracking-wider opacity-80`}>00:00</span>
+                  <div className="flex items-center gap-2.5 shrink-0">
+                    <span className={`text-[11px] font-bold ${text} font-mono tracking-wider opacity-90`}>
+                      {isPlayingThis
+                        ? `${formatDuration(currentTime)} / ${totalDur > 0 ? formatDuration(totalDur) : (ann.duration_formatted || "00:00")}`
+                        : (totalDur > 0 ? formatDuration(totalDur) : (ann.duration_formatted || "00:00"))}
+                    </span>
                     <Volume2 size={16} className={`${text} opacity-80`} />
                   </div>
                 </div>
@@ -425,14 +502,6 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                     <Trash2 size={18} />
                   </button>
                 </div>
-                
-                {playingId === ann.id && (
-                  <audio
-                    ref={audioRef}
-                    src={`${API_BASE}/api/uploads/announcements/${ann.filename}?t=${ann.updated_at || ann.created_at || Date.now()}`}
-                    className="hidden"
-                  />
-                )}
 
               </div>
               );
