@@ -1,4 +1,4 @@
-import { playRingtoneSound, stopRingtoneSound } from "./audioHelper";
+import { playRingtoneSound, stopRingtoneSound, playRingbackTone, stopRingbackTone } from "./audioHelper";
 
 let SIP = null;
 async function ensureSipLoaded() {
@@ -1038,11 +1038,15 @@ class WebphoneManager {
     });
     this.applyAllLinesAudioState();
 
-    if (cleanTarget.startsWith("*8") || cleanTarget.startsWith("**")) {
+    const isPickupCode = cleanTarget.startsWith("*8") || cleanTarget.startsWith("**");
+    if (isPickupCode) {
       const pickupLbl = cleanTarget.startsWith("*8")
         ? "Grup Çağrı Toplama (*8)"
         : `Hedefli Çağrı Toplama (${cleanTarget})`;
       this.recordTimelineEvent("call_pickup", pickupLbl);
+    } else if (typeof window !== "undefined") {
+      const selectedSpeaker = localStorage.getItem("selected_speaker") || null;
+      playRingbackTone(selectedSpeaker);
     }
 
     this.logWebrtcCallToBackend("start", {
@@ -1062,6 +1066,7 @@ class WebphoneManager {
       if (state === SIP.SessionState.Establishing) {
         this.attachRemoteAudioForLine(currentLine);
       } else if (state === SIP.SessionState.Established) {
+        stopRingbackTone();
         wasEstablished = true;
         currentLine.callStatus = "InCall";
         currentLine.isOnHold = false;
@@ -1084,6 +1089,7 @@ class WebphoneManager {
           status: "in_progress"
         });
       } else if (state === SIP.SessionState.Terminated) {
+        stopRingbackTone();
         const finalDuration = currentLine.establishedAt
           ? Math.max(0, Math.round((Date.now() - currentLine.establishedAt) / 1000))
           : currentLine.callDuration || 0;
@@ -1118,6 +1124,7 @@ class WebphoneManager {
             if (currentLine) this.attachRemoteAudioForLine(currentLine);
           },
           onReject: (response) => {
+            stopRingbackTone();
             const code = response?.message?.statusCode;
             rejectStatusCode = code;
             if (code === 486 || code === 600) {
@@ -1140,6 +1147,7 @@ class WebphoneManager {
         }
       });
     } catch (err) {
+      stopRingbackTone();
       console.error("[WebphoneManager] Invite error:", err);
       this.removeLineAudioElement(lineId);
       this.linesMap.delete(lineId);
@@ -1193,6 +1201,7 @@ class WebphoneManager {
 
   hangupCall(targetLineId = null) {
     stopRingtoneSound();
+    stopRingbackTone();
     const lineId = targetLineId || this.state.activeLineId;
     const line = lineId ? this.linesMap.get(lineId) : null;
 

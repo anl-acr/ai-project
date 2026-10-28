@@ -242,3 +242,69 @@ export const stopRingtoneSound = () => {
     audioCtx = null;
   }
 };
+
+// Outbound Ringback Tone Synthesizer (Standard 425Hz Telecom Ringback: 1s ON, 3.5s OFF)
+let ringbackCtx = null;
+let ringbackInterval = null;
+
+export const playRingbackTone = (sinkId = null) => {
+  stopRingbackTone();
+
+  if (typeof window === "undefined") return;
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return;
+
+  try {
+    ringbackCtx = new AudioContext();
+    if (ringbackCtx.state === "suspended") {
+      ringbackCtx.resume().catch(() => {});
+    }
+    if (sinkId && sinkId !== "default" && typeof ringbackCtx.setSinkId === "function") {
+      ringbackCtx.setSinkId(sinkId).catch(() => {});
+    }
+
+    const playToneBurst = () => {
+      if (!ringbackCtx || ringbackCtx.state === "closed") return;
+      if (ringbackCtx.state === "suspended") {
+        ringbackCtx.resume().catch(() => {});
+      }
+      const now = ringbackCtx.currentTime;
+      const osc = ringbackCtx.createOscillator();
+      const gain = ringbackCtx.createGain();
+
+      // Standard ITU-T / Turkish telecom ringback tone: 425 Hz
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(425, now);
+
+      gain.gain.setValueAtTime(0, now);
+      gain.gain.linearRampToValueAtTime(0.14, now + 0.04);
+      gain.gain.setValueAtTime(0.14, now + 0.96);
+      gain.gain.linearRampToValueAtTime(0, now + 1.0);
+
+      osc.connect(gain);
+      gain.connect(ringbackCtx.destination);
+
+      osc.start(now);
+      osc.stop(now + 1.02);
+    };
+
+    playToneBurst();
+    ringbackInterval = setInterval(playToneBurst, 4000);
+  } catch (e) {
+    console.warn("[AudioHelper] Ringback tone error:", e);
+  }
+};
+
+export const stopRingbackTone = () => {
+  if (ringbackInterval) {
+    clearInterval(ringbackInterval);
+    ringbackInterval = null;
+  }
+  if (ringbackCtx) {
+    try {
+      ringbackCtx.close();
+    } catch (e) {}
+    ringbackCtx = null;
+  }
+};
+
