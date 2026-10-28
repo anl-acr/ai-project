@@ -367,8 +367,6 @@ trust_id_inbound={trust_id_in}
                     pjsip_custom_content += f"from_user={endpoint_from_user}\n"
                 if endpoint_from_domain:
                     pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
-                if did:
-                    pjsip_custom_content += f"callerid={did} <{did}>\n"
                 pjsip_custom_content += f"\n[{name}-identify]\ntype=identify\nendpoint={name}\nmatch={host}\n\n"
             elif t_type == "peer":
                 pjsip_custom_content += f"""[{name}-aor]
@@ -396,8 +394,6 @@ trust_id_inbound={trust_id_in}
                     pjsip_custom_content += f"from_user={endpoint_from_user}\n"
                 if endpoint_from_domain:
                     pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
-                if did:
-                    pjsip_custom_content += f"callerid={did} <{did}>\n"
                 pjsip_custom_content += f"\n[{name}-identify]\ntype=identify\nendpoint={name}\nmatch={host}\n\n"
             elif t_type == "account":
                 acc_user = username or name
@@ -435,8 +431,6 @@ trust_id_inbound={trust_id_in}
                     pjsip_custom_content += f"from_user={endpoint_from_user}\n"
                 if endpoint_from_domain:
                     pjsip_custom_content += f"from_domain={endpoint_from_domain}\n"
-                if did:
-                    pjsip_custom_content += f"callerid={did} <{did}>\n"
                 pjsip_custom_content += "\n"
                 if acc_user and acc_user != name:
                     pjsip_custom_content += f"""[{acc_user}]
@@ -782,6 +776,11 @@ same => n,Hangup()
                 t_lines.append(f"same => n,Set(RAW_IN_CALLER=${{PJSIP_HEADER(read,{caller_hdr_name})}})")
                 t_lines.append("same => n,Set(PARSED_CALLER=${CUT(CUT(CUT(RAW_IN_CALLER,@,1),:,2),>,1)})")
                 t_lines.append("same => n,Set(CALLERID(num)=${IF($[\"${PARSED_CALLER}\" != \"\"]?${PARSED_CALLER}:${CALLERID(num)})})")
+            else:
+                t_lines.append("same => n,Set(RAW_IN_FROM=${PJSIP_HEADER(read,From)})")
+                t_lines.append("same => n,Set(PARSED_FROM_NUM=${CUT(CUT(CUT(RAW_IN_FROM,@,1),:,2),>,1)})")
+                t_lines.append("same => n,Set(CALLERID(num)=${IF($[\"${CALLERID(num)}\" = \"\" | \"${CALLERID(num)}\" = \"${EXTEN}\" | \"${CALLERID(num)}\" = \"908503607390\"]?${IF($[\"${PARSED_FROM_NUM}\" != \"\"]?${PARSED_FROM_NUM}:${CALLERID(num)})}:${CALLERID(num)})})")
+                t_lines.append("same => n,Set(CALLERID(name)=${IF($[\"${CALLERID(name)}\" = \"\" | \"${CALLERID(name)}\" = \"${EXTEN}\" | \"${CALLERID(name)}\" = \"908503607390\"]?${CALLERID(num)}:${CALLERID(name)})})")
             if callee_hdr_name:
                 t_lines.append(f"same => n,Set(RAW_IN_CALLEE=${{PJSIP_HEADER(read,{callee_hdr_name})}})")
                 t_lines.append("same => n,Set(PARSED_CALLEE=${CUT(CUT(CUT(RAW_IN_CALLEE,@,1),:,2),>,1)})")
@@ -835,6 +834,10 @@ same => n(done_hdrs),Return()
 [default]
 ; Operatörden gelen aramaları yakalamak için (Standart numara eşleşmesi)
 exten => _X.,1,NoOp(Gelen arama DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
+same => n,Set(RAW_DEF_FROM=${PJSIP_HEADER(read,From)})
+same => n,Set(PARSED_DEF_FROM=${CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)})
+same => n,Set(CALLERID(num)=${IF($["${CALLERID(num)}" = "" | "${CALLERID(num)}" = "${EXTEN}" | "${CALLERID(num)}" = "908503607390"]?${IF($["${PARSED_DEF_FROM}" != ""]?${PARSED_DEF_FROM}:${CALLERID(num)})}:${CALLERID(num)})})
+same => n,Set(CALLERID(name)=${IF($["${CALLERID(name)}" = "" | "${CALLERID(name)}" = "${EXTEN}" | "${CALLERID(name)}" = "908503607390"]?${CALLERID(num)}:${CALLERID(name)})})
 same => n,Set(UUID_VAL=${UUID()})
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID})})
 same => n,Set(CALL_UUID=${IF($[${ISNULL(${UUID_VAL})}]?${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12}:${UUID_VAL})})
@@ -850,6 +853,10 @@ same => n,Hangup(21)
 
 ; Uluslararası / + ile gelen DID numaraları için (+90...)
 exten => _+X.,1,NoOp(Gelen arama +DID ile yakalandi: ${EXTEN} - Arayan: ${CALLERID(num)})
+same => n,Set(RAW_DEF_FROM=${PJSIP_HEADER(read,From)})
+same => n,Set(PARSED_DEF_FROM=${CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)})
+same => n,Set(CALLERID(num)=${IF($["${CALLERID(num)}" = "" | "${CALLERID(num)}" = "${EXTEN}" | "${CALLERID(num)}" = "908503607390"]?${IF($["${PARSED_DEF_FROM}" != ""]?${PARSED_DEF_FROM}:${CALLERID(num)})}:${CALLERID(num)})})
+same => n,Set(CALLERID(name)=${IF($["${CALLERID(name)}" = "" | "${CALLERID(name)}" = "${EXTEN}" | "${CALLERID(name)}" = "908503607390"]?${CALLERID(num)}:${CALLERID(name)})})
 same => n,Set(UUID_VAL=${UUID()})
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID})})
 same => n,Set(CALL_UUID=${IF($[${ISNULL(${UUID_VAL})}]?${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12}:${UUID_VAL})})
@@ -865,6 +872,10 @@ same => n,Hangup(21)
 
 ; Fallback (s uzantısı)
 exten => s,1,NoOp(Gelen arama s uzantisi ile yakalandi: ${CALLERID(num)})
+same => n,Set(RAW_DEF_FROM=${PJSIP_HEADER(read,From)})
+same => n,Set(PARSED_DEF_FROM=${CUT(CUT(CUT(RAW_DEF_FROM,@,1),:,2),>,1)})
+same => n,Set(CALLERID(num)=${IF($["${CALLERID(num)}" = "" | "${CALLERID(num)}" = "908503607390"]?${IF($["${PARSED_DEF_FROM}" != ""]?${PARSED_DEF_FROM}:${CALLERID(num)})}:${CALLERID(num)})})
+same => n,Set(CALLERID(name)=${IF($["${CALLERID(name)}" = "" | "${CALLERID(name)}" = "908503607390"]?${CALLERID(num)}:${CALLERID(name)})})
 same => n,Set(UUID_VAL=${UUID()})
 same => n,Set(MD5_VAL=${MD5(${UNIQUEID})})
 same => n,Set(CALL_UUID=${IF($[${ISNULL(${UUID_VAL})}]?${MD5_VAL:0:8}-${MD5_VAL:8:4}-4${MD5_VAL:13:3}-a${MD5_VAL:17:3}-${MD5_VAL:20:12}:${UUID_VAL})})
@@ -1070,8 +1081,6 @@ same => n(forward_call),NoOp(Yonlendirme Aktif [Adim=${FWD_STEP}]! Hedef: ${FWD_
 same => n,GotoIf($["${FWD_TARGET}"="HANGUP" | "${FWD_TARGET}"="NONE"]?end_call)
 same => n,GotoIf($["${FWD_TARGET}"="VOICEMAIL"]?voicemail_fwd)
 same => n,GotoIf($["${FWD_TARGET:0:6}"="QUEUE_"]?queue_fwd)
-same => n,Set(CALLERID(num)=908503607390)
-same => n,Set(CALLERID(name)=908503607390)
 same => n,Set(RAW_NUM=${IF($["${FWD_TARGET:0:1}"="0"]?90${FWD_TARGET:1}:${FWD_TARGET})})
 same => n,Set(CLEAN_TARGET=${IF($["${RAW_NUM:0:2}"="90"]?${RAW_NUM}:90${RAW_NUM})})
 same => n,GotoIf($[${LEN(${FWD_TARGET})} < 6]?dial_internal_fwd:dial_external_fwd)
@@ -1091,6 +1100,8 @@ same => n,Dial(PJSIP/${FWD_TARGET},${STEP_TIMEOUT},tTg)
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call:check_step2)
 
 same => n(dial_external_fwd),NoOp(Dis Hat / Mobil Telefon Yonlendirme: PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060 Timeout=${STEP_TIMEOUT}s)
+same => n,Set(CALLERID(num)=908503607390)
+same => n,Set(CALLERID(name)=908503607390)
 same => n,Dial(PJSIP/Operator_Trunk/sip:${CLEAN_TARGET}@ikonsip.com:5060,${STEP_TIMEOUT},r)
 same => n,GotoIf($["${DIALSTATUS}"="ANSWER"]?end_call:check_step2)
 
