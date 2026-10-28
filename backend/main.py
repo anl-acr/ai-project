@@ -10755,51 +10755,91 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
 @app.get("/api/calls/{call_id}/transcripts")
 @app.get("/api/calls/{call_id}/transcript")
 async def get_call_transcripts(call_id: str, db: AsyncSession = Depends(get_db)):
+    call_res = await db.execute(select(Call).where(Call.id == call_id).limit(1))
+    db_call = call_res.scalar_one_or_none()
+
     stmt = select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
     result = await db.execute(stmt)
-    transcripts = result.scalars().all()
+    transcripts = list(result.scalars().all())
 
-    if not transcripts:
-        # First check if a sibling Call row (e.g. WebRTC session ID vs Asterisk CALL_UUID for the same live call)
-        # already has live-recorded transcripts in PostgreSQL, so we never re-transcribe a call that was already transcribed live.
+    # Purge any wrongly copied transcripts from unrelated calls (e.g. AI greeting copied into an outbound extension call
+    # or transcripts whose timestamp falls outside this call's time window)
+    if transcripts and db_call:
+        caller_s = str(db_call.caller_number or "").strip()
+        callee_s = str(db_call.callee_number or "").strip()
+        is_outbound_or_internal = len(caller_s) <= 5 and caller_s.isdigit()
+        valid_transcripts = []
+        deleted_bogus = False
+        for t in transcripts:
+            spk = str(t.speaker or "").strip().lower()
+            is_bogus = False
+            if is_outbound_or_internal and spk == "ai":
+                is_bogus = True
+            elif db_call.start_time and t.timestamp:
+                if t.timestamp < db_call.start_time - datetime.timedelta(seconds=15):
+                    is_bogus = True
+                elif db_call.end_time and spk == "ai" and t.timestamp > db_call.end_time + datetime.timedelta(seconds=20):
+                    is_bogus = True
+            if is_bogus:
+                try:
+                    await db.delete(t)
+                    deleted_bogus = True
+                except Exception:
+                    pass
+            else:
+                valid_transcripts.append(t)
+        if deleted_bogus:
+            try:
+                await db.commit()
+            except Exception:
+                pass
+        transcripts = valid_transcripts
+
+    if not transcripts and db_call and db_call.start_time:
+        # Only check sibling Call rows that belong to the EXACT SAME call (same caller & callee within ±15s)
         try:
-            call_res = await db.execute(select(Call).where(Call.id == call_id).limit(1))
-            db_call = call_res.scalar_one_or_none()
-            if db_call and db_call.start_time:
-                win_start = db_call.start_time - datetime.timedelta(seconds=240)
-                win_end = db_call.start_time + datetime.timedelta(seconds=240)
-                sib_stmt = (
-                    select(Call.id)
-                    .where(
-                        and_(
-                            Call.id != call_id,
-                            Call.start_time >= win_start,
-                            Call.start_time <= win_end
-                        )
+            caller_s = str(db_call.caller_number or "").strip()
+            callee_s = str(db_call.callee_number or "").strip()
+            is_outbound_or_internal = len(caller_s) <= 5 and caller_s.isdigit()
+            win_start = db_call.start_time - datetime.timedelta(seconds=15)
+            win_end = db_call.start_time + datetime.timedelta(seconds=15)
+            sib_stmt = (
+                select(Call.id)
+                .where(
+                    and_(
+                        Call.id != call_id,
+                        Call.caller_number == db_call.caller_number,
+                        Call.callee_number == db_call.callee_number,
+                        Call.start_time >= win_start,
+                        Call.start_time <= win_end
                     )
-                    .order_by(Call.start_time.desc())
                 )
-                sib_res = await db.execute(sib_stmt)
-                sibling_ids = [r for r in sib_res.scalars().all() if r]
-                for sib_id in sibling_ids:
-                    tr_sib_res = await db.execute(
-                        select(Transcript).where(Transcript.call_id == sib_id).order_by(Transcript.timestamp.asc())
-                    )
-                    sib_transcripts = tr_sib_res.scalars().all()
-                    if sib_transcripts:
-                        copied_rows = []
-                        for st in sib_transcripts:
-                            new_tr = Transcript(
-                                call_id=call_id,
-                                speaker=st.speaker,
-                                text=st.text,
-                                timestamp=st.timestamp
-                            )
-                            db.add(new_tr)
-                            copied_rows.append(new_tr)
-                        await db.commit()
-                        transcripts = copied_rows
-                        break
+                .order_by(Call.start_time.desc())
+            )
+            sib_res = await db.execute(sib_stmt)
+            sibling_ids = [r for r in sib_res.scalars().all() if r]
+            for sib_id in sibling_ids:
+                tr_sib_res = await db.execute(
+                    select(Transcript).where(Transcript.call_id == sib_id).order_by(Transcript.timestamp.asc())
+                )
+                sib_transcripts = [
+                    st for st in tr_sib_res.scalars().all()
+                    if not (is_outbound_or_internal and str(st.speaker or "").strip().lower() == "ai")
+                ]
+                if sib_transcripts:
+                    copied_rows = []
+                    for st in sib_transcripts:
+                        new_tr = Transcript(
+                            call_id=call_id,
+                            speaker=st.speaker,
+                            text=st.text,
+                            timestamp=st.timestamp
+                        )
+                        db.add(new_tr)
+                        copied_rows.append(new_tr)
+                    await db.commit()
+                    transcripts = copied_rows
+                    break
         except Exception as sib_err:
             print(f"[Transcript Sibling Lookup Warning ({call_id})]: {sib_err}")
 
@@ -20638,25 +20678,27 @@ async def _record_bilingual_transcript_turn(
 
             cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=25)
             if matched_call_obj and matched_call_obj.start_time:
-                sib_start = matched_call_obj.start_time - datetime.timedelta(seconds=180)
-                sib_end = matched_call_obj.start_time + datetime.timedelta(seconds=180)
+                sib_start = matched_call_obj.start_time - datetime.timedelta(seconds=15)
+                sib_end = matched_call_obj.start_time + datetime.timedelta(seconds=15)
                 q_sib = (
                     select(Call.id)
                     .where(
                         and_(
+                            Call.caller_number == matched_call_obj.caller_number,
+                            Call.callee_number == matched_call_obj.callee_number,
                             Call.start_time >= sib_start,
                             Call.start_time <= sib_end
                         )
                     )
                     .order_by(Call.start_time.desc())
-                    .limit(5)
+                    .limit(2)
                 )
                 res_sib = await db.execute(q_sib)
                 for cid in res_sib.scalars().all():
                     if cid and cid not in target_call_ids:
                         target_call_ids.append(cid)
 
-            if agent_ext:
+            if not target_call_ids and agent_ext:
                 q = (
                     select(Call.id)
                     .where(
@@ -20665,13 +20707,16 @@ async def _record_bilingual_transcript_turn(
                             or_(
                                 Call.caller_number == agent_ext,
                                 Call.callee_number == agent_ext,
-                                Call.hangup_source == f"pickup:{agent_ext}",
+                                Call.hangup_source == f"pickup:{agent_ext}"
+                            ),
+                            or_(
+                                Call.end_time.is_(None),
                                 Call.status == "in_progress"
                             )
                         )
                     )
                     .order_by(Call.start_time.desc())
-                    .limit(3)
+                    .limit(1)
                 )
                 res = await db.execute(q)
                 for cid in res.scalars().all():
@@ -20681,9 +20726,14 @@ async def _record_bilingual_transcript_turn(
             if not target_call_ids:
                 q_any = (
                     select(Call.id)
-                    .where(Call.start_time >= cutoff)
+                    .where(
+                        and_(
+                            Call.start_time >= cutoff,
+                            or_(Call.end_time.is_(None), Call.status == "in_progress")
+                        )
+                    )
                     .order_by(Call.start_time.desc())
-                    .limit(2)
+                    .limit(1)
                 )
                 res_any = await db.execute(q_any)
                 for cid in res_any.scalars().all():
