@@ -622,6 +622,16 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
                     {/* Modal Content */}
                     <div className="p-5 overflow-y-auto space-y-4">
+                      {/* Full-width red Logout Button above break options */}
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="w-full py-3.5 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-extrabold shadow-md shadow-rose-500/20 transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                      >
+                        <LogOut size={16} />
+                        <span>Oturumu Kapat (Logout)</span>
+                      </button>
+
                       {/* If currently on break, show quick Resume button */}
                       {agentState.status === "break" && (
                         <button
@@ -642,8 +652,8 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
                         </button>
                       )}
 
-                      <div>
-                        <div className="flex items-center justify-between mb-2.5">
+                      <div className="pt-1 border-t border-slate-100 dark:border-slate-800">
+                        <div className="flex items-center justify-between mb-2.5 pt-2">
                           <span className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                             Mola Türü Seçin ({filteredBreaks.length})
                           </span>
@@ -705,16 +715,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
                     </div>
 
                     {/* Modal Footer */}
-                    <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex items-center justify-between gap-3">
-                      <button
-                        type="button"
-                        onClick={handleLogout}
-                        className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
-                      >
-                        <LogOut size={14} />
-                        <span>Oturumu Kapat (Logout)</span>
-                      </button>
-
+                    <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex items-center justify-end gap-3">
                       <button
                         type="button"
                         onClick={() => setShowDropdown(false)}
