@@ -1172,6 +1172,33 @@ DEFAULT_SETTINGS = {
         "external_password": "",
         "external_domain": "WORKGROUP"
     },
+    "database_disaster_recovery": {
+        "external_db_enabled": False,
+        "external_db_mode": "standby_mirror",
+        "external_db_host": "",
+        "external_db_port": 5432,
+        "external_db_name": "ai_pbx",
+        "external_db_user": "postgres",
+        "external_db_password": "",
+        "external_db_ssl_mode": "prefer",
+        "standby_sync_interval_minutes": 15,
+        "last_standby_sync_at": None,
+        "auto_backup_enabled": False,
+        "auto_backup_interval_hours": 24,
+        "backup_retention_count": 14,
+        "backup_external_enabled": False,
+        "use_recording_nas_settings": True,
+        "backup_storage_type": "mount_path",
+        "backup_mount_path": "/mnt/nas/ai-db-backups",
+        "backup_host": "",
+        "backup_port": 22,
+        "backup_share_name": "",
+        "backup_remote_path": "/db-backups",
+        "backup_username": "",
+        "backup_password": "",
+        "backup_domain": "WORKGROUP",
+        "last_backup_at": None
+    },
     "security_geo": {
         "allowed_countries": ["TR"]
     },
@@ -19157,6 +19184,7 @@ async def startup_event():
 
     # Start background tasks
     asyncio.create_task(recording_cleanup_task())
+    asyncio.create_task(database_disaster_recovery_background_task())
     try:
         from backend.services.email_service import poll_imap_inbox
         asyncio.create_task(poll_imap_inbox())
@@ -22171,96 +22199,930 @@ async def get_system_health():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# ==============================================================================
+# EXTERNAL POSTGRESQL SERVER & OFF-SITE DATABASE BACKUP / RESTORE ENGINE
+# ==============================================================================
+BACKUPS_DIR = os.path.join(PROJECT_ROOT, "backups")
+os.makedirs(BACKUPS_DIR, exist_ok=True)
+
+
+def _get_db_dr_settings() -> dict:
+    base_cfg = copy.deepcopy(DEFAULT_SETTINGS.get("database_disaster_recovery", {}))
+    saved_cfg = settings_db.get("database_disaster_recovery")
+    if isinstance(saved_cfg, dict):
+        base_cfg.update(saved_cfg)
+    return base_cfg
+
+
+def _resolve_effective_backup_storage_cfg(dr_cfg: Optional[dict] = None) -> dict:
+    """Resolves whether backup external storage reuses recording_retention NAS settings or uses its own."""
+    cfg = dr_cfg or _get_db_dr_settings()
+    if cfg.get("use_recording_nas_settings", True):
+        rec_cfg = settings_db.get("recording_retention", DEFAULT_SETTINGS.get("recording_retention", {}))
+        base_mount = str(rec_cfg.get("external_mount_path") or "/mnt/nas/ai-recordings").rstrip("/")
+        base_remote = str(rec_cfg.get("external_remote_path") or "/recordings").rstrip("/")
+        return {
+            "external_storage_enabled": bool(cfg.get("backup_external_enabled", False)),
+            "external_storage_type": str(rec_cfg.get("external_storage_type") or "mount_path"),
+            "external_mount_path": f"{base_mount}/db-backups",
+            "external_host": str(rec_cfg.get("external_host") or ""),
+            "external_port": int(rec_cfg.get("external_port") or 22),
+            "external_share_name": str(rec_cfg.get("external_share_name") or ""),
+            "external_remote_path": f"{base_remote}/db-backups",
+            "external_username": str(rec_cfg.get("external_username") or ""),
+            "external_password": str(rec_cfg.get("external_password") or ""),
+            "external_domain": str(rec_cfg.get("external_domain") or "WORKGROUP"),
+        }
+    return {
+        "external_storage_enabled": bool(cfg.get("backup_external_enabled", False)),
+        "external_storage_type": str(cfg.get("backup_storage_type") or "mount_path"),
+        "external_mount_path": str(cfg.get("backup_mount_path") or "/mnt/nas/ai-db-backups"),
+        "external_host": str(cfg.get("backup_host") or ""),
+        "external_port": int(cfg.get("backup_port") or 22),
+        "external_share_name": str(cfg.get("backup_share_name") or ""),
+        "external_remote_path": str(cfg.get("backup_remote_path") or "/db-backups"),
+        "external_username": str(cfg.get("backup_username") or ""),
+        "external_password": str(cfg.get("backup_password") or ""),
+        "external_domain": str(cfg.get("backup_domain") or "WORKGROUP"),
+    }
+
+
+def _inspect_sqlalchemy_database_sync(sync_url: str, timeout_sec: int = 4) -> dict:
+    """Connects to a PostgreSQL or SQLite database URL and inspects size, version, tables, and row counts."""
+    from sqlalchemy import create_engine as sa_create_engine, inspect as sa_inspect, text as sa_text
+    is_pg = "postgresql" in sync_url
+    connect_args = {"connect_timeout": timeout_sec} if is_pg else {}
+    eng = sa_create_engine(sync_url, connect_args=connect_args)
+    try:
+        with eng.connect() as conn:
+            version_str = "SQLite"
+            db_size_mb = 0.0
+            if is_pg:
+                ver_row = conn.execute(sa_text("SELECT version()")).scalar()
+                version_str = str(ver_row or "PostgreSQL").split(",")[0]
+                size_bytes = conn.execute(sa_text("SELECT pg_database_size(current_database())")).scalar() or 0
+                db_size_mb = round(float(size_bytes) / (1024 * 1024), 2)
+            else:
+                sqlite_path = sync_url.replace("sqlite:///", "")
+                if os.path.exists(sqlite_path):
+                    db_size_mb = round(os.path.getsize(sqlite_path) / (1024 * 1024), 2)
+
+            insp = sa_inspect(eng)
+            table_names = insp.get_table_names()
+            total_rows = 0
+            table_counts = {}
+            for tname in table_names:
+                try:
+                    cnt = conn.execute(sa_text(f'SELECT COUNT(*) FROM "{tname}"')).scalar() or 0
+                    table_counts[tname] = int(cnt)
+                    total_rows += int(cnt)
+                except Exception:
+                    table_counts[tname] = 0
+
+        return {
+            "online": True,
+            "engine": "PostgreSQL" if is_pg else "SQLite",
+            "version": version_str,
+            "db_size_mb": db_size_mb,
+            "tables_count": len(table_names),
+            "total_rows": total_rows,
+            "table_counts": table_counts,
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "online": False,
+            "engine": "PostgreSQL" if is_pg else "SQLite",
+            "version": None,
+            "db_size_mb": 0.0,
+            "tables_count": 0,
+            "total_rows": 0,
+            "table_counts": {},
+            "error": str(e),
+        }
+    finally:
+        try:
+            eng.dispose()
+        except Exception:
+            pass
+
+
+def _serialize_db_value(val: Any) -> Any:
+    if isinstance(val, (datetime.datetime, datetime.date)):
+        return val.isoformat()
+    try:
+        import numpy as np
+        if isinstance(val, np.ndarray):
+            return val.tolist()
+    except Exception:
+        pass
+    if hasattr(val, "tolist") and callable(getattr(val, "tolist")):
+        try:
+            return val.tolist()
+        except Exception:
+            pass
+    return val
+
+
+def _export_all_tables_to_dict_sync(source_sync_url: str) -> dict:
+    """Exports all SQLAlchemy Base.metadata.sorted_tables rows into a portable JSON-serializable dict."""
+    from sqlalchemy import create_engine as sa_create_engine, select as sa_select
+    is_pg = "postgresql" in source_sync_url
+    eng = sa_create_engine(source_sync_url, connect_args={"connect_timeout": 8} if is_pg else {})
+    exported_tables = {}
+    total_rows = 0
+    try:
+        with eng.connect() as conn:
+            for table in Base.metadata.sorted_tables:
+                tname = table.name
+                try:
+                    rows = conn.execute(sa_select(table)).mappings().all()
+                    serialized_rows = []
+                    for r in rows:
+                        row_dict = {}
+                        for col_k, col_v in dict(r).items():
+                            row_dict[col_k] = _serialize_db_value(col_v)
+                        serialized_rows.append(row_dict)
+                    exported_tables[tname] = serialized_rows
+                    total_rows += len(serialized_rows)
+                except Exception as tbl_err:
+                    print(f"[DB Export Warning] Tablo okunamadı ({tname}): {tbl_err}")
+                    exported_tables[tname] = []
+    finally:
+        eng.dispose()
+    return {"tables": exported_tables, "total_rows": total_rows}
+
+
+def _import_all_tables_from_dict_sync(target_sync_url: str, tables_data: dict, clean_target: bool = True) -> dict:
+    """Creates schema on target database and imports all rows in topological table order."""
+    from sqlalchemy import create_engine as sa_create_engine, text as sa_text, DateTime as SADateTime
+    is_pg = "postgresql" in target_sync_url
+    eng = sa_create_engine(target_sync_url, connect_args={"connect_timeout": 10} if is_pg else {})
+    imported_rows = 0
+    imported_tables = 0
+    try:
+        if is_pg:
+            try:
+                with eng.begin() as conn_ext:
+                    conn_ext.execute(sa_text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            except Exception:
+                pass
+
+        Base.metadata.create_all(bind=eng)
+
+        with eng.begin() as conn:
+            if clean_target:
+                for table in reversed(Base.metadata.sorted_tables):
+                    try:
+                        conn.execute(table.delete())
+                    except Exception:
+                        pass
+
+            for table in Base.metadata.sorted_tables:
+                tname = table.name
+                rows = tables_data.get(tname) or []
+                if not rows:
+                    continue
+                cleaned_rows = []
+                col_map = {c.name: c for c in table.columns}
+                for r in rows:
+                    if not isinstance(r, dict):
+                        continue
+                    row_clean = {}
+                    for k, v in r.items():
+                        if k not in col_map:
+                            continue
+                        col_obj = col_map[k]
+                        if v is not None and isinstance(col_obj.type, SADateTime) and isinstance(v, str):
+                            try:
+                                v = datetime.datetime.fromisoformat(v.replace("Z", "+00:00")).replace(tzinfo=None)
+                            except Exception:
+                                pass
+                        row_clean[k] = v
+                    cleaned_rows.append(row_clean)
+
+                if cleaned_rows:
+                    conn.execute(table.insert(), cleaned_rows)
+                    imported_rows += len(cleaned_rows)
+                    imported_tables += 1
+
+                # Reset PostgreSQL sequence for autoincrement primary keys
+                if is_pg and "id" in col_map and str(col_map["id"].type).upper().startswith("INT"):
+                    try:
+                        conn.execute(
+                            sa_text(
+                                f"SELECT setval(pg_get_serial_sequence('{tname}', 'id'), COALESCE((SELECT MAX(id) FROM \"{tname}\"), 1), true);"
+                            )
+                        )
+                    except Exception:
+                        pass
+    finally:
+        eng.dispose()
+    return {"imported_tables": imported_tables, "imported_rows": imported_rows}
+
+
+def _sync_database_between_local_and_external_sync(dr_cfg: dict, direction: str = "local_to_external") -> dict:
+    """Clones/synchronizes all tables between local PostgreSQL/SQLite and External PostgreSQL server."""
+    from backend.database.config import LOCAL_DATABASE_URL, build_postgres_urls
+
+    host = str(dr_cfg.get("external_db_host") or "").strip()
+    if not host:
+        return {"ok": False, "error": "Harici PostgreSQL sunucu IP/Host adresi girilmemiş."}
+
+    _, ext_sync_url = build_postgres_urls(
+        host=host,
+        port=int(dr_cfg.get("external_db_port") or 5432),
+        db_name=str(dr_cfg.get("external_db_name") or "ai_pbx"),
+        username=str(dr_cfg.get("external_db_user") or "postgres"),
+        password=str(dr_cfg.get("external_db_password") or ""),
+        ssl_mode=str(dr_cfg.get("external_db_ssl_mode") or "prefer"),
+    )
+    local_sync_url = LOCAL_DATABASE_URL.replace("postgresql+asyncpg", "postgresql").replace("sqlite+aiosqlite", "sqlite")
+
+    if direction == "external_to_local":
+        src_url, dst_url = ext_sync_url, local_sync_url
+        dir_label = "Harici PostgreSQL -> Yerel Veritabanı"
+    else:
+        src_url, dst_url = local_sync_url, ext_sync_url
+        dir_label = "Yerel Veritabanı -> Harici PostgreSQL"
+
+    exported = _export_all_tables_to_dict_sync(src_url)
+    imported = _import_all_tables_from_dict_sync(dst_url, exported["tables"], clean_target=True)
+    now_str = (datetime.datetime.utcnow() + datetime.timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        "ok": True,
+        "direction": direction,
+        "direction_label": dir_label,
+        "synced_tables": imported["imported_tables"],
+        "synced_rows": imported["imported_rows"],
+        "timestamp": now_str,
+    }
+
+
+def _create_full_system_backup_archive_sync(trigger_source: str = "manual") -> dict:
+    """Creates a full system backup (.tar.gz) including DB tables, pg_dump (if available), settings.json, Asterisk configs, and announcements, and optionally transfers to external NAS/SFTP/SMB."""
+    import tarfile
+    import tempfile
+    import hashlib
+    from backend.database.config import DATABASE_URL as CURRENT_DB_URL
+
+    now_dt = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+    ts_str = now_dt.strftime("%Y%m%d_%H%M%S")
+    backup_name = f"ai_pbx_backup_{ts_str}"
+    archive_filename = f"{backup_name}.tar.gz"
+    local_archive_path = os.path.join(BACKUPS_DIR, archive_filename)
+
+    temp_dir = tempfile.mkdtemp(prefix="ai_pbx_bkp_")
+    staging_dir = os.path.join(temp_dir, backup_name)
+    os.makedirs(staging_dir, exist_ok=True)
+
+    try:
+        active_sync_url = CURRENT_DB_URL.replace("postgresql+asyncpg", "postgresql").replace("sqlite+aiosqlite", "sqlite")
+        # 1. Portable SQLAlchemy Full Table Dump (100% cross-version & cross-host safe)
+        db_export = _export_all_tables_to_dict_sync(active_sync_url)
+        db_json_path = os.path.join(staging_dir, "database_tables.json")
+        with open(db_json_path, "w", encoding="utf-8") as f_db:
+            json.dump(db_export["tables"], f_db, ensure_ascii=False, indent=2)
+
+        # 2. Native pg_dump SQL file if PostgreSQL & pg_dump binary is available
+        if "postgresql" in active_sync_url and shutil.which("pg_dump"):
+            db_sql_path = os.path.join(staging_dir, "ai_pbx.sql")
+            try:
+                subprocess.run(
+                    ["pg_dump", "--dbname", active_sync_url, "-f", db_sql_path],
+                    check=False,
+                    timeout=30,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except Exception:
+                pass
+
+        # 3. Copy settings.json
+        if os.path.exists(SETTINGS_FILE):
+            shutil.copy2(SETTINGS_FILE, os.path.join(staging_dir, "settings.json"))
+
+        # 4. Copy asterisk_config directory and /etc/asterisk custom files
+        if os.path.exists(ASTERISK_CONFIG_DIR):
+            shutil.copytree(ASTERISK_CONFIG_DIR, os.path.join(staging_dir, "asterisk_config"), dirs_exist_ok=True)
+
+        etc_ast_stage = os.path.join(staging_dir, "etc_asterisk")
+        os.makedirs(etc_ast_stage, exist_ok=True)
+        for ast_file in ["pjsip_custom.conf", "extensions.conf", "queues_custom.conf"]:
+            src_ast = os.path.join("/etc/asterisk", ast_file)
+            if os.path.exists(src_ast):
+                try:
+                    shutil.copy2(src_ast, os.path.join(etc_ast_stage, ast_file))
+                except Exception:
+                    pass
+
+        # 5. Copy custom announcements audio files
+        ann_dir = os.path.join(BASE_DIR, "uploads", "announcements")
+        if os.path.exists(ann_dir):
+            shutil.copytree(ann_dir, os.path.join(staging_dir, "announcements"), dirs_exist_ok=True)
+
+        # 6. Write backup_manifest.json
+        table_summary = {k: len(v) for k, v in db_export["tables"].items()}
+        manifest = {
+            "backup_name": backup_name,
+            "filename": archive_filename,
+            "created_at": now_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "trigger": trigger_source,
+            "version": "v2.4.8",
+            "total_rows": db_export["total_rows"],
+            "tables_count": len(db_export["tables"]),
+            "table_summary": table_summary,
+        }
+        with open(os.path.join(staging_dir, "backup_manifest.json"), "w", encoding="utf-8") as fm:
+            json.dump(manifest, fm, ensure_ascii=False, indent=2)
+
+        # 7. Create .tar.gz in BACKUPS_DIR
+        os.makedirs(BACKUPS_DIR, exist_ok=True)
+        with tarfile.open(local_archive_path, "w:gz") as tar:
+            tar.add(staging_dir, arcname=backup_name)
+
+        size_bytes = os.path.getsize(local_archive_path)
+        size_mb = round(size_bytes / (1024 * 1024), 2)
+
+        # 8. If External Backup Storage (NAS / SMB / SFTP) is enabled, transfer a copy there
+        dr_cfg = _get_db_dr_settings()
+        external_copied = False
+        external_error = None
+        if dr_cfg.get("backup_external_enabled", False):
+            ext_storage_cfg = _resolve_effective_backup_storage_cfg(dr_cfg)
+            ext_storage_cfg["external_storage_mode"] = "mirror"  # Keep local + external copy
+            res_tx = _transfer_recording_to_external_storage_sync(local_archive_path, ext_storage_cfg)
+            external_copied = bool(res_tx.get("ok"))
+            external_error = res_tx.get("error")
+
+        # 9. Enforce Retention Count on Local & External Backups
+        retention_limit = max(1, int(dr_cfg.get("backup_retention_count") or 14))
+        _cleanup_old_backups_sync(retention_limit, dr_cfg)
+
+        return {
+            "ok": True,
+            "filename": archive_filename,
+            "local_path": local_archive_path,
+            "size_mb": size_mb,
+            "created_at": manifest["created_at"],
+            "total_rows": manifest["total_rows"],
+            "tables_count": manifest["tables_count"],
+            "external_copied": external_copied,
+            "external_error": external_error,
+        }
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+def _cleanup_old_backups_sync(retention_limit: int, dr_cfg: dict):
+    """Deletes oldest .tar.gz backup files exceeding retention_limit."""
+    try:
+        if os.path.isdir(BACKUPS_DIR):
+            files = [
+                os.path.join(BACKUPS_DIR, fn)
+                for fn in os.listdir(BACKUPS_DIR)
+                if fn.startswith("ai_pbx_backup_") and fn.endswith(".tar.gz")
+            ]
+            files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+            for old_f in files[retention_limit:]:
+                try:
+                    os.remove(old_f)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    if dr_cfg.get("backup_external_enabled", False):
+        try:
+            ext_cfg = _resolve_effective_backup_storage_cfg(dr_cfg)
+            if ext_cfg.get("external_storage_type") in ("mount_path", "smb"):
+                mount_info = _ensure_external_storage_target_sync(ext_cfg)
+                target_dir = mount_info.get("target_dir")
+                if target_dir and os.path.isdir(target_dir):
+                    ext_files = [
+                        os.path.join(target_dir, fn)
+                        for fn in os.listdir(target_dir)
+                        if fn.startswith("ai_pbx_backup_") and fn.endswith(".tar.gz")
+                    ]
+                    ext_files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+                    for old_ef in ext_files[retention_limit:]:
+                        try:
+                            os.remove(old_ef)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+
+
+def _list_all_backups_sync() -> List[dict]:
+    """Lists all backup archives across Local BACKUPS_DIR and External NAS/SMB/SFTP storage."""
+    dr_cfg = _get_db_dr_settings()
+    backups_map: Dict[str, dict] = {}
+
+    if os.path.isdir(BACKUPS_DIR):
+        for fn in os.listdir(BACKUPS_DIR):
+            if not fn.endswith(".tar.gz"):
+                continue
+            fpath = os.path.join(BACKUPS_DIR, fn)
+            try:
+                st = os.stat(fpath)
+                dt_str = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                backups_map[fn] = {
+                    "filename": fn,
+                    "size_mb": round(st.st_size / (1024 * 1024), 2),
+                    "created_at": dt_str,
+                    "mtime": st.st_mtime,
+                    "in_local": True,
+                    "in_external": False,
+                }
+            except Exception:
+                pass
+
+    if dr_cfg.get("backup_external_enabled", False):
+        ext_cfg = _resolve_effective_backup_storage_cfg(dr_cfg)
+        stype = ext_cfg.get("external_storage_type", "mount_path")
+        if stype in ("mount_path", "smb"):
+            mount_info = _ensure_external_storage_target_sync(ext_cfg)
+            target_dir = mount_info.get("target_dir")
+            if target_dir and os.path.isdir(target_dir):
+                for fn in os.listdir(target_dir):
+                    if not fn.endswith(".tar.gz"):
+                        continue
+                    fpath = os.path.join(target_dir, fn)
+                    try:
+                        st = os.stat(fpath)
+                        dt_str = datetime.datetime.fromtimestamp(st.st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                        if fn in backups_map:
+                            backups_map[fn]["in_external"] = True
+                        else:
+                            backups_map[fn] = {
+                                "filename": fn,
+                                "size_mb": round(st.st_size / (1024 * 1024), 2),
+                                "created_at": dt_str,
+                                "mtime": st.st_mtime,
+                                "in_local": False,
+                                "in_external": True,
+                            }
+                    except Exception:
+                        pass
+
+    items = list(backups_map.values())
+    items.sort(key=lambda x: x.get("mtime", 0), reverse=True)
+    return items
+
+
+def _restore_from_tar_archive_sync(tar_path: str) -> dict:
+    """Extracts a backup .tar.gz and restores database tables, settings.json, Asterisk configs, and announcements."""
+    import tarfile
+    import tempfile
+    from backend.database.config import DATABASE_URL as CURRENT_DB_URL
+
+    temp_dir = tempfile.mkdtemp(prefix="ai_pbx_restore_")
+    try:
+        with tarfile.open(tar_path, "r:gz") as tar:
+            tar.extractall(path=temp_dir)
+
+        extracted_dirs = [d for d in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, d))]
+        backup_folder = os.path.join(temp_dir, extracted_dirs[0]) if extracted_dirs else temp_dir
+
+        active_sync_url = CURRENT_DB_URL.replace("postgresql+asyncpg", "postgresql").replace("sqlite+aiosqlite", "sqlite")
+        restored_rows = 0
+
+        # 1. Restore Database from portable database_tables.json (preferred) or ai_pbx.sql
+        db_json_path = os.path.join(backup_folder, "database_tables.json")
+        db_sql_path = os.path.join(backup_folder, "ai_pbx.sql")
+        if os.path.exists(db_json_path):
+            with open(db_json_path, "r", encoding="utf-8") as f_db:
+                tables_data = json.load(f_db)
+            imp_res = _import_all_tables_from_dict_sync(active_sync_url, tables_data, clean_target=True)
+            restored_rows = imp_res.get("imported_rows", 0)
+        elif os.path.exists(db_sql_path) and "postgresql" in active_sync_url and shutil.which("psql"):
+            subprocess.run(["psql", "--dbname", active_sync_url, "-f", db_sql_path], check=False, timeout=45)
+
+        # 2. Restore settings.json
+        settings_bkp = os.path.join(backup_folder, "settings.json")
+        if os.path.exists(settings_bkp):
+            shutil.copy2(settings_bkp, SETTINGS_FILE)
+            global settings_db
+            settings_db.update(load_settings())
+
+        # 3. Restore asterisk_config
+        ast_bkp = os.path.join(backup_folder, "asterisk_config")
+        if os.path.exists(ast_bkp):
+            os.makedirs(ASTERISK_CONFIG_DIR, exist_ok=True)
+            shutil.copytree(ast_bkp, ASTERISK_CONFIG_DIR, dirs_exist_ok=True)
+
+        # 4. Restore announcements
+        ann_bkp = os.path.join(backup_folder, "announcements")
+        if os.path.exists(ann_bkp):
+            ann_dest = os.path.join(BASE_DIR, "uploads", "announcements")
+            os.makedirs(ann_dest, exist_ok=True)
+            shutil.copytree(ann_bkp, ann_dest, dirs_exist_ok=True)
+
+        try:
+            regenerate_pjsip_custom_conf()
+            regenerate_queues_conf()
+            regenerate_extensions_custom_conf()
+            run_pjsip_reload()
+        except Exception:
+            pass
+
+        return {"ok": True, "restored_rows": restored_rows}
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@app.get("/api/system/database-dr/settings")
+async def get_database_dr_settings_endpoint():
+    from backend.database.config import LOCAL_DATABASE_URL, ACTIVE_DB_TARGET, build_postgres_urls
+
+    dr_cfg = _get_db_dr_settings()
+    local_sync_url = LOCAL_DATABASE_URL.replace("postgresql+asyncpg", "postgresql").replace("sqlite+aiosqlite", "sqlite")
+    local_db_info = await asyncio.to_thread(_inspect_sqlalchemy_database_sync, local_sync_url, 3)
+
+    ext_db_info = {
+        "online": False,
+        "engine": "PostgreSQL",
+        "version": None,
+        "db_size_mb": 0.0,
+        "tables_count": 0,
+        "total_rows": 0,
+        "error": None,
+    }
+    ext_host = str(dr_cfg.get("external_db_host") or "").strip()
+    if ext_host:
+        _, ext_sync_url = build_postgres_urls(
+            host=ext_host,
+            port=int(dr_cfg.get("external_db_port") or 5432),
+            db_name=str(dr_cfg.get("external_db_name") or "ai_pbx"),
+            username=str(dr_cfg.get("external_db_user") or "postgres"),
+            password=str(dr_cfg.get("external_db_password") or ""),
+            ssl_mode=str(dr_cfg.get("external_db_ssl_mode") or "prefer"),
+        )
+        ext_db_info = await asyncio.to_thread(_inspect_sqlalchemy_database_sync, ext_sync_url, 3)
+
+    local_disk = await asyncio.to_thread(_compute_directory_storage_metrics_sync, BACKUPS_DIR)
+    ext_bkp_cfg = _resolve_effective_backup_storage_cfg(dr_cfg)
+    ext_bkp_disk = await asyncio.to_thread(get_storage_status_snapshot_sync, ext_bkp_cfg)
+
+    return {
+        "settings": dr_cfg,
+        "active_db_target": ACTIVE_DB_TARGET,
+        "local_database": local_db_info,
+        "external_database": ext_db_info,
+        "local_backup_disk": local_disk,
+        "external_backup_disk": ext_bkp_disk.get("external_storage", {}),
+    }
+
+
+@app.post("/api/system/database-dr/settings")
+async def save_database_dr_settings_endpoint(payload: dict = Body(...), user_info: dict = Depends(get_user_info)):
+    from backend.database.config import (
+        EXTERNAL_DB_CONFIG_FILE,
+        LOCAL_DATABASE_URL,
+        build_postgres_urls,
+        reconfigure_active_database,
+    )
+
+    current_cfg = _get_db_dr_settings()
+    current_cfg.update(payload or {})
+    settings_db["database_disaster_recovery"] = current_cfg
+    save_settings(settings_db)
+
+    # Save external_db_config.json for boot-time resolution
+    try:
+        with open(EXTERNAL_DB_CONFIG_FILE, "w", encoding="utf-8") as f_ext:
+            json.dump(current_cfg, f_ext, ensure_ascii=False, indent=2)
+    except Exception as e_f:
+        print(f"[DB DR Config Write Warning]: {e_f}")
+
+    # Hot-switch active database engine if primary_external is selected
+    active_target = "local"
+    switch_warning = None
+    if current_cfg.get("external_db_enabled") and current_cfg.get("external_db_mode") == "primary_external":
+        host = str(current_cfg.get("external_db_host") or "").strip()
+        if host:
+            try:
+                async_u, sync_u = build_postgres_urls(
+                    host=host,
+                    port=int(current_cfg.get("external_db_port") or 5432),
+                    db_name=str(current_cfg.get("external_db_name") or "ai_pbx"),
+                    username=str(current_cfg.get("external_db_user") or "postgres"),
+                    password=str(current_cfg.get("external_db_password") or ""),
+                    ssl_mode=str(current_cfg.get("external_db_ssl_mode") or "prefer"),
+                )
+                # Ensure schema exists on external PostgreSQL before switching live traffic
+                from sqlalchemy import create_engine as sa_create_engine
+                eng_init = sa_create_engine(sync_u, connect_args={"connect_timeout": 5})
+                Base.metadata.create_all(bind=eng_init)
+                eng_init.dispose()
+
+                res_sw = await asyncio.to_thread(reconfigure_active_database, async_u, "external")
+                active_target = res_sw.get("active_target", "external")
+            except Exception as sw_err:
+                switch_warning = f"Harici PostgreSQL bağlantısı kurulamadığı için yerel veritabanında kalındı: {sw_err}"
+                await asyncio.to_thread(reconfigure_active_database, LOCAL_DATABASE_URL, "local")
+    else:
+        await asyncio.to_thread(reconfigure_active_database, LOCAL_DATABASE_URL, "local")
+
+    await log_event(
+        user_id=user_info["user_id"],
+        action="UPDATE",
+        module="DatabaseDisasterRecovery",
+        details={
+            "external_db_enabled": current_cfg.get("external_db_enabled"),
+            "external_db_mode": current_cfg.get("external_db_mode"),
+            "auto_backup_enabled": current_cfg.get("auto_backup_enabled"),
+            "backup_external_enabled": current_cfg.get("backup_external_enabled"),
+            "active_target": active_target,
+        },
+        ip_address=user_info["ip_address"],
+    )
+    return {
+        "status": "success",
+        "settings": current_cfg,
+        "active_db_target": active_target,
+        "warning": switch_warning,
+    }
+
+
+@app.post("/api/system/database-dr/test-external-db")
+async def test_external_postgres_endpoint(payload: dict = Body(...)):
+    from backend.database.config import build_postgres_urls
+
+    host = str(payload.get("external_db_host") or "").strip()
+    if not host:
+        return {"ok": False, "message": "Lütfen Harici PostgreSQL Sunucu IP veya Host adresini girin."}
+
+    _, sync_u = build_postgres_urls(
+        host=host,
+        port=int(payload.get("external_db_port") or 5432),
+        db_name=str(payload.get("external_db_name") or "ai_pbx"),
+        username=str(payload.get("external_db_user") or "postgres"),
+        password=str(payload.get("external_db_password") or ""),
+        ssl_mode=str(payload.get("external_db_ssl_mode") or "prefer"),
+    )
+    info = await asyncio.to_thread(_inspect_sqlalchemy_database_sync, sync_u, 5)
+    if not info.get("online"):
+        return {
+            "ok": False,
+            "message": f"Harici PostgreSQL bağlantısı başarısız: {info.get('error')}",
+            "database_info": info,
+        }
+    return {
+        "ok": True,
+        "message": (
+            f"Harici PostgreSQL bağlantısı başarılı! ({info.get('version')}) — "
+            f"Veritabanı Boyutu: {info.get('db_size_mb')} MB, Tablo Sayısı: {info.get('tables_count')}, "
+            f"Toplam Kayıt: {info.get('total_rows')} satır."
+        ),
+        "database_info": info,
+    }
+
+
+@app.post("/api/system/database-dr/sync-external-db")
+async def sync_external_postgres_now_endpoint(payload: dict = Body(default={}), user_info: dict = Depends(get_user_info)):
+    dr_cfg = _get_db_dr_settings()
+    dr_cfg.update(payload or {})
+    direction = str(dr_cfg.get("direction") or "local_to_external")
+    try:
+        res = await asyncio.to_thread(_sync_database_between_local_and_external_sync, dr_cfg, direction)
+        if not res.get("ok"):
+            return {"ok": False, "message": res.get("error") or "Senkronizasyon başarısız oldu."}
+
+        settings_db.setdefault("database_disaster_recovery", _get_db_dr_settings())["last_standby_sync_at"] = res["timestamp"]
+        save_settings(settings_db)
+
+        await log_event(
+            user_id=user_info["user_id"],
+            action="SYNC_EXTERNAL_DB",
+            module="DatabaseDisasterRecovery",
+            details=res,
+            ip_address=user_info["ip_address"],
+        )
+        return {
+            "ok": True,
+            "message": f"{res['direction_label']} tamamlandı! {res['synced_tables']} tablo ve {res['synced_rows']} kayıt başarıyla aktarıldı.",
+            **res,
+        }
+    except Exception as e:
+        return {"ok": False, "message": f"Veritabanı senkronizasyon hatası: {e}"}
+
+
+@app.post("/api/system/database-dr/test-backup-storage")
+async def test_backup_external_storage_endpoint(payload: dict = Body(default={})):
+    dr_cfg = _get_db_dr_settings()
+    dr_cfg.update(payload or {})
+    dr_cfg["backup_external_enabled"] = True
+    ext_cfg = _resolve_effective_backup_storage_cfg(dr_cfg)
+    snap = await asyncio.to_thread(get_storage_status_snapshot_sync, ext_cfg)
+    ext = snap.get("external_storage", {})
+    if ext.get("online") and ext.get("writable"):
+        return {
+            "ok": True,
+            "message": (
+                f"Harici yedekleme sunucusu bağlantısı ve yazma testi başarılı! "
+                f"Toplam: {ext.get('total_gb', 0)} GB, Boş Alan: {ext.get('free_gb', 0)} GB (%{round(100 - ext.get('used_percent', 0), 1)} boş)."
+            ),
+            "storage": ext,
+        }
+    return {
+        "ok": False,
+        "message": ext.get("error") or "Harici yedekleme dizinine bağlanılamadı veya yazma izni yok.",
+        "storage": ext,
+    }
+
+
+@app.get("/api/system/backups/list")
+async def list_system_backups_endpoint():
+    items = await asyncio.to_thread(_list_all_backups_sync)
+    return {"backups": items}
+
+
+@app.post("/api/system/backups/create")
+async def create_new_system_backup_endpoint(user_info: dict = Depends(get_user_info)):
+    try:
+        res = await asyncio.to_thread(_create_full_system_backup_archive_sync, "manual")
+        settings_db.setdefault("database_disaster_recovery", _get_db_dr_settings())["last_backup_at"] = res["created_at"]
+        save_settings(settings_db)
+        await log_event(
+            user_id=user_info["user_id"],
+            action="CREATE_BACKUP",
+            module="DatabaseDisasterRecovery",
+            details=res,
+            ip_address=user_info["ip_address"],
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Yedek oluşturulamadı: {e}")
+
+
+@app.get("/api/system/backups/download/{filename}")
+async def download_named_backup_endpoint(filename: str):
+    safe_fn = os.path.basename(filename)
+    local_p = os.path.join(BACKUPS_DIR, safe_fn)
+    if os.path.isfile(local_p):
+        return FileResponse(path=local_p, filename=safe_fn, media_type="application/gzip")
+
+    dr_cfg = _get_db_dr_settings()
+    ext_cfg = _resolve_effective_backup_storage_cfg(dr_cfg)
+    if ext_cfg.get("external_storage_type") in ("mount_path", "smb"):
+        mount_info = await asyncio.to_thread(_ensure_external_storage_target_sync, ext_cfg)
+        target_dir = mount_info.get("target_dir")
+        if target_dir:
+            ext_p = os.path.join(target_dir, safe_fn)
+            if os.path.isfile(ext_p):
+                return FileResponse(path=ext_p, filename=safe_fn, media_type="application/gzip")
+
+    raise HTTPException(status_code=404, detail="Yedek dosyası bulunamadı.")
+
+
+@app.delete("/api/system/backups/{filename}")
+async def delete_named_backup_endpoint(filename: str, user_info: dict = Depends(get_user_info)):
+    safe_fn = os.path.basename(filename)
+    removed = False
+    local_p = os.path.join(BACKUPS_DIR, safe_fn)
+    if os.path.isfile(local_p):
+        os.remove(local_p)
+        removed = True
+
+    dr_cfg = _get_db_dr_settings()
+    ext_cfg = _resolve_effective_backup_storage_cfg(dr_cfg)
+    if ext_cfg.get("external_storage_type") in ("mount_path", "smb"):
+        mount_info = await asyncio.to_thread(_ensure_external_storage_target_sync, ext_cfg)
+        target_dir = mount_info.get("target_dir")
+        if target_dir:
+            ext_p = os.path.join(target_dir, safe_fn)
+            if os.path.isfile(ext_p):
+                os.remove(ext_p)
+                removed = True
+
+    if not removed:
+        raise HTTPException(status_code=404, detail="Silinecek yedek dosyası bulunamadı.")
+
+    await log_event(
+        user_id=user_info["user_id"],
+        action="DELETE_BACKUP",
+        module="DatabaseDisasterRecovery",
+        details={"filename": safe_fn},
+        ip_address=user_info["ip_address"],
+    )
+    return {"ok": True, "filename": safe_fn}
+
+
+@app.post("/api/system/backups/restore/{filename}")
+async def restore_named_backup_endpoint(filename: str, user_info: dict = Depends(get_user_info)):
+    safe_fn = os.path.basename(filename)
+    target_path = os.path.join(BACKUPS_DIR, safe_fn)
+    if not os.path.isfile(target_path):
+        dr_cfg = _get_db_dr_settings()
+        ext_cfg = _resolve_effective_backup_storage_cfg(dr_cfg)
+        if ext_cfg.get("external_storage_type") in ("mount_path", "smb"):
+            mount_info = await asyncio.to_thread(_ensure_external_storage_target_sync, ext_cfg)
+            target_dir = mount_info.get("target_dir")
+            if target_dir and os.path.isfile(os.path.join(target_dir, safe_fn)):
+                target_path = os.path.join(target_dir, safe_fn)
+
+    if not os.path.isfile(target_path):
+        raise HTTPException(status_code=404, detail="Geri yüklenecek yedek dosyası bulunamadı.")
+
+    try:
+        res = await asyncio.to_thread(_restore_from_tar_archive_sync, target_path)
+        await log_event(
+            user_id=user_info["user_id"],
+            action="RESTORE_BACKUP",
+            module="DatabaseDisasterRecovery",
+            details={"filename": safe_fn, **res},
+            ip_address=user_info["ip_address"],
+        )
+        return {
+            "status": "success",
+            "message": f"'{safe_fn}' yedeği başarıyla geri yüklendi ({res.get('restored_rows', 0)} veritabanı kaydı ve tüm santral ayarları yenilendi).",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Geri yükleme başarısız: {e}")
+
+
 @app.get("/api/system/backup")
 async def create_backup():
-    import tarfile
-    import subprocess
-    import tempfile
-    import os
-    from fastapi.responses import FileResponse
-    from datetime import datetime
-    
     try:
-        temp_dir = tempfile.mkdtemp()
-        backup_name = f"ai_pbx_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        backup_path = os.path.join(temp_dir, backup_name)
-        os.makedirs(backup_path, exist_ok=True)
-        
-        # Backup DB
-        db_sql_path = os.path.join(backup_path, "ai_pbx.sql")
-        subprocess.run(f"docker exec ai_pbx_db pg_dump -U admin ai_pbx > {db_sql_path}", shell=True, check=True)
-        
-        # Copy asterisk_config
-        import shutil
-        shutil.copytree("asterisk_config", os.path.join(backup_path, "asterisk_config"))
-        
-        # Tar it up
-        tar_path = os.path.join(temp_dir, f"{backup_name}.tar.gz")
-        with tarfile.open(tar_path, "w:gz") as tar:
-            tar.add(backup_path, arcname=backup_name)
-            
-        return FileResponse(path=tar_path, filename=f"{backup_name}.tar.gz", media_type="application/gzip")
+        res = await asyncio.to_thread(_create_full_system_backup_archive_sync, "direct_download")
+        return FileResponse(path=res["local_path"], filename=res["filename"], media_type="application/gzip")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Yedekleme başarısız: {str(e)}")
 
+
 @app.post("/api/system/backup/restore")
 async def restore_backup(file: UploadFile = File(...)):
-    import tarfile
-    import subprocess
     import tempfile
-    import os
-    import shutil
-    
+    temp_dir = tempfile.mkdtemp(prefix="ai_pbx_upload_")
     try:
-        temp_dir = tempfile.mkdtemp()
         tar_path = os.path.join(temp_dir, "uploaded_backup.tar.gz")
         with open(tar_path, "wb") as f:
             f.write(await file.read())
-            
-        # Extract
-        with tarfile.open(tar_path, "r:gz") as tar:
-            tar.extractall(path=temp_dir)
-            
-        # Find the extracted folder
-        extracted_dirs = [d for d in os.listdir(temp_dir) if os.path.isdir(os.path.join(temp_dir, d))]
-        if not extracted_dirs:
-            raise Exception("Yedek dosyası içeriği geçersiz.")
-        
-        backup_folder = os.path.join(temp_dir, extracted_dirs[0])
-        
-        # Restore DB
-        db_sql_path = os.path.join(backup_folder, "ai_pbx.sql")
-        if os.path.exists(db_sql_path):
-            # Drop schema cascade and recreate to ensure clean restore
-            subprocess.run(["docker", "exec", "ai_pbx_db", "psql", "-U", "admin", "-d", "ai_pbx", "-c", "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"], check=True)
-            subprocess.run(f"cat {db_sql_path} | docker exec -i ai_pbx_db psql -U admin ai_pbx", shell=True, check=True)
-            
-        # Restore Asterisk Config
-        asterisk_config_backup = os.path.join(backup_folder, "asterisk_config")
-        if os.path.exists(asterisk_config_backup):
-            # Clean current config
-            for item in os.listdir("asterisk_config"):
-                item_path = os.path.join("asterisk_config", item)
-                if os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                else:
-                    os.remove(item_path)
-            
-            # Copy new config
-            for item in os.listdir(asterisk_config_backup):
-                s = os.path.join(asterisk_config_backup, item)
-                d = os.path.join("asterisk_config", item)
-                if os.path.isdir(s):
-                    shutil.copytree(s, d)
-                else:
-                    shutil.copy2(s, d)
-                    
-        # Reload PJSIP
-        run_pjsip_reload()
-        
-        return {"status": "success", "message": "Sistem başarıyla geri yüklendi."}
+        res = await asyncio.to_thread(_restore_from_tar_archive_sync, tar_path)
+        return {
+            "status": "success",
+            "message": f"Sistem başarıyla geri yüklendi ({res.get('restored_rows', 0)} veritabanı kaydı ve santral ayarları aktarıldı).",
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Geri yükleme başarısız: {str(e)}")
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+async def database_disaster_recovery_background_task():
+    """Background loop for scheduled automated backups (NAS/SFTP/Local) and Standby External PostgreSQL live synchronization."""
+    await asyncio.sleep(25)
+    while True:
+        try:
+            dr_cfg = _get_db_dr_settings()
+            now_tr = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+
+            # 1. Standby Mirror External PostgreSQL periodic sync
+            if dr_cfg.get("external_db_enabled") and dr_cfg.get("external_db_mode") == "standby_mirror":
+                host = str(dr_cfg.get("external_db_host") or "").strip()
+                if host:
+                    sync_interval_min = max(5, int(dr_cfg.get("standby_sync_interval_minutes") or 15))
+                    last_sync_str = dr_cfg.get("last_standby_sync_at")
+                    should_sync = True
+                    if last_sync_str:
+                        try:
+                            last_dt = datetime.datetime.strptime(last_sync_str, "%Y-%m-%d %H:%M:%S")
+                            if (now_tr - last_dt).total_seconds() < sync_interval_min * 60:
+                                should_sync = False
+                        except Exception:
+                            should_sync = True
+                    if should_sync:
+                        res_sync = await asyncio.to_thread(
+                            _sync_database_between_local_and_external_sync, dr_cfg, "local_to_external"
+                        )
+                        if res_sync.get("ok"):
+                            settings_db.setdefault("database_disaster_recovery", dr_cfg)["last_standby_sync_at"] = res_sync["timestamp"]
+                            save_settings(settings_db)
+
+            # 2. Scheduled Automated Full System Backup (Local + NAS/SFTP/SMB)
+            if dr_cfg.get("auto_backup_enabled"):
+                bkp_interval_hours = max(1, int(dr_cfg.get("auto_backup_interval_hours") or 24))
+                last_bkp_str = dr_cfg.get("last_backup_at")
+                should_bkp = True
+                if last_bkp_str:
+                    try:
+                        last_bkp_dt = datetime.datetime.strptime(last_bkp_str, "%Y-%m-%d %H:%M:%S")
+                        if (now_tr - last_bkp_dt).total_seconds() < bkp_interval_hours * 3600:
+                            should_bkp = False
+                    except Exception:
+                        should_bkp = True
+                if should_bkp:
+                    res_bkp = await asyncio.to_thread(_create_full_system_backup_archive_sync, "scheduled_auto")
+                    if res_bkp.get("ok"):
+                        settings_db.setdefault("database_disaster_recovery", dr_cfg)["last_backup_at"] = res_bkp["created_at"]
+                        save_settings(settings_db)
+        except Exception as e_dr:
+            print(f"[Database DR Background Loop Error]: {e_dr}")
+
+        await asyncio.sleep(120)
+
 
 
 # ==============================================================================
