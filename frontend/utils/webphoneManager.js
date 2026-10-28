@@ -1,4 +1,10 @@
-import { playRingtoneSound, stopRingtoneSound, playRingbackTone, stopRingbackTone } from "./audioHelper";
+import {
+  playRingtoneSound,
+  stopRingtoneSound,
+  playRingbackTone,
+  stopRingbackTone,
+  resolveAudioDeviceId
+} from "./audioHelper";
 
 let SIP = null;
 async function ensureSipLoaded() {
@@ -53,6 +59,21 @@ class WebphoneManager {
     };
 
     this.startGlobalDurationLoop();
+    this.initAudioDeviceHotSwapListeners();
+  }
+
+  initAudioDeviceHotSwapListeners() {
+    if (typeof window === "undefined") return;
+    const handleUpdate = () => {
+      if (this._deviceSwapDebounce) clearTimeout(this._deviceSwapDebounce);
+      this._deviceSwapDebounce = setTimeout(() => {
+        this.applyAudioDevicePreferences();
+      }, 300);
+    };
+    window.addEventListener("AUDIO_DEVICES_UPDATED", handleUpdate);
+    if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === "function") {
+      navigator.mediaDevices.addEventListener("devicechange", handleUpdate);
+    }
   }
 
   ensureAudioElement(lineId = "global") {
@@ -607,13 +628,82 @@ class WebphoneManager {
     });
   }
 
+  async applySpeakerSinkToElement(audioEl) {
+    if (!audioEl || typeof window === "undefined") return;
+    if (typeof audioEl.setSinkId !== "function") return;
+    const savedSpeaker = localStorage.getItem("selected_speaker") || "";
+    const savedSpeakerLabel = localStorage.getItem("selected_speaker_label") || "";
+    try {
+      const resolvedSinkId = await resolveAudioDeviceId("audiooutput", savedSpeaker, savedSpeakerLabel);
+      if (resolvedSinkId && resolvedSinkId !== "default" && resolvedSinkId !== savedSpeaker) {
+        try {
+          localStorage.setItem("selected_speaker", resolvedSinkId);
+        } catch (e) {}
+      }
+      await audioEl.setSinkId(resolvedSinkId === "default" ? "" : resolvedSinkId);
+    } catch (err) {
+      console.warn("[WebphoneManager] setSinkId failed, falling back to default output:", err);
+      try {
+        await audioEl.setSinkId("");
+      } catch (e2) {}
+    }
+  }
+
+  async applyAudioDevicePreferences() {
+    if (typeof window === "undefined") return;
+    for (const line of this.linesMap.values()) {
+      const audioEl = this.ensureAudioElement(line.id);
+      if (audioEl) {
+        await this.applySpeakerSinkToElement(audioEl);
+      }
+
+      // Live replace microphone track on active calls if headset/mic changed or reconnected
+      if ((line.callStatus === "InCall" || line.callStatus === "Calling") && !this.state.isConferenceActive) {
+        const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+        if (pc) {
+          try {
+            const savedMic = localStorage.getItem("selected_mic") || "";
+            const savedMicLabel = localStorage.getItem("selected_mic_label") || "";
+            const resolvedMicId = await resolveAudioDeviceId("audioinput", savedMic, savedMicLabel);
+            const audioSender = pc.getSenders().find((s) => s.track && s.track.kind === "audio");
+            if (audioSender && resolvedMicId && resolvedMicId !== "default") {
+              const currentSettings = typeof audioSender.track.getSettings === "function" ? audioSender.track.getSettings() : {};
+              if (currentSettings.deviceId !== resolvedMicId) {
+                const newStream = await navigator.mediaDevices.getUserMedia({
+                  audio: {
+                    deviceId: { exact: resolvedMicId },
+                    echoCancellation: true,
+                    noiseSuppression: true
+                  },
+                  video: false
+                });
+                const newTrack = newStream.getAudioTracks()[0];
+                if (newTrack) {
+                  newTrack.enabled = !line.isMuted && !line.isOnHold && this.state.activeLineId === line.id;
+                  const oldTrack = audioSender.track;
+                  await audioSender.replaceTrack(newTrack);
+                  line.origMicTrack = newTrack;
+                  if (oldTrack) {
+                    try {
+                      oldTrack.stop();
+                    } catch (e) {}
+                  }
+                }
+              }
+            }
+          } catch (micErr) {
+            // Keep existing microphone track if preferred mic is not currently available
+          }
+        }
+      }
+    }
+  }
+
   attachRemoteAudioForLine(line) {
     if (!line || !line.session) return;
     const audioEl = this.ensureAudioElement(line.id);
     const peerConnection = line.session?.sessionDescriptionHandler?.peerConnection;
     if (!peerConnection || !audioEl) return;
-
-    const selectedSpeaker = typeof window !== "undefined" ? localStorage.getItem("selected_speaker") : null;
 
     // Save original outgoing mic track if not yet stored
     peerConnection.getSenders().forEach((sender) => {
@@ -622,25 +712,20 @@ class WebphoneManager {
       }
     });
 
-    const bindTrack = (track) => {
+    const bindTrack = async (track) => {
       if (track && track.kind === "audio") {
         line.remoteTrack = track;
-        if (line.boundTrackId === track.id && audioEl.srcObject) {
-          audioEl.muted = Boolean(line.isOnHold && !this.state.isConferenceActive);
-          if (audioEl.paused) {
-            audioEl.play().catch(() => {});
-          }
-          return;
+        if (line.boundTrackId !== track.id || !audioEl.srcObject) {
+          line.boundTrackId = track.id;
+          const remoteStream = new MediaStream([track]);
+          line.remoteStream = remoteStream;
+          audioEl.srcObject = remoteStream;
         }
-        line.boundTrackId = track.id;
-        const remoteStream = new MediaStream([track]);
-        line.remoteStream = remoteStream;
-        if (selectedSpeaker && typeof audioEl.setSinkId === "function") {
-          audioEl.setSinkId(selectedSpeaker).catch(() => {});
-        }
-        audioEl.srcObject = remoteStream;
+        await this.applySpeakerSinkToElement(audioEl);
         audioEl.muted = Boolean(line.isOnHold && !this.state.isConferenceActive);
-        audioEl.play().catch((e) => console.warn("[WebphoneManager] Audio play warning:", e));
+        if (audioEl.paused) {
+          audioEl.play().catch((e) => console.warn("[WebphoneManager] Audio play warning:", e));
+        }
       }
     };
 
@@ -781,7 +866,8 @@ class WebphoneManager {
       } else {
         const selectedRingtone = localStorage.getItem("ringtone") || "classic";
         const ringtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || null;
-        playRingtoneSound(selectedRingtone, ringtoneSpeaker);
+        const ringtoneSpeakerLabel = localStorage.getItem("selected_ringtone_speaker_label") || null;
+        playRingtoneSound(selectedRingtone, ringtoneSpeaker, ringtoneSpeakerLabel);
         this.triggerIncomingDesktopNotification(lineObj, myExt);
         window.dispatchEvent(new CustomEvent("INCOMING_WEBPHONE_CALL", { detail: callerNum }));
       }
@@ -974,24 +1060,41 @@ class WebphoneManager {
     }
 
     const selectedMic = localStorage.getItem("selected_mic") || "";
-    const hasCustomMic = Boolean(selectedMic && selectedMic !== "default");
+    const selectedMicLabel = localStorage.getItem("selected_mic_label") || "";
+    const resolvedMicId = await resolveAudioDeviceId("audioinput", selectedMic, selectedMicLabel);
 
-    // 1. Try with preferred microphone (using ideal instead of exact so stale deviceId never crashes)
+    if (resolvedMicId && resolvedMicId !== "default" && resolvedMicId !== selectedMic) {
+      try {
+        localStorage.setItem("selected_mic", resolvedMicId);
+      } catch (e) {}
+    }
+
+    const hasCustomMic = Boolean(resolvedMicId && resolvedMicId !== "default");
+
+    // 1. Try with exact resolved microphone first so Chrome strictly uses the selected headset mic
     if (hasCustomMic) {
       try {
         return await navigator.mediaDevices.getUserMedia({
           audio: {
-            deviceId: { ideal: selectedMic },
+            deviceId: { exact: resolvedMicId },
             echoCancellation: true,
             noiseSuppression: true
           },
           video: false
         });
-      } catch (err1) {
-        console.warn("[WebphoneManager] Preferred mic failed, clearing stale selected_mic and retrying default:", err1);
+      } catch (errExact) {
         try {
-          localStorage.removeItem("selected_mic");
-        } catch (e) {}
+          return await navigator.mediaDevices.getUserMedia({
+            audio: {
+              deviceId: { ideal: resolvedMicId },
+              echoCancellation: true,
+              noiseSuppression: true
+            },
+            video: false
+          });
+        } catch (errIdeal) {
+          console.warn("[WebphoneManager] Preferred mic temporarily unavailable, falling back to system default mic:", errIdeal);
+        }
       }
     }
 
@@ -1186,7 +1289,8 @@ class WebphoneManager {
       this.recordTimelineEvent("call_pickup", pickupLbl);
     } else if (typeof window !== "undefined") {
       const selectedSpeaker = localStorage.getItem("selected_speaker") || null;
-      playRingbackTone(selectedSpeaker);
+      const selectedSpeakerLabel = localStorage.getItem("selected_speaker_label") || null;
+      playRingbackTone(selectedSpeaker, selectedSpeakerLabel);
     }
 
     this.logWebrtcCallToBackend("start", {

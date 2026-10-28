@@ -67,7 +67,7 @@ import {
   X
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
-import { playRingtoneSound, stopRingtoneSound } from "../utils/audioHelper";
+import { playRingtoneSound, stopRingtoneSound, resolveAudioDeviceId } from "../utils/audioHelper";
 import { useTheme, setThemeColor } from "../utils/theme";
 import { getBackendHost } from "../utils/apiHost";
 import { getTurkishSlugForTab, getTabFromTurkishSlug } from "../utils/slugHelper";
@@ -473,6 +473,7 @@ export default function Home() {
   const [selectedMic, setSelectedMic] = useState("");
   const [selectedSpeaker, setSelectedSpeaker] = useState("");
   const [selectedRingtoneSpeaker, setSelectedRingtoneSpeaker] = useState("");
+  const [isPreviewingRingtone, setIsPreviewingRingtone] = useState(false);
 
   // Security settings states
   const [autoLogoutEnabled, setAutoLogoutEnabled] = useState(false);
@@ -830,38 +831,131 @@ export default function Home() {
     }
   }, [currentUser, activeTab]);
 
-  // Load audio device settings from localStorage on mount
+  // Load audio device settings from localStorage on mount and sync labels if permission is already granted
   useEffect(() => {
     if (typeof window !== "undefined") {
-      const savedMic = localStorage.getItem("selected_mic");
+      const savedRingtone = localStorage.getItem("ringtone");
+      if (savedRingtone) setAgentRingtone(savedRingtone);
+      const savedMic = localStorage.getItem("selected_mic") || "";
       if (savedMic) setSelectedMic(savedMic);
-      const savedSpeaker = localStorage.getItem("selected_speaker");
+      const savedSpeaker = localStorage.getItem("selected_speaker") || "";
       if (savedSpeaker) setSelectedSpeaker(savedSpeaker);
-      const savedRingtoneSpeaker = localStorage.getItem("selected_ringtone_speaker");
+      const savedRingtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || "";
       if (savedRingtoneSpeaker) setSelectedRingtoneSpeaker(savedRingtoneSpeaker);
+
+      if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
+        navigator.mediaDevices
+          .enumerateDevices()
+          .then(async (devices) => {
+            if (!devices.some((d) => d.label)) return;
+            const inputs = devices.filter((d) => d.kind === "audioinput");
+            const outputs = devices.filter((d) => d.kind === "audiooutput");
+
+            const micLabel = localStorage.getItem("selected_mic_label") || "";
+            const spkLabel = localStorage.getItem("selected_speaker_label") || "";
+            const ringSpkLabel = localStorage.getItem("selected_ringtone_speaker_label") || "";
+
+            const resMic = await resolveAudioDeviceId("audioinput", savedMic, micLabel);
+            const resSpk = await resolveAudioDeviceId("audiooutput", savedSpeaker, spkLabel);
+            const resRingSpk = await resolveAudioDeviceId("audiooutput", savedRingtoneSpeaker, ringSpkLabel);
+
+            const foundMic = inputs.find((d) => d.deviceId === resMic);
+            if (foundMic) {
+              setSelectedMic(foundMic.deviceId);
+              localStorage.setItem("selected_mic", foundMic.deviceId);
+              if (foundMic.label) localStorage.setItem("selected_mic_label", foundMic.label);
+            }
+            const foundSpk = outputs.find((d) => d.deviceId === resSpk);
+            if (foundSpk) {
+              setSelectedSpeaker(foundSpk.deviceId);
+              localStorage.setItem("selected_speaker", foundSpk.deviceId);
+              if (foundSpk.label) localStorage.setItem("selected_speaker_label", foundSpk.label);
+            }
+            const foundRingSpk = outputs.find((d) => d.deviceId === resRingSpk);
+            if (foundRingSpk) {
+              setSelectedRingtoneSpeaker(foundRingSpk.deviceId);
+              localStorage.setItem("selected_ringtone_speaker", foundRingSpk.deviceId);
+              if (foundRingSpk.label) localStorage.setItem("selected_ringtone_speaker_label", foundRingSpk.label);
+            }
+          })
+          .catch(() => {});
+      }
     }
   }, []);
 
-  // Sync available media devices on modal load
+  // Sync available media devices on modal load (stopping any temporary permission stream immediately!)
   useEffect(() => {
-    if (settingsModalOpen) {
-      const loadDevices = async () => {
-        try {
-          await navigator.mediaDevices.getUserMedia({ audio: true });
-          const devices = await navigator.mediaDevices.enumerateDevices();
-          const inputs = devices.filter(d => d.kind === "audioinput");
-          const outputs = devices.filter(d => d.kind === "audiooutput");
-          setAudioDevices({ inputs, outputs });
-
-          if (!selectedMic && inputs.length > 0) setSelectedMic(inputs[0].deviceId);
-          if (!selectedSpeaker && outputs.length > 0) setSelectedSpeaker(outputs[0].deviceId);
-          if (!selectedRingtoneSpeaker && outputs.length > 0) setSelectedRingtoneSpeaker(outputs[0].deviceId);
-        } catch (err) {
-          console.error("Media devices listing error:", err);
-        }
-      };
-      loadDevices();
+    if (!settingsModalOpen) {
+      stopRingtoneSound();
+      setIsPreviewingRingtone(false);
+      return;
     }
+    const loadDevices = async () => {
+      if (typeof window === "undefined" || !navigator.mediaDevices) return;
+      try {
+        let devices = await navigator.mediaDevices.enumerateDevices();
+        // Only request temporary getUserMedia if labels are hidden (permission not yet granted),
+        // and IMMEDIATELY stop all tracks so Bluetooth headsets are never locked in HFP/SCO mic mode!
+        if (!devices.some((d) => d.label) && typeof navigator.mediaDevices.getUserMedia === "function") {
+          let tempStream = null;
+          try {
+            tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          } finally {
+            if (tempStream) {
+              tempStream.getTracks().forEach((t) => {
+                try {
+                  t.stop();
+                } catch (e) {}
+              });
+            }
+          }
+          devices = await navigator.mediaDevices.enumerateDevices();
+        }
+
+        const inputs = devices.filter((d) => d.kind === "audioinput");
+        const outputs = devices.filter((d) => d.kind === "audiooutput");
+        setAudioDevices({ inputs, outputs });
+
+        const savedMic = localStorage.getItem("selected_mic") || selectedMic || "";
+        const savedMicLabel = localStorage.getItem("selected_mic_label") || "";
+        const savedSpeaker = localStorage.getItem("selected_speaker") || selectedSpeaker || "";
+        const savedSpeakerLabel = localStorage.getItem("selected_speaker_label") || "";
+        const savedRingtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || selectedRingtoneSpeaker || "";
+        const savedRingtoneSpeakerLabel = localStorage.getItem("selected_ringtone_speaker_label") || "";
+
+        const resolvedMic = await resolveAudioDeviceId("audioinput", savedMic, savedMicLabel);
+        const resolvedSpeaker = await resolveAudioDeviceId("audiooutput", savedSpeaker, savedSpeakerLabel);
+        const resolvedRingtoneSpeaker = await resolveAudioDeviceId(
+          "audiooutput",
+          savedRingtoneSpeaker,
+          savedRingtoneSpeakerLabel
+        );
+
+        const targetMicObj = inputs.find((d) => d.deviceId === resolvedMic) || inputs[0];
+        if (targetMicObj) {
+          setSelectedMic(targetMicObj.deviceId);
+          localStorage.setItem("selected_mic", targetMicObj.deviceId);
+          if (targetMicObj.label) localStorage.setItem("selected_mic_label", targetMicObj.label);
+        }
+
+        const targetSpeakerObj = outputs.find((d) => d.deviceId === resolvedSpeaker) || outputs[0];
+        if (targetSpeakerObj) {
+          setSelectedSpeaker(targetSpeakerObj.deviceId);
+          localStorage.setItem("selected_speaker", targetSpeakerObj.deviceId);
+          if (targetSpeakerObj.label) localStorage.setItem("selected_speaker_label", targetSpeakerObj.label);
+        }
+
+        const targetRingtoneObj = outputs.find((d) => d.deviceId === resolvedRingtoneSpeaker) || outputs[0];
+        if (targetRingtoneObj) {
+          setSelectedRingtoneSpeaker(targetRingtoneObj.deviceId);
+          localStorage.setItem("selected_ringtone_speaker", targetRingtoneObj.deviceId);
+          if (targetRingtoneObj.label) localStorage.setItem("selected_ringtone_speaker_label", targetRingtoneObj.label);
+        }
+      } catch (err) {
+        console.error("Media devices listing error:", err);
+      }
+    };
+    loadDevices();
   }, [settingsModalOpen]);
 
   const backendHost = getBackendHost();
@@ -3830,8 +3924,11 @@ export default function Home() {
                     <select
                       value={agentRingtone}
                       onChange={(e) => {
-                        setAgentRingtone(e.target.value);
+                        const nextRing = e.target.value;
+                        setAgentRingtone(nextRing);
+                        localStorage.setItem("ringtone", nextRing);
                         stopRingtoneSound();
+                        setIsPreviewingRingtone(false);
                         localStorage.setItem("temp_playing", "false");
                       }}
                       className="flex-1 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
@@ -3847,22 +3944,23 @@ export default function Home() {
                     </select>
 
                     <button
+                      type="button"
                       onClick={() => {
-                        const isPlaying = localStorage.getItem("temp_playing") === "true";
-                        if (isPlaying) {
+                        if (isPreviewingRingtone) {
                           stopRingtoneSound();
+                          setIsPreviewingRingtone(false);
                           localStorage.setItem("temp_playing", "false");
                         } else {
-                          playRingtoneSound(agentRingtone, selectedRingtoneSpeaker);
+                          const ringDevObj = audioDevices.outputs.find((d) => d.deviceId === selectedRingtoneSpeaker);
+                          const ringLabel = ringDevObj?.label || localStorage.getItem("selected_ringtone_speaker_label") || "";
+                          setIsPreviewingRingtone(true);
                           localStorage.setItem("temp_playing", "true");
+                          playRingtoneSound(agentRingtone, selectedRingtoneSpeaker, ringLabel);
                         }
-                        // Force update
-                        setSettingsModalOpen(false);
-                        setSettingsModalOpen(true);
                       }}
                       className="px-4 bg-slate-105 dark:bg-slate-850 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200/50 dark:border-slate-800 text-slate-700 dark:text-slate-350 rounded-xl flex items-center justify-center gap-1.5 text-xs font-extrabold transition-all"
                     >
-                      {localStorage.getItem("temp_playing") === "true" ? (
+                      {isPreviewingRingtone ? (
                         <>
                           <Square size={12} className="text-primary fill-rose-500 animate-pulse" />
                           <span>Durdur</span>
@@ -3882,7 +3980,16 @@ export default function Home() {
                   <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Ses Giriş Aygıtı (Mikrofon)</label>
                   <select
                     value={selectedMic}
-                    onChange={(e) => setSelectedMic(e.target.value)}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setSelectedMic(nextId);
+                      const devObj = audioDevices.inputs.find((d) => d.deviceId === nextId);
+                      localStorage.setItem("selected_mic", nextId);
+                      if (devObj?.label) {
+                        localStorage.setItem("selected_mic_label", devObj.label);
+                      }
+                      window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
+                    }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
                   >
                     {audioDevices.inputs.length === 0 ? (
@@ -3902,7 +4009,16 @@ export default function Home() {
                   <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Konuşma Çıkış Aygıtı (Kulaklık)</label>
                   <select
                     value={selectedSpeaker}
-                    onChange={(e) => setSelectedSpeaker(e.target.value)}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setSelectedSpeaker(nextId);
+                      const devObj = audioDevices.outputs.find((d) => d.deviceId === nextId);
+                      localStorage.setItem("selected_speaker", nextId);
+                      if (devObj?.label) {
+                        localStorage.setItem("selected_speaker_label", devObj.label);
+                      }
+                      window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
+                    }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
                   >
                     {audioDevices.outputs.length === 0 ? (
@@ -3923,10 +4039,15 @@ export default function Home() {
                   <select
                     value={selectedRingtoneSpeaker}
                     onChange={(e) => {
-                      setSelectedRingtoneSpeaker(e.target.value);
-                      if (localStorage.getItem("temp_playing") === "true") {
-                        stopRingtoneSound();
-                        localStorage.setItem("temp_playing", "false");
+                      const nextId = e.target.value;
+                      setSelectedRingtoneSpeaker(nextId);
+                      const devObj = audioDevices.outputs.find((d) => d.deviceId === nextId);
+                      localStorage.setItem("selected_ringtone_speaker", nextId);
+                      if (devObj?.label) {
+                        localStorage.setItem("selected_ringtone_speaker_label", devObj.label);
+                      }
+                      if (isPreviewingRingtone) {
+                        playRingtoneSound(agentRingtone, nextId, devObj?.label || "");
                       }
                     }}
                     className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
@@ -4490,6 +4611,7 @@ export default function Home() {
                       type="button"
                       onClick={() => {
                         stopRingtoneSound();
+                        setIsPreviewingRingtone(false);
                         localStorage.setItem("temp_playing", "false");
                         setSettingsModalOpen(false);
                       }}
@@ -4501,12 +4623,22 @@ export default function Home() {
                       type="button"
                       onClick={async () => {
                         stopRingtoneSound();
+                        setIsPreviewingRingtone(false);
                         localStorage.setItem("temp_playing", "false");
                         localStorage.setItem("agent_avatar", agentAvatar);
                         localStorage.setItem("ringtone", agentRingtone);
                         localStorage.setItem("selected_mic", selectedMic);
                         localStorage.setItem("selected_speaker", selectedSpeaker);
                         localStorage.setItem("selected_ringtone_speaker", selectedRingtoneSpeaker);
+
+                        const micObj = audioDevices.inputs.find((d) => d.deviceId === selectedMic);
+                        if (micObj?.label) localStorage.setItem("selected_mic_label", micObj.label);
+                        const spkObj = audioDevices.outputs.find((d) => d.deviceId === selectedSpeaker);
+                        if (spkObj?.label) localStorage.setItem("selected_speaker_label", spkObj.label);
+                        const ringSpkObj = audioDevices.outputs.find((d) => d.deviceId === selectedRingtoneSpeaker);
+                        if (ringSpkObj?.label) localStorage.setItem("selected_ringtone_speaker_label", ringSpkObj.label);
+
+                        window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
                         
                         localStorage.setItem("auto_logout_enabled", autoLogoutEnabled ? "true" : "false");
                         localStorage.setItem("auto_logout_duration", autoLogoutDuration.toString());
