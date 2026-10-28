@@ -10692,6 +10692,50 @@ async def get_call_transcripts(call_id: str, db: AsyncSession = Depends(get_db))
     transcripts = result.scalars().all()
 
     if not transcripts:
+        # First check if a sibling Call row (e.g. WebRTC session ID vs Asterisk CALL_UUID for the same live call)
+        # already has live-recorded transcripts in PostgreSQL, so we never re-transcribe a call that was already transcribed live.
+        try:
+            call_res = await db.execute(select(Call).where(Call.id == call_id).limit(1))
+            db_call = call_res.scalar_one_or_none()
+            if db_call and db_call.start_time:
+                win_start = db_call.start_time - datetime.timedelta(seconds=240)
+                win_end = db_call.start_time + datetime.timedelta(seconds=240)
+                sib_stmt = (
+                    select(Call.id)
+                    .where(
+                        and_(
+                            Call.id != call_id,
+                            Call.start_time >= win_start,
+                            Call.start_time <= win_end
+                        )
+                    )
+                    .order_by(Call.start_time.desc())
+                )
+                sib_res = await db.execute(sib_stmt)
+                sibling_ids = [r for r in sib_res.scalars().all() if r]
+                for sib_id in sibling_ids:
+                    tr_sib_res = await db.execute(
+                        select(Transcript).where(Transcript.call_id == sib_id).order_by(Transcript.timestamp.asc())
+                    )
+                    sib_transcripts = tr_sib_res.scalars().all()
+                    if sib_transcripts:
+                        copied_rows = []
+                        for st in sib_transcripts:
+                            new_tr = Transcript(
+                                call_id=call_id,
+                                speaker=st.speaker,
+                                text=st.text,
+                                timestamp=st.timestamp
+                            )
+                            db.add(new_tr)
+                            copied_rows.append(new_tr)
+                        await db.commit()
+                        transcripts = copied_rows
+                        break
+        except Exception as sib_err:
+            print(f"[Transcript Sibling Lookup Warning ({call_id})]: {sib_err}")
+
+    if not transcripts:
         transcripts = await _auto_transcribe_call_recording(call_id, db)
 
     # Apply masking if current agent is not permitted to see raw PII data
@@ -20460,64 +20504,106 @@ async def _record_bilingual_transcript_turn(
                 }
             )
 
-        # Persist turn to PostgreSQL transcripts table
+        # Persist turn to PostgreSQL transcripts table across all matching active Call rows
+        # (both WebRTC session.id and Asterisk CALL_UUID so Reports & Call History never re-transcribe)
         async with AsyncSessionLocal() as db:
-            resolved_call_id = None
+            target_call_ids = []
+            matched_call_obj = None
             if call_id and call_id != "live-webrtc-call":
-                res = await db.execute(select(Call.id).where(Call.id == call_id).limit(1))
-                resolved_call_id = res.scalar_one_or_none()
+                res = await db.execute(select(Call).where(Call.id == call_id).limit(1))
+                matched_call_obj = res.scalar_one_or_none()
+                if matched_call_obj:
+                    target_call_ids.append(matched_call_obj.id)
 
-            if not resolved_call_id:
-                agent_ext = None
-                if user_info:
-                    uid_str = str(user_info.get("user_id") or "").strip().lower()
-                    for u in settings_db.get("users", []):
-                        if (
-                            str(u.get("email") or "").strip().lower() == uid_str
-                            or str(u.get("name") or "").strip().lower() == uid_str
-                            or str(u.get("extension") or "").strip() == uid_str
-                        ):
-                            agent_ext = str(u.get("extension") or "").strip()
-                            break
-                cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=25)
-                if agent_ext:
-                    q = (
-                        select(Call.id)
-                        .where(
-                            and_(
-                                Call.start_time >= cutoff,
-                                or_(
-                                    Call.caller_number == agent_ext,
-                                    Call.callee_number == agent_ext,
-                                    Call.hangup_source == f"pickup:{agent_ext}"
-                                )
+            agent_ext = None
+            if user_info:
+                uid_str = str(user_info.get("user_id") or "").strip().lower()
+                for u in settings_db.get("users", []):
+                    if (
+                        str(u.get("email") or "").strip().lower() == uid_str
+                        or str(u.get("name") or "").strip().lower() == uid_str
+                        or str(u.get("extension") or "").strip() == uid_str
+                    ):
+                        agent_ext = str(u.get("extension") or "").strip()
+                        break
+
+            cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=25)
+            if matched_call_obj and matched_call_obj.start_time:
+                sib_start = matched_call_obj.start_time - datetime.timedelta(seconds=180)
+                sib_end = matched_call_obj.start_time + datetime.timedelta(seconds=180)
+                q_sib = (
+                    select(Call.id)
+                    .where(
+                        and_(
+                            Call.start_time >= sib_start,
+                            Call.start_time <= sib_end
+                        )
+                    )
+                    .order_by(Call.start_time.desc())
+                    .limit(5)
+                )
+                res_sib = await db.execute(q_sib)
+                for cid in res_sib.scalars().all():
+                    if cid and cid not in target_call_ids:
+                        target_call_ids.append(cid)
+
+            if agent_ext:
+                q = (
+                    select(Call.id)
+                    .where(
+                        and_(
+                            Call.start_time >= cutoff,
+                            or_(
+                                Call.caller_number == agent_ext,
+                                Call.callee_number == agent_ext,
+                                Call.hangup_source == f"pickup:{agent_ext}",
+                                Call.status == "in_progress"
                             )
                         )
-                        .order_by(Call.start_time.desc())
-                        .limit(1)
                     )
-                    res = await db.execute(q)
-                    resolved_call_id = res.scalar_one_or_none()
+                    .order_by(Call.start_time.desc())
+                    .limit(3)
+                )
+                res = await db.execute(q)
+                for cid in res.scalars().all():
+                    if cid and cid not in target_call_ids:
+                        target_call_ids.append(cid)
 
-                if not resolved_call_id:
-                    q_any = (
-                        select(Call.id)
-                        .where(Call.start_time >= cutoff)
-                        .order_by(Call.start_time.desc())
-                        .limit(1)
-                    )
-                    res_any = await db.execute(q_any)
-                    resolved_call_id = res_any.scalar_one_or_none()
+            if not target_call_ids:
+                q_any = (
+                    select(Call.id)
+                    .where(Call.start_time >= cutoff)
+                    .order_by(Call.start_time.desc())
+                    .limit(2)
+                )
+                res_any = await db.execute(q_any)
+                for cid in res_any.scalars().all():
+                    if cid and cid not in target_call_ids:
+                        target_call_ids.append(cid)
 
-            if resolved_call_id:
+            now_utc = datetime.datetime.utcnow()
+            for cid in target_call_ids:
                 db.add(
                     Transcript(
-                        call_id=resolved_call_id,
+                        call_id=cid,
                         speaker=speaker,
                         text=stored_text,
-                        timestamp=datetime.datetime.utcnow()
+                        timestamp=now_utc
                     )
                 )
+                if cid != call_id:
+                    try:
+                        await ws_manager.broadcast_to_call(
+                            cid,
+                            {
+                                "type": "transcript",
+                                "speaker": speaker,
+                                "text": stored_text
+                            }
+                        )
+                    except Exception:
+                        pass
+            if target_call_ids:
                 await db.commit()
     except Exception as rec_err:
         print(f"[LiveTranslator Transcript DB Save Warning]: {rec_err}")
@@ -20650,7 +20736,7 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
     # 3. Built-in Keyless Audio STT: Google Chromium Speech API v2 (16kHz 16-bit WAV/PCM)
     if not original_text and audio_bytes:
         original_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", src_code)
-        # If customer spoke Turkish (or opposite language), recognize it while keeping speaker direction intact
+        # If speaker spoke in the opposite language, recognize it while keeping speaker direction intact
         if not original_text and tgt_code and tgt_code != src_code:
             alt_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", tgt_code)
             if alt_text:
@@ -20670,23 +20756,31 @@ async def live_translate_audio_endpoint(payload: LiveTranslateAudioPayload, user
 
     # Translate transcribed speech if not yet translated
     if original_text and not translated_text:
-        if effective_direction == "agent_to_customer" and not payload.generate_tts:
+        if effective_direction == "agent_to_customer" and detected_lang == tgt_code and tgt_code != src_code:
+            # Agent spoke in the foreign language directly -> translate to Turkish so primary is Turkish and secondary is foreign
+            tr_text = await _fallback_google_text_translate(original_text, tgt_code, src_code)
             translated_text = original_text
+            original_text = tr_text or original_text
+            detected_lang = src_code
         else:
             translated_text = await _fallback_google_text_translate(original_text, src_code, tgt_code)
-            # If translation is identical to original on customer_to_agent (e.g. customer spoke Turkish while 'en' was selected), try recognizing as Turkish directly
             if (
-                effective_direction == "customer_to_agent"
-                and translated_text
+                translated_text
                 and translated_text.strip().lower() == original_text.strip().lower()
                 and audio_bytes
                 and tgt_code != src_code
             ):
                 alt_text = await _keyless_chromium_stt_from_audio(audio_bytes, payload.mime_type or "audio/wav", tgt_code)
                 if alt_text:
-                    original_text = alt_text
-                    translated_text = alt_text
-                    detected_lang = tgt_code
+                    if effective_direction == "customer_to_agent":
+                        original_text = alt_text
+                        translated_text = alt_text
+                        detected_lang = tgt_code
+                    else:
+                        tr_text = await _fallback_google_text_translate(alt_text, tgt_code, src_code)
+                        original_text = tr_text or alt_text
+                        translated_text = alt_text
+                        detected_lang = src_code
 
     if original_text or translated_text:
         print(f"[LiveTranslator] dir={effective_direction} ({src_code}->{tgt_code}) Original='{original_text}' | Translated='{translated_text}'")

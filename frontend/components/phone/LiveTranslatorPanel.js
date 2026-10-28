@@ -4,7 +4,8 @@ import {
   Radio,
   Loader2,
   X,
-  Trash2
+  Trash2,
+  User
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -17,6 +18,74 @@ const SUPPORTED_LANGUAGES = [
   { code: "fr", label: "Fransızca (FR)", flag: "🇫🇷", speechLang: "fr-FR" },
   { code: "es", label: "İspanyolca (ES)", flag: "🇪🇸", speechLang: "es-ES" }
 ];
+
+function encodeAudioBufferToWavBlob(audioBuffer) {
+  const targetSampleRate = 16000;
+  const numChannels = 1;
+  const srcRate = audioBuffer.sampleRate || 48000;
+  const rawData = audioBuffer.getChannelData(0);
+  const ratio = srcRate / targetSampleRate;
+  const newLength = Math.max(1, Math.round(rawData.length / ratio));
+  const samples = new Int16Array(newLength);
+
+  for (let i = 0; i < newLength; i++) {
+    const srcIdx = Math.min(rawData.length - 1, Math.floor(i * ratio));
+    const s = Math.max(-1, Math.min(1, rawData[srcIdx] || 0));
+    samples[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+
+  const buffer = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buffer);
+  const writeString = (offset, str) => {
+    for (let i = 0; i < str.length; i++) {
+      view.setUint8(offset + i, str.charCodeAt(i));
+    }
+  };
+
+  writeString(0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeString(8, "WAVE");
+  writeString(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, numChannels, true);
+  view.setUint32(24, targetSampleRate, true);
+  view.setUint32(28, targetSampleRate * numChannels * 2, true);
+  view.setUint16(32, numChannels * 2, true);
+  view.setUint16(34, 16, true);
+  writeString(36, "data");
+  view.setUint32(40, samples.length * 2, true);
+
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    view.setInt16(offset, samples[i], true);
+  }
+
+  return new Blob([buffer], { type: "audio/wav" });
+}
+
+async function convertRecordedBlobToWavOrFallback(blob, fallbackMime) {
+  if (!blob || typeof window === "undefined") {
+    return { blob, mimeType: fallbackMime || "audio/webm" };
+  }
+  try {
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtx) return { blob, mimeType: fallbackMime || "audio/webm" };
+    const arrayBuf = await blob.arrayBuffer();
+    const ctx = new AudioCtx();
+    try {
+      const decoded = await ctx.decodeAudioData(arrayBuf.slice(0));
+      const wavBlob = encodeAudioBufferToWavBlob(decoded);
+      return { blob: wavBlob, mimeType: "audio/wav" };
+    } finally {
+      try {
+        await ctx.close();
+      } catch (e) {}
+    }
+  } catch (e) {
+    return { blob, mimeType: fallbackMime || "audio/webm" };
+  }
+}
 
 export default function LiveTranslatorPanel({
   backendHost = "localhost:8000",
@@ -48,6 +117,8 @@ export default function LiveTranslatorPanel({
   // Refs for WebRTC local stream (Agent) recorder
   const agentHandsFreeIntervalRef = useRef(null);
   const agentHandsFreeRecorderRef = useRef(null);
+  const agentAudioCtxRef = useRef(null);
+  const agentFallbackMicStreamRef = useRef(null);
   const hasAttachedLocalStreamRef = useRef(false);
   const inFlightAgentReqRef = useRef(false);
 
@@ -241,6 +312,23 @@ export default function LiveTranslatorPanel({
         } catch (e) {}
       }
 
+      // Passive WebAudio keepalive consumer so Chromium pulls local mic frames continuously
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        if (AudioCtx && localStream) {
+          const ctx = agentAudioCtxRef.current || new AudioCtx();
+          if (ctx.state === "suspended") {
+            ctx.resume().catch(() => {});
+          }
+          agentAudioCtxRef.current = ctx;
+          const source = ctx.createMediaStreamSource(localStream);
+          const keepAliveGain = ctx.createGain();
+          keepAliveGain.gain.value = 0.00001;
+          source.connect(keepAliveGain);
+          keepAliveGain.connect(ctx.destination);
+        }
+      } catch (audioGraphErr) {}
+
       const mimeType =
         typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
           ? "audio/webm;codecs=opus"
@@ -250,13 +338,17 @@ export default function LiveTranslatorPanel({
 
       const recordAgentWindow = () => {
         if (!isListeningCustomerRef.current) return;
-        const currentLocal = webphoneManager.getActiveLocalStream() || localStream;
+        const currentLocal =
+          webphoneManager.getActiveLocalStream() ||
+          localStream ||
+          agentFallbackMicStreamRef.current;
         if (!currentLocal) return;
         const tracks = currentLocal.getAudioTracks ? currentLocal.getAudioTracks() : [];
-        if (!tracks.length || !tracks[0].enabled) return;
+        const liveTrack = tracks.find((t) => t.enabled && t.readyState === "live") || tracks[0];
+        if (!liveTrack || !liveTrack.enabled) return;
 
         try {
-          const streamForRecorder = new MediaStream([tracks[0].clone()]);
+          const streamForRecorder = new MediaStream([liveTrack.clone()]);
           const chunks = [];
           const recorder = mimeType
             ? new MediaRecorder(streamForRecorder, { mimeType })
@@ -273,7 +365,7 @@ export default function LiveTranslatorPanel({
             } catch (e) {}
             if (chunks.length === 0 || inFlightAgentReqRef.current) return;
             const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
-            if (blob.size < 400) return;
+            if (blob.size < 300) return;
             inFlightAgentReqRef.current = true;
             try {
               await processAgentAudioBlob(blob, recorder.mimeType || "audio/webm");
@@ -310,7 +402,17 @@ export default function LiveTranslatorPanel({
     isListeningCustomerRef.current = true;
 
     const remoteStream = webphoneManager.getActiveRemoteStream();
-    const localStream = webphoneManager.getActiveLocalStream();
+    let localStream = webphoneManager.getActiveLocalStream();
+
+    if (!localStream && typeof navigator !== "undefined" && navigator.mediaDevices?.getUserMedia) {
+      try {
+        const micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        agentFallbackMicStreamRef.current = micStream;
+        localStream = micStream;
+      } catch (micErr) {
+        console.warn("[LiveTranslator] Fallback mic stream warning:", micErr);
+      }
+    }
 
     if (remoteStream) {
       attachRecorderToRemoteStream(remoteStream);
@@ -330,7 +432,7 @@ export default function LiveTranslatorPanel({
     if (!customerStreamWaitIntervalRef.current) {
       customerStreamWaitIntervalRef.current = setInterval(() => {
         const rStream = webphoneManager.getActiveRemoteStream();
-        const lStream = webphoneManager.getActiveLocalStream();
+        const lStream = webphoneManager.getActiveLocalStream() || agentFallbackMicStreamRef.current;
         if (rStream && !hasAttachedStreamRef.current) {
           attachRecorderToRemoteStream(rStream);
         }
@@ -369,6 +471,12 @@ export default function LiveTranslatorPanel({
         agentHandsFreeRecorderRef.current.stop();
       } catch (e) {}
     }
+    if (agentFallbackMicStreamRef.current) {
+      try {
+        agentFallbackMicStreamRef.current.getTracks().forEach((t) => t.stop());
+      } catch (e) {}
+      agentFallbackMicStreamRef.current = null;
+    }
     customerMediaRecorderRef.current = null;
     agentHandsFreeRecorderRef.current = null;
     hasAttachedStreamRef.current = false;
@@ -382,7 +490,8 @@ export default function LiveTranslatorPanel({
     inFlightCustomerReqRef.current = true;
     setProcessingCustomerChunk(true);
     try {
-      const b64 = await blobToBase64(blob);
+      const converted = await convertRecordedBlobToWavOrFallback(blob, mimeType);
+      const b64 = await blobToBase64(converted.blob);
       const res = await fetch(`${API_BASE}/api/live-translator/translate-audio`, {
         method: "POST",
         headers: {
@@ -391,7 +500,7 @@ export default function LiveTranslatorPanel({
         },
         body: JSON.stringify({
           audio_base64: b64,
-          mime_type: (mimeType || "audio/webm").split(";")[0],
+          mime_type: (converted.mimeType || "audio/wav").split(";")[0],
           direction: "customer_to_agent",
           source_lang: customerLangRef.current || customerLang,
           target_lang: agentLang,
@@ -437,7 +546,8 @@ export default function LiveTranslatorPanel({
   const processAgentAudioBlob = async (blob, mimeType) => {
     setProcessingAgentSpeech(true);
     try {
-      const b64 = blob && blob.size > 0 ? await blobToBase64(blob) : "";
+      const converted = await convertRecordedBlobToWavOrFallback(blob, mimeType);
+      const b64 = converted.blob && converted.blob.size > 0 ? await blobToBase64(converted.blob) : "";
       const activeTargetLang = customerLangRef.current || customerLang;
       const res = await fetch(`${API_BASE}/api/live-translator/translate-audio`, {
         method: "POST",
@@ -447,7 +557,7 @@ export default function LiveTranslatorPanel({
         },
         body: JSON.stringify({
           audio_base64: b64,
-          mime_type: (mimeType || "audio/webm").split(";")[0],
+          mime_type: (converted.mimeType || "audio/wav").split(";")[0],
           direction: "agent_to_customer",
           source_lang: "tr",
           target_lang: activeTargetLang,
@@ -558,8 +668,8 @@ export default function LiveTranslatorPanel({
         </div>
       </div>
 
-      {/* Chat-Style Stream: Left = Customer (Turkish text), Right = Agent */}
-      <div className="max-h-72 min-h-[160px] overflow-y-auto flex flex-col gap-2.5 px-1 py-1">
+      {/* Chat-Style Stream: Left = Customer, Right = Agent (Müşteri Temsilcisi) */}
+      <div className="max-h-72 min-h-[160px] overflow-y-auto flex flex-col gap-2.5 px-1 py-1 bg-slate-50/40 dark:bg-slate-950/30 rounded-xl">
         {items.length === 0 ? (
           <div className="my-auto py-8 text-center text-xs text-slate-400 dark:text-slate-500">
             Görüşme sırasındaki konuşmalar burada sohbet akışı olarak görünür.
@@ -571,25 +681,41 @@ export default function LiveTranslatorPanel({
             const transClean = (item.translatedText || "").trim();
             const hasDifferentTranslation =
               origClean && transClean && origClean.toLowerCase() !== transClean.toLowerCase();
+            const srcBadgeCode = String(item.sourceLang || customerLang || "EN")
+              .split("-")[0]
+              .toUpperCase();
+            const tgtBadgeCode = String(item.targetLang || customerLang || "EN")
+              .split("-")[0]
+              .toUpperCase();
 
             if (isCust) {
-              // LEFT SIDE: Customer's speech (Turkish translation shown as main text)
+              // LEFT SIDE: Customer's speech (Turkish translation shown as main bold text, original foreign in italic below)
               const mainTurkishText = transClean || origClean;
+              const langBadge = `${srcBadgeCode} → TR`;
               return (
-                <div key={item.id} className="flex flex-col items-start max-w-[82%] self-start">
-                  <div className="flex items-center gap-1.5 mb-0.5 px-1">
-                    <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                      Müşteri
-                    </span>
-                    <span className="text-[9px] font-mono text-slate-400">{item.timestamp}</span>
-                  </div>
-                  <div className="px-3.5 py-2 rounded-2xl rounded-tl-sm bg-slate-100 dark:bg-slate-800 text-slate-900 dark:text-slate-100 border border-slate-200/70 dark:border-slate-700/70 shadow-sm">
-                    <p className="text-xs sm:text-sm font-semibold leading-snug break-words">
+                <div key={item.id} className="flex justify-start">
+                  <div className="max-w-[85%] rounded-2xl rounded-tl-sm px-3.5 py-2.5 border shadow-sm bg-white dark:bg-slate-900 border-slate-200/90 dark:border-slate-800">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                        <User size={11} />
+                        Müşteri
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {hasDifferentTranslation && (
+                          <span className="inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                            <Languages size={10} />
+                            {langBadge}
+                          </span>
+                        )}
+                        <span className="text-[9px] text-slate-400 font-mono">{item.timestamp}</span>
+                      </div>
+                    </div>
+                    <p className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-snug whitespace-pre-line break-words">
                       {mainTurkishText}
                     </p>
                     {hasDifferentTranslation && (
-                      <p className="text-[11px] text-slate-400 dark:text-slate-500 italic mt-0.5 break-words">
-                        {origClean}
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-1 pt-1 border-t border-slate-100 dark:border-slate-800/70 leading-snug break-words">
+                        &ldquo;{origClean}&rdquo;
                       </p>
                     )}
                   </div>
@@ -597,20 +723,35 @@ export default function LiveTranslatorPanel({
               );
             }
 
-            // RIGHT SIDE: Agent's speech
+            // RIGHT SIDE: Agent's speech (Turkish shown as main bold text, translated foreign in italic below)
             const mainAgentText = origClean || transClean;
+            const langBadge = `TR → ${tgtBadgeCode}`;
             return (
-              <div key={item.id} className="flex flex-col items-end max-w-[82%] self-end">
-                <div className="flex items-center gap-1.5 mb-0.5 px-1">
-                  <span className="text-[10px] font-bold text-slate-500 dark:text-slate-400">
-                    Temsilci
-                  </span>
-                  <span className="text-[9px] font-mono text-slate-400">{item.timestamp}</span>
-                </div>
-                <div className={`px-3.5 py-2 rounded-2xl rounded-tr-sm ${bg} text-white shadow-sm`}>
-                  <p className="text-xs sm:text-sm font-semibold leading-snug break-words">
+              <div key={item.id} className="flex justify-end">
+                <div className="max-w-[85%] rounded-2xl rounded-tr-sm px-3.5 py-2.5 border shadow-sm bg-indigo-50/90 dark:bg-indigo-950/40 border-indigo-200/80 dark:border-indigo-800/60">
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 text-indigo-600 dark:text-indigo-400">
+                      <User size={11} />
+                      Müşteri Temsilcisi
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {hasDifferentTranslation && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-black px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                          <Languages size={10} />
+                          {langBadge}
+                        </span>
+                      )}
+                      <span className="text-[9px] text-slate-400 font-mono">{item.timestamp}</span>
+                    </div>
+                  </div>
+                  <p className="text-xs font-bold text-slate-800 dark:text-slate-100 leading-snug whitespace-pre-line break-words">
                     {mainAgentText}
                   </p>
+                  {hasDifferentTranslation && (
+                    <p className="text-[11px] text-slate-500 dark:text-slate-400 italic mt-1 pt-1 border-t border-indigo-200/60 dark:border-indigo-800/50 leading-snug break-words">
+                      &ldquo;{transClean}&rdquo;
+                    </p>
+                  )}
                 </div>
               </div>
             );

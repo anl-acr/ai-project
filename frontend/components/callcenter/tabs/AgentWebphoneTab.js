@@ -57,7 +57,7 @@ export default function AgentWebphoneTab({
   const canTransfer = callPanelPerms.canTransfer !== false;
   const canConference = callPanelPerms.canConference !== false;
   const canRejectCall = callPanelPerms.canRejectCall !== false;
-  const canLiveTranslate = Boolean(callPanelPerms.canLiveTranslate);
+  const canLiveTranslate = Boolean(callPanelPerms.canLiveTranslate || callPanelPerms.canViewTranscripts !== false);
   const canVoiceInterpret = Boolean(callPanelPerms.canVoiceInterpret);
   const hasAnyTranslatorPerm = canLiveTranslate || canVoiceInterpret;
   const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
@@ -67,7 +67,7 @@ export default function AgentWebphoneTab({
   const [transferTarget, setTransferTarget] = useState("");
   const [conferenceOpen, setConferenceOpen] = useState(false);
   const [conferenceTarget, setConferenceTarget] = useState("");
-  const [isTranslatorOpen, setIsTranslatorOpen] = useState(false);
+  const [isTranslatorOpen, setIsTranslatorOpen] = useState(true);
   const [newCallInput, setNewCallInput] = useState("");
   const [isNewCallOpen, setIsNewCallOpen] = useState(false);
 
