@@ -203,13 +203,10 @@ export default function CallChatWidget({
     }
   }, [backendHost, currentUser]);
 
-  // Request Desktop Notification permission on first user interaction if still "default"
+  // Request and test Desktop Notification permission with user gesture
   const requestDesktopNotificationPermission = async () => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    try {
-      const perm = await Notification.requestPermission();
-      setNotifPermission(perm);
-    } catch (e) {}
+    const perm = await webphoneManager.requestAndTestDesktopNotification();
+    if (perm) setNotifPermission(perm);
   };
 
   useEffect(() => {
@@ -379,43 +376,9 @@ export default function CallChatWidget({
     ? `${callerDisplayName} (${displayCallerNum || callerNum})`
     : displayCallerNum || callerNum || "Bilinmeyen Numara";
 
-  // Native OS Desktop Notification for Incoming Calls (Ringing)
-  useEffect(() => {
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-
-    if (callStatus === "Ringing") {
-      if (Notification.permission === "granted") {
-        try {
-          if (activeDesktopNotifRef.current) {
-            activeDesktopNotifRef.current.close();
-          }
-          const notif = new Notification(`📞 Gelen Çağrı: ${callerDisplayName || displayCallerNum || "Bilinmeyen"}`, {
-            body: `${
-              callerDisplayName && displayCallerNum ? `Numara: ${displayCallerNum}\n` : ""
-            }Dahili ${agentExtension} hattınıza çağrı geliyor. Pencereyi öne getirmek için tıklayın.`,
-            tag: "aida-incoming-call",
-            requireInteraction: true
-          });
-          notif.onclick = () => {
-            try {
-              window.focus();
-              setIsOpen(true);
-              window.dispatchEvent(new CustomEvent("OPEN_FULL_WEBPHONE"));
-              notif.close();
-            } catch (e) {}
-          };
-          activeDesktopNotifRef.current = notif;
-        } catch (e) {}
-      }
-    } else {
-      if (activeDesktopNotifRef.current) {
-        try {
-          activeDesktopNotifRef.current.close();
-        } catch (e) {}
-        activeDesktopNotifRef.current = null;
-      }
-    }
-  }, [callStatus, callerDisplayName, displayCallerNum, agentExtension]);
+  // Note: Native OS Desktop Notification for Incoming Calls is handled directly in
+  // webphoneManager.handleIncomingInvite() with a unique per-call tag so React state
+  // re-renders never prematurely close the OS notification banner.
 
   // Flashing Tab Title & Dynamic Favicon for Ringing / Calling / InCall
   useEffect(() => {
@@ -866,24 +829,22 @@ export default function CallChatWidget({
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
-              {notifPermission === "default" && (
-                <button
-                  type="button"
-                  onClick={requestDesktopNotificationPermission}
-                  className="p-1.5 text-white/85 hover:text-white rounded-xl hover:bg-white/15 transition-colors"
-                  title="Masaüstü Çağrı Bildirimlerini Etkinleştir"
-                >
-                  <Bell size={14} />
-                </button>
-              )}
-              {notifPermission === "granted" && (
-                <span
-                  className="p-1.5 text-emerald-200/90"
-                  title="Masaüstü Çağrı Bildirimleri Açık"
-                >
-                  <BellRing size={13} />
-                </span>
-              )}
+              <button
+                type="button"
+                onClick={requestDesktopNotificationPermission}
+                className={`p-1.5 rounded-xl transition-colors ${
+                  notifPermission === "granted"
+                    ? "text-emerald-200/95 hover:text-white hover:bg-white/15"
+                    : "text-amber-200 hover:text-white bg-white/15 hover:bg-white/25 animate-pulse"
+                }`}
+                title={
+                  notifPermission === "granted"
+                    ? "Masaüstü Çağrı Bildirimleri Açık (Test etmek için tıklayın)"
+                    : "Masaüstü Çağrı Bildirimlerini Etkinleştirmek İçin Tıklayın"
+                }
+              >
+                {notifPermission === "granted" ? <BellRing size={13} /> : <Bell size={14} />}
+              </button>
               <button
                 type="button"
                 onClick={handleOpenFullScreenWebphone}

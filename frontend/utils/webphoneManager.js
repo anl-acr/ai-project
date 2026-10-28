@@ -748,6 +748,7 @@ class WebphoneManager {
         const selectedRingtone = localStorage.getItem("ringtone") || "classic";
         const ringtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || null;
         playRingtoneSound(selectedRingtone, ringtoneSpeaker);
+        this.triggerIncomingDesktopNotification(lineObj, myExt);
         window.dispatchEvent(new CustomEvent("INCOMING_WEBPHONE_CALL", { detail: callerNum }));
       }
     }
@@ -758,6 +759,7 @@ class WebphoneManager {
 
       if (state === SIP.SessionState.Established) {
         stopRingtoneSound();
+        this.closeLineDesktopNotification(currentLine);
         // Put other active lines on hold when this incoming call is answered
         for (const other of this.linesMap.values()) {
           if (other.id !== lineId && other.callStatus === "InCall") {
@@ -779,6 +781,7 @@ class WebphoneManager {
         });
       } else if (state === SIP.SessionState.Terminated) {
         stopRingtoneSound();
+        this.closeLineDesktopNotification(currentLine);
         const durSec = currentLine.establishedAt
           ? Math.max(0, Math.round((Date.now() - currentLine.establishedAt) / 1000))
           : currentLine.callDuration || 0;
@@ -798,6 +801,93 @@ class WebphoneManager {
         this.applyAllLinesAudioState();
       }
     });
+  }
+
+  closeLineDesktopNotification(lineObj) {
+    if (lineObj && lineObj.desktopNotification) {
+      try {
+        lineObj.desktopNotification.close();
+      } catch (e) {}
+      lineObj.desktopNotification = null;
+    }
+  }
+
+  triggerIncomingDesktopNotification(lineObj, myExt = "") {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+
+    const callerLabel =
+      lineObj.remoteDisplayName && lineObj.remoteDisplayName !== lineObj.remoteNumber
+        ? `${lineObj.remoteDisplayName} (${lineObj.remoteNumber})`
+        : lineObj.remoteNumber || "Bilinmeyen Numara";
+    const title = `📞 Gelen Çağrı: ${callerLabel}`;
+    const body = `Dahili ${myExt || this.state.webrtcConfig?.agentExtension || ""} hattınıza çağrı geliyor. Pencereyi öne getirmek için tıklayın.`;
+    const uniqueTag = `aida-call-${lineObj.id}-${Date.now()}`;
+
+    try {
+      const notif = new Notification(title, {
+        body,
+        tag: uniqueTag,
+        requireInteraction: true,
+        silent: false
+      });
+      notif.onclick = () => {
+        try {
+          window.focus();
+          window.dispatchEvent(new CustomEvent("OPEN_FULL_WEBPHONE"));
+          notif.close();
+        } catch (e) {}
+      };
+      lineObj.desktopNotification = notif;
+    } catch (err) {
+      if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready
+          .then((reg) =>
+            reg.showNotification(title, {
+              body,
+              tag: uniqueTag,
+              requireInteraction: true
+            })
+          )
+          .catch(() => {});
+      }
+    }
+  }
+
+  async requestAndTestDesktopNotification() {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      this.showNotification("Tarayıcınız masaüstü bildirimlerini desteklemiyor.", "error");
+      return "unsupported";
+    }
+    let perm = Notification.permission;
+    if (perm === "default") {
+      try {
+        perm = await Notification.requestPermission();
+      } catch (e) {}
+    }
+    if (perm === "granted") {
+      try {
+        const n = new Notification("🔔 AIDA Masaüstü Bildirimi Aktif", {
+          body: "Farklı bir sekmede veya uygulamada olduğunuzda gelen çağrılar bu şekilde ekranda belirecektir.",
+          tag: `aida-test-${Date.now()}`
+        });
+        n.onclick = () => {
+          try {
+            window.focus();
+            n.close();
+          } catch (e) {}
+        };
+        this.showNotification("Masaüstü bildirimi gönderildi! Sağ üst/alt köşeyi kontrol edin.", "info");
+      } catch (e) {
+        this.showNotification("Bildirim oluşturulamadı: " + (e.message || ""), "error");
+      }
+    } else if (perm === "denied") {
+      this.showNotification(
+        "Tarayıcı bildirim izni engellenmiş. Adres çubuğundaki kilit (🔒) ikonundan 'Bildirimler -> İzin Ver' seçin.",
+        "error"
+      );
+    }
+    return perm;
   }
 
   createSilentFallbackAudioStream() {
