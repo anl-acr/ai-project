@@ -5655,6 +5655,37 @@ async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get
         print(f"[WebRTC Unregister Notify] Extension {ext} (User ID: {matched_user_id}) unregistered & offline.")
     return {"status": "success"}
 
+def _is_user_in_any_queue(uid_str: Optional[str], ext_str: Optional[str], queues_list: list) -> bool:
+    target_keys = {str(v).strip() for v in (uid_str, ext_str) if v and str(v).strip() not in ("undefined", "null", "")}
+    if not target_keys:
+        return False
+    for q in (queues_list or []):
+        if not isinstance(q, dict):
+            continue
+        raw_members = q.get("queueMembers") if q.get("queueMembers") is not None else q.get("members")
+        if isinstance(raw_members, str):
+            try:
+                raw_members = json.loads(raw_members)
+            except Exception:
+                raw_members = []
+        if not isinstance(raw_members, list):
+            continue
+        for m in raw_members:
+            if isinstance(m, dict):
+                m_vals = {
+                    str(m.get("user_id") or "").strip(),
+                    str(m.get("extension") or "").strip(),
+                    str(m.get("id") or "").strip()
+                }
+                m_vals.discard("")
+                if target_keys & m_vals:
+                    return True
+            else:
+                m_val = str(m or "").strip()
+                if m_val and m_val in target_keys:
+                    return True
+    return False
+
 @app.get("/api/agent/status")
 @app.get("/agent/status")
 async def get_agent_status_endpoint(
@@ -5663,7 +5694,7 @@ async def get_agent_status_endpoint(
     db: AsyncSession = Depends(get_db)
 ):
     from backend.services.agent_presence import get_agent_state, update_agent_state, is_auto_break_name, AUTO_BREAK_DEFAULT_COLOR
-    from backend.database.models import AgentBreakLog
+    from backend.database.models import AgentBreakLog, PBXQueue
     from sqlalchemy import select, or_
 
     uid_str = str(user_id).strip() if user_id and str(user_id).strip() not in ("undefined", "null", "") else None
@@ -5690,6 +5721,26 @@ async def get_agent_status_endpoint(
                 target_vals.add(u_ext)
                 if not ext_str:
                     ext_str = u_ext
+
+    # Verify queue membership: if the user is not in any queue, they cannot be logged in to a queue session
+    try:
+        res_q_check = await db.execute(select(PBXQueue))
+        db_queues_check = res_q_check.scalars().all()
+        queues_check_list = [{c.name: getattr(q, c.name) for c in q.__table__.columns} for q in db_queues_check]
+    except Exception:
+        queues_check_list = settings.get("queues", [])
+    if not queues_check_list:
+        queues_check_list = settings.get("queues", [])
+
+    if not _is_user_in_any_queue(uid_str, ext_str, queues_check_list):
+        st_no_q = update_agent_state(
+            is_logged_in=False,
+            status="offline",
+            current_break=None,
+            user_id=uid_str,
+            extension=ext_str
+        )
+        return st_no_q
 
     mem_state = get_agent_state(user_id=uid_str, extension=ext_str)
     if mem_state and mem_state.get("status_since_utc") and not mem_state.get("is_logged_in"):
@@ -5828,6 +5879,23 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
 
     if not ext_str and user_id_str and user_id_str.isdigit() and len(user_id_str) <= 5:
         ext_str = user_id_str
+
+    # Enforce Queue Membership before allowing login
+    if payload.is_logged_in:
+        try:
+            res_q_login = await db.execute(select(PBXQueue))
+            db_queues_login = res_q_login.scalars().all()
+            queues_login_list = [{c.name: getattr(q, c.name) for c in q.__table__.columns} for q in db_queues_login]
+        except Exception:
+            queues_login_list = settings.get("queues", [])
+        if not queues_login_list:
+            queues_login_list = settings.get("queues", [])
+
+        if not _is_user_in_any_queue(user_id_str, ext_str, queues_login_list):
+            raise HTTPException(
+                status_code=400,
+                detail="Herhangi bir çağrı kuyruğuna üye olmadığınız için oturum açamazsınız. Lütfen yöneticinizle iletişime geçiniz."
+            )
 
     now_utc = datetime.datetime.utcnow()
     now_tr = now_utc + datetime.timedelta(hours=3)

@@ -64,10 +64,27 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     const uid = String(currentUser?.id || agentState?.user_id || "").trim();
     const safeQueues = Array.isArray(queues) ? queues : [];
     const myQueues = safeQueues.filter((q) => {
-      const members = q.queueMembers || q.members || [];
+      let members = q.queueMembers || q.members || [];
+      if (typeof members === "string") {
+        try {
+          members = JSON.parse(members);
+        } catch (e) {
+          members = [];
+        }
+      }
+      if (!Array.isArray(members)) return false;
       return members.some((m) => {
-        const mExt = typeof m === "object" ? String(m.extension || m.user_id || m.id || "").trim() : String(m).trim();
-        return (ext && mExt === ext) || (uid && mExt === uid);
+        if (m && typeof m === "object") {
+          const mExt = String(m.extension || "").trim();
+          const mUid = String(m.user_id || "").trim();
+          const mId = String(m.id || "").trim();
+          return (
+            (ext && (mExt === ext || mUid === ext || mId === ext)) ||
+            (uid && (mUid === uid || mExt === uid || mId === uid))
+          );
+        }
+        const mStr = String(m || "").trim();
+        return (ext && mStr === ext) || (uid && mStr === uid);
       });
     });
 
@@ -87,6 +104,8 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
     });
 
     return {
+      myQueues,
+      isQueueMember: myQueues.length > 0,
       acwTime,
       dispositionCodes: dispSet.size > 0 ? Array.from(dispSet) : DEFAULT_DISPOSITIONS
     };
@@ -285,6 +304,11 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
   const handleLogin = () => {
     if (!currentUser) return;
+    const { isQueueMember } = getAgentQueueConfig();
+    if (Array.isArray(queues) && queues.length > 0 && !isQueueMember) {
+      setBreakError("Herhangi bir çağrı kuyruğuna üye olmadığınız için oturum açamazsınız. Lütfen yöneticinizle iletişime geçiniz.");
+      return;
+    }
     const newState = {
       is_logged_in: true,
       status: "online",
