@@ -108,14 +108,21 @@ os.makedirs(RECORDINGS_DIR, exist_ok=True)
 
 @app.get("/api/recordings/{filename}")
 async def get_recording_file(filename: str):
-    """Dynamically serves call audio recording files from project recordings directory, Asterisk spool directory, or NAS storage."""
+    """Dynamically serves call audio recording files from project recordings directory, Asterisk spool directory, or configured external NAS/File Server storage."""
     safe_name = os.path.basename(filename)
     call_id_part = os.path.splitext(safe_name)[0]
+    ret_cfg = settings_db.get("recording_retention") or {}
+    custom_ext_dir = str(ret_cfg.get("external_mount_path") or "/mnt/nas/ai-recordings").strip() or "/mnt/nas/ai-recordings"
+    sub_remote = str(ret_cfg.get("external_remote_path") or "").strip().strip("/")
+    ext_candidates = [custom_ext_dir, "/mnt/nas/ai-recordings", "/mnt/nas/smb-recordings"]
+    if sub_remote:
+        ext_candidates.insert(0, os.path.join(custom_ext_dir, sub_remote))
+
     try:
         async with AsyncSessionLocal() as session:
             db_call = await session.get(Call, call_id_part)
             if db_call and str(db_call.recording_path or "") in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
-                for _cand_dir in (RECORDINGS_DIR, "/var/spool/asterisk/monitor", "/mnt/nas/ai-recordings"):
+                for _cand_dir in [RECORDINGS_DIR, "/var/spool/asterisk/monitor"] + ext_candidates:
                     _cand_fp = os.path.join(_cand_dir, safe_name)
                     if os.path.exists(_cand_fp):
                         try:
@@ -132,8 +139,14 @@ async def get_recording_file(filename: str):
     project_rec = os.path.join(RECORDINGS_DIR, safe_name)
     if os.path.exists(project_rec) and os.path.getsize(project_rec) > 0:
         return FileResponse(project_rec, media_type="audio/wav")
-        
-    # 2. Check Asterisk spool monitor directory
+
+    # 2. Check configured external NAS / File Server directories
+    for ext_dir in ext_candidates:
+        nas_rec = os.path.join(ext_dir, safe_name)
+        if os.path.exists(nas_rec) and os.path.getsize(nas_rec) > 0:
+            return FileResponse(nas_rec, media_type="audio/wav")
+
+    # 3. Check Asterisk spool monitor directory
     spool_rec = os.path.join("/var/spool/asterisk/monitor", safe_name)
     if os.path.exists(spool_rec) and os.path.getsize(spool_rec) > 0:
         try:
@@ -141,13 +154,16 @@ async def get_recording_file(filename: str):
         except Exception as e:
             print(f"[Recording Auto-Copy Error]: {e}")
         return FileResponse(spool_rec, media_type="audio/wav")
-        
-    # 3. Check NAS mount directory
-    nas_dir = "/mnt/nas/ai-recordings"
-    nas_rec = os.path.join(nas_dir, safe_name)
-    if os.path.exists(nas_rec) and os.path.getsize(nas_rec) > 0:
-        return FileResponse(nas_rec, media_type="audio/wav")
-        
+
+    # 4. If SFTP external storage is enabled, attempt on-demand fetch from remote SFTP server
+    if ret_cfg.get("external_storage_enabled") and str(ret_cfg.get("external_storage_type") or "") == "sftp":
+        try:
+            fetched_fp = await asyncio.to_thread(_fetch_recording_from_sftp_sync, safe_name, ret_cfg)
+            if fetched_fp and os.path.exists(fetched_fp) and os.path.getsize(fetched_fp) > 0:
+                return FileResponse(fetched_fp, media_type="audio/wav")
+        except Exception as sftp_err:
+            print(f"[Recording SFTP Fetch Error]: {sftp_err}")
+
     raise HTTPException(status_code=404, detail="Ses kaydı dosyası sunucuda bulunamadı.")
 
 os.makedirs("uploads/announcements", exist_ok=True)
@@ -1143,7 +1159,18 @@ DEFAULT_SETTINGS = {
             "görüşmeyi kaydet"
         ],
         "keep_if_no_transcript": True,
-        "keep_transcript_on_delete": True
+        "keep_transcript_on_delete": True,
+        "external_storage_enabled": False,
+        "external_storage_mode": "move",
+        "external_storage_type": "mount_path",
+        "external_mount_path": "/mnt/nas/ai-recordings",
+        "external_host": "",
+        "external_port": 22,
+        "external_share_name": "",
+        "external_remote_path": "/recordings",
+        "external_username": "",
+        "external_password": "",
+        "external_domain": "WORKGROUP"
     },
     "security_geo": {
         "allowed_countries": ["TR"]
@@ -3921,6 +3948,17 @@ class RecordingRetentionSettingsSchema(BaseModel):
     ]
     keep_if_no_transcript: Optional[bool] = True
     keep_transcript_on_delete: Optional[bool] = True
+    external_storage_enabled: Optional[bool] = False
+    external_storage_mode: Optional[str] = "move"
+    external_storage_type: Optional[str] = "mount_path"
+    external_mount_path: Optional[str] = "/mnt/nas/ai-recordings"
+    external_host: Optional[str] = ""
+    external_port: Optional[int] = 22
+    external_share_name: Optional[str] = ""
+    external_remote_path: Optional[str] = "/recordings"
+    external_username: Optional[str] = ""
+    external_password: Optional[str] = ""
+    external_domain: Optional[str] = "WORKGROUP"
 
 
 def get_effective_recording_retention_settings() -> dict:
@@ -3941,13 +3979,626 @@ def get_effective_recording_retention_settings() -> dict:
         merged["dynamic_speaker"] = "both"
     merged["keep_if_no_transcript"] = bool(merged.get("keep_if_no_transcript", True))
     merged["keep_transcript_on_delete"] = bool(merged.get("keep_transcript_on_delete", True))
+    merged["external_storage_enabled"] = bool(merged.get("external_storage_enabled", False))
+    merged["external_storage_mode"] = str(merged.get("external_storage_mode") or "move").strip()
+    if merged["external_storage_mode"] not in ("move", "mirror"):
+        merged["external_storage_mode"] = "move"
+    merged["external_storage_type"] = str(merged.get("external_storage_type") or "mount_path").strip()
+    if merged["external_storage_type"] not in ("mount_path", "smb", "sftp"):
+        merged["external_storage_type"] = "mount_path"
+    merged["external_mount_path"] = str(merged.get("external_mount_path") or "/mnt/nas/ai-recordings").strip() or "/mnt/nas/ai-recordings"
+    merged["external_host"] = str(merged.get("external_host") or "").strip()
+    try:
+        merged["external_port"] = int(merged.get("external_port") or 22)
+    except Exception:
+        merged["external_port"] = 22
+    merged["external_share_name"] = str(merged.get("external_share_name") or "").strip().strip("/\\")
+    merged["external_remote_path"] = str(merged.get("external_remote_path") or "/recordings").strip()
+    merged["external_username"] = str(merged.get("external_username") or "").strip()
+    merged["external_password"] = str(merged.get("external_password") or "")
+    merged["external_domain"] = str(merged.get("external_domain") or "WORKGROUP").strip() or "WORKGROUP"
     return merged
+
+
+def _build_ssh_cmd_prefix(cfg: dict) -> list[str]:
+    port = int(cfg.get("external_port") or 22)
+    pwd = str(cfg.get("external_password") or "")
+    base_opts = [
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=5",
+    ]
+    if pwd and shutil.which("sshpass"):
+        return ["sshpass", "-p", pwd, "ssh", "-p", str(port)] + base_opts
+    return ["ssh", "-p", str(port), "-o", "BatchMode=yes"] + base_opts
+
+
+def _build_scp_cmd_prefix(cfg: dict) -> list[str]:
+    port = int(cfg.get("external_port") or 22)
+    pwd = str(cfg.get("external_password") or "")
+    base_opts = [
+        "-P", str(port),
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "ConnectTimeout=5",
+    ]
+    if pwd and shutil.which("sshpass"):
+        return ["sshpass", "-p", pwd, "scp"] + base_opts
+    return ["scp", "-o", "BatchMode=yes"] + base_opts
+
+
+def _fetch_recording_from_sftp_sync(safe_name: str, cfg: dict) -> Optional[str]:
+    host = str(cfg.get("external_host") or "").strip()
+    user = str(cfg.get("external_username") or "root").strip() or "root"
+    remote_dir = str(cfg.get("external_remote_path") or "/recordings").strip().rstrip("/") or "/recordings"
+    if not host:
+        return None
+    os.makedirs(RECORDINGS_DIR, exist_ok=True)
+    local_dest = os.path.join(RECORDINGS_DIR, safe_name)
+    remote_file = f"{remote_dir}/{safe_name}"
+    try:
+        import paramiko
+        port = int(cfg.get("external_port") or 22)
+        pwd = str(cfg.get("external_password") or "")
+        transport = paramiko.Transport((host, port))
+        transport.connect(username=user, password=pwd)
+        sftp = paramiko.SFTPClient.from_transport(transport)
+        try:
+            sftp.get(remote_file, local_dest)
+        finally:
+            sftp.close()
+            transport.close()
+        if os.path.exists(local_dest) and os.path.getsize(local_dest) > 44:
+            return local_dest
+    except ImportError:
+        pass
+    except Exception as e_pm:
+        print(f"[SFTP Paramiko Fetch Warning]: {e_pm}")
+
+    try:
+        cmd = _build_scp_cmd_prefix(cfg) + [f"{user}@{host}:{remote_file}", local_dest]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        if res.returncode == 0 and os.path.exists(local_dest) and os.path.getsize(local_dest) > 44:
+            return local_dest
+    except Exception as e_scp:
+        print(f"[SFTP SCP Fetch Warning]: {e_scp}")
+    return None
+
+
+def _ensure_external_storage_target_sync(cfg: dict, auto_mount: bool = True) -> tuple[Optional[str], Optional[str]]:
+    """
+    Resolves and prepares the local filesystem directory for `mount_path` or `smb` external storage types.
+    Returns (target_dir, error_message).
+    """
+    st_type = str(cfg.get("external_storage_type") or "mount_path").strip()
+    mount_path = str(cfg.get("external_mount_path") or "/mnt/nas/ai-recordings").strip() or "/mnt/nas/ai-recordings"
+
+    if st_type == "mount_path":
+        try:
+            os.makedirs(mount_path, exist_ok=True)
+            return mount_path, None
+        except Exception as err:
+            return None, f"Hedef dizin oluşturulamadı veya erişilemiyor ({mount_path}): {err}"
+
+    if st_type == "smb":
+        host = str(cfg.get("external_host") or "").strip()
+        share = str(cfg.get("external_share_name") or "").strip().strip("/\\")
+        sub_dir = str(cfg.get("external_remote_path") or "").strip().strip("/\\")
+        user = str(cfg.get("external_username") or "").strip()
+        pwd = str(cfg.get("external_password") or "")
+        domain = str(cfg.get("external_domain") or "WORKGROUP").strip() or "WORKGROUP"
+
+        try:
+            os.makedirs(mount_path, exist_ok=True)
+        except Exception as m_err:
+            return None, f"SMB bağlama noktası oluşturulamadı ({mount_path}): {m_err}"
+
+        if auto_mount and host and share and not os.path.ismount(mount_path):
+            unc_path = f"//{host}/{share}"
+            opts_base = []
+            if user:
+                opts_base.append(f"username={user}")
+                opts_base.append(f"password={pwd}")
+                if domain:
+                    opts_base.append(f"domain={domain}")
+            else:
+                opts_base.append("guest")
+            opts_base.extend(["rw", "noperm"])
+
+            mount_err_msg = None
+            for vers in ("3.0", "2.1", "2.0"):
+                opts_str = ",".join(opts_base + [f"vers={vers}"])
+                try:
+                    res = subprocess.run(
+                        ["mount", "-t", "cifs", unc_path, mount_path, "-o", opts_str],
+                        capture_output=True,
+                        text=True,
+                        timeout=6,
+                    )
+                    if res.returncode == 0 or os.path.ismount(mount_path):
+                        mount_err_msg = None
+                        break
+                    mount_err_msg = (res.stderr or res.stdout or "").strip()
+                except Exception as sub_err:
+                    mount_err_msg = str(sub_err)
+
+            if mount_err_msg and not os.path.ismount(mount_path):
+                # If already writable as a pre-mounted directory, allow fallback; otherwise report mount error
+                if not os.access(mount_path, os.W_OK):
+                    return None, f"SMB/CIFS paylaşımı bağlanamadı ({unc_path} -> {mount_path}): {mount_err_msg}"
+
+        target_dir = os.path.join(mount_path, sub_dir) if sub_dir else mount_path
+        try:
+            os.makedirs(target_dir, exist_ok=True)
+            return target_dir, None
+        except Exception as sub_e:
+            return None, f"SMB alt klasörü oluşturulamadı ({target_dir}): {sub_e}"
+
+    return None, f"Bilinmeyen depolama türü: {st_type}"
+
+
+def _compute_directory_storage_metrics_sync(target_dir: str, label: str = "Disk", check_write: bool = False) -> dict:
+    import time
+    t0 = time.perf_counter()
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except Exception as mk_err:
+        return {
+            "online": False,
+            "writable": False,
+            "label": label,
+            "path": target_dir,
+            "total_bytes": 0,
+            "used_bytes": 0,
+            "free_bytes": 0,
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "free_gb": 0.0,
+            "percent_used": 0.0,
+            "percent_free": 0.0,
+            "estimated_hours_remaining": 0,
+            "recordings_count": 0,
+            "recordings_size_mb": 0.0,
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 2),
+            "status_message": f"Dizin erişilemiyor: {mk_err}",
+        }
+
+    try:
+        total, used, free = shutil.disk_usage(target_dir)
+    except Exception as du_err:
+        return {
+            "online": False,
+            "writable": False,
+            "label": label,
+            "path": target_dir,
+            "total_bytes": 0,
+            "used_bytes": 0,
+            "free_bytes": 0,
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "free_gb": 0.0,
+            "percent_used": 0.0,
+            "percent_free": 0.0,
+            "estimated_hours_remaining": 0,
+            "recordings_count": 0,
+            "recordings_size_mb": 0.0,
+            "latency_ms": round((time.perf_counter() - t0) * 1000, 2),
+            "status_message": f"Disk kapasitesi okunamadı: {du_err}",
+        }
+
+    writable = False
+    write_err = None
+    if check_write:
+        probe_fp = os.path.join(target_dir, f".aida_write_probe_{uuid.uuid4().hex[:8]}.tmp")
+        try:
+            with open(probe_fp, "wb") as pf:
+                pf.write(b"AIDA_NAS_STORAGE_OK")
+                pf.flush()
+            with open(probe_fp, "rb") as pf:
+                read_back = pf.read()
+            writable = (read_back == b"AIDA_NAS_STORAGE_OK")
+        except Exception as w_err:
+            writable = False
+            write_err = str(w_err)
+        finally:
+            if os.path.exists(probe_fp):
+                try:
+                    os.remove(probe_fp)
+                except Exception:
+                    pass
+    else:
+        writable = os.access(target_dir, os.W_OK)
+
+    wav_count = 0
+    wav_bytes = 0
+    try:
+        for entry in os.scandir(target_dir):
+            if entry.is_file() and entry.name.endswith(".wav"):
+                wav_count += 1
+                try:
+                    wav_bytes += entry.stat().st_size
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    pct_used = round((used / total) * 100, 1) if total > 0 else 0.0
+    pct_free = round(max(0.0, 100.0 - pct_used), 1)
+    # 8kHz 16-bit mono WAV = 16,000 bytes/sec = 57,600,000 bytes/hour
+    est_hours = int(free // 57_600_000) if free > 0 else 0
+    latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+
+    return {
+        "online": True,
+        "writable": writable,
+        "label": label,
+        "path": target_dir,
+        "total_bytes": int(total),
+        "used_bytes": int(used),
+        "free_bytes": int(free),
+        "total_gb": round(total / (1024 ** 3), 2),
+        "used_gb": round(used / (1024 ** 3), 2),
+        "free_gb": round(free / (1024 ** 3), 2),
+        "percent_used": pct_used,
+        "percent_free": pct_free,
+        "estimated_hours_remaining": est_hours,
+        "recordings_count": wav_count,
+        "recordings_size_mb": round(wav_bytes / (1024 ** 2), 2),
+        "latency_ms": latency_ms,
+        "status_message": (
+            f"Bağlı ve Yazılabilir ({latency_ms} ms)"
+            if writable
+            else f"Salt Okunur / Yazma İzni Yok ({write_err or target_dir})"
+        ),
+    }
+
+
+def _compute_sftp_storage_metrics_sync(cfg: dict, check_write: bool = False) -> dict:
+    import time
+    t0 = time.perf_counter()
+    host = str(cfg.get("external_host") or "").strip()
+    port = int(cfg.get("external_port") or 22)
+    user = str(cfg.get("external_username") or "root").strip() or "root"
+    remote_dir = str(cfg.get("external_remote_path") or "/recordings").strip().rstrip("/") or "/recordings"
+    display_path = f"sftp://{user}@{host}:{port}{remote_dir}"
+
+    if not host:
+        return {
+            "online": False,
+            "writable": False,
+            "label": "SFTP Dosya Sunucusu",
+            "path": display_path,
+            "total_bytes": 0,
+            "used_bytes": 0,
+            "free_bytes": 0,
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "free_gb": 0.0,
+            "percent_used": 0.0,
+            "percent_free": 0.0,
+            "estimated_hours_remaining": 0,
+            "recordings_count": 0,
+            "recordings_size_mb": 0.0,
+            "latency_ms": 0.0,
+            "status_message": "SFTP sunucu IP/Host adresi girilmedi.",
+        }
+
+    remote_script = (
+        f"mkdir -p '{remote_dir}' 2>/dev/null; "
+        f"df -Pk '{remote_dir}' | tail -n 1; "
+        f"ls -1 '{remote_dir}'/*.wav 2>/dev/null | wc -l; "
+    )
+    if check_write:
+        probe_name = f".aida_probe_{uuid.uuid4().hex[:6]}.tmp"
+        remote_script += (
+            f"echo AIDA_OK > '{remote_dir}/{probe_name}' 2>/dev/null && "
+            f"rm -f '{remote_dir}/{probe_name}' && echo WRITE_OK || echo WRITE_FAIL"
+        )
+    else:
+        remote_script += f"test -w '{remote_dir}' && echo WRITE_OK || echo WRITE_FAIL"
+
+    try:
+        cmd = _build_ssh_cmd_prefix(cfg) + [f"{user}@{host}", remote_script]
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=8)
+        latency_ms = round((time.perf_counter() - t0) * 1000, 2)
+        if res.returncode != 0:
+            err_txt = (res.stderr or res.stdout or "SSH bağlantı hatası").strip()
+            return {
+                "online": False,
+                "writable": False,
+                "label": "SFTP Dosya Sunucusu",
+                "path": display_path,
+                "total_bytes": 0,
+                "used_bytes": 0,
+                "free_bytes": 0,
+                "total_gb": 0.0,
+                "used_gb": 0.0,
+                "free_gb": 0.0,
+                "percent_used": 0.0,
+                "percent_free": 0.0,
+                "estimated_hours_remaining": 0,
+                "recordings_count": 0,
+                "recordings_size_mb": 0.0,
+                "latency_ms": latency_ms,
+                "status_message": f"SFTP sunucusuna bağlanılamadı: {err_txt[:140]}",
+            }
+
+        lines = [ln.strip() for ln in (res.stdout or "").splitlines() if ln.strip()]
+        df_line = lines[0] if len(lines) >= 1 else ""
+        wav_cnt_str = lines[1] if len(lines) >= 2 else "0"
+        write_flag_str = lines[-1] if lines else ""
+
+        parts = df_line.split()
+        # POSIX df -Pk columns: Filesystem 1024-blocks Used Available Capacity Mounted_on
+        total_kb = int(parts[1]) if len(parts) >= 4 and parts[1].isdigit() else 0
+        used_kb = int(parts[2]) if len(parts) >= 4 and parts[2].isdigit() else 0
+        avail_kb = int(parts[3]) if len(parts) >= 4 and parts[3].isdigit() else 0
+
+        total_b = total_kb * 1024
+        used_b = used_kb * 1024
+        free_b = avail_kb * 1024
+        pct_used = round((used_b / total_b) * 100, 1) if total_b > 0 else 0.0
+        pct_free = round(max(0.0, 100.0 - pct_used), 1)
+        est_hours = int(free_b // 57_600_000) if free_b > 0 else 0
+        wav_count = int(re.sub(r"\D", "", wav_cnt_str) or "0")
+        writable = ("WRITE_OK" in write_flag_str)
+
+        return {
+            "online": True,
+            "writable": writable,
+            "label": "SFTP Dosya Sunucusu",
+            "path": display_path,
+            "total_bytes": total_b,
+            "used_bytes": used_b,
+            "free_bytes": free_b,
+            "total_gb": round(total_b / (1024 ** 3), 2),
+            "used_gb": round(used_b / (1024 ** 3), 2),
+            "free_gb": round(free_b / (1024 ** 3), 2),
+            "percent_used": pct_used,
+            "percent_free": pct_free,
+            "estimated_hours_remaining": est_hours,
+            "recordings_count": wav_count,
+            "recordings_size_mb": round((wav_count * 1.2), 2),
+            "latency_ms": latency_ms,
+            "status_message": (
+                f"SFTP Bağlı ve Yazılabilir ({latency_ms} ms)"
+                if writable
+                else f"SFTP Bağlı ancak hedef klasöre yazma yetkisi yok ({remote_dir})"
+            ),
+        }
+    except Exception as sftp_err:
+        return {
+            "online": False,
+            "writable": False,
+            "label": "SFTP Dosya Sunucusu",
+            "path": display_path,
+            "total_bytes": 0,
+            "used_bytes": 0,
+            "free_bytes": 0,
+            "total_gb": 0.0,
+            "used_gb": 0.0,
+            "free_gb": 0.0,
+            "percent_used": 0.0,
+            "percent_free": 0.0,
+            "estimated_hours_remaining": 0,
+            "recordings_count": 0,
+            "recordings_size_mb": 0.0,
+            "latency_ms": 0.0,
+            "status_message": f"SFTP bağlantı hatası: {sftp_err}",
+        }
+
+
+def get_storage_status_snapshot_sync(cfg_override: Optional[dict] = None, check_write: bool = False) -> dict:
+    cfg = cfg_override if isinstance(cfg_override, dict) else get_effective_recording_retention_settings()
+    local_metrics = _compute_directory_storage_metrics_sync(RECORDINGS_DIR, label="Yerel Sunucu Diski", check_write=False)
+
+    ext_enabled = bool(cfg.get("external_storage_enabled", False))
+    ext_type = str(cfg.get("external_storage_type") or "mount_path").strip()
+    ext_mode = str(cfg.get("external_storage_mode") or "move").strip()
+
+    if ext_type == "sftp":
+        ext_metrics = _compute_sftp_storage_metrics_sync(cfg, check_write=check_write)
+    else:
+        target_dir, err_msg = _ensure_external_storage_target_sync(cfg, auto_mount=check_write or ext_enabled)
+        if target_dir:
+            lbl = "SMB / NAS Paylaşımı" if ext_type == "smb" else "Harici NAS / Disk Dizini"
+            ext_metrics = _compute_directory_storage_metrics_sync(target_dir, label=lbl, check_write=check_write)
+        else:
+            raw_path = str(cfg.get("external_mount_path") or "/mnt/nas/ai-recordings")
+            ext_metrics = {
+                "online": False,
+                "writable": False,
+                "label": "Harici NAS / File Server",
+                "path": raw_path,
+                "total_bytes": 0,
+                "used_bytes": 0,
+                "free_bytes": 0,
+                "total_gb": 0.0,
+                "used_gb": 0.0,
+                "free_gb": 0.0,
+                "percent_used": 0.0,
+                "percent_free": 0.0,
+                "estimated_hours_remaining": 0,
+                "recordings_count": 0,
+                "recordings_size_mb": 0.0,
+                "latency_ms": 0.0,
+                "status_message": err_msg or "Harici depolama dizinine erişilemiyor.",
+            }
+
+    ext_metrics["enabled"] = ext_enabled
+    ext_metrics["storage_type"] = ext_type
+    ext_metrics["storage_mode"] = ext_mode
+
+    return {
+        "local_storage": local_metrics,
+        "external_storage": ext_metrics,
+    }
+
+
+def _transfer_recording_to_external_storage_sync(call_id: str, cfg: Optional[dict] = None) -> bool:
+    """
+    Transfers a call's .wav recording to the configured external NAS / File Server.
+    Verifies integrity before removing the local copy when `external_storage_mode == "move"`.
+    If external storage is unreachable, safely preserves the local copy (Zero-Loss Failover).
+    """
+    if not call_id:
+        return False
+    eff_cfg = cfg if isinstance(cfg, dict) else get_effective_recording_retention_settings()
+    if not eff_cfg.get("external_storage_enabled", False):
+        return False
+
+    safe_filename = f"{os.path.basename(str(call_id))}.wav"
+    local_src = os.path.join(RECORDINGS_DIR, safe_filename)
+    spool_src = os.path.join("/var/spool/asterisk/monitor", safe_filename)
+
+    src_fp = None
+    for cand in (local_src, spool_src):
+        if os.path.exists(cand) and os.path.getsize(cand) > 44:
+            src_fp = cand
+            break
+    if not src_fp:
+        return False
+
+    src_size = os.path.getsize(src_fp)
+    st_type = str(eff_cfg.get("external_storage_type") or "mount_path").strip()
+    st_mode = str(eff_cfg.get("external_storage_mode") or "move").strip()
+
+    transfer_ok = False
+
+    if st_type == "sftp":
+        host = str(eff_cfg.get("external_host") or "").strip()
+        user = str(eff_cfg.get("external_username") or "root").strip() or "root"
+        remote_dir = str(eff_cfg.get("external_remote_path") or "/recordings").strip().rstrip("/") or "/recordings"
+        if host:
+            try:
+                mk_cmd = _build_ssh_cmd_prefix(eff_cfg) + [f"{user}@{host}", f"mkdir -p '{remote_dir}'"]
+                subprocess.run(mk_cmd, capture_output=True, text=True, timeout=6)
+                scp_cmd = _build_scp_cmd_prefix(eff_cfg) + [src_fp, f"{user}@{host}:{remote_dir}/{safe_filename}"]
+                res = subprocess.run(scp_cmd, capture_output=True, text=True, timeout=15)
+                if res.returncode == 0:
+                    transfer_ok = True
+            except Exception as sftp_e:
+                print(f"[External Storage SFTP Transfer Error ({call_id})]: {sftp_e}")
+    else:
+        target_dir, err_msg = _ensure_external_storage_target_sync(eff_cfg, auto_mount=True)
+        if target_dir:
+            dest_fp = os.path.join(target_dir, safe_filename)
+            try:
+                if os.path.abspath(src_fp) != os.path.abspath(dest_fp):
+                    shutil.copy2(src_fp, dest_fp)
+                if os.path.exists(dest_fp) and os.path.getsize(dest_fp) >= src_size:
+                    transfer_ok = True
+            except Exception as cp_e:
+                print(f"[External Storage Copy Error ({call_id})]: {cp_e}")
+        else:
+            print(f"[External Storage Unavailable ({call_id})]: {err_msg}")
+
+    if transfer_ok:
+        if st_mode == "move":
+            # Only delete local copies AFTER verifying the external copy is 100% written
+            for loc_fp in (local_src, spool_src):
+                if os.path.exists(loc_fp):
+                    try:
+                        # Make sure we don't delete dest_fp if someone pointed external_mount_path to RECORDINGS_DIR
+                        if st_type != "sftp":
+                            t_dir, _ = _ensure_external_storage_target_sync(eff_cfg, auto_mount=False)
+                            if t_dir and os.path.abspath(loc_fp) == os.path.abspath(os.path.join(t_dir, safe_filename)):
+                                continue
+                        os.remove(loc_fp)
+                    except Exception:
+                        pass
+        print(f"[External Storage Sync OK] call_id={call_id} (mode={st_mode}, type={st_type})")
+        return True
+
+    print(f"[External Storage Failover] Kept local recording for call_id={call_id} in {RECORDINGS_DIR}")
+    return False
+
+
+def _sync_all_pending_local_recordings_to_external_sync(cfg: Optional[dict] = None) -> dict:
+    eff_cfg = cfg if isinstance(cfg, dict) else get_effective_recording_retention_settings()
+    synced = 0
+    failed = 0
+    checked = 0
+    if not os.path.exists(RECORDINGS_DIR):
+        return {"synced_count": 0, "failed_count": 0, "total_checked": 0}
+
+    for fname in os.listdir(RECORDINGS_DIR):
+        if not fname.endswith(".wav"):
+            continue
+        fp = os.path.join(RECORDINGS_DIR, fname)
+        if not os.path.isfile(fp) or os.path.getsize(fp) <= 44:
+            continue
+        checked += 1
+        cid = os.path.splitext(fname)[0]
+        ok = _transfer_recording_to_external_storage_sync(cid, eff_cfg)
+        if ok:
+            synced += 1
+        else:
+            failed += 1
+
+    return {"synced_count": synced, "failed_count": failed, "total_checked": checked}
 
 
 @app.get("/api/settings/recording-retention")
 @app.get("/settings/recording-retention")
 async def get_recording_retention_settings():
     return get_effective_recording_retention_settings()
+
+
+@app.get("/api/settings/recording-retention/storage-status")
+@app.get("/settings/recording-retention/storage-status")
+async def get_recording_storage_status_endpoint():
+    snapshot = await asyncio.to_thread(get_storage_status_snapshot_sync, None, False)
+    return snapshot
+
+
+@app.post("/api/settings/recording-retention/test-storage")
+@app.post("/settings/recording-retention/test-storage")
+async def test_recording_external_storage_endpoint(payload: dict = Body(default={})):
+    merged_cfg = get_effective_recording_retention_settings()
+    if isinstance(payload, dict):
+        for k, v in payload.items():
+            if v is not None:
+                merged_cfg[k] = v
+    merged_cfg["external_storage_enabled"] = True
+
+    snapshot = await asyncio.to_thread(get_storage_status_snapshot_sync, merged_cfg, True)
+    ext = snapshot.get("external_storage") or {}
+    if ext.get("online") and ext.get("writable"):
+        return {
+            "status": "success",
+            "message": (
+                f"Bağlantı ve yazma testi başarılı! "
+                f"Toplam: {ext.get('total_gb')} GB • Boş: {ext.get('free_gb')} GB (%{ext.get('percent_free')} boş) • "
+                f"Tahmini Kapasite: ~{ext.get('estimated_hours_remaining')} saat"
+            ),
+            "storage_status": snapshot,
+        }
+    return {
+        "status": "error",
+        "message": ext.get("status_message") or "Harici depolama alanına bağlanılamadı veya yazma izni yok.",
+        "storage_status": snapshot,
+    }
+
+
+@app.post("/api/settings/recording-retention/sync-now")
+@app.post("/settings/recording-retention/sync-now")
+async def sync_pending_recordings_to_external_endpoint():
+    eff_cfg = get_effective_recording_retention_settings()
+    if not eff_cfg.get("external_storage_enabled"):
+        return {
+            "status": "error",
+            "message": "Harici depolama şu an kapalı. Senkronizasyon için önce Harici NAS / File Server özelliğini aktif edin.",
+        }
+    sync_res = await asyncio.to_thread(_sync_all_pending_local_recordings_to_external_sync, eff_cfg)
+    snapshot = await asyncio.to_thread(get_storage_status_snapshot_sync, eff_cfg, False)
+    return {
+        "status": "success",
+        "message": (
+            f"Senkronizasyon tamamlandı: {sync_res['synced_count']} ses kaydı harici sunucuya aktarıldı"
+            + (f" ({sync_res['failed_count']} başarısız)." if sync_res["failed_count"] else ".")
+        ),
+        "sync_result": sync_res,
+        "storage_status": snapshot,
+    }
 
 
 @app.post("/api/settings/recording-retention")
@@ -3974,7 +4625,7 @@ async def save_recording_retention_settings(payload: RecordingRetentionSettingsS
     except Exception as e:
         print(f"[Retention] Cleanup check error: {e}")
 
-    return {"status": "success", "message": "Ses kayıt saklama ve dinamik kayıt politikası ayarları kaydedildi."}
+    return {"status": "success", "message": "Ses kayıt saklama, dinamik kayıt ve harici depolama ayarları kaydedildi."}
 
 
 _ACTIVE_RETENTION_CALL_TASKS: set = set()
@@ -3984,8 +4635,15 @@ def _delete_call_recording_files_sync(call_id: str) -> bool:
     if not call_id:
         return False
     safe_filename = f"{os.path.basename(str(call_id))}.wav"
+    ret_cfg = settings_db.get("recording_retention") or {}
+    custom_ext_dir = str(ret_cfg.get("external_mount_path") or "/mnt/nas/ai-recordings").strip() or "/mnt/nas/ai-recordings"
+    sub_remote = str(ret_cfg.get("external_remote_path") or "").strip().strip("/")
+    cand_dirs = [RECORDINGS_DIR, "/var/spool/asterisk/monitor", "/mnt/nas/ai-recordings", "/mnt/nas/smb-recordings", custom_ext_dir]
+    if sub_remote:
+        cand_dirs.append(os.path.join(custom_ext_dir, sub_remote))
+
     deleted_any = False
-    for cand_dir in (RECORDINGS_DIR, "/var/spool/asterisk/monitor", "/mnt/nas/ai-recordings"):
+    for cand_dir in cand_dirs:
         fp = os.path.join(cand_dir, safe_filename)
         if os.path.exists(fp):
             try:
@@ -4050,7 +4708,6 @@ def _wav_has_speech_energy(wav_path: Optional[str]) -> bool:
 def _normalize_tr_text_for_match(text: str) -> tuple[str, str]:
     """Returns (tr_normalized, ascii_folded) lowercase strings stripped of punctuation for reliable Turkish keyword matching."""
     raw = str(text or "")
-    # Remove any [[ORIG:...]] suffix lines if we want to match either Turkish or original text cleanly
     raw = re.sub(r"\[\[ORIG:[A-Z]+\]\]", " ", raw)
     tr_map = str.maketrans({
         "İ": "i",
@@ -4112,7 +4769,6 @@ async def _is_user_recording_enabled_for_call(db_call: Call, session: AsyncSessi
         if not involved_exts:
             return True
 
-        # Check both PostgreSQL SystemUser and settings_db['users']
         matched_flags = []
         disk_users_by_ext = {
             str(u.get("extension") or "").strip(): u
@@ -4144,12 +4800,13 @@ async def _is_user_recording_enabled_for_call(db_call: Call, session: AsyncSessi
 
 async def process_call_recording_and_retention(call_id: str):
     """
-    Post-call audio recording manager and Dynamic Voice Recording policy evaluator.
+    Post-call audio recording manager, Dynamic Voice Recording policy evaluator, and External NAS/File Server dispatcher.
     1. Waits briefly for Asterisk MixMonitor / AudioSocket to flush the .wav file and transcripts.
     2. Checks per-user `recording_active` setting.
-    3. If `dynamic_recording_enabled` is False: preserves the recording 100% unchanged and runs post-call transcription + AI summary.
+    3. If `dynamic_recording_enabled` is False: preserves the recording 100% unchanged, runs post-call transcription + AI summary,
+       and transfers the recording to external NAS/File Server if `external_storage_enabled` is True.
     4. If `dynamic_recording_enabled` is True: ensures call transcript is generated, checks trigger keywords/mode/speaker,
-       and either preserves or securely purges the .wav file according to policy.
+       and either preserves (and transfers to external NAS if enabled) or securely purges the .wav file according to policy.
     """
     if not call_id or call_id in _ACTIVE_RETENTION_CALL_TASKS:
         return
@@ -4191,13 +4848,18 @@ async def process_call_recording_and_retention(call_id: str):
                     db_call.recording_path = f"/api/recordings/{call_id}.wav"
                     await session.commit()
 
-                # Ensure transcript & AI summary are populated for human calls as well
+                # Ensure transcript & AI summary are populated BEFORE moving file to external storage
                 res_tr = await session.execute(
                     select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
                 )
                 turns = list(res_tr.scalars().all())
                 if not turns and wav_path:
                     turns = await _auto_transcribe_call_recording(call_id, session)
+
+                # If external NAS / File Server storage is enabled, transfer the recording now
+                if retention.get("external_storage_enabled", False):
+                    await asyncio.to_thread(_transfer_recording_to_external_storage_sync, call_id, retention)
+
                 if not db_call.summary or "çıkartılamadı" in str(db_call.summary).lower() or "algılanmadı" in str(db_call.summary).lower():
                     try:
                         from backend.services.call_analyzer import analyze_call
@@ -4254,6 +4916,8 @@ async def process_call_recording_and_retention(call_id: str):
             if not keywords:
                 db_call.recording_path = f"/api/recordings/{call_id}.wav"
                 await session.commit()
+                if retention.get("external_storage_enabled", False):
+                    await asyncio.to_thread(_transfer_recording_to_external_storage_sync, call_id, retention)
                 return
 
             # Filter turns by speaker setting
@@ -4311,6 +4975,8 @@ async def process_call_recording_and_retention(call_id: str):
             if should_keep_audio:
                 db_call.recording_path = f"/api/recordings/{call_id}.wav"
                 await session.commit()
+                if retention.get("external_storage_enabled", False):
+                    await asyncio.to_thread(_transfer_recording_to_external_storage_sync, call_id, retention)
                 print(f"[Dynamic Recording KEEP] call_id={call_id}: {decision_reason}")
                 add_system_log("DYNAMIC_RECORDING", "INFO", f"Ses Kaydı Korundu ({call_id}): {decision_reason}")
             else:
@@ -18159,61 +18825,76 @@ async def recording_cleanup_task():
     import os
     import time
     import shutil
-    
+
     while True:
         try:
-            retention = settings_db.get("recording_retention", DEFAULT_SETTINGS["recording_retention"])
-            
-            # Disk cleanup check
+            retention = get_effective_recording_retention_settings()
+
+            # 1. If External NAS / File Server is enabled, automatically sync any pending local failover recordings
+            if retention.get("external_storage_enabled"):
+                try:
+                    await asyncio.to_thread(_sync_all_pending_local_recordings_to_external_sync, retention)
+                except Exception as sync_e:
+                    print(f"[Retention External Sync Error]: {sync_e}")
+
+            target_dirs = [RECORDINGS_DIR]
+            if retention.get("external_storage_enabled") and retention.get("external_storage_type") in ("mount_path", "smb"):
+                ext_dir, _ = await asyncio.to_thread(_ensure_external_storage_target_sync, retention, False)
+                if ext_dir and os.path.exists(ext_dir) and ext_dir not in target_dirs:
+                    target_dirs.append(ext_dir)
+
+            # 2. Disk cleanup check across active storage directories
             if retention.get("delete_by_disk"):
                 threshold = retention.get("disk_threshold_pct", 80)
-                total, used, free = shutil.disk_usage(RECORDINGS_DIR)
-                percent_used = (used / total) * 100
-                
-                if percent_used > threshold:
-                    print(f"[Retention] Disk usage {percent_used:.1f}% exceeds threshold {threshold}%. Cleaning up...")
-                    files = []
-                    for f in os.listdir(RECORDINGS_DIR):
-                        fp = os.path.join(RECORDINGS_DIR, f)
-                        if os.path.isfile(fp) and f.endswith(".wav"):
-                            files.append((fp, os.path.getmtime(fp)))
-                    
-                    # Sort files by modification time, oldest first
-                    files.sort(key=lambda x: x[1])
-                    
-                    # Delete files until we drop 5% below threshold, or run out of files
-                    target_percent = threshold - 5
-                    for fp, mtime in files:
-                        try:
-                            os.remove(fp)
-                            print(f"[Retention] Deleted {fp} (Disk full)")
-                        except Exception as e:
-                            print(f"[Retention] Error deleting {fp}: {e}")
-                        
-                        total, used, free = shutil.disk_usage(RECORDINGS_DIR)
-                        if (used / total) * 100 <= target_percent:
-                            break
+                for chk_dir in target_dirs:
+                    if not os.path.exists(chk_dir):
+                        continue
+                    total, used, free = shutil.disk_usage(chk_dir)
+                    percent_used = (used / total) * 100 if total > 0 else 0
 
-            # Days retention check
-            if retention.get("delete_by_days"):
-                days = retention.get("keep_days", 90)
-                cutoff_time = time.time() - (days * 86400)
-                
-                for f in os.listdir(RECORDINGS_DIR):
-                    fp = os.path.join(RECORDINGS_DIR, f)
-                    if os.path.isfile(fp) and f.endswith(".wav"):
-                        if os.path.getmtime(fp) < cutoff_time:
+                    if percent_used > threshold:
+                        print(f"[Retention] Disk usage {percent_used:.1f}% on {chk_dir} exceeds threshold {threshold}%. Cleaning up...")
+                        files = []
+                        for f in os.listdir(chk_dir):
+                            fp = os.path.join(chk_dir, f)
+                            if os.path.isfile(fp) and f.endswith(".wav"):
+                                files.append((fp, os.path.getmtime(fp)))
+
+                        files.sort(key=lambda x: x[1])
+                        target_percent = threshold - 5
+                        for fp, mtime in files:
                             try:
                                 os.remove(fp)
-                                print(f"[Retention] Deleted {fp} (Older than {days} days)")
+                                print(f"[Retention] Deleted {fp} (Disk full)")
                             except Exception as e:
                                 print(f"[Retention] Error deleting {fp}: {e}")
 
+                            total, used, free = shutil.disk_usage(chk_dir)
+                            if total > 0 and (used / total) * 100 <= target_percent:
+                                break
+
+            # 3. Days retention check across active storage directories
+            if retention.get("delete_by_days"):
+                days = retention.get("keep_days", 90)
+                cutoff_time = time.time() - (days * 86400)
+                for chk_dir in target_dirs:
+                    if not os.path.exists(chk_dir):
+                        continue
+                    for f in os.listdir(chk_dir):
+                        fp = os.path.join(chk_dir, f)
+                        if os.path.isfile(fp) and f.endswith(".wav"):
+                            if os.path.getmtime(fp) < cutoff_time:
+                                try:
+                                    os.remove(fp)
+                                    print(f"[Retention] Deleted {fp} (Older than {days} days)")
+                                except Exception as e:
+                                    print(f"[Retention] Error deleting {fp}: {e}")
+
         except Exception as e:
             print(f"[Retention] Cleanup task error: {e}")
-            
-        # Run every hour
-        await asyncio.sleep(3600)
+
+        # Run every 15 minutes
+        await asyncio.sleep(900)
 
 @app.on_event("startup")
 async def startup_event():
