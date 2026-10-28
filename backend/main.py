@@ -988,7 +988,7 @@ DEFAULT_SETTINGS = {
                 "live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter",
                 "call_panel:access", "call_panel:listen_records", "call_panel:view_transcripts", "omnichannel:access",
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
-                "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
+                "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
@@ -1070,7 +1070,7 @@ DEFAULT_SETTINGS = {
                 "live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter",
                 "call_panel:access", "call_panel:listen_records", "call_panel:view_transcripts", "omnichannel:access",
                 "call_monitor:listen", "call_monitor:whisper", "call_monitor:barge",
-                "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
+                "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_deskphone", "call_panel:tab_agents", "call_panel:tab_speeddial",
                 "call_panel:tab_missed", "call_panel:tab_directory", "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
                 "call_panel:webphone_save_contact", "call_panel:webphone_transfer", "call_panel:webphone_conference", "call_panel:webphone_reject",
                 "call_panel:agents_status", "call_panel:agents_duration", "call_panel:agents_call_counts", "call_panel:agents_login_logout",
@@ -1365,10 +1365,15 @@ def load_settings():
                     if f"{feat}:delete" not in new_perms:
                         new_perms.append(f"{feat}:delete")
 
-            
             if "call_panel:access" in new_perms or "call_panel" in new_perms:
-                if "call_panel:tab_deskphone" not in new_perms:
-                    new_perms.append("call_panel:tab_deskphone")
+                if not any(str(p).startswith("call_panel:tab_") for p in new_perms):
+                    for def_tab in [
+                        "call_panel:tab_dashboard", "call_panel:tab_webphone", "call_panel:tab_agents",
+                        "call_panel:tab_speeddial", "call_panel:tab_missed", "call_panel:tab_directory",
+                        "call_panel:tab_history", "call_panel:tab_voicemail", "call_panel:tab_chat",
+                        "call_panel:tab_deskphone"
+                    ]:
+                        new_perms.append(def_tab)
 
             # Auto assign wallboard, dialer, call_flow, and call_monitor to admin and supervisor if missing
             if r.get("role_code") in ["admin", "supervisor"]:

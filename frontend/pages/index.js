@@ -234,6 +234,7 @@ export default function Home() {
   const [agentQueuesList, setAgentQueuesList] = useState([]);
   const [agentAiAgentsList, setAgentAiAgentsList] = useState([]);
   const [callPanelPrefs, setCallPanelPrefs] = useState(() => loadCallPanelPrefs(null));
+  const [currentRolePermissions, setCurrentRolePermissions] = useState(null);
   const [draggedPanelTabIdx, setDraggedPanelTabIdx] = useState(null);
   const [openCategories, setOpenCategories] = useState({
     operations: true,
@@ -1077,6 +1078,9 @@ export default function Home() {
       const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
       const rolesData = await resRoles.json();
       const currentRole = Array.isArray(rolesData) ? rolesData.find(r => r.role_code === currentUserData.role) : null;
+      if (currentRole && Array.isArray(currentRole.permissions)) {
+        setCurrentRolePermissions(currentRole.permissions);
+      }
       
       const hasPerm = (prefix) => {
         return currentRole && currentRole.permissions && currentRole.permissions.some(p => p.startsWith(prefix + ':'));
@@ -3295,17 +3299,24 @@ export default function Home() {
 
                     {/* Çağrı Paneli Görünüm ve Sıralama Özelleştirme Sekmesi */}
                     {activeModalTab === "call_panel" && (() => {
+                  const hasConfiguredRoleTabs = Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("call_panel:tab_"));
+                  const isTabAllowedByRole = (tabObj) => {
+                    if (!tabObj) return false;
+                    if (!hasConfiguredRoleTabs) return true;
+                    return currentRolePermissions.includes(tabObj.perm);
+                  };
+
                   const currentOrder = Array.isArray(callPanelPrefs?.tabOrder) && callPanelPrefs.tabOrder.length > 0
                     ? callPanelPrefs.tabOrder
                     : DEFAULT_CALL_PANEL_PREFS.tabOrder;
 
                   const orderedTabItems = currentOrder
                     .map(id => CALL_PANEL_ALL_TABS.find(t => t.id === id))
-                    .filter(Boolean);
+                    .filter(t => isTabAllowedByRole(t));
 
-                  // Ensure any missing tabs from CALL_PANEL_ALL_TABS are appended
+                  // Ensure any missing allowed tabs from CALL_PANEL_ALL_TABS are appended
                   CALL_PANEL_ALL_TABS.forEach(t => {
-                    if (!orderedTabItems.some(item => item.id === t.id)) {
+                    if (isTabAllowedByRole(t) && !orderedTabItems.some(item => item.id === t.id)) {
                       orderedTabItems.push(t);
                     }
                   });

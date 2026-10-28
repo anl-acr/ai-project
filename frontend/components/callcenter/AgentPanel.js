@@ -154,7 +154,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     return () => {
       mounted = false;
     };
-  }, [host, currentUser?.role]);
+  }, [host, currentUser?.role, isVisible]);
 
   const callPanelPerms = useMemo(() => {
     const perms = Array.isArray(rolePermissions) ? rolePermissions : null;
