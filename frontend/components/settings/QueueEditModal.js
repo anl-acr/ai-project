@@ -510,16 +510,9 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         <button 
           type="button"
           onClick={() => setActiveTab("disposition")}
-          className={"w-full flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'disposition' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+          className={"w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'disposition' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
         >
-          <span className="flex items-center gap-3">
-            <BarChart2 size={16} /> Çağrı Sonuç Kodları
-          </span>
-          {(formData.disposition_codes || []).length > 0 && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-extrabold ${lightBg} ${text}`}>
-              {(formData.disposition_codes || []).length}
-            </span>
-          )}
+          <BarChart2 size={16} /> Çağrı Sonuç Kodları
         </button>
         <button 
           type="button"
