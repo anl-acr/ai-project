@@ -457,12 +457,13 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
   const formatAnnouncementLabel = (a) => {
     if (!a) return "";
     const nameStr = String(a.name || "").trim();
-    const origStr = String(a.original_filename || a.filename || "").trim();
+    const rawOrigStr = String(a.original_filename || a.filename || "").trim();
+    const origStr = /^tts_[0-9a-f]{6,}/i.test(rawOrigStr) ? "" : rawOrigStr;
     const typeTag = a.type === "moh" ? "🎵 Bekletme Müziği" : "🔊 Anons";
     if (nameStr && origStr && nameStr.toLowerCase() !== origStr.toLowerCase() && `${nameStr}.wav`.toLowerCase() !== origStr.toLowerCase() && `${nameStr}.mp3`.toLowerCase() !== origStr.toLowerCase()) {
       return `${nameStr} (${origStr}) • ${typeTag}`;
     }
-    return `${origStr || nameStr || a.id} • ${typeTag}`;
+    return `${nameStr || origStr || a.id} • ${typeTag}`;
   };
 
   const resolveAnnouncementVal = (val) => {

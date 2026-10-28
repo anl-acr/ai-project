@@ -5526,14 +5526,83 @@ async def get_announcements(user_info: dict = Depends(get_user_info)):
         if not isinstance(a, dict):
             continue
         item = dict(a)
-        if not item.get("original_filename"):
-            item["original_filename"] = item.get("filename") or item.get("name") or ""
         if not item.get("name"):
             item["name"] = item.get("original_filename") or item.get("filename") or "Anons"
+        orig_fn = str(item.get("original_filename") or "")
+        if not orig_fn or re.match(r"^tts_[0-9a-f]{6,}\.(mp3|wav)$", orig_fn, re.IGNORECASE):
+            ext = os.path.splitext(str(item.get("filename") or ".mp3"))[1] or ".mp3"
+            item["original_filename"] = f"{item['name']}{ext}"
         if not item.get("type") or item.get("type") in ["custom", "tts"]:
             item["type"] = "announcement"
         normalized.append(item)
     return normalized
+
+
+def _synthesize_tts_mp3_bytes(text: str, voice: str = "tr-TR-EmelNeural") -> bytes:
+    """Synthesizes natural speech MP3 bytes for announcements using chunked Google Translate TTS with edge-tts/gTTS fallback."""
+    import urllib.parse
+    import urllib.request
+
+    clean = re.sub(r"\s+", " ", (text or "").strip())
+    if not clean:
+        return b""
+
+    v_lower = str(voice or "").lower()
+    lang = "en" if any(k in v_lower for k in ["en-", "english", "john", "sophia", "aria", "guy"]) else "tr"
+
+    # 1. Primary fast & reliable chunked synthesis via Google Translate TTS stream
+    try:
+        # Split on sentence boundaries first, then word boundaries <= 180 chars
+        sentences = re.split(r"(?<=[.!?।;:])\s+", clean)
+        chunks = []
+        cur = ""
+        for sent in sentences:
+            words = sent.split(" ")
+            for w in words:
+                if not w:
+                    continue
+                if len(cur) + len(w) + 1 <= 180:
+                    cur = f"{cur} {w}".strip()
+                else:
+                    if cur:
+                        chunks.append(cur)
+                    cur = w[:180]
+        if cur:
+            chunks.append(cur)
+
+        audio_out = bytearray()
+        for ch in chunks:
+            q = urllib.parse.quote(ch)
+            url = f"https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl={lang}&q={q}"
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                chunk_bytes = resp.read()
+                if chunk_bytes:
+                    audio_out.extend(chunk_bytes)
+
+        if len(audio_out) > 200:
+            return bytes(audio_out)
+    except Exception as g_err:
+        print(f"[Announcement Google TTS Warning]: {g_err}")
+
+    # 2. Fallback to gTTS if installed
+    try:
+        import io
+        from gtts import gTTS
+        fp = io.BytesIO()
+        tts = gTTS(text=clean, lang=lang, slow=False)
+        tts.write_to_fp(fp)
+        data = fp.getvalue()
+        if len(data) > 200:
+            return data
+    except Exception as gtts_err:
+        print(f"[Announcement gTTS Fallback Warning]: {gtts_err}")
+
+    return b""
+
 
 def _convert_and_sync_announcement_wav(src_filepath: str, ann_id: str) -> str:
     """Converts an uploaded or TTS announcement audio file into 8000Hz mono 16-bit PCM WAV for Asterisk and syncs to monitor directories."""
@@ -5592,56 +5661,82 @@ async def create_announcement(
     name: str = Form(...),
     type: Optional[str] = Form(None),
     announcement_type: str = Form("announcement"),
+    announcement_id: Optional[str] = Form(None),
     user_info: dict = Depends(get_user_info)
 ):
     import os
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     os.makedirs("uploads/announcements", exist_ok=True)
-    orig_fname = file.filename if (file and file.filename) else "tts_audio.wav"
-    ext = os.path.splitext(orig_fname)[1] or ".wav"
-    ann_id = str(uuid.uuid4())
-    filename = f"{ann_id}{ext}" if file else f"{ann_id}.wav"
-    filepath = os.path.join("uploads/announcements", filename)
-    
-    if file:
+    if "announcements" not in settings_db:
+        settings_db["announcements"] = []
+
+    clean_name = name.strip() or "Anons"
+    resolved_type = type if type in ["announcement", "moh"] else (announcement_type if announcement_type in ["announcement", "moh"] else "announcement")
+    now_ts = datetime.datetime.now().timestamp()
+
+    existing_ann = None
+    if announcement_id:
+        existing_ann = next((a for a in settings_db["announcements"] if str(a.get("id")) == str(announcement_id).strip()), None)
+
+    ann_id = existing_ann["id"] if existing_ann else str(uuid.uuid4())
+
+    if file and file.filename:
+        orig_fname = file.filename
+        ext = os.path.splitext(orig_fname)[1] or ".wav"
+        filename = f"{ann_id}{ext}"
+        filepath = os.path.join("uploads/announcements", filename)
         with open(filepath, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         _convert_and_sync_announcement_wav(filepath, ann_id)
-            
-    resolved_type = type if type in ["announcement", "moh"] else (announcement_type if announcement_type in ["announcement", "moh"] else "announcement")
-    ann = {
-        "id": ann_id,
-        "name": name.strip(),
-        "filename": filename,
-        "original_filename": orig_fname,
-        "type": resolved_type,
-        "tenant_id": target_tenant,
-        "created_at": datetime.datetime.now().timestamp()
-    }
-    
-    if "announcements" not in settings_db:
-        settings_db["announcements"] = []
-    settings_db["announcements"].append(ann)
+    elif existing_ann:
+        filename = existing_ann.get("filename") or f"{ann_id}.wav"
+        orig_fname = existing_ann.get("original_filename") or f"{clean_name}.wav"
+    else:
+        orig_fname = f"{clean_name}.wav"
+        filename = f"{ann_id}.wav"
+
+    if existing_ann:
+        existing_ann["name"] = clean_name
+        existing_ann["filename"] = filename
+        existing_ann["original_filename"] = orig_fname
+        existing_ann["type"] = resolved_type
+        existing_ann["updated_at"] = now_ts
+        ann = existing_ann
+    else:
+        ann = {
+            "id": ann_id,
+            "name": clean_name,
+            "filename": filename,
+            "original_filename": orig_fname,
+            "type": resolved_type,
+            "tenant_id": target_tenant,
+            "created_at": now_ts,
+            "updated_at": now_ts
+        }
+        settings_db["announcements"].append(ann)
+
     save_settings(settings_db)
     return {"status": "success", "announcement": ann}
+
 
 class TTSAnnouncementSchema(BaseModel):
     name: str
     text: str
+
 
 @app.post("/api/settings/announcements/tts")
 async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_user_info)):
     import os
     target_tenant = user_info.get("tenant_id") or "tenant-default"
     text = str(payload.get("text") or "").strip()
-    name = (payload.get("name") or "TTS Anons").strip()
+    name = str(payload.get("name") or "TTS Anons").strip() or "TTS Anons"
     ann_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else "announcement"
     voice = payload.get("voice") or "tr-TR-EmelNeural"
     existing_id = str(payload.get("id") or payload.get("announcement_id") or "").strip()
-    
+
     if not text:
-        raise HTTPException(status_code=400, detail="Metin boş olamaz.")
-        
+        raise HTTPException(status_code=400, detail="Okunacak metin boş olamaz.")
+
     os.makedirs("uploads/announcements", exist_ok=True)
     if "announcements" not in settings_db:
         settings_db["announcements"] = []
@@ -5652,20 +5747,24 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
 
     ann_id = existing_ann["id"] if existing_ann else str(uuid.uuid4())
     filename = f"{ann_id}.mp3"
-    orig_fname = f"tts_{ann_id[:8]}.mp3"
+    orig_fname = f"{name}.mp3"
     filepath = os.path.join("uploads/announcements", filename)
-    
-    try:
-        import edge_tts
-        communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(filepath)
-    except Exception as e:
-        print(f"[TTS Error]: {e}")
+
+    audio_bytes = _synthesize_tts_mp3_bytes(text, voice)
+    if not audio_bytes:
+        try:
+            import edge_tts
+            communicate = edge_tts.Communicate(text, voice)
+            await communicate.save(filepath)
+        except Exception as e:
+            print(f"[TTS Error]: {e}")
+            raise HTTPException(status_code=500, detail=f"TTS ses dosyası oluşturulamadı: {e}")
+    else:
         with open(filepath, "wb") as f:
-            f.write(b"RIFF....WAVEfmt ....data....")
+            f.write(audio_bytes)
 
     _convert_and_sync_announcement_wav(filepath, ann_id)
-            
+
     now_ts = datetime.datetime.now().timestamp()
     if existing_ann:
         existing_ann["name"] = name
@@ -5695,21 +5794,70 @@ async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_u
     return {"status": "success", "announcement": ann}
 
 
+@app.put("/api/settings/announcements/{announcement_id}")
+async def update_announcement(announcement_id: str, payload: dict, user_info: dict = Depends(get_user_info)):
+    import os
+    if "announcements" not in settings_db:
+        raise HTTPException(status_code=404, detail="Anons bulunamadı.")
+
+    target = next((a for a in settings_db["announcements"] if str(a.get("id")) == str(announcement_id).strip()), None)
+    if not target:
+        raise HTTPException(status_code=404, detail="Anons bulunamadı.")
+
+    new_name = str(payload.get("name") or target.get("name") or "Anons").strip() or "Anons"
+    new_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else (target.get("type") or "announcement")
+    new_text = str(payload.get("text") if payload.get("text") is not None else (target.get("text") or "")).strip()
+    voice = payload.get("voice") or target.get("voice") or "tr-TR-EmelNeural"
+    now_ts = datetime.datetime.now().timestamp()
+
+    target["name"] = new_name
+    target["type"] = new_type
+    target["updated_at"] = now_ts
+
+    orig_fn = str(target.get("original_filename") or "")
+    if not orig_fn or re.match(r"^tts_[0-9a-f]{6,}\.(mp3|wav)$", orig_fn, re.IGNORECASE) or new_text:
+        ext = os.path.splitext(str(target.get("filename") or ".mp3"))[1] or ".mp3"
+        target["original_filename"] = f"{new_name}{ext}"
+
+    if new_text:
+        ann_id = target["id"]
+        filename = f"{ann_id}.mp3"
+        filepath = os.path.join("uploads/announcements", filename)
+        os.makedirs("uploads/announcements", exist_ok=True)
+        audio_bytes = _synthesize_tts_mp3_bytes(new_text, voice)
+        if audio_bytes:
+            with open(filepath, "wb") as f:
+                f.write(audio_bytes)
+            _convert_and_sync_announcement_wav(filepath, ann_id)
+            target["filename"] = filename
+            target["original_filename"] = f"{new_name}.mp3"
+            target["text"] = new_text
+            target["voice"] = voice
+
+    save_settings(settings_db)
+    return {"status": "success", "announcement": target}
+
+
 @app.delete("/api/settings/announcements/{announcement_id}")
 async def delete_announcement(announcement_id: str):
     import os
     if "announcements" not in settings_db:
         return {"status": "error", "message": "Not found"}
-        
+
     for ann in settings_db["announcements"]:
         if ann["id"] == announcement_id:
-            filepath = os.path.join("uploads/announcements", ann["filename"])
-            if os.path.exists(filepath):
-                os.remove(filepath)
+            for ext in ["", ".wav", ".mp3"]:
+                fname = ann["filename"] if not ext else f"{ann['id']}{ext}"
+                filepath = os.path.join("uploads/announcements", fname)
+                if os.path.exists(filepath):
+                    try:
+                        os.remove(filepath)
+                    except Exception:
+                        pass
             settings_db["announcements"].remove(ann)
             save_settings(settings_db)
             return {"status": "success"}
-            
+
     return {"status": "error", "message": "Not found"}
 
 # ----------------------------------------------------
@@ -9283,30 +9431,22 @@ async def tts_test_endpoint(payload: dict):
             return audio_data
             
         audio_bytes = await gather_audio()
+        if not audio_bytes or len(audio_bytes) < 200:
+            raise RuntimeError("Empty audio from edge-tts")
         fp.write(audio_bytes)
         fp.seek(0)
         
         print(f"[TTS] Synthesized successfully using edge-tts (voice={edge_voice}, tone={tone}, rate={rate_str})")
         return StreamingResponse(fp, media_type="audio/mpeg")
         
-    except (ImportError, ModuleNotFoundError):
-        # Fallback to gtts
-        print("[TTS] edge-tts not installed, falling back to gtts.")
-        from gtts import gTTS
-        
-        lang = "tr"
-        if any(w in voice.lower() or w in text.lower() for w in ["english", "john", "sophia"]):
-            lang = "en"
-            
-        slow = True if (tone == "calm" or speaking_rate < 0.9) else False
-        tts = gTTS(text=text, lang=lang, slow=slow)
-        fp = io.BytesIO()
-        tts.write_to_fp(fp)
-        fp.seek(0)
-        
-        return StreamingResponse(fp, media_type="audio/mpeg")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"TTS Sentezleme hatası: {str(e)}")
+        print(f"[TTS] edge-tts failed ({e}), falling back to _synthesize_tts_mp3_bytes.")
+        audio_bytes = await _synthesize_tts_mp3_bytes(text, voice)
+        if not audio_bytes:
+            raise HTTPException(status_code=500, detail="TTS ses sentezi başarısız oldu.")
+        fp = io.BytesIO(audio_bytes)
+        fp.seek(0)
+        return StreamingResponse(fp, media_type="audio/mpeg")
 
 @app.post("/api/rag/manual")
 async def add_manual_text(payload: ManualTextSchema, user_info: dict = Depends(get_user_info)):

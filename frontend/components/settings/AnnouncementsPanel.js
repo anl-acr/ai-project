@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square } from "lucide-react";
+import { Plus, Trash2, Search, Volume2, Info, X, Check, FileAudio, PlayCircle, StopCircle, Download, Play, Square, Edit2 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
@@ -14,6 +14,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const [searchQuery, setSearchQuery] = useState("");
   
   const [showModal, setShowModal] = useState(false);
+  const [editingAnn, setEditingAnn] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [newAnnName, setNewAnnName] = useState("");
   const [annType, setAnnType] = useState("announcement"); // announcement | moh
@@ -26,6 +27,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const [activeTab, setActiveTab] = useState("upload");
   const [ttsText, setTtsText] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [modalError, setModalError] = useState("");
 
   const API_BASE = getApiBaseUrl(backendHost);
 
@@ -51,6 +53,46 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
     setLoading(false);
   };
 
+  const resetModal = () => {
+    setShowModal(false);
+    setEditingAnn(null);
+    setNewAnnName("");
+    setAnnType("announcement");
+    setSelectedFile(null);
+    setTtsText("");
+    setModalError("");
+    setActiveTab("upload");
+  };
+
+  const openCreateModal = () => {
+    setEditingAnn(null);
+    setNewAnnName("");
+    setAnnType("announcement");
+    setSelectedFile(null);
+    setTtsText("");
+    setModalError("");
+    setActiveTab("upload");
+    setShowModal(true);
+  };
+
+  const openEditModal = (ann) => {
+    if (playingId === ann.id) {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      setPlayingId(null);
+    }
+    setEditingAnn(ann);
+    setNewAnnName(ann.name || ann.original_filename || "");
+    setAnnType(ann.type || "announcement");
+    setSelectedFile(null);
+    setTtsText(ann.text || "");
+    setModalError("");
+    setActiveTab(ann.text || ann.source === "tts" ? "tts" : "upload");
+    setShowModal(true);
+  };
+
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (file) {
@@ -60,63 +102,89 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
   const handleUpload = async (e) => {
     e.preventDefault();
-    if (!newAnnName || !selectedFile) return;
+    if (!newAnnName.trim()) return;
+    if (!editingAnn && !selectedFile) return;
     
     setIsUploading(true);
+    setModalError("");
     try {
-      const formData = new FormData();
-      formData.append("name", newAnnName);
-      formData.append("type", annType);
-      formData.append("file", selectedFile);
-      
-      const res = await tenantFetch(`${API_BASE}/api/settings/announcements`, {
-        method: "POST",
-        body: formData
-      });
+      let res;
+      if (editingAnn && !selectedFile) {
+        // Metadata-only update (name / type) when no new audio file is selected
+        res = await tenantFetch(`${API_BASE}/api/settings/announcements/${editingAnn.id}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            name: newAnnName.trim(),
+            type: annType
+          })
+        });
+      } else {
+        const formData = new FormData();
+        formData.append("name", newAnnName.trim());
+        formData.append("type", annType);
+        if (editingAnn?.id) {
+          formData.append("announcement_id", editingAnn.id);
+        }
+        formData.append("file", selectedFile);
+        
+        res = await tenantFetch(`${API_BASE}/api/settings/announcements`, {
+          method: "POST",
+          body: formData
+        });
+      }
       
       if (res.ok) {
-        setShowModal(false);
-        setNewAnnName("");
-        setSelectedFile(null);
+        resetModal();
         fetchAnnouncements();
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        setModalError(errorData?.detail || "Anons kaydedilirken bir hata oluştu.");
       }
     } catch (err) {
       console.error("Yükleme hatası", err);
+      setModalError("Sunucuya bağlanılamadı.");
     }
     setIsUploading(false);
   };
 
   const handleTTSUpload = async (e) => {
     e.preventDefault();
-    if (!newAnnName || !ttsText) return;
+    if (!newAnnName.trim() || !ttsText.trim()) return;
 
     setIsGenerating(true);
+    setModalError("");
     try {
+      const payload = {
+        name: newAnnName.trim(),
+        type: annType,
+        text: ttsText.trim()
+      };
+      if (editingAnn?.id) {
+        payload.id = editingAnn.id;
+      }
+
       const res = await tenantFetch(`${API_BASE}/api/settings/announcements/tts`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json"
         },
-        body: JSON.stringify({
-          name: newAnnName,
-          type: annType,
-          text: ttsText
-        })
+        body: JSON.stringify(payload)
       });
 
       if (res.ok) {
-        setShowModal(false);
-        setNewAnnName("");
-        setAnnType("announcement");
-        setTtsText("");
-        setActiveTab("upload");
+        resetModal();
         fetchAnnouncements();
       } else {
-        const errorData = await res.json();
+        const errorData = await res.json().catch(() => ({}));
         console.error("TTS Yükleme hatası", errorData);
+        setModalError(errorData?.detail || "TTS ses sentezi sırasında bir hata oluştu.");
       }
     } catch (err) {
       console.error("TTS Yükleme hatası", err);
+      setModalError("Sunucuya bağlanılamadı.");
     }
     setIsGenerating(false);
   };
@@ -124,7 +192,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
   const confirmDelete = async () => {
     if (!deleteTargetId) return;
     try {
-      const res = await fetch(`${API_BASE}/api/settings/announcements/${deleteTargetId}`, {
+      const res = await tenantFetch(`${API_BASE}/api/settings/announcements/${deleteTargetId}`, {
         method: "DELETE"
       });
       if (res.ok) {
@@ -151,6 +219,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       // Wait for React to render audio element
       setTimeout(() => {
         if (audioRef.current) {
+          audioRef.current.load();
           audioRef.current.play().catch(e => {
             console.error("Audio playback error", e);
             setPlayingId(null);
@@ -165,7 +234,8 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
   const handleDownload = async (ann) => {
     try {
-      const response = await fetch(`${API_BASE}/api/uploads/announcements/${ann.filename}`);
+      const cacheBust = ann.updated_at || ann.created_at || Date.now();
+      const response = await fetch(`${API_BASE}/api/uploads/announcements/${ann.filename}?t=${cacheBust}`);
 
       if (!response.ok) throw new Error("Dosya bulunamadı");
       const blob = await response.blob();
@@ -173,7 +243,9 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
       const a = document.createElement("a");
       a.style.display = "none";
       a.href = url;
-      a.download = ann.original_filename;
+      const ext = (ann.filename || "").split(".").pop() || "mp3";
+      const downloadName = ann.name ? (ann.name.toLowerCase().endsWith(`.${ext}`) ? ann.name : `${ann.name}.${ext}`) : (ann.original_filename || ann.filename);
+      a.download = downloadName;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
@@ -185,6 +257,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
   const filteredAnnouncements = (announcements || []).filter(a => 
     String(a?.name || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
+    String(a?.text || "").toLowerCase().includes(searchQuery.toLowerCase()) || 
     String(a?.original_filename || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
     String(a?.filename || "").toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -238,9 +311,9 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
           </div>
           
           <button
-            onClick={() => setShowModal(true)}
+            onClick={openCreateModal}
             title="Yeni Anons Ekle"
-            className={`rounded-xl h-8 w-8 flex items-center justify-center shrink-0 ${bg} ${hover} text-white transition-colors`}
+            className="rounded-xl h-8 w-8 flex items-center justify-center shrink-0 bg-rose-600 hover:bg-rose-500 text-white transition-colors"
           >
             <Plus size={16} />
           </button>
@@ -264,23 +337,41 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredAnnouncements.map((ann) => (
+            {filteredAnnouncements.map((ann) => {
+              const displayName = ann.name || ann.original_filename || ann.filename;
+              const isTtsItem = Boolean(ann.text || ann.source === "tts" || /^tts_[0-9a-f]{6,}/i.test(ann.original_filename || ""));
+              const subFileLabel = !isTtsItem && ann.original_filename && ann.original_filename !== displayName ? ann.original_filename : "";
+              return (
               <div key={ann.id} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800/80 rounded-[24px] p-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:shadow-md transition-all shadow-sm">
                 
-                <div className="flex items-center gap-4 min-w-0 sm:w-[35%] shrink-0">
+                <div className="flex items-center gap-4 min-w-0 sm:w-[38%] shrink-0">
                   <div className={`w-14 h-14 rounded-[18px] ${lightBg} flex items-center justify-center shrink-0`}>
                     <FileAudio size={26} className={text} />
                   </div>
                   <div className="flex flex-col min-w-0 pr-2">
-                    <h4 className="font-bold text-[14px] text-slate-800 dark:text-white truncate" title={ann.original_filename || ann.name}>
-                      {ann.original_filename || ann.name}
+                    <h4 className="font-bold text-[14px] text-slate-800 dark:text-white truncate" title={displayName}>
+                      {displayName}
                     </h4>
-                    <div className="flex items-center gap-2 mt-1">
+                    {ann.text && (
+                      <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate mt-0.5 italic" title={ann.text}>
+                        &ldquo;{ann.text}&rdquo;
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${ann.type === 'moh' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'}`}>
                         {ann.type === 'moh' ? 'Bekletme Müziği' : 'Anons'}
                       </span>
-                      <span className={`text-[11px] font-bold ${text} truncate max-w-[100px]`} title={ann.name}>{ann.name}</span>
-                      <span className="text-slate-300 dark:text-slate-700 shrink-0">•</span>
+                      {isTtsItem && (
+                        <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${lightBg} ${text}`}>
+                          TTS
+                        </span>
+                      )}
+                      {subFileLabel && (
+                        <>
+                          <span className={`text-[11px] font-bold ${text} truncate max-w-[120px]`} title={subFileLabel}>{subFileLabel}</span>
+                          <span className="text-slate-300 dark:text-slate-700 shrink-0">•</span>
+                        </>
+                      )}
                       <span className="text-[11px] text-slate-500 font-medium tracking-wide shrink-0">{formatCreatedAt(ann.created_at)}</span>
                     </div>
                   </div>
@@ -290,6 +381,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                   <button 
                     onClick={() => playAudio(ann)}
                     className={`w-[42px] h-[42px] rounded-full flex items-center justify-center shrink-0 shadow-md transition-transform active:scale-95 ${bg} text-white`}
+                    title={playingId === ann.id ? "Durdur" : "Anonsu Dinle"}
                   >
                     {playingId === ann.id ? <Square size={16} fill="currentColor" /> : <Play size={18} fill="currentColor" className="ml-1" />}
                   </button>
@@ -312,6 +404,13 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                 
                 <div className="flex items-center gap-1 sm:border-l border-slate-100 dark:border-slate-800 sm:pl-4 shrink-0 justify-end">
                   <button
+                    onClick={() => openEditModal(ann)}
+                    className={`p-2.5 text-slate-400 hover:${text} hover:${lightBg} rounded-xl transition-colors`}
+                    title="Anonsu Düzenle"
+                  >
+                    <Edit2 size={18} />
+                  </button>
+                  <button
                     onClick={() => handleDownload(ann)}
                     className={`p-2.5 text-slate-400 hover:${text} hover:${lightBg} rounded-xl transition-colors`}
                     title="Anonsu İndir"
@@ -328,33 +427,31 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                 </div>
                 
                 {playingId === ann.id && (
-                  <audio ref={audioRef} src={`${API_BASE}/api/uploads/announcements/${ann.filename}`} className="hidden" />
+                  <audio
+                    ref={audioRef}
+                    src={`${API_BASE}/api/uploads/announcements/${ann.filename}?t=${ann.updated_at || ann.created_at || Date.now()}`}
+                    className="hidden"
+                  />
                 )}
 
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* Upload Modal */}
+      {/* Upload / Edit Modal */}
       {showModal && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
-          <div className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
+          <div className="w-full max-w-lg bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20">
               <h3 className="text-xs font-bold text-slate-700 dark:text-white uppercase tracking-wider flex items-center gap-2">
-                <Volume2 size={16} className={text} />
-                Yeni Medya Yükle
+                {editingAnn ? <Edit2 size={16} className={text} /> : <Volume2 size={16} className={text} />}
+                {editingAnn ? "Anonsu Düzenle" : "Yeni Medya Yükle"}
               </h3>
               <button
-                onClick={() => {
-                  setShowModal(false);
-                  setNewAnnName("");
-                  setAnnType("announcement");
-                  setSelectedFile(null);
-                  setTtsText("");
-                  setActiveTab("upload");
-                }}
+                onClick={resetModal}
                 className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg transition-colors"
               >
                 <X size={16} />
@@ -387,15 +484,33 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
               <div className="flex-1 overflow-y-auto">
                 <form onSubmit={activeTab === "upload" ? handleUpload : handleTTSUpload} className="p-6 space-y-5">
               
-              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex items-start gap-3">
-                <Info size={16} className="text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
-                <div>
-                  <h5 className="text-[11px] font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider mb-1">Asterisk Uyumlu Ses Formatı</h5>
-                  <p className="text-[10px] text-amber-700/80 dark:text-amber-500/80 leading-relaxed font-medium">
-                    Santralin anonsu hatasız oynatabilmesi için yükleyeceğiniz dosyanın <strong>WAV, 8000Hz, 16-bit, Mono</strong> formatında olması gerekmektedir. Farklı formatlar görüşme esnasında çalmayabilir.
-                  </p>
+              {activeTab === "upload" ? (
+                <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/50 rounded-xl p-4 flex items-start gap-3">
+                  <Info size={16} className="text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                  <div>
+                    <h5 className="text-[11px] font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider mb-1">Asterisk Uyumlu Ses Formatı</h5>
+                    <p className="text-[10px] text-amber-700/80 dark:text-amber-500/80 leading-relaxed font-medium">
+                      Santralin anonsu hatasız oynatabilmesi için yükleyeceğiniz dosyanın <strong>WAV, 8000Hz, 16-bit, Mono</strong> formatında olması gerekmektedir. Farklı formatlar görüşme esnasında çalmayabilir.
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className={`border rounded-xl p-4 flex items-start gap-3 ${lightBg} ${borderLight}`}>
+                  <Info size={16} className={`${text} shrink-0 mt-0.5`} />
+                  <div>
+                    <h5 className={`text-[11px] font-bold uppercase tracking-wider mb-1 ${text}`}>Otomatik Ses Sentezi (TTS)</h5>
+                    <p className="text-[10px] text-slate-600 dark:text-slate-300 leading-relaxed font-medium">
+                      Yazdığınız metin doğal Türkçe ses ile sentezlenerek santral uyumlu <strong>8000Hz, 16-bit, Mono WAV</strong> formatına otomatik dönüştürülür.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {modalError && (
+                <div className="p-3 rounded-xl bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 text-xs font-bold">
+                  {modalError}
+                </div>
+              )}
 
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Medya Tipi</label>
@@ -425,10 +540,12 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
 
               {activeTab === "upload" ? (
                 <div>
-                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">Ses Dosyası</label>
-                  <div className="w-full flex items-center justify-center w-full">
+                  <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-450 uppercase tracking-wider mb-2">
+                    Ses Dosyası {editingAnn && <span className="text-slate-400 font-normal normal-case">(Değiştirmek istemiyorsanız boş bırakabilirsiniz)</span>}
+                  </label>
+                  <div className="w-full flex items-center justify-center">
                       <label className={`flex flex-col items-center justify-center w-full h-32 border-2 border-dashed rounded-xl cursor-pointer transition-all ${selectedFile ? 'border-emerald-400 bg-emerald-50/30 dark:bg-emerald-900/10' : 'border-slate-300 dark:border-slate-700 bg-slate-50 hover:bg-slate-100 dark:bg-slate-900 dark:hover:bg-slate-800/80'}`}>
-                          <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                          <div className="flex flex-col items-center justify-center pt-5 pb-6 px-3 text-center">
                               {selectedFile ? (
                                   <>
                                     <FileAudio className="w-8 h-8 mb-3 text-emerald-500" />
@@ -438,12 +555,16 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                               ) : (
                                   <>
                                     <Volume2 className="w-8 h-8 mb-3 text-slate-400" />
-                                    <p className="mb-1 text-xs text-slate-500 dark:text-slate-400"><span className="font-bold">Yüklemek için tıklayın</span> veya sürükleyip bırakın</p>
-                                    <p className="text-[10px] text-slate-400 dark:text-slate-500">WAV veya MP3 (MAX. 10MB)</p>
+                                    <p className="mb-1 text-xs text-slate-500 dark:text-slate-400">
+                                      <span className="font-bold">Yüklemek için tıklayın</span> veya sürükleyip bırakın
+                                    </p>
+                                    <p className="text-[10px] text-slate-400 dark:text-slate-500">
+                                      {editingAnn ? `Mevcut: ${editingAnn.name || editingAnn.original_filename}` : "WAV veya MP3 (MAX. 10MB)"}
+                                    </p>
                                   </>
                               )}
                           </div>
-                          <input type="file" className="hidden" accept=".wav,.mp3" onChange={handleFileChange} required={activeTab === "upload"} />
+                          <input type="file" className="hidden" accept=".wav,.mp3" onChange={handleFileChange} required={activeTab === "upload" && !editingAnn} />
                       </label>
                   </div>
                 </div>
@@ -464,21 +585,14 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
-                  onClick={() => {
-                    setShowModal(false);
-                    setNewAnnName("");
-                    setAnnType("announcement");
-                    setSelectedFile(null);
-                    setTtsText("");
-                    setActiveTab("upload");
-                  }}
+                  onClick={resetModal}
                   className="flex-1 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-bold transition-all"
                 >
                   Vazgeç
                 </button>
                 <button
                   type="submit"
-                  disabled={(activeTab === "upload" && (!selectedFile || !newAnnName || isUploading)) || (activeTab === "tts" && (!ttsText || !newAnnName || isGenerating))}
+                  disabled={(activeTab === "upload" && ((!selectedFile && !editingAnn) || !newAnnName.trim() || isUploading)) || (activeTab === "tts" && (!ttsText.trim() || !newAnnName.trim() || isGenerating))}
                   className={`flex-1 py-2.5 rounded-xl text-white text-xs font-extrabold uppercase tracking-wider flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed ${bg} ${hover}`}
                 >
                   {isUploading || isGenerating ? (
@@ -486,7 +600,7 @@ export default function AnnouncementsPanel({ backendHost = "localhost:8000" }) {
                   ) : (
                     <>
                       <Check size={14} />
-                      {activeTab === "upload" ? "Yükle" : "Oluştur"}
+                      {editingAnn ? "Güncelle" : (activeTab === "upload" ? "Yükle" : "Oluştur")}
                     </>
                   )}
                 </button>
