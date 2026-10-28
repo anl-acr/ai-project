@@ -12,6 +12,7 @@ import AgentChatTab from "./tabs/AgentChatTab";
 import AgentQueuePeersTab from "./tabs/AgentQueuePeersTab";
 import AgentSessionCard from "../phone/AgentSessionCard";
 import { useTheme } from "../../utils/theme";
+import { webphoneManager } from "../../utils/webphoneManager";
 
 export const ALL_TABS = [
   { id: "dashboard", perm: "call_panel:tab_dashboard", name: "Pano", desc: "Günlük çağrı ve mola özet panosu", icon: LayoutDashboard },
@@ -107,11 +108,18 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   useEffect(() => {
     const handleSwitchSubTab = (e) => {
       if (e?.detail?.subTab) {
-        setActiveSubTab(e.detail.subTab);
+        setActiveTab(e.detail.subTab);
       }
     };
+    const handleOpenFullWebphone = () => {
+      setActiveTab("webphone");
+    };
     window.addEventListener("SWITCH_AGENT_PANEL_SUBTAB", handleSwitchSubTab);
-    return () => window.removeEventListener("SWITCH_AGENT_PANEL_SUBTAB", handleSwitchSubTab);
+    window.addEventListener("OPEN_FULL_WEBPHONE", handleOpenFullWebphone);
+    return () => {
+      window.removeEventListener("SWITCH_AGENT_PANEL_SUBTAB", handleSwitchSubTab);
+      window.removeEventListener("OPEN_FULL_WEBPHONE", handleOpenFullWebphone);
+    };
   }, []);
 
   useEffect(() => {
@@ -265,15 +273,30 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
         setActiveTab("webphone");
       }
     };
+    const handleTabReturn = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      const st = webphoneManager.getState();
+      if (isVisible && st.callStatus === "Ringing" && tabs.some(t => t.id === "webphone")) {
+        setActiveTab("webphone");
+      }
+    };
     window.addEventListener('TRIGGER_CALL', handleTriggerCall);
     window.addEventListener('INCOMING_WEBPHONE_CALL', handleIncomingCall);
+    window.addEventListener('focus', handleTabReturn);
+    document.addEventListener('visibilitychange', handleTabReturn);
     return () => {
       window.removeEventListener('TRIGGER_CALL', handleTriggerCall);
       window.removeEventListener('INCOMING_WEBPHONE_CALL', handleIncomingCall);
+      window.removeEventListener('focus', handleTabReturn);
+      document.removeEventListener('visibilitychange', handleTabReturn);
     };
   }, [isVisible, tabs]);
 
   const isWebphoneScreenActive = Boolean(isVisible && activeTab === "webphone");
+
+  useEffect(() => {
+    webphoneManager.setWebphoneScreenActive(isWebphoneScreenActive);
+  }, [isWebphoneScreenActive]);
 
   return (
     <div className="flex h-full w-full max-w-[1600px] gap-5 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">

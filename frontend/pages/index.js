@@ -406,8 +406,18 @@ export default function Home() {
       const newTenantId = e.detail?.id || (typeof window !== "undefined" ? localStorage.getItem("active_tenant_id") : null) || "tenant-default";
       setActiveTenantId(newTenantId);
     };
+    const handleOpenFullWebphone = () => {
+      setActiveTab("call-center");
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent("SWITCH_AGENT_PANEL_SUBTAB", { detail: { subTab: "webphone" } }));
+      }, 30);
+    };
     window.addEventListener("tenantChanged", handleTenantChange);
-    return () => window.removeEventListener("tenantChanged", handleTenantChange);
+    window.addEventListener("OPEN_FULL_WEBPHONE", handleOpenFullWebphone);
+    return () => {
+      window.removeEventListener("tenantChanged", handleTenantChange);
+      window.removeEventListener("OPEN_FULL_WEBPHONE", handleOpenFullWebphone);
+    };
   }, []);
 
   // Global License Enforcement State

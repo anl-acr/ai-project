@@ -1764,6 +1764,44 @@ class WebphoneManager {
       return false;
     }
   }
+
+  sendDtmf(digit) {
+    const clean = String(digit ?? "").trim();
+    if (!clean) return;
+    const line =
+      (this.state.activeLineId && this.linesMap.get(this.state.activeLineId)) ||
+      Array.from(this.linesMap.values()).find((l) => l.callStatus === "InCall");
+    if (!line || !line.session) return;
+
+    try {
+      const sdh = line.session.sessionDescriptionHandler;
+      if (sdh && typeof sdh.sendDtmf === "function") {
+        sdh.sendDtmf(clean);
+        return;
+      }
+      const pc = sdh?.peerConnection;
+      if (pc) {
+        const audioSender = pc.getSenders().find((s) => s.track && s.track.kind === "audio" && s.dtmf);
+        if (audioSender && audioSender.dtmf) {
+          audioSender.dtmf.insertDTMF(clean, 120, 70);
+          return;
+        }
+      }
+      if (typeof line.session.info === "function") {
+        line.session.info({
+          requestOptions: {
+            body: {
+              contentDisposition: "render",
+              contentType: "application/dtmf-relay",
+              content: `Signal=${clean}\r\nDuration=120`
+            }
+          }
+        });
+      }
+    } catch (e) {
+      console.warn("[WebphoneManager] sendDtmf error:", e);
+    }
+  }
 }
 
 export const webphoneManager = new WebphoneManager();
