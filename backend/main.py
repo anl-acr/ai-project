@@ -10486,12 +10486,214 @@ def should_mask_transcripts() -> bool:
         
     return True
 
+async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> list:
+    """
+    If a call has no rows in `transcripts` yet (e.g. human-to-human Webphone/SIP call)
+    but has a `.wav` recording file on disk, automatically transcribes & diarizes
+    the audio (with bilingual [[ORIG:XX]] tagging when foreign speech is detected),
+    saves the turns to PostgreSQL `transcripts`, and returns them.
+    """
+    try:
+        filename = f"{call_id}.wav"
+        candidates = [
+            os.path.join(RECORDINGS_DIR, filename),
+            os.path.join("/var/spool/asterisk/monitor", filename),
+            os.path.join("/mnt/nas/ai-recordings", filename),
+        ]
+        wav_path = None
+        for p in candidates:
+            if os.path.exists(p) and os.path.getsize(p) > 800:
+                wav_path = p
+                break
+        if not wav_path:
+            return []
+
+        with open(wav_path, "rb") as f:
+            audio_bytes = f.read()
+        if not audio_bytes or len(audio_bytes) < 800:
+            return []
+
+        db_call = await db.get(Call, call_id)
+        base_time = (db_call.start_time if db_call and db_call.start_time else datetime.datetime.utcnow())
+
+        extracted_turns = []
+
+        # 1. Primary: Gemini Multimodal Audio Diarization + Bilingual Translation
+        try:
+            keys = _resolve_translator_ai_keys({})
+            gemini_key = keys.get("gemini_key") or os.getenv("GEMINI_API_KEY", "")
+        except Exception:
+            gemini_key = os.getenv("GEMINI_API_KEY", "")
+
+        if gemini_key and len(audio_bytes) <= 18 * 1024 * 1024:
+            raw_b64 = base64.b64encode(audio_bytes).decode("ascii")
+            prompt_text = (
+                "You are an expert call center transcription and translation engine. "
+                "Listen to this phone call recording and transcribe the conversation turn by turn in chronological order. "
+                "Identify each speaker as either \"customer\" (the external party/customer) or \"human\" (the call center agent/representative). "
+                "IMPORTANT BILINGUAL RULE:\n"
+                "- If a speaker talks in Turkish, set `text` to the exact Turkish speech, `original_foreign` to \"\", and `lang` to \"TR\".\n"
+                "- If a speaker talks in a foreign language (e.g. English, German, Russian, Arabic, French), translate their speech accurately into Turkish in `text`, put their exact original foreign sentence in `original_foreign`, and put the 2-letter uppercase language code (e.g. \"EN\", \"DE\", \"RU\", \"AR\", \"FR\") in `lang`.\n"
+                "- Ignore pure silence, dial tones, or unintelligible static.\n"
+                "Return ONLY valid JSON in this exact format:\n"
+                "{\"turns\": [{\"speaker\": \"customer\", \"text\": \"...\", \"original_foreign\": \"\", \"lang\": \"TR\"}, {\"speaker\": \"human\", \"text\": \"...\", \"original_foreign\": \"\", \"lang\": \"TR\"}]}"
+            )
+            for model_name in ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]:
+                try:
+                    g_url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+                    req_body = {
+                        "contents": [
+                            {
+                                "parts": [
+                                    {"text": prompt_text},
+                                    {"inline_data": {"mime_type": "audio/wav", "data": raw_b64}}
+                                ]
+                            }
+                        ],
+                        "generationConfig": {"temperature": 0.1, "responseMimeType": "application/json"}
+                    }
+                    async with httpx.AsyncClient(timeout=25.0) as client:
+                        resp = await client.post(g_url, json=req_body)
+                        if resp.status_code == 200:
+                            r_json = resp.json()
+                            cand_text = (
+                                r_json.get("candidates", [{}])[0]
+                                .get("content", {})
+                                .get("parts", [{}])[0]
+                                .get("text", "")
+                            )
+                            if cand_text:
+                                cleaned = cand_text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+                                parsed = json.loads(cleaned)
+                                turns_list = parsed.get("turns") if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
+                                if isinstance(turns_list, list) and turns_list:
+                                    for idx, item in enumerate(turns_list):
+                                        if not isinstance(item, dict):
+                                            continue
+                                        spk = str(item.get("speaker") or "customer").strip().lower()
+                                        if spk not in ("customer", "human", "ai", "agent"):
+                                            spk = "customer" if idx % 2 == 0 else "human"
+                                        if spk == "agent":
+                                            spk = "human"
+                                        tr_txt = str(item.get("text") or "").strip()
+                                        orig_for = str(item.get("original_foreign") or "").strip()
+                                        lang_code = str(item.get("lang") or "TR").strip().upper()
+                                        if not tr_txt and not orig_for:
+                                            continue
+                                        if orig_for and tr_txt and orig_for.lower() != tr_txt.lower() and lang_code != "TR":
+                                            final_txt = f"{tr_txt}\n[[ORIG:{lang_code}]] {orig_for}"
+                                        else:
+                                            final_txt = tr_txt or orig_for
+                                        extracted_turns.append((spk, final_txt))
+                                    break
+                except Exception as g_err:
+                    print(f"[AutoTranscribe Gemini ({model_name}) Warning]: {g_err}")
+
+        # 2. Fallback: Built-in Keyless Google Chromium Speech API v2 over 10-second WAV chunks
+        if not extracted_turns:
+            try:
+                import struct
+                sample_rate = 8000
+                if audio_bytes[:4] == b"RIFF" and b"WAVE" in audio_bytes[:16]:
+                    try:
+                        sample_rate = struct.unpack("<I", audio_bytes[24:28])[0]
+                        if sample_rate < 8000 or sample_rate > 48000:
+                            sample_rate = 8000
+                    except Exception:
+                        sample_rate = 8000
+                    data_idx = audio_bytes.find(b"data")
+                    pcm_all = audio_bytes[data_idx + 8:] if data_idx != -1 else audio_bytes[44:]
+                else:
+                    pcm_all = audio_bytes[44:]
+
+                bytes_per_sec = sample_rate * 2  # 16-bit mono
+                chunk_bytes_len = bytes_per_sec * 10  # 10s chunks
+                max_chunks = 12  # up to 2 minutes
+
+                for c_idx in range(min(max_chunks, max(1, (len(pcm_all) + chunk_bytes_len - 1) // chunk_bytes_len))):
+                    chunk_pcm = pcm_all[c_idx * chunk_bytes_len : (c_idx + 1) * chunk_bytes_len]
+                    if len(chunk_pcm) < 1600:
+                        continue
+                    # Build minimal 44-byte WAV header for chunk
+                    data_size = len(chunk_pcm)
+                    wav_hdr = struct.pack(
+                        "<4sI4s4sIHHIIHH4sI",
+                        b"RIFF",
+                        36 + data_size,
+                        b"WAVE",
+                        b"fmt ",
+                        16,
+                        1,
+                        1,
+                        sample_rate,
+                        sample_rate * 2,
+                        2,
+                        16,
+                        b"data",
+                        data_size,
+                    )
+                    chunk_wav = wav_hdr + chunk_pcm
+                    tr_res, en_res = await asyncio.gather(
+                        _keyless_chromium_stt_from_audio(chunk_wav, "audio/wav", "tr"),
+                        _keyless_chromium_stt_from_audio(chunk_wav, "audio/wav", "en"),
+                    )
+                    tr_res = (tr_res or "").strip()
+                    en_res = (en_res or "").strip()
+                    if not tr_res and not en_res:
+                        continue
+
+                    spk = "customer" if len(extracted_turns) % 2 == 0 else "human"
+                    # Determine if English recognition is stronger/clearer foreign speech
+                    en_words = set(re.findall(r"[a-zA-Z]+", en_res.lower()))
+                    common_en = {"the", "hello", "hi", "how", "are", "you", "can", "please", "help", "want", "need", "my", "is", "what", "where", "when", "yes", "no", "thank", "thanks", "good", "morning", "hotel", "room", "reservation", "price", "call", "speak", "english"}
+                    if en_res and (not tr_res or len(en_words.intersection(common_en)) >= 2):
+                        tr_trans = await _fallback_google_text_translate(en_res, "en", "tr")
+                        if tr_trans and tr_trans.strip().lower() != en_res.lower():
+                            extracted_turns.append((spk, f"{tr_trans.strip()}\n[[ORIG:EN]] {en_res}"))
+                        else:
+                            extracted_turns.append((spk, en_res))
+                    else:
+                        extracted_turns.append((spk, tr_res))
+            except Exception as fb_err:
+                print(f"[AutoTranscribe Chromium Fallback Warning]: {fb_err}")
+
+        if not extracted_turns:
+            return []
+
+        saved_rows = []
+        for idx, (spk, txt) in enumerate(extracted_turns):
+            turn_ts = base_time + datetime.timedelta(seconds=idx * 4)
+            tr_obj = Transcript(
+                call_id=call_id,
+                speaker=spk,
+                text=txt,
+                timestamp=turn_ts
+            )
+            db.add(tr_obj)
+            saved_rows.append(tr_obj)
+
+        await db.commit()
+        for r in saved_rows:
+            try:
+                await db.refresh(r)
+            except Exception:
+                pass
+        return saved_rows
+    except Exception as auto_err:
+        print(f"[AutoTranscribe Call Recording Error ({call_id})]: {auto_err}")
+        return []
+
+
 @app.get("/api/calls/{call_id}/transcripts")
+@app.get("/api/calls/{call_id}/transcript")
 async def get_call_transcripts(call_id: str, db: AsyncSession = Depends(get_db)):
     stmt = select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
     result = await db.execute(stmt)
     transcripts = result.scalars().all()
-    
+
+    if not transcripts:
+        transcripts = await _auto_transcribe_call_recording(call_id, db)
+
     # Apply masking if current agent is not permitted to see raw PII data
     if should_mask_transcripts():
         modified = []
@@ -10504,7 +10706,7 @@ async def get_call_transcripts(call_id: str, db: AsyncSession = Depends(get_db))
                 "timestamp": t.timestamp
             })
         return modified
-        
+
     return transcripts
 
 
