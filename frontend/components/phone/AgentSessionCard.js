@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
-import { LogIn, LogOut, Coffee, ShieldAlert, UserCheck, Play, ChevronDown, ChevronUp, User, Clock, CheckCircle2, Tag, AlertTriangle } from "lucide-react";
+import { createPortal } from "react-dom";
+import { LogIn, LogOut, Coffee, ShieldAlert, UserCheck, Play, ChevronDown, ChevronUp, User, Clock, CheckCircle2, Tag, AlertTriangle, X } from "lucide-react";
 import { webphoneManager } from "../../utils/webphoneManager";
 import { useTheme } from "../../utils/theme";
 
@@ -549,79 +550,182 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
                 /* IN BREAK: End Break Button */
                 <button
                   onClick={handleEndBreak}
-                  className="w-full flex items-center justify-center gap-2 py-3 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition-all shadow-sm shadow-emerald-500/10"
+                  className={`w-full flex items-center justify-center gap-2 py-3 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer`}
                 >
                   <Play size={15} />
                   <span>Molayı Bitir ({formatTimer(liveBreakSeconds)})</span>
                 </button>
               ) : (
-                /* ONLINE: Break Options Toggle */
+                /* ONLINE: Break Options Modal Trigger */
                 <button
-                  onClick={() => setShowDropdown(!showDropdown)}
-                  className="w-full flex items-center justify-between gap-2 px-4 py-3 bg-primary hover:bg-primary text-white rounded-xl text-xs font-bold transition-all shadow-sm"
+                  onClick={() => setShowDropdown(true)}
+                  className={`w-full flex items-center justify-between gap-2 px-4 py-3 ${bg} ${hover} text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer`}
                 >
                   <div className="flex items-center gap-2">
                     <Coffee size={15} />
                     <span>Mola Durumları</span>
                   </div>
-                  {showDropdown ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+                  <ChevronDown size={15} />
                 </button>
               )}
 
               {/* Mola Toggle Helper for break state */}
               {agentState.status === "break" && (
                 <button
-                  onClick={() => setShowDropdown(!showDropdown)}
-                  className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-[10px] font-bold text-slate-500 dark:text-slate-450 hover:bg-slate-50 dark:hover:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 transition-all"
+                  onClick={() => setShowDropdown(true)}
+                  className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-[11px] font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/60 border border-slate-200/80 dark:border-slate-800 transition-all cursor-pointer"
                 >
-                  <span>Mola Değiştir / Oturumu Kapat</span>
-                  {showDropdown ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                  <span className="flex items-center gap-1.5">
+                    <Coffee size={13} className={text} />
+                    Mola Değiştir / Oturumu Kapat
+                  </span>
+                  <ChevronDown size={13} />
                 </button>
               )}
 
-              {/* Dropdown Options List */}
-              {showDropdown && (
-                <div className="absolute left-0 right-0 top-full mt-1.5 z-30 p-1.5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-xl space-y-1 max-h-56 overflow-y-auto">
-                  
-                  {/* LOGOUT (Top Option) */}
-                  <button
-                    onClick={handleLogout}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-bold text-primary dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-xl transition-all text-left border border-transparent"
+              {/* Break Status & Session Popup Modal (Portal) */}
+              {showDropdown && typeof document !== "undefined" && createPortal(
+                <div
+                  className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
+                  onClick={() => setShowDropdown(false)}
+                >
+                  <div
+                    className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200"
+                    onClick={(e) => e.stopPropagation()}
                   >
-                    <LogOut size={14} />
-                    <span>Oturumu Kapat (Logout)</span>
-                  </button>
-
-                  <div className="h-[1px] bg-slate-100 dark:bg-slate-800/60 my-1.5" />
-
-                  {/* BREAK TYPES LIST */}
-                  {filteredBreaks.length === 0 ? (
-                    <div className="text-[10px] text-slate-450 text-center py-3 italic">
-                      Bu role izin verilen mola bulunmamaktadır.
-                    </div>
-                  ) : (
-                    filteredBreaks.map((b) => (
-                      <button
-                        key={b.id}
-                        onClick={() => handleSelectBreak(b)}
-                        className="w-full flex items-center justify-between gap-2 px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-800/40 rounded-xl transition-all text-left border border-transparent"
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <span 
-                            className="h-2.5 w-2.5 rounded-full border border-slate-200/20 shrink-0" 
-                            style={{ backgroundColor: b.color }} 
-                          />
-                          <span>{b.name}</span>
+                    {/* Modal Header */}
+                    <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className={`p-2.5 rounded-xl ${lightBg} ${text} border ${borderLight}`}>
+                          <Coffee size={18} />
                         </div>
-                        {Number(b.max_duration_minutes) > 0 && (
-                          <span className="text-[9px] font-bold text-slate-400">
-                            Maks {b.max_duration_minutes}dk
-                          </span>
-                        )}
+                        <div>
+                          <h3 className="text-sm font-extrabold text-slate-900 dark:text-white tracking-tight">
+                            Mola Durumları & Oturum
+                          </h3>
+                          <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                            {agentState.status === "break" && agentState?.current_break
+                              ? `Aktif Mola: ${agentState.current_break.name} (${formatTimer(liveBreakSeconds)})`
+                              : `Durum: Müsait • ${formatTimer(liveBreakSeconds)}`}
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setShowDropdown(false)}
+                        className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Kapat"
+                      >
+                        <X size={18} />
                       </button>
-                    ))
-                  )}
-                </div>
+                    </div>
+
+                    {/* Modal Content */}
+                    <div className="p-5 overflow-y-auto space-y-4">
+                      {/* If currently on break, show quick Resume button */}
+                      {agentState.status === "break" && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowDropdown(false);
+                            handleEndBreak();
+                          }}
+                          className={`w-full flex items-center justify-between px-4 py-3 rounded-xl ${bg} ${hover} text-white text-xs font-bold shadow-md transition-all cursor-pointer`}
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <Play size={15} />
+                            <span>Molayı Bitir ve Müsait Duruma Geç</span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded-lg bg-white/20 text-[10px] font-mono">
+                            {formatTimer(liveBreakSeconds)}
+                          </span>
+                        </button>
+                      )}
+
+                      <div>
+                        <div className="flex items-center justify-between mb-2.5">
+                          <span className="text-[11px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                            Mola Türü Seçin ({filteredBreaks.length})
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            Tıklayarak molaya ayrılabilirsiniz
+                          </span>
+                        </div>
+
+                        {filteredBreaks.length === 0 ? (
+                          <div className="text-xs text-slate-450 text-center py-6 bg-slate-50 dark:bg-slate-950/40 rounded-xl border border-dashed border-slate-200 dark:border-slate-800 italic">
+                            Bu role izin verilen mola bulunmamaktadır.
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                            {filteredBreaks.map((b) => {
+                              const isCurrent = agentState.status === "break" && String(agentState?.current_break?.id) === String(b.id);
+                              return (
+                                <button
+                                  key={b.id}
+                                  type="button"
+                                  onClick={() => handleSelectBreak(b)}
+                                  className={`flex items-center justify-between gap-2 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                                    isCurrent
+                                      ? `${lightBg} ${border} ring-1 ring-current`
+                                      : "bg-slate-50/70 dark:bg-slate-950/40 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 hover:bg-slate-100/70 dark:hover:bg-slate-800/50"
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-2.5 min-w-0">
+                                    <span
+                                      className="h-3 w-3 rounded-full shrink-0 shadow-sm ring-2 ring-white dark:ring-slate-900"
+                                      style={{ backgroundColor: b.color || "#f59e0b" }}
+                                    />
+                                    <div className="min-w-0">
+                                      <div className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
+                                        {b.name}
+                                      </div>
+                                      {Number(b.max_duration_minutes) > 0 ? (
+                                        <div className="text-[10px] font-semibold text-slate-400 flex items-center gap-1 mt-0.5">
+                                          <Clock size={10} /> Maks {b.max_duration_minutes} dk
+                                        </div>
+                                      ) : (
+                                        <div className="text-[10px] text-slate-400 mt-0.5">
+                                          Süre sınırı yok
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
+                                  {isCurrent && (
+                                    <span className={`px-2 py-0.5 rounded-md text-[9px] font-extrabold uppercase ${bg} text-white shrink-0`}>
+                                      Aktif
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Modal Footer */}
+                    <div className="px-5 py-3.5 border-t border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50 flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={handleLogout}
+                        className="px-3.5 py-2 rounded-xl text-xs font-bold text-slate-600 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-950/30 border border-slate-200 dark:border-slate-700 transition-all flex items-center gap-1.5 cursor-pointer"
+                      >
+                        <LogOut size={14} />
+                        <span>Oturumu Kapat (Logout)</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setShowDropdown(false)}
+                        className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-sm shadow-rose-500/20 transition-all cursor-pointer"
+                      >
+                        Vazgeç
+                      </button>
+                    </div>
+                  </div>
+                </div>,
+                document.body
               )}
 
             </div>
