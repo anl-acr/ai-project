@@ -104,6 +104,7 @@ export default function CallChatWidget({
     dialNumber,
     remoteNumber,
     remoteDisplayName,
+    queueName,
     callDuration,
     isMuted,
     isOnHold,
@@ -372,9 +373,10 @@ export default function CallChatWidget({
     matchedCaller?.displayName || (rawSipName && rawSipName !== callerNum ? rawSipName : "");
   const callerAvatar = matchedCaller?.avatar_url || matchedCaller?.avatar || null;
   const displayCallerNum = maskPhoneLast4(callerNum, maskPhoneNumbers);
-  const callerSummaryLabel = callerDisplayName
+  const baseCallerLabel = callerDisplayName
     ? `${callerDisplayName} (${displayCallerNum || callerNum})`
     : displayCallerNum || callerNum || "Bilinmeyen Numara";
+  const callerSummaryLabel = queueName ? `${baseCallerLabel} • ${queueName}` : baseCallerLabel;
 
   // Note: Native OS Desktop Notification for Incoming Calls is handled directly in
   // webphoneManager.handleIncomingInvite() with a unique per-call tag so React state
@@ -408,7 +410,8 @@ export default function CallChatWidget({
       titleFlashTimerRef.current = null;
     }
 
-    const shortCaller = callerDisplayName || displayCallerNum || "Bilinmeyen";
+    const rawShortCaller = callerDisplayName || displayCallerNum || "Bilinmeyen";
+    const shortCaller = queueName ? `[${queueName}] ${rawShortCaller}` : rawShortCaller;
 
     if (callStatus === "Ringing") {
       let toggle = false;
@@ -446,7 +449,7 @@ export default function CallChatWidget({
         titleFlashTimerRef.current = null;
       }
     };
-  }, [callStatus, callDuration, callerDisplayName, displayCallerNum]);
+  }, [callStatus, callDuration, callerDisplayName, displayCallerNum, queueName]);
 
   // Live Voice Biometric & Deepfake Polling Hook
   useEffect(() => {
@@ -944,7 +947,7 @@ export default function CallChatWidget({
                       }`}
                     >
                       <span className="truncate">
-                        Hat {l.lineNumber}: {l.remoteDisplayName || l.remoteNumber}
+                        Hat {l.lineNumber}: {l.queueName ? `[${l.queueName}] ` : ""}{l.remoteDisplayName || l.remoteNumber}
                       </span>
                       <span className="text-[10px] text-slate-500 shrink-0 ml-2">
                         {isConferenceActive ? "Konf." : l.isOnHold ? "Beklemede" : "Aktif"}
@@ -988,31 +991,44 @@ export default function CallChatWidget({
                         </div>
                       )}
                       <div className="min-w-0">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
-                            callStatus === "Ringing"
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                              callStatus === "Ringing"
+                                ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                                : callStatus === "Calling"
+                                ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                                : isOnHold
+                                ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                                : "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
+                            }`}
+                          >
+                            {callStatus === "Ringing"
+                              ? "Gelen Çağrı"
                               : callStatus === "Calling"
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
+                              ? "Aranıyor..."
                               : isOnHold
-                              ? "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300"
-                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300"
-                          }`}
-                        >
-                          {callStatus === "Ringing"
-                            ? "Gelen Çağrı"
-                            : callStatus === "Calling"
-                            ? "Aranıyor..."
-                            : isOnHold
-                            ? "Beklemede"
-                            : "Görüşme Aktif"}
-                        </span>
+                              ? "Beklemede"
+                              : "Görüşme Aktif"}
+                          </span>
+                          {queueName && (
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${borderLight}`}
+                            >
+                              Kuyruk: {queueName}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-sm font-black text-slate-800 dark:text-white truncate mt-1">
-                          {callerDisplayName || displayCallerNum || "Bilinmeyen Numara"}
+                          {callerDisplayName
+                            ? callerDisplayName
+                            : queueName
+                            ? `${displayCallerNum || "Bilinmeyen Numara"} • ${queueName}`
+                            : displayCallerNum || "Bilinmeyen Numara"}
                         </p>
                         {callerDisplayName && displayCallerNum && (
                           <p className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400">
-                            {displayCallerNum}
+                            {queueName ? `${displayCallerNum} • ${queueName}` : displayCallerNum}
                           </p>
                         )}
                       </div>

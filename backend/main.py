@@ -2869,6 +2869,10 @@ same => n,Hangup()
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
 exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UNIQUEID}})
 same => n,Playback(/var/spool/asterisk/monitor/tr_aktariliyor)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(Q_DISP_NAME=${{CURL(http://{backend_host}/api/queues/resolve_display_name?queue_ext=temsilci_kuyrugu&call_id=${{CALL_UUID}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
+same => n,Set(CALLERID(name)=${{IF($["${{Q_DISP_NAME}}" != ""]?[QUEUE:${{Q_DISP_NAME}}] ${{CALLERID(num)}}:${{CALLERID(name)}})}})
 same => n,Queue(temsilci_kuyrugu,c)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -3071,6 +3075,8 @@ same => n,Set(CLEAN_TARGET=${{IF($["${{RAW_NUM:0:2}}"="90"]?${{RAW_NUM}}:90${{RA
 same => n,GotoIf($[${{LEN(${{FWD_TARGET}})}} < 6]?dial_internal_fwd:dial_external_fwd)
 
 same => n(queue_fwd),NoOp(Kuyruk Aktarimi Baslatiliyor: ${{FWD_TARGET:6}})
+same => n,Set(Q_DISP_NAME=${{CURL(http://{backend_host}/api/queues/resolve_display_name?queue_ext=${{URIENCODE(${{FWD_TARGET:6}})}}&call_id=${{CALL_UUID}}&caller=${{URIENCODE(${{CALLERID(num)}})}})}})
+same => n,Set(CALLERID(name)=${{IF($["${{Q_DISP_NAME}}" != ""]?[QUEUE:${{Q_DISP_NAME}}] ${{CALLERID(num)}}:${{CALLERID(name)}})}})
 same => n,Queue(${{FWD_TARGET:6}},tTc)
 same => n,Set(DIALSTATUS=${{IF($["${{MEMBERINTERFACE}}" != ""]?ANSWER:NOANSWER)}})
 same => n,Goto(end_call)
@@ -6279,6 +6285,15 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
 
         if not user_dict:
             if dialstatus == "BEFORE_DIAL":
+                try:
+                    stmt_q = select(PBXQueue).where(or_(PBXQueue.extension == ext_str, PBXQueue.name == ext_str))
+                    res_q = await db.execute(stmt_q)
+                    db_q = res_q.scalars().first()
+                    if db_q:
+                        target_q = str(db_q.extension or db_q.name or ext_str).strip()
+                        return Response(content=f"ALLOW:QUEUE_{target_q}:60", media_type="text/plain")
+                except Exception:
+                    pass
                 for q in settings_db.get("queues", []):
                     q_ext = str(q.get("extension") or "").strip()
                     q_name = str(q.get("name") or "").strip()
@@ -17096,6 +17111,7 @@ async def startup_event():
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_reconnect_mode VARCHAR DEFAULT 'manual';",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_notify_user BOOLEAN DEFAULT TRUE;",
                 "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS auto_pause_notify_channels VARCHAR DEFAULT 'both';",
+                "ALTER TABLE pbx_queues ADD COLUMN IF NOT EXISTS show_queue_name BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE queue_survey_responses ADD COLUMN IF NOT EXISTS question_answers JSON DEFAULT '[]';",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS recipient_info VARCHAR;",
                 "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS assigned_user VARCHAR;",
@@ -18237,6 +18253,162 @@ def _extract_clean_agent_ext(raw_agent: str) -> str:
     if "-" in s:
         s = s.split("-", 1)[0]
     return s.strip()
+
+
+@app.get("/api/queues/resolve_display_name")
+async def resolve_queue_display_name_for_dialplan(
+    queue_ext: Optional[str] = "",
+    call_id: Optional[str] = "",
+    caller: Optional[str] = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Called by Asterisk dialplan right before Queue(...) execution.
+    If the queue has show_queue_name=True, returns the queue's display name so Asterisk sets CALLERID(name)=[QUEUE:<name>] ...
+    Otherwise returns an empty string.
+    """
+    clean_q = str(queue_ext or "").strip()
+    queues_list = []
+    try:
+        res = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+        db_queues = res.scalars().all()
+        queues_list = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in db_queues]
+    except Exception:
+        queues_list = []
+
+    disk_queues = settings_db.get("queues", [])
+    if not queues_list:
+        queues_list = disk_queues
+    else:
+        disk_by_ext = {str(dq.get("extension") or dq.get("name") or ""): dq for dq in disk_queues}
+        for q in queues_list:
+            qk = str(q.get("extension") or q.get("name") or "")
+            if qk in disk_by_ext and "show_queue_name" in disk_by_ext[qk]:
+                if q.get("show_queue_name") is None:
+                    q["show_queue_name"] = disk_by_ext[qk].get("show_queue_name")
+
+    matched_q = None
+    if clean_q:
+        for q in queues_list:
+            q_e = str(q.get("extension") or "").strip()
+            q_n = str(q.get("name") or "").strip()
+            q_i = str(q.get("id") or "").strip()
+            if clean_q in (q_e, q_n, q_i):
+                matched_q = q
+                break
+        if not matched_q and clean_q == "temsilci_kuyrugu":
+            matched_q = next((q for q in queues_list if str(q.get("extension") or "") == "2000"), None) or (queues_list[0] if queues_list else None)
+
+    if call_id and matched_q:
+        try:
+            q_target_ext = str(matched_q.get("extension") or clean_q).strip()
+            db_call = await db.get(Call, str(call_id).strip())
+            if db_call:
+                db_call.callee_number = q_target_ext
+                if not str(db_call.hangup_source or "").startswith("queue:"):
+                    db_call.hangup_source = f"queue:{q_target_ext}"
+                await db.commit()
+        except Exception:
+            pass
+
+    if matched_q and bool(matched_q.get("show_queue_name", False)):
+        q_label = str(matched_q.get("name") or matched_q.get("extension") or clean_q).strip()
+        return PlainTextResponse(q_label)
+
+    return PlainTextResponse("")
+
+
+@app.get("/api/queues/active-call-queue")
+async def get_active_call_queue_info(
+    caller: Optional[str] = "",
+    extension: Optional[str] = "",
+    queue_hint: Optional[str] = "",
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Resolves whether an incoming call to an agent's WebPhone originated from a Queue,
+    and whether that queue has 'show_queue_name' enabled.
+    """
+    queues_list = []
+    try:
+        res = await db.execute(select(PBXQueue).order_by(PBXQueue.id))
+        db_queues = res.scalars().all()
+        queues_list = [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in db_queues]
+    except Exception:
+        queues_list = []
+
+    disk_queues = settings_db.get("queues", [])
+    if not queues_list:
+        queues_list = disk_queues
+    else:
+        disk_by_ext = {str(dq.get("extension") or dq.get("name") or ""): dq for dq in disk_queues}
+        for q in queues_list:
+            qk = str(q.get("extension") or q.get("name") or "")
+            if qk in disk_by_ext and "show_queue_name" in disk_by_ext[qk]:
+                if q.get("show_queue_name") is None:
+                    q["show_queue_name"] = disk_by_ext[qk].get("show_queue_name")
+
+    queue_lookup = {}
+    for q in queues_list:
+        q_e = str(q.get("extension") or "").strip()
+        q_n = str(q.get("name") or "").strip()
+        q_i = str(q.get("id") or "").strip()
+        if q_e:
+            queue_lookup[q_e.lower()] = q
+        if q_n:
+            queue_lookup[q_n.lower()] = q
+        if q_i:
+            queue_lookup[q_i.lower()] = q
+    if "2000" in queue_lookup:
+        queue_lookup["temsilci_kuyrugu"] = queue_lookup["2000"]
+
+    matched_q = None
+    hint_clean = str(queue_hint or "").strip().lower()
+    if hint_clean and hint_clean in queue_lookup:
+        matched_q = queue_lookup[hint_clean]
+
+    if not matched_q and caller:
+        caller_digits = re.sub(r"\D", "", str(caller))
+        caller_last10 = caller_digits[-10:] if len(caller_digits) >= 10 else caller_digits
+        try:
+            cutoff = datetime.datetime.utcnow() - datetime.timedelta(minutes=5)
+            stmt = select(Call).where(Call.start_time >= cutoff).order_by(Call.start_time.desc()).limit(25)
+            res_calls = await db.execute(stmt)
+            recent_calls = res_calls.scalars().all()
+            for c in recent_calls:
+                c_digits = re.sub(r"\D", "", str(c.caller_number or ""))
+                c_last10 = c_digits[-10:] if len(c_digits) >= 10 else c_digits
+                if (caller_last10 and c_last10 == caller_last10) or str(c.caller_number or "").strip() == str(caller).strip():
+                    h_src = str(c.hangup_source or "").strip()
+                    callee_str = str(c.callee_number or "").strip().lower()
+                    if h_src.startswith("queue:"):
+                        q_k = h_src.split(":", 1)[1].strip().lower()
+                        if q_k in queue_lookup:
+                            matched_q = queue_lookup[q_k]
+                            break
+                    if h_src.startswith("transfer:"):
+                        q_k = h_src.split(":", 1)[1].strip().lower()
+                        if q_k in queue_lookup:
+                            matched_q = queue_lookup[q_k]
+                            break
+                    if callee_str in queue_lookup:
+                        matched_q = queue_lookup[callee_str]
+                        break
+        except Exception:
+            pass
+
+    if not matched_q:
+        return {"is_queue_call": False, "show_queue_name": False, "queue_name": "", "queue_extension": ""}
+
+    show_flag = bool(matched_q.get("show_queue_name", False))
+    q_name_val = str(matched_q.get("name") or matched_q.get("extension") or "").strip()
+    q_ext_val = str(matched_q.get("extension") or "").strip()
+    return {
+        "is_queue_call": True,
+        "show_queue_name": show_flag,
+        "queue_name": q_name_val if show_flag else "",
+        "queue_extension": q_ext_val
+    }
 
 
 @app.get("/api/queues/survey/config")

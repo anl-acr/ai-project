@@ -185,6 +185,7 @@ export default function AgentWebphoneTab({
     dialNumber,
     remoteNumber,
     remoteDisplayName,
+    queueName,
     callStatus,
     registered: isRegistered,
     callDuration,
@@ -392,7 +393,8 @@ export default function AgentWebphoneTab({
     const m = findContactByPhone(line.remoteNumber, contacts, directory);
     const name = m?.displayName || line.remoteDisplayName || "";
     const num = maskPhoneNumbers ? maskPhoneLast4(line.remoteNumber, true) : line.remoteNumber;
-    return { name, num };
+    const qName = line.queueName || "";
+    return { name, num, qName };
   };
 
   // Filtered directory + contacts for idle quick-dial panel
@@ -982,7 +984,7 @@ export default function AgentWebphoneTab({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       {lines.map((line) => {
                         const isSelected = line.id === activeLineId;
-                        const { name, num } = resolveLineLabel(line);
+                        const { name, num, qName } = resolveLineLabel(line);
                         return (
                           <div
                             key={line.id}
@@ -993,10 +995,15 @@ export default function AgentWebphoneTab({
                                 : "border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-800/40"
                             }`}
                           >
-                            <div className="min-w-0">
-                              <span className="text-[10px] font-extrabold text-slate-500 mr-2">
+                            <div className="min-w-0 flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-extrabold text-slate-500">
                                 Hat {line.lineNumber}
                               </span>
+                              {qName && (
+                                <span className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold ${lightBg} ${text} border ${borderLight}`}>
+                                  {qName}
+                                </span>
+                              )}
                               <span className="font-bold text-xs text-slate-800 dark:text-white truncate">
                                 {name ? `${name} (${num})` : num}
                               </span>
@@ -1037,7 +1044,7 @@ export default function AgentWebphoneTab({
                       />
                     </div>
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <span
                           className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase ${
                             callStatus === "InCall"
@@ -1054,6 +1061,13 @@ export default function AgentWebphoneTab({
                             ? "Gelen Çağrı..."
                             : "Aranıyor..."}
                         </span>
+                        {queueName && (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold border ${lightBg} ${text} ${borderLight}`}
+                          >
+                            Kuyruk: {queueName}
+                          </span>
+                        )}
                         {resolvedDisplayName && (
                           <span className="text-[10px] font-bold text-slate-400">
                             {resolvedIsInternal ? "Dahili Abone" : "Kayıtlı Kişi"}
@@ -1061,12 +1075,18 @@ export default function AgentWebphoneTab({
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2.5 mt-1">
+                      <div className="flex items-center gap-2.5 mt-1 flex-wrap">
                         <h2 className="text-xl font-extrabold text-slate-900 dark:text-white tracking-wide">
-                          {resolvedDisplayName || displayPhoneNum}
+                          {resolvedDisplayName
+                            ? resolvedDisplayName
+                            : queueName
+                            ? `${displayPhoneNum} • ${queueName}`
+                            : displayPhoneNum}
                         </h2>
                         {resolvedDisplayName && (
-                          <span className="text-sm font-mono font-semibold text-slate-400">{displayPhoneNum}</span>
+                          <span className="text-sm font-mono font-semibold text-slate-400">
+                            {queueName ? `${displayPhoneNum} • ${queueName}` : displayPhoneNum}
+                          </span>
                         )}
                         {!resolvedDisplayName && canSaveContact && (
                           <button

@@ -33,6 +33,7 @@ class WebphoneManager {
       dialNumber: "",
       remoteNumber: "",
       remoteDisplayName: "",
+      queueName: "",
       callDuration: 0,
       isMuted: false,
       isOnHold: false,
@@ -137,6 +138,7 @@ class WebphoneManager {
       lineNumber: l.lineNumber,
       remoteNumber: l.remoteNumber,
       remoteDisplayName: l.remoteDisplayName,
+      queueName: l.queueName || "",
       callStatus: l.callStatus,
       callDuration: l.callDuration,
       isMuted: l.isMuted,
@@ -173,6 +175,7 @@ class WebphoneManager {
       callStatus: activeLine ? activeLine.callStatus : "Idle",
       remoteNumber: activeLine ? activeLine.remoteNumber : "",
       remoteDisplayName: activeLine ? activeLine.remoteDisplayName : "",
+      queueName: activeLine ? activeLine.queueName || "" : "",
       callDuration: activeLine ? activeLine.callDuration : 0,
       isMuted: activeLine ? activeLine.isMuted : false,
       isOnHold: activeLine ? activeLine.isOnHold : false,
@@ -699,13 +702,22 @@ class WebphoneManager {
     const sipCallId = invite?.request?.callId || `sip-${Date.now()}`;
     const myExt = String(this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension || "1000");
 
+    let parsedQueueName = "";
+    let cleanedDisplayName = rawDisplayName;
+    const qMatch = rawDisplayName.match(/^\[(?:QUEUE|Q):([^\]]+)\]\s*(.*)$/i);
+    if (qMatch) {
+      parsedQueueName = (qMatch[1] || "").trim();
+      cleanedDisplayName = (qMatch[2] || "").trim();
+    }
+
     const lineId = `line-${++this.lineCounter}-${Date.now()}`;
     const lineObj = {
       id: lineId,
       lineNumber: this.getNextLineNumber(),
       session: invite,
       remoteNumber: callerNum,
-      remoteDisplayName: rawDisplayName && rawDisplayName !== callerNum ? rawDisplayName : "",
+      remoteDisplayName: cleanedDisplayName && cleanedDisplayName !== callerNum ? cleanedDisplayName : "",
+      queueName: parsedQueueName,
       callStatus: "Ringing",
       callDuration: 0,
       establishedAt: null,
@@ -726,6 +738,28 @@ class WebphoneManager {
       dialNumber: hasInCall ? this.state.dialNumber : callerNum,
       callNotification: null
     });
+
+    // Live check against backend /api/queues/active-call-queue so toggling 'show_queue_name'
+    // in Queue Settings works immediately even without Asterisk dialplan reload
+    try {
+      const apiBase = this.getApiBase();
+      fetch(
+        `${apiBase}/api/queues/active-call-queue?caller=${encodeURIComponent(callerNum)}&extension=${encodeURIComponent(myExt)}&queue_hint=${encodeURIComponent(parsedQueueName)}`
+      )
+        .then((res) => (res.ok ? res.json() : null))
+        .then((qData) => {
+          const activeLineObj = this.linesMap.get(lineId);
+          if (!activeLineObj || !qData) return;
+          if (qData.is_queue_call) {
+            const resolvedQ = qData.show_queue_name ? String(qData.queue_name || "").trim() : "";
+            if (activeLineObj.queueName !== resolvedQ) {
+              activeLineObj.queueName = resolvedQ;
+              this.syncLinesToState();
+            }
+          }
+        })
+        .catch(() => {});
+    } catch (e) {}
 
     this.logWebrtcCallToBackend("ringing", {
       sip_call_id: sipCallId,
@@ -820,8 +854,11 @@ class WebphoneManager {
       lineObj.remoteDisplayName && lineObj.remoteDisplayName !== lineObj.remoteNumber
         ? `${lineObj.remoteDisplayName} (${lineObj.remoteNumber})`
         : lineObj.remoteNumber || "Bilinmeyen Numara";
-    const title = `📞 Gelen Çağrı: ${callerLabel}`;
-    const body = `Dahili ${myExt || this.state.webrtcConfig?.agentExtension || ""} hattınıza çağrı geliyor. Pencereyi öne getirmek için tıklayın.`;
+    const queuePrefix = lineObj.queueName ? `[${lineObj.queueName}] ` : "";
+    const title = `📞 Gelen Çağrı: ${queuePrefix}${callerLabel}`;
+    const body = lineObj.queueName
+      ? `${lineObj.queueName} kuyruğundan Dahili ${myExt || this.state.webrtcConfig?.agentExtension || ""} hattınıza çağrı geliyor.`
+      : `Dahili ${myExt || this.state.webrtcConfig?.agentExtension || ""} hattınıza çağrı geliyor. Pencereyi öne getirmek için tıklayın.`;
     const uniqueTag = `aida-call-${lineObj.id}-${Date.now()}`;
 
     try {

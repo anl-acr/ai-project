@@ -127,6 +127,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
     all_busy_destination_target: "",
 
     notify_missed_calls: false,
+    show_queue_name: false,
 
     // Per-Queue Smart Callback (Otomatik Geri Arama)
     smart_callback_enabled: false,
@@ -289,6 +290,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           ...prev,
           max_concurrent_breaks: 0,
           disposition_codes: DEFAULT_DISPOSITION_CODES,
+          show_queue_name: false,
           smart_callback_enabled: false,
           smart_callback_max_wait_seconds: 60,
           smart_callback_queue_threshold: 3,
@@ -353,6 +355,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
           all_busy_destination_type: "",
           all_busy_destination_target: "",
           notify_missed_calls: false,
+          show_queue_name: false,
           smart_callback_enabled: false,
           smart_callback_max_wait_seconds: 60,
           smart_callback_queue_threshold: 3,
@@ -608,6 +611,25 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
         <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5">Aynı Anda Maks. Moladaki Temsilci</label>
         <input type="number" min={0} name="max_concurrent_breaks" value={formData.max_concurrent_breaks ?? 0} onChange={handleChange} className={`w-full text-sm px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 focus:outline-none focus:ring-2 ${ring} text-slate-800 dark:text-white transition-all`} />
         <p className="text-[10px] text-slate-500 mt-1">Bu kuyrukta aynı anda en fazla kaç temsilci molaya çıkabilir? (0 = Sınırsız)</p>
+      </div>
+
+      <div className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-900/50 flex items-center justify-between gap-3 self-stretch">
+        <div>
+          <label className="block text-xs font-bold text-slate-800 dark:text-white">Kuyruk İsmini Göster</label>
+          <p className="text-[10px] text-slate-500 mt-0.5">
+            Bu kuyruktan temsilciye çağrı geldiğinde WebPhone ekranında arayan numara ile birlikte kuyruk ismini de gösterir.
+          </p>
+        </div>
+        <label className="relative inline-flex items-center cursor-pointer shrink-0">
+          <input
+            type="checkbox"
+            name="show_queue_name"
+            checked={Boolean(formData.show_queue_name)}
+            onChange={handleChange}
+            className="sr-only peer"
+          />
+          <div className={`w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-slate-600 peer-checked:${bg}`}></div>
+        </label>
       </div>
 
       <div className="md:col-span-2 p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/40 space-y-3">
