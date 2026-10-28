@@ -179,7 +179,11 @@ class WebphoneManager {
       activeSipCallId: activeLine ? activeLine.sipCallId : null
     };
 
+    const prevCallStatus = this.state.callStatus;
     this.setState(patch);
+    if (prevCallStatus !== patch.callStatus) {
+      this.sendPresenceNotify();
+    }
   }
 
   getState() {
@@ -479,22 +483,31 @@ class WebphoneManager {
       });
   }
 
+  sendPresenceNotify() {
+    const ext = this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension;
+    if (!this.state.registered || !ext) return;
+    const allLines = Array.from(this.linesMap.values());
+    let callState = "online";
+    if (allLines.some((l) => l.callStatus === "InCall" || l.callStatus === "Calling")) {
+      callState = "busy";
+    } else if (allLines.some((l) => l.callStatus === "Ringing")) {
+      callState = "ringing";
+    }
+    fetch(`${this.getApiBase()}/api/webrtc/register_notify`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        extension: ext,
+        user_id: this.state.currentUser?.id,
+        call_state: callState
+      })
+    }).catch(() => {});
+  }
+
   startRegisterNotifyLoop() {
     if (this.registerNotifyInterval) clearInterval(this.registerNotifyInterval);
-    const sendNotify = () => {
-      const ext = this.state.webrtcConfig?.agentExtension;
-      if (!this.state.registered || !ext) return;
-      fetch(`${this.getApiBase()}/api/webrtc/register_notify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          extension: ext,
-          user_id: this.state.currentUser?.id
-        })
-      }).catch(() => {});
-    };
-    sendNotify();
-    this.registerNotifyInterval = setInterval(sendNotify, 8000);
+    this.sendPresenceNotify();
+    this.registerNotifyInterval = setInterval(() => this.sendPresenceNotify(), 5000);
     this.startGroupRingingLoop();
   }
 

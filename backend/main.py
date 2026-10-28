@@ -4395,6 +4395,17 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
         if matched_user_id:
             registered_endpoints.add(str(matched_user_id), client_ip)
 
+        call_state_val = str(payload.get("call_state") or "").strip().lower()
+        if call_state_val in ("ringing", "busy"):
+            set_live_extension_call_state(ext, call_state_val)
+        elif call_state_val == "online":
+            try:
+                from backend.services.ami_manager import get_extension_call_state
+                if get_extension_call_state(ext) is None:
+                    set_live_extension_call_state(ext, None)
+            except Exception:
+                set_live_extension_call_state(ext, None)
+
         try:
             from backend.services.agent_presence import handle_agent_reconnect_auto_pause
             asyncio.create_task(handle_agent_reconnect_auto_pause(ext))
@@ -9591,25 +9602,30 @@ def get_live_user_call_state(ext_val: str, is_reg: bool) -> str:
     ext_s = str(ext_val or "").strip()
     now_utc = datetime.datetime.utcnow()
     if ext_s:
+        ami_st = None
+        try:
+            from backend.services.ami_manager import get_extension_call_state
+            ami_st = get_extension_call_state(ext_s)
+        except Exception:
+            pass
+
         info = live_extension_call_state.get(ext_s)
         if info:
             st = info.get("state")
             upd = info.get("updated_at") or now_utc
             age_sec = (now_utc - upd).total_seconds()
             if st == "ringing" and age_sec <= 65:
+                if ami_st == "busy":
+                    info["state"] = "busy"
+                    return "busy"
                 return "ringing"
             elif st == "busy" and age_sec <= 3600:
                 return "busy"
             else:
                 live_extension_call_state.pop(ext_s, None)
 
-        try:
-            from backend.services.ami_manager import get_extension_call_state
-            ami_st = get_extension_call_state(ext_s)
-            if ami_st in ("busy", "ringing"):
-                return ami_st
-        except Exception:
-            pass
+        if ami_st in ("busy", "ringing"):
+            return ami_st
 
     return "online" if is_reg else "offline"
 
@@ -14409,11 +14425,10 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
             seen_exts.add(ext_val)
             u_name = str(su.full_name or su.email or f"Dahili {ext_val}").strip()
             uid_str = str(su.id or "")
-            st_ext = get_agent_state(ext_val)
-            st_uid = get_agent_state(uid_str)
-            presence_online = (st_ext and st_ext.get("is_logged_in", False)) or (st_uid and st_uid.get("is_logged_in", False))
-            is_reg = (ext_val in registered_endpoints or uid_str in registered_endpoints) and presence_online
+            is_reg = bool(ext_val in registered_endpoints or uid_str in registered_endpoints)
             c_state = get_live_user_call_state(ext_val, is_reg)
+            if c_state in ("ringing", "busy"):
+                is_reg = True
             directory.append({
                 "type": "user",
                 "id": su.id,
@@ -14436,11 +14451,10 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
         seen_exts.add(ext_val)
         u_name = str(u.get("full_name") or u.get("name") or u.get("username") or u.get("email") or f"Dahili {ext_val}").strip()
         uid_str = str(u.get("id") or "")
-        st_ext = get_agent_state(ext_val)
-        st_uid = get_agent_state(uid_str)
-        presence_online = (st_ext and st_ext.get("is_logged_in", False)) or (st_uid and st_uid.get("is_logged_in", False))
-        is_reg = (ext_val in registered_endpoints or uid_str in registered_endpoints) and presence_online
+        is_reg = bool(ext_val in registered_endpoints or uid_str in registered_endpoints)
         c_state = get_live_user_call_state(ext_val, is_reg)
+        if c_state in ("ringing", "busy"):
+            is_reg = True
         directory.append({
             "type": "user",
             "id": u.get("id"),
@@ -17012,13 +17026,13 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         u["sip_password"] = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         ensure_user_profiles(u)
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
-        st_ext = get_agent_state(ext)
-        st_uid = get_agent_state(uid)
-        presence_online = (st_ext and st_ext.get("is_logged_in", False)) or (st_uid and st_uid.get("is_logged_in", False))
-        is_reg = (ext in registered_endpoints or uid in registered_endpoints) and presence_online
+        is_reg = bool(ext in registered_endpoints or uid in registered_endpoints)
+        c_state = get_live_user_call_state(ext, is_reg)
+        if c_state in ("ringing", "busy"):
+            is_reg = True
         u["is_registered"] = is_reg
         u["sip_status"] = "online" if is_reg else "offline"
-        u["call_state"] = get_live_user_call_state(ext, is_reg)
+        u["call_state"] = c_state
         u["ip_address"] = reg_ip if is_reg else ""
 
     return raw_users

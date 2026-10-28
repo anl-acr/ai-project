@@ -25,14 +25,18 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
     fetchDirectory(true);
     const interval = setInterval(() => {
       refreshUserStates();
-    }, 2500);
+    }, 2000);
     return () => clearInterval(interval);
   }, [backendHost]);
+
+  useEffect(() => {
+    refreshUserStates();
+  }, [wpState.registered, wpState.callStatus]);
 
   const refreshUserStates = async () => {
     try {
       const apiBase = getApiBaseUrl(backendHost);
-      const usersRes = await fetch(`${apiBase}/api/settings/users`);
+      const usersRes = await fetch(`${apiBase}/api/settings/users?t=${Date.now()}`);
       if (!usersRes.ok) return;
       const usersData = await usersRes.json();
       const rawUsers = Array.isArray(usersData) ? usersData : (usersData?.users || []);
@@ -157,6 +161,34 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
     setTimeout(() => setTransferToast(null), 4000);
   };
 
+  const myExt = String(wpState.webrtcConfig?.agentExtension || currentUser?.extension || "").trim();
+
+  const resolveContactCallState = (contact) => {
+    if (!contact || contact.type !== "internal") return null;
+    const extStr = String(contact.number || "").trim();
+    if (myExt && extStr === myExt) {
+      const allLines = Array.isArray(wpState.lines) ? wpState.lines : [];
+      if (wpState.callStatus === "Ringing" || allLines.some((l) => l.callStatus === "Ringing")) {
+        return "ringing";
+      }
+      if (
+        wpState.callStatus === "InCall" ||
+        wpState.callStatus === "Calling" ||
+        allLines.some((l) => l.callStatus === "InCall" || l.callStatus === "Calling")
+      ) {
+        return "busy";
+      }
+      if (contact.call_state === "ringing" || contact.call_state === "busy") {
+        return contact.call_state;
+      }
+      if (wpState.registered || contact.is_registered || contact.call_state === "online") {
+        return "online";
+      }
+      return "offline";
+    }
+    return contact.call_state || (contact.is_registered ? "online" : "offline");
+  };
+
   const getUserLedMeta = (callState) => {
     switch (callState) {
       case "ringing":
@@ -175,7 +207,7 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
         return {
           dotClass: "bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.5)]",
           badgeClass: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20",
-          label: "Müsait"
+          label: "Bağlı (Müsait)"
         };
       default:
         return {
@@ -262,7 +294,8 @@ export default function AgentDirectoryTab({ backendHost, currentUser, callPanelP
           ) : (
             <div className="divide-y divide-slate-100 dark:divide-slate-800/60">
               {filteredDirectory.map((contact) => {
-                const ledMeta = contact.type === "internal" ? getUserLedMeta(contact.call_state) : null;
+                const resolvedCallState = resolveContactCallState(contact);
+                const ledMeta = contact.type === "internal" ? getUserLedMeta(resolvedCallState) : null;
                 return (
                   <div key={contact.id} className="p-4 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-slate-950/30 transition-colors group">
                     <div className="flex items-center gap-4">

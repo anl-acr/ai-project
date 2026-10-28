@@ -32,8 +32,8 @@ def get_extension_call_state(ext: str):
     if not ext_s:
         return None
     found_ringing = False
-    pjsip_prefix = f"pjsip/{ext_s}-"
-    sip_prefix = f"sip/{ext_s}-"
+    pjsip_prefix = f"pjsip/{ext_s.lower()}-"
+    sip_prefix = f"sip/{ext_s.lower()}-"
     for uid, info in list(channel_states.items()):
         ch_lower = str(info.get("channel") or "").lower()
         caller_s = str(info.get("caller") or "").strip()
@@ -41,6 +41,9 @@ def get_extension_call_state(ext: str):
         st = info.get("state") or "ringing"
         if ch_lower.startswith(pjsip_prefix) or ch_lower.startswith(sip_prefix) or caller_s == ext_s or exten_s == ext_s:
             if st == "busy":
+                return "busy"
+            # If this extension is the caller initiating an outbound/internal call, its state is busy
+            if caller_s == ext_s and exten_s and exten_s != ext_s:
                 return "busy"
             found_ringing = True
     if found_ringing:
@@ -187,24 +190,52 @@ def register_event_handlers(manager: Manager):
                 "exten": exten or connected_num or existing.get("exten") or "",
                 "state": mapped
             }
-            if mapped == "busy":
-                try:
-                    import re
-                    from backend.services.agent_presence import reset_agent_missed_calls
-                    ch_s = str(channel or "")
-                    m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)-", ch_s, re.IGNORECASE)
-                    if m_ext:
-                        reset_agent_missed_calls(m_ext.group(1))
-                except Exception:
-                    pass
+            try:
+                import re
+                from backend.main import set_live_extension_call_state
+                ch_s = str(channel_states[uniqueid].get("channel") or "")
+                m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)-", ch_s, re.IGNORECASE)
+                ch_ext = m_ext.group(1) if m_ext else ""
+                if mapped == "busy":
+                    if ch_ext:
+                        set_live_extension_call_state(ch_ext, "busy")
+                        from backend.services.agent_presence import reset_agent_missed_calls
+                        reset_agent_missed_calls(ch_ext)
+                    c_num = channel_states[uniqueid].get("caller") or ""
+                    e_num = channel_states[uniqueid].get("exten") or ""
+                    if c_num and c_num.isdigit() and len(c_num) <= 5:
+                        set_live_extension_call_state(c_num, "busy")
+                    if e_num and e_num.isdigit() and len(e_num) <= 5:
+                        set_live_extension_call_state(e_num, "busy")
+                elif state_desc == "ringing" or state_code == "5":
+                    if ch_ext:
+                        set_live_extension_call_state(ch_ext, "ringing", caller_number=caller_num)
+            except Exception:
+                pass
 
     @manager.register_event('Hangup')
     def handle_hangup(m, event):
         uniqueid = event.get('Uniqueid')
-        channel_states.pop(uniqueid, None)
-        if uniqueid in active_channels:
-            channel = active_channels.pop(uniqueid)
-            print(f"[AMI] Kanal Silindi (Hangup): {uniqueid} ({channel})")
+        old_info = channel_states.pop(uniqueid, None) or {}
+        old_ch = active_channels.pop(uniqueid, None) or old_info.get("channel") or event.get('Channel') or ""
+        if old_ch:
+            print(f"[AMI] Kanal Silindi (Hangup): {uniqueid} ({old_ch})")
+        try:
+            import re
+            from backend.main import set_live_extension_call_state
+            candidates = set()
+            m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)-", str(old_ch), re.IGNORECASE)
+            if m_ext:
+                candidates.add(m_ext.group(1))
+            for k in ("caller", "exten"):
+                v = str(old_info.get(k) or "").strip()
+                if v.isdigit() and len(v) <= 5:
+                    candidates.add(v)
+            for ext_cand in candidates:
+                if get_extension_call_state(ext_cand) is None:
+                    set_live_extension_call_state(ext_cand, None)
+        except Exception:
+            pass
 
     @manager.register_event('ContactStatus')
     def handle_contact_status(m, event):

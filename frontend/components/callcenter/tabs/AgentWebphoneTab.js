@@ -157,7 +157,20 @@ export default function AgentWebphoneTab({
     fetchContactsAndDirectory();
     const handleContactsUpdated = () => fetchContactsAndDirectory();
     window.addEventListener("CONTACTS_UPDATED", handleContactsUpdated);
-    return () => window.removeEventListener("CONTACTS_UPDATED", handleContactsUpdated);
+    const dirTimer = setInterval(async () => {
+      try {
+        const protocol = window.location.protocol;
+        const dirRes = await fetch(`${protocol}//${backendHost}/api/agent/directory?t=${Date.now()}`);
+        if (dirRes.ok) {
+          const dirData = await dirRes.json();
+          setDirectory(Array.isArray(dirData) ? dirData : []);
+        }
+      } catch (e) {}
+    }, 3000);
+    return () => {
+      window.removeEventListener("CONTACTS_UPDATED", handleContactsUpdated);
+      clearInterval(dirTimer);
+    };
   }, [backendHost]);
 
   const {
@@ -383,14 +396,16 @@ export default function AgentWebphoneTab({
         name: d.full_name || d.name || `Dahili ${d.extension}`,
         number: String(d.extension),
         isInternal: true,
-        isOnline: Boolean(d.is_registered)
+        isOnline: Boolean(d.is_registered),
+        callState: d.call_state || (d.is_registered ? "online" : "offline")
       })),
     ...contacts.slice(0, 15).map((c) => ({
       id: `cnt-${c.id}`,
       name: `${c.first_name || ""} ${c.last_name || ""}`.trim() || c.phone_number,
       number: String(c.phone_number || ""),
       isInternal: false,
-      isOnline: false
+      isOnline: false,
+      callState: null
     }))
   ].filter((item) => {
     if (!quickSearch.trim()) return true;
@@ -765,13 +780,42 @@ export default function AgentWebphoneTab({
                             {item.isInternal && (
                               <span
                                 className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-white dark:border-slate-900 ${
-                                  item.isOnline ? "bg-emerald-500" : "bg-slate-400"
+                                  item.callState === "ringing"
+                                    ? "bg-amber-500 animate-pulse"
+                                    : item.callState === "busy"
+                                    ? "bg-rose-500"
+                                    : item.callState === "online" || item.isOnline
+                                    ? "bg-emerald-500"
+                                    : "bg-slate-400"
                                 }`}
                               />
                             )}
                           </div>
                           <div className="min-w-0">
-                            <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{item.name}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs font-bold text-slate-800 dark:text-white truncate">{item.name}</p>
+                              {item.isInternal && (
+                                <span
+                                  className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold border ${
+                                    item.callState === "ringing"
+                                      ? "bg-amber-50 text-amber-600 dark:bg-amber-500/10 dark:text-amber-400 border-amber-200 dark:border-amber-500/20"
+                                      : item.callState === "busy"
+                                      ? "bg-rose-50 text-rose-600 dark:bg-rose-500/10 dark:text-rose-400 border-rose-200 dark:border-rose-500/20"
+                                      : item.callState === "online" || item.isOnline
+                                      ? "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400 border-emerald-200 dark:border-emerald-500/20"
+                                      : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                                  }`}
+                                >
+                                  {item.callState === "ringing"
+                                    ? "Çalıyor"
+                                    : item.callState === "busy"
+                                    ? "Meşgul"
+                                    : item.callState === "online" || item.isOnline
+                                    ? "Bağlı (Müsait)"
+                                    : "Aktif Değil"}
+                                </span>
+                              )}
+                            </div>
                             <p className="text-[10px] font-mono text-slate-400">
                               {item.isInternal ? `Dahili ${item.number}` : item.number}
                             </p>
