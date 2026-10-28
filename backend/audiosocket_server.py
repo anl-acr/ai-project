@@ -378,9 +378,15 @@ def evaluate_call_flow_action(did: str) -> dict:
             if resolved_ext:
                 break
 
-        return {"action": "transfer", "target": str(resolved_ext or dest_id or "1000"), "context": "webrtc_agents"}
+        return {"action": "transfer", "target": str(resolved_ext or dest_id or "1000"), "context": "webrtc_agents", "is_queue": False}
     elif dest_type == "queue":
-        return {"action": "transfer", "target": str(dest_id or "2000"), "context": "webrtc_agents"}
+        all_queues = settings.get("queues", [])
+        q_match = next(
+            (q for q in all_queues if str(q.get("id")) == str(dest_id) or str(q.get("extension")) == str(dest_id) or str(q.get("name")) == str(dest_id)),
+            None
+        )
+        q_ext = str(q_match.get("extension") or dest_id or "2000") if q_match else str(dest_id or "2000")
+        return {"action": "transfer", "target": q_ext, "context": "webrtc_agents", "is_queue": True}
     elif dest_type == "hangup":
         return {"action": "hangup"}
     elif dest_type in ["ai", "ai_agent"]:
@@ -399,13 +405,22 @@ def evaluate_call_flow_action(did: str) -> dict:
             ai_agents = settings.get("ai_agents", [])
             return {"action": "ai", "agent": ai_agents[0] if ai_agents else None}
 
+        all_queues = settings.get("queues", [])
         nodes = workflow.get("nodes", [])
         for node in nodes:
             ntype = str(node.get("type", "")).lower()
             if ntype in ["transfer", "extension", "user", "queue", "agent_transfer"]:
                 val = node.get("value") or node.get("target") or (node.get("data", {}).get("target") if isinstance(node.get("data"), dict) else None)
                 if val:
-                    return {"action": "transfer", "target": str(val), "context": "webrtc_agents"}
+                    extra = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
+                    t_type = str(extra.get("transfer_type") or "").lower()
+                    q_match = next(
+                        (q for q in all_queues if str(q.get("extension")) == str(val) or str(q.get("id")) == str(val) or str(q.get("name")) == str(val)),
+                        None
+                    )
+                    is_q = bool(ntype == "queue" or t_type in ("kuyruk", "queue") or q_match)
+                    resolved_target = str(q_match.get("extension") or val) if q_match else str(val)
+                    return {"action": "transfer", "target": resolved_target, "context": "webrtc_agents", "is_queue": is_q}
             elif ntype in ["ai", "ai_agent"]:
                 val = node.get("value") or node.get("agent_id") or (node.get("data", {}).get("agent_id") if isinstance(node.get("data"), dict) else None)
                 if val:
@@ -869,8 +884,18 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         print(f"[Call Flow Route] DID: {did} -> Action: {route_action}, Target/Agent: {call_eval.get('target') or call_eval.get('agent_id')}")
 
         if route_action == "transfer":
-            target_ext = call_eval.get("target", "1000")
-            print(f"[Call Flow Route] DID: {did} -> Direct Transfer to Extension: {target_ext}")
+            target_ext = str(call_eval.get("target", "1000")).strip()
+            is_queue_route = bool(call_eval.get("is_queue"))
+            print(f"[Call Flow Route] DID: {did} -> Transfer to {'Queue' if is_queue_route else 'Extension'}: {target_ext}")
+            try:
+                async with AsyncSessionLocal() as session:
+                    db_call = await session.get(Call, call_id)
+                    if db_call:
+                        db_call.callee_number = target_ext
+                        db_call.hangup_source = f"queue:{target_ext}" if is_queue_route else f"direct:{target_ext}"
+                        await session.commit()
+            except Exception as e_upd:
+                print(f"[Call Flow Route DB Update Warning]: {e_upd}")
             from backend.services.ami_manager import redirect_call_to_human
             await asyncio.sleep(0.3)
             success = await redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents")

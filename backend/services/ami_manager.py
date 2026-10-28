@@ -263,11 +263,37 @@ def register_event_handlers(manager: Manager):
                 except Exception as e_dc:
                     print(f"[AMI AutoPause Disconnect Hook Error]: {e_dc}")
 
+    @manager.register_event('QueueCallerJoin')
+    def handle_queue_caller_join(m, event):
+        q_name = str(event.get('Queue') or "").strip()
+        caller_num = str(event.get('CallerIDNum') or "").strip()
+        uniqueid = str(event.get('Uniqueid') or "").strip()
+        if q_name:
+            try:
+                from backend.main import handle_ami_queue_call_event
+                asyncio.create_task(handle_ami_queue_call_event("join", q_name, caller_num, "", uniqueid))
+            except Exception as e_qj:
+                print(f"[AMI QueueCallerJoin Hook Error]: {e_qj}")
+
+    @manager.register_event('QueueCallerAbandon')
+    def handle_queue_caller_abandon(m, event):
+        q_name = str(event.get('Queue') or "").strip()
+        caller_num = str(event.get('CallerIDNum') or "").strip()
+        uniqueid = str(event.get('Uniqueid') or "").strip()
+        if q_name:
+            try:
+                from backend.main import handle_ami_queue_call_event
+                asyncio.create_task(handle_ami_queue_call_event("abandon", q_name, caller_num, "", uniqueid))
+            except Exception as e_qa:
+                print(f"[AMI QueueCallerAbandon Hook Error]: {e_qa}")
+
     @manager.register_event('AgentRingNoAnswer')
     def handle_agent_ring_no_answer(m, event):
         import re
         iface = str(event.get('Interface') or event.get('MemberName') or "").strip()
         q_name = str(event.get('Queue') or "").strip()
+        caller_num = str(event.get('CallerIDNum') or "").strip()
+        uniqueid = str(event.get('Uniqueid') or "").strip()
         m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)", iface, re.IGNORECASE)
         ext_val = m_ext.group(1) if m_ext else iface
         if ext_val:
@@ -277,11 +303,20 @@ def register_event_handlers(manager: Manager):
                 asyncio.create_task(handle_agent_missed_call_for_auto_pause(ext_val, queue_ext=q_name))
             except Exception as e_rna:
                 print(f"[AMI AgentRingNoAnswer AutoPause Error]: {e_rna}")
+            if q_name:
+                try:
+                    from backend.main import handle_ami_queue_call_event
+                    asyncio.create_task(handle_ami_queue_call_event("ring_no_answer", q_name, caller_num, ext_val, uniqueid))
+                except Exception:
+                    pass
 
     @manager.register_event('AgentConnect')
     def handle_agent_connect(m, event):
         import re
         iface = str(event.get('Interface') or event.get('MemberName') or "").strip()
+        q_name = str(event.get('Queue') or "").strip()
+        caller_num = str(event.get('CallerIDNum') or "").strip()
+        uniqueid = str(event.get('Uniqueid') or "").strip()
         m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)", iface, re.IGNORECASE)
         ext_val = m_ext.group(1) if m_ext else iface
         if ext_val:
@@ -290,6 +325,12 @@ def register_event_handlers(manager: Manager):
                 reset_agent_missed_calls(ext_val)
             except Exception:
                 pass
+            if q_name:
+                try:
+                    from backend.main import handle_ami_queue_call_event
+                    asyncio.create_task(handle_ami_queue_call_event("connect", q_name, caller_num, ext_val, uniqueid))
+                except Exception as e_ac:
+                    print(f"[AMI AgentConnect Hook Error]: {e_ac}")
 
     def _handle_ami_security_event(m, event):
         import re

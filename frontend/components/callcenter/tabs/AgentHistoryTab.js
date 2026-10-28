@@ -190,8 +190,13 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
         const list = Array.isArray(data) ? data : [];
         loadedCalls = list.filter((c) => {
           const hs = String(c.hangup_source || "");
+          const isQueue = Boolean(c.is_queue_call || hs.startsWith("queue:"));
+          const isAnsweredQueueByMe = isQueue && hs.includes(`:answered:${ext}`);
+          if (isQueue && c.caller_number !== ext && !isAnsweredQueueByMe) {
+            return false;
+          }
           const isPickedByMe = c.picked_up_by_ext === ext || hs === `pickup:${ext}`;
-          const matchesExt = c.caller_number === ext || c.callee_number === ext || isPickedByMe;
+          const matchesExt = c.caller_number === ext || c.callee_number === ext || isPickedByMe || isAnsweredQueueByMe;
           if (!matchesExt) return false;
           if (!c.start_time) return true;
           const callDate = new Date(c.start_time + (c.start_time.endsWith("Z") ? "" : "Z"));
@@ -594,19 +599,52 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                   {filteredCalls.map((call, idx) => {
                     const { isOutbound, isPickedUp, pickedUpByExt, contactNumber, matchedContact } = call;
+                    const stLower = String(call.status || "").toLowerCase();
+                    const isUnansweredStatus =
+                      stLower === "no_answer" ||
+                      stLower === "missed" ||
+                      stLower === "busy" ||
+                      stLower === "cancelled" ||
+                      stLower === "failed";
+                    const isDirectMissed = !isOutbound && !isPickedUp && isUnansweredStatus && !call.is_queue_call;
 
                     return (
-                      <tr key={call.id || idx} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
+                      <tr
+                        key={call.id || idx}
+                        className={`transition-colors ${
+                          isDirectMissed
+                            ? "bg-rose-50/40 dark:bg-rose-950/20 hover:bg-rose-50/75 dark:hover:bg-rose-950/35"
+                            : "hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                        }`}
+                      >
                         <td className="p-4 text-sm text-slate-600 dark:text-slate-300">
-                          {call.start_time
-                            ? new Date(call.start_time + (call.start_time.endsWith("Z") ? "" : "Z")).toLocaleString("tr-TR")
-                            : "-"}
+                          <div className="flex items-center gap-2">
+                            {isDirectMissed && (
+                              <span
+                                className="w-2.5 h-2.5 rounded-full bg-rose-500 ring-4 ring-rose-500/20 animate-pulse shrink-0"
+                                title="Doğrudan Dahilinize Gelen Yanıtsız Çağrı"
+                              />
+                            )}
+                            <span>
+                              {call.start_time
+                                ? new Date(call.start_time + (call.start_time.endsWith("Z") ? "" : "Z")).toLocaleString("tr-TR")
+                                : "-"}
+                            </span>
+                          </div>
                         </td>
                         <td className="p-4">
                           <div className="flex flex-col gap-1">
-                            <div className={`flex items-center gap-1.5 text-[10px] font-black px-2 py-1 rounded-md w-max ${isOutbound ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"}`}>
+                            <div
+                              className={`flex items-center gap-1.5 text-[10px] font-black px-2 py-1 rounded-md w-max ${
+                                isDirectMissed
+                                  ? "bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300 border border-rose-200 dark:border-rose-800"
+                                  : isOutbound
+                                  ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                                  : "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              }`}
+                            >
                               {isOutbound ? <PhoneOutgoing size={12} /> : <PhoneIncoming size={12} />}
-                              {isOutbound ? "GİDEN" : "GELEN"}
+                              {isOutbound ? "GİDEN" : isDirectMissed ? "GELEN (CEVAPSIZ)" : "GELEN"}
                             </div>
                             {isPickedUp && (
                               <span className="inline-flex items-center px-2 py-0.5 rounded text-[9px] font-extrabold bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60 w-max">
@@ -631,8 +669,12 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                             </div>
                           ) : matchedContact ? (
                             <div className="flex flex-col">
-                              <span className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-1.5">
-                                <User size={13} className="text-slate-400 shrink-0" />
+                              <span
+                                className={`text-sm font-bold flex items-center gap-1.5 ${
+                                  isDirectMissed ? "text-rose-700 dark:text-rose-300" : "text-slate-800 dark:text-white"
+                                }`}
+                              >
+                                <User size={13} className={isDirectMissed ? "text-rose-500 shrink-0" : "text-slate-400 shrink-0"} />
                                 {matchedContact.displayName}
                               </span>
                               <span className="text-xs font-mono text-slate-500 dark:text-slate-400">
@@ -640,7 +682,11 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                               </span>
                             </div>
                           ) : (
-                            <span className="text-sm font-mono font-bold text-slate-800 dark:text-slate-200">
+                            <span
+                              className={`text-sm font-mono font-bold ${
+                                isDirectMissed ? "text-rose-700 dark:text-rose-300" : "text-slate-800 dark:text-slate-200"
+                              }`}
+                            >
                               {maskPhoneLast4(contactNumber, maskPhoneNumbers)}
                             </span>
                           )}

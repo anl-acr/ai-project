@@ -2956,11 +2956,11 @@ same => n,Set(CALLERID(name)=908503607390)
 same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
-exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, Cause: ${{HANGUPCAUSE}})
+exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, QueueStatus: ${{QUEUESTATUS}}, Member: ${{MEMBERINTERFACE}}, Cause: ${{HANGUPCAUSE}})
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer: 100-999999) ve Prefix'li Dış Aramalar (99805..., 905..., 507... vb. >= 7 hane)
@@ -3054,11 +3054,17 @@ same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 same => n(forward_call),NoOp(Yonlendirme Aktif [Adim=${{FWD_STEP}}]! Hedef: ${{FWD_TARGET}} Timeout: ${{STEP_TIMEOUT}}s)
 same => n,GotoIf($["${{FWD_TARGET}}"="HANGUP" | "${{FWD_TARGET}}"="NONE"]?end_call)
 same => n,GotoIf($["${{FWD_TARGET}}"="VOICEMAIL"]?voicemail_fwd)
+same => n,GotoIf($["${{FWD_TARGET:0:6}}"="QUEUE_"]?queue_fwd)
 same => n,Set(CALLERID(num)=908503607390)
 same => n,Set(CALLERID(name)=908503607390)
 same => n,Set(RAW_NUM=${{IF($["${{FWD_TARGET:0:1}}"="0"]?90${{FWD_TARGET:1}}:${{FWD_TARGET}})}})
 same => n,Set(CLEAN_TARGET=${{IF($["${{RAW_NUM:0:2}}"="90"]?${{RAW_NUM}}:90${{RAW_NUM}})}})
 same => n,GotoIf($[${{LEN(${{FWD_TARGET}})}} < 6]?dial_internal_fwd:dial_external_fwd)
+
+same => n(queue_fwd),NoOp(Kuyruk Aktarimi Baslatiliyor: ${{FWD_TARGET:6}})
+same => n,Queue(${{FWD_TARGET:6}},tTc)
+same => n,Set(DIALSTATUS=${{IF($["${{MEMBERINTERFACE}}" != ""]?ANSWER:NOANSWER)}})
+same => n,Goto(end_call)
 
 same => n(voicemail_fwd),NoOp(Sesli Mesaj / Voicemail Aktarimi: ${{EXTEN}})
 same => n,Answer()
@@ -6261,6 +6267,13 @@ async def resolve_subscriber_forwarding(extension: str, dialstatus: str = "BEFOR
                 break
 
         if not user_dict:
+            if dialstatus == "BEFORE_DIAL":
+                for q in settings_db.get("queues", []):
+                    q_ext = str(q.get("extension") or "").strip()
+                    q_name = str(q.get("name") or "").strip()
+                    if ext_str and (ext_str == q_ext or ext_str == q_name):
+                        target_q = q_ext or q_name
+                        return Response(content=f"ALLOW:QUEUE_{target_q}:60", media_type="text/plain")
             return Response(content="DENY:NONE:30", media_type="text/plain")
 
         ensure_user_profiles(user_dict)
@@ -9630,12 +9643,91 @@ def get_live_user_call_state(ext_val: str, is_reg: bool) -> str:
     return "online" if is_reg else "offline"
 
 
+def _get_queue_extensions_map() -> dict:
+    q_map = {"temsilci_kuyrugu": {"extension": "temsilci_kuyrugu", "name": "Temsilci Kuyruğu"}}
+    for q in settings_db.get("queues", []):
+        if q.get("is_active", True) is False:
+            continue
+        q_ext = str(q.get("extension") or "").strip()
+        q_name = str(q.get("name") or "").strip()
+        if q_ext:
+            q_map[q_ext] = q
+        if q_name:
+            q_map[q_name] = q
+    return q_map
+
+
+async def handle_ami_queue_call_event(
+    event_type: str,
+    queue_ext: str,
+    caller_num: str = "",
+    agent_ext: str = "",
+    uniqueid: str = ""
+):
+    try:
+        from backend.services.ami_manager import call_id_to_asterisk_id
+        now_utc = datetime.datetime.utcnow()
+        matched_call_id = None
+        if uniqueid:
+            for cid, aid in list(call_id_to_asterisk_id.items()):
+                if str(aid) == str(uniqueid) or str(uniqueid).startswith(str(aid)):
+                    matched_call_id = cid
+                    break
+
+        async with AsyncSessionLocal() as session:
+            db_call = None
+            if matched_call_id:
+                db_call = await session.get(Call, matched_call_id)
+            if not db_call and caller_num:
+                stmt_q = (
+                    select(Call)
+                    .where(
+                        Call.caller_number == caller_num,
+                        Call.start_time >= now_utc - datetime.timedelta(minutes=15)
+                    )
+                    .order_by(Call.start_time.desc())
+                )
+                res_q = await session.execute(stmt_q)
+                db_call = res_q.scalars().first()
+
+            if not db_call:
+                return
+
+            cur_hsrc = str(db_call.hangup_source or "").strip()
+            q_clean = str(queue_ext or "2000").strip()
+
+            if event_type == "join":
+                db_call.callee_number = q_clean
+                if ":answered:" not in cur_hsrc:
+                    db_call.hangup_source = f"queue:{q_clean}"
+            elif event_type == "connect":
+                db_call.callee_number = q_clean
+                db_call.hangup_source = f"queue:{q_clean}:answered:{agent_ext}"
+                db_call.status = "in_progress"
+                ag_nm = resolve_user_name_by_ext_or_id(agent_ext)
+                if ag_nm:
+                    db_call.agent_name = ag_nm
+            elif event_type == "abandon":
+                if ":answered:" not in cur_hsrc:
+                    db_call.callee_number = q_clean
+                    db_call.hangup_source = f"queue:{q_clean}:abandoned"
+                    db_call.status = "no_answer"
+                    if not db_call.end_time:
+                        db_call.end_time = now_utc
+
+            await session.commit()
+    except Exception as e_ami_q:
+        print(f"[AMI Queue Call Event Warning]: {e_ami_q}")
+
+
 @app.get("/api/calls/end")
 async def end_call_endpoint(
     call_id: str,
     dialstatus: Optional[str] = None,
     hangupcause: Optional[str] = None,
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    queuestatus: Optional[str] = None,
+    memberinterface: Optional[str] = None
 ):
     async with AsyncSessionLocal() as session:
         db_call = await session.get(Call, call_id)
@@ -9654,8 +9746,37 @@ async def end_call_endpoint(
             if db_call.start_time:
                 dur_sec = (db_call.end_time - db_call.start_time).total_seconds()
 
+            q_map = _get_queue_extensions_map()
+            callee_s = str(db_call.callee_number or "").strip()
+            is_queue_call = (
+                hangup_src_val.startswith("queue:")
+                or callee_s in q_map
+                or bool(queuestatus and str(queuestatus).strip())
+            )
+
+            clean_member_ext = ""
+            if memberinterface:
+                m_iface = re.search(r"(?:PJSIP|SIP)/(\d+)", str(memberinterface), re.IGNORECASE)
+                clean_member_ext = m_iface.group(1) if m_iface else str(memberinterface).strip()
+
             resolved_status = "completed"
-            if status:
+            if is_queue_call:
+                q_ext_val = (
+                    hangup_src_val.split(":")[1]
+                    if hangup_src_val.startswith("queue:") and ":" in hangup_src_val
+                    else (callee_s if callee_s in q_map else "2000")
+                )
+                if clean_member_ext or ":answered:" in hangup_src_val:
+                    resolved_status = "completed"
+                    if clean_member_ext and ":answered:" not in hangup_src_val:
+                        db_call.hangup_source = f"queue:{q_ext_val}:answered:{clean_member_ext}"
+                        ag_nm = resolve_user_name_by_ext_or_id(clean_member_ext)
+                        if ag_nm:
+                            db_call.agent_name = ag_nm
+                else:
+                    resolved_status = "no_answer"
+                    db_call.hangup_source = f"queue:{q_ext_val}:abandoned"
+            elif status:
                 resolved_status = status.lower()
             elif dialstatus:
                 ds = dialstatus.upper().strip()
@@ -9674,7 +9795,10 @@ async def end_call_endpoint(
             elif hangupcause:
                 cause = str(hangupcause).strip()
                 if cause == "16":
-                    resolved_status = "completed"
+                    if db_call.status in ("no_answer", "cancelled", "busy", "failed", "missed"):
+                        resolved_status = db_call.status
+                    else:
+                        resolved_status = "completed"
                 elif cause == "17":
                     resolved_status = "busy"
                 elif cause in ("18", "19"):
@@ -9690,11 +9814,14 @@ async def end_call_endpoint(
                 resolved_status = db_call.status
             elif hangup_src_val.startswith("pickup:"):
                 resolved_status = "completed"
+            elif hangup_src_val.startswith("webrtc:unanswered"):
+                unans_parts = hangup_src_val.split(":", 2)
+                resolved_status = unans_parts[2] if len(unans_parts) > 2 and unans_parts[2] else "no_answer"
             elif db_call.status == "transferred" and resolved_status == "completed":
                 resolved_status = "transferred"
             db_call.status = resolved_status
             await session.commit()
-            print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus})")
+            print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus}, QueueCall: {is_queue_call})")
             add_system_log("ASTERISK", "INFO", f"Arama Sonlandı: ID={call_id}, Durum={resolved_status}")
 
             # Trigger AI Call Analyzer if summary is not yet populated
@@ -9731,7 +9858,7 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
             return {"status": "ignored", "reason": "missing_numbers"}
 
         now_utc = datetime.datetime.utcnow()
-        recent_cutoff = now_utc - datetime.timedelta(seconds=120)
+        q_map = _get_queue_extensions_map()
 
         # Handle directed/group pickup (**1001 or *8) without creating a duplicate **1001 Call row
         if callee.startswith("**") or callee.startswith("*8"):
@@ -9773,6 +9900,52 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
             call_id = str(uuid.uuid4())
 
         async with AsyncSessionLocal() as session:
+            # First check if this incoming WebPhone leg belongs to an active Queue Call from `caller`
+            stmt_caller_recent = (
+                select(Call)
+                .where(
+                    Call.caller_number == caller,
+                    Call.start_time >= now_utc - datetime.timedelta(minutes=15)
+                )
+                .order_by(Call.start_time.desc())
+            )
+            res_caller_recent = await session.execute(stmt_caller_recent)
+            caller_recent_calls = res_caller_recent.scalars().all()
+
+            active_queue_call = None
+            for rc in caller_recent_calls:
+                rc_hsrc = str(rc.hangup_source or "").strip()
+                rc_callee = str(rc.callee_number or "").strip()
+                if rc_hsrc.startswith("queue:") or rc_callee in q_map:
+                    active_queue_call = rc
+                    break
+
+            if active_queue_call:
+                rc_hsrc = str(active_queue_call.hangup_source or "").strip()
+                q_ext_val = (
+                    rc_hsrc.split(":")[1]
+                    if rc_hsrc.startswith("queue:") and ":" in rc_hsrc
+                    else (str(active_queue_call.callee_number or "2000").strip())
+                )
+                if event_type == "answer" or (event_type == "end" and (duration > 0 or status == "completed")):
+                    active_queue_call.hangup_source = f"queue:{q_ext_val}:answered:{callee}"
+                    ag_nm = resolve_user_name_by_ext_or_id(callee)
+                    if ag_nm:
+                        active_queue_call.agent_name = ag_nm
+                    if event_type == "answer":
+                        active_queue_call.status = "in_progress"
+                    else:
+                        active_queue_call.status = "completed"
+                        if not active_queue_call.end_time:
+                            active_queue_call.end_time = now_utc
+                    await session.commit()
+                    return {"status": "queue_call_answered", "call_id": active_queue_call.id}
+                else:
+                    # Agent's WebPhone rang for a Queue call and was NOT answered by this agent.
+                    # Do NOT create a personal call history or personal missed call row for this agent!
+                    await session.commit()
+                    return {"status": "ignored_unanswered_queue_ring", "call_id": active_queue_call.id}
+
             stmt_recent = select(Call).where(
                 Call.caller_number == caller,
                 Call.callee_number == callee,
@@ -9815,11 +9988,18 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     # Let Asterisk dialplan (/api/calls/register) create the single authoritative Call record
                     await session.commit()
                     return {"status": "deferred_to_asterisk", "call_id": call_id}
+                resolved_init_status = "completed" if (event_type == "end" and duration > 0) else ("in_progress" if status == "ringing" else status)
+                init_hsrc = (
+                    f"webrtc:unanswered:{resolved_init_status}"
+                    if (event_type == "end" and duration == 0 and resolved_init_status in ("no_answer", "cancelled", "busy", "failed", "missed"))
+                    else ("webrtc:answered" if (event_type == "end" and duration > 0) else None)
+                )
                 db_call = Call(
                     id=call_id,
                     caller_number=caller,
                     callee_number=callee,
-                    status="completed" if (event_type == "end" and duration > 0) else ("in_progress" if status == "ringing" else status),
+                    status=resolved_init_status,
+                    hangup_source=init_hsrc,
                     tenant_id=call_tenant,
                     start_time=now_utc - datetime.timedelta(seconds=max(0, duration)) if event_type == "end" else now_utc,
                     end_time=now_utc if event_type == "end" else None,
@@ -9830,15 +10010,24 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
             else:
                 if resolved_agent_name and not db_call.agent_name:
                     db_call.agent_name = resolved_agent_name
+                cur_hsrc = str(db_call.hangup_source or "").strip()
                 if event_type == "answer":
                     db_call.status = "in_progress"
+                    if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
+                        db_call.hangup_source = "webrtc:answered"
                 elif event_type == "end":
                     if not db_call.end_time:
                         db_call.end_time = now_utc
-                    if str(db_call.hangup_source or "").startswith("pickup:"):
+                    if cur_hsrc.startswith("pickup:"):
                         db_call.status = "completed"
                     elif duration > 0 or status == "completed":
                         db_call.status = "completed"
+                        if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
+                            db_call.hangup_source = "webrtc:answered"
+                    elif duration == 0 and status in ("no_answer", "cancelled", "busy", "failed", "missed"):
+                        db_call.status = status
+                        if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
+                            db_call.hangup_source = f"webrtc:unanswered:{status}"
                     elif db_call.status not in ("completed", "transferred", "blocked"):
                         db_call.status = status if status not in ("in_progress", "ringing") else "no_answer"
                     if not db_call.summary and len(caller) <= 5 and len(callee) <= 5:
@@ -10275,7 +10464,8 @@ async def list_calls(
             or_(
                 Call.caller_number == extension,
                 Call.callee_number == extension,
-                Call.hangup_source == f"pickup:{extension}"
+                Call.hangup_source == f"pickup:{extension}",
+                Call.hangup_source.like(f"queue:%:answered:{extension}")
             )
         )
         
@@ -10285,6 +10475,8 @@ async def list_calls(
     stmt = stmt.order_by(Call.start_time.desc())
     result = await db.execute(stmt)
     raw_calls_list = result.scalars().all()
+
+    q_map = _get_queue_extensions_map()
 
     if raw_calls_list:
         real_calls_by_pair = {}
@@ -10298,8 +10490,29 @@ async def list_calls(
         deleted_any_dup = False
         for c in raw_calls_list:
             cid_s = str(c.id or "")
+            caller_s = str(c.caller_number or "").strip()
+            callee_s = str(c.callee_number or "").strip()
+            hsrc_s = str(c.hangup_source or "").strip()
+            st_s = str(c.status or "").strip().lower()
+            is_q_call = bool(hsrc_s.startswith("queue:") or (callee_s in q_map))
+
+            # If querying personal history for a specific extension, NEVER include unanswered queue calls
+            if extension:
+                ext_clean = str(extension).strip()
+                if is_q_call and caller_s != ext_clean:
+                    answered_by_me = (
+                        f":answered:{ext_clean}" in hsrc_s
+                        or (
+                            st_s in ("completed", "in_progress", "answered", "transferred")
+                            and ":abandoned" not in hsrc_s
+                            and (callee_s == ext_clean or hsrc_s == f"pickup:{ext_clean}")
+                        )
+                    )
+                    if not answered_by_me:
+                        continue
+
             if cid_s.startswith("webphone-") and c.start_time:
-                pair_k = (str(c.caller_number or "").strip(), str(c.callee_number or "").strip())
+                pair_k = (caller_s, callee_s)
                 matching_reals = real_calls_by_pair.get(pair_k, [])
                 if any(rc.start_time and abs((rc.start_time - c.start_time).total_seconds()) <= 30 for rc in matching_reals):
                     try:
@@ -10346,6 +10559,7 @@ async def list_calls(
                 callee_str = str(c.callee_number or "").strip()
                 hangup_src = str(c.hangup_source or "").strip()
                 short_id = str(c.id or "")[:8]
+                is_queue_call = bool(hangup_src.startswith("queue:") or (callee_str in q_map))
 
                 is_transferred = (c.status == "transferred") or hangup_src.startswith("transfer:")
                 transfer_target = hangup_src.split(":", 1)[1].strip() if hangup_src.startswith("transfer:") else ""
@@ -10424,6 +10638,8 @@ async def list_calls(
                 c.picked_up_by_name = picked_up_by_name
                 c.original_callee = callee_str
                 c.original_callee_name = original_callee_name
+                c.is_queue_call = is_queue_call
+                c.is_direct_call = not is_queue_call
 
                 if not getattr(c, "agent_name", None):
                     resolved_ag = resolve_call_agent_name_snapshot(caller_str, callee_str, c.status, hangup_src)
@@ -14824,10 +15040,22 @@ async def get_agent_queue_peers(
             caller = str(call.caller_number or "").strip()
             callee = str(call.callee_number or "").strip()
             st = str(call.status or "").lower()
+            hsrc = str(call.hangup_source or "").strip()
 
             is_caller = bool(u_ext and (caller == u_ext or (len(u_ext) >= 3 and caller.endswith(u_ext))))
-            is_callee = bool(u_ext and (callee == u_ext or (len(u_ext) >= 3 and callee.endswith(u_ext))))
+            is_callee = bool(
+                u_ext
+                and (
+                    callee == u_ext
+                    or (len(u_ext) >= 3 and callee.endswith(u_ext))
+                    or f":answered:{u_ext}" in hsrc
+                )
+            )
             if not is_caller and not is_callee:
+                continue
+
+            # Never count an unanswered queue call as an individual agent's personal missed call
+            if hsrc.startswith("queue:") and not is_caller and f":answered:{u_ext}" not in hsrc:
                 continue
 
             if first_activity_utc is None or call.start_time < first_activity_utc:
@@ -15036,8 +15264,383 @@ async def get_agent_history(extension: str = None):
     return []
 
 @app.get("/api/agent/missed_queue_calls")
-async def get_agent_missed_queue_calls(extension: str = None):
-    return []
+async def get_agent_missed_queue_calls(
+    extension: Optional[str] = None,
+    user_id: Optional[str] = None,
+    queue_id: Optional[str] = None,
+    user_info: dict = Depends(get_user_info),
+    db: AsyncSession = Depends(get_db)
+):
+    from backend.database.models import Call, PBXQueue, SystemUser, Contact
+    from sqlalchemy import select, or_
+
+    now_utc = datetime.datetime.utcnow()
+    window_start_utc = now_utc - datetime.timedelta(days=7)
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    settings = load_settings()
+
+    # 1. Load users to resolve extensions, user IDs, and roles
+    users_map = {}
+    id_to_key = {}
+    ext_to_key = {}
+    try:
+        stmt_u = select(SystemUser)
+        if not is_global_tenant(target_tenant):
+            if is_default_tenant(target_tenant):
+                stmt_u = stmt_u.where(or_(SystemUser.tenant_id == "tenant-default", SystemUser.tenant_id == "default", SystemUser.tenant_id.is_(None)))
+            else:
+                stmt_u = stmt_u.where(SystemUser.tenant_id == target_tenant)
+        res_u = await db.execute(stmt_u)
+        for su in res_u.scalars().all():
+            u_id = str(su.id).strip()
+            u_ext = str(su.extension or "").strip()
+            key = u_ext or f"uid_{u_id}"
+            users_map[key] = {
+                "id": u_id,
+                "extension": u_ext,
+                "name": str(su.full_name or su.email or f"Dahili {u_ext}").strip(),
+                "role": str(su.role or "agent").lower()
+            }
+            if u_id:
+                id_to_key[u_id] = key
+            if u_ext:
+                ext_to_key[u_ext] = key
+    except Exception:
+        pass
+
+    for u in settings.get("users", []):
+        u_id = str(u.get("id") or "").strip()
+        u_ext = str(u.get("extension") or "").strip()
+        key = u_ext or f"uid_{u_id}"
+        if not key or key == "uid_":
+            continue
+        if key not in users_map:
+            users_map[key] = {
+                "id": u_id or u_ext,
+                "extension": u_ext,
+                "name": str(u.get("full_name") or u.get("name") or u.get("username") or f"Dahili {u_ext}").strip(),
+                "role": str(u.get("role") or "agent").lower()
+            }
+        if u_id:
+            id_to_key[u_id] = key
+        if u_ext:
+            ext_to_key[u_ext] = key
+
+    def resolve_agent_key(val):
+        s = str(val or "").strip()
+        if not s or s in ("undefined", "null", "none"):
+            return None
+        if s in users_map:
+            return s
+        if s in ext_to_key:
+            return ext_to_key[s]
+        if s in id_to_key:
+            return id_to_key[s]
+        return None
+
+    req_key = resolve_agent_key(extension) or resolve_agent_key(user_id)
+    req_user = users_map.get(req_key, {}) if req_key else {}
+    is_admin_or_sup = req_user.get("role") in ("admin", "superadmin", "supervisor", "manager")
+
+    # 2. Load queues and resolve queue membership for this agent
+    raw_queues = []
+    try:
+        stmt_q = select(PBXQueue).order_by(PBXQueue.id)
+        if not is_global_tenant(target_tenant):
+            if is_default_tenant(target_tenant):
+                stmt_q = stmt_q.where(or_(PBXQueue.tenant_id == "tenant-default", PBXQueue.tenant_id.is_(None)))
+            else:
+                stmt_q = stmt_q.where(PBXQueue.tenant_id == target_tenant)
+        res_q = await db.execute(stmt_q)
+        for q_row in res_q.scalars().all():
+            raw_queues.append({c.name: getattr(q_row, c.name) for c in q_row.__table__.columns})
+    except Exception:
+        pass
+
+    for q_cfg in settings.get("queues", []):
+        if not any(str(rq.get("extension")) == str(q_cfg.get("extension")) for rq in raw_queues):
+            raw_queues.append(q_cfg)
+
+    all_groups = settings.get("subscriber_groups", [])
+    queue_lookup = {
+        "temsilci_kuyrugu": {"id": "temsilci_kuyrugu", "extension": "2000", "name": "Temsilci Kuyruğu", "member_keys": []},
+        "2000": {"id": "2000", "extension": "2000", "name": "Temsilci Kuyruğu", "member_keys": []}
+    }
+    my_queue_keys = set()
+
+    for q in raw_queues:
+        if q.get("is_active", True) is False:
+            continue
+        q_id = str(q.get("id") or q.get("extension") or "").strip()
+        q_name = str(q.get("name") or f"Kuyruk {q_id}").strip()
+        q_ext = str(q.get("extension") or q_id).strip()
+        raw_members = q.get("queueMembers") or q.get("members") or []
+        if isinstance(raw_members, str):
+            try:
+                raw_members = json.loads(raw_members)
+            except Exception:
+                raw_members = []
+        raw_sups = q.get("supervisors") or []
+        if isinstance(raw_sups, str):
+            try:
+                raw_sups = json.loads(raw_sups)
+            except Exception:
+                raw_sups = []
+
+        member_keys = []
+        for m in list(raw_members) + list(raw_sups):
+            m_val = m.get("user_id") or m.get("extension") or m.get("id") if isinstance(m, dict) else m
+            s_val = str(m_val or "").strip()
+            if not s_val:
+                continue
+            if s_val.startswith("group_"):
+                gid = s_val.replace("group_", "", 1)
+                grp = next((g for g in all_groups if str(g.get("id")) == gid), None)
+                if grp:
+                    for g_item in (grp.get("extensions") or grp.get("members") or []):
+                        gk = resolve_agent_key(g_item)
+                        if gk and gk not in member_keys:
+                            member_keys.append(gk)
+                continue
+            ak = resolve_agent_key(s_val)
+            if ak and ak not in member_keys:
+                member_keys.append(ak)
+
+        q_obj = {"id": q_id, "extension": q_ext, "name": q_name, "member_keys": member_keys}
+        if q_ext:
+            queue_lookup[q_ext] = q_obj
+        if q_name:
+            queue_lookup[q_name] = q_obj
+        if q_id:
+            queue_lookup[q_id] = q_obj
+
+        if not member_keys or is_admin_or_sup or (req_key and req_key in member_keys):
+            if q_ext:
+                my_queue_keys.add(q_ext)
+            if q_name:
+                my_queue_keys.add(q_name)
+            if q_id:
+                my_queue_keys.add(q_id)
+
+    # If agent has no specific queue restriction found, allow all queues so queue missed calls are always visible
+    if not my_queue_keys:
+        my_queue_keys = set(queue_lookup.keys())
+    else:
+        my_queue_keys.add("temsilci_kuyrugu")
+
+    # 3. Fetch all calls in the last 7 days in chronological order
+    stmt_calls = select(Call).where(Call.start_time >= window_start_utc)
+    if not is_global_tenant(target_tenant):
+        if is_default_tenant(target_tenant):
+            stmt_calls = stmt_calls.where(or_(Call.tenant_id == "tenant-default", Call.tenant_id == "default", Call.tenant_id.is_(None)))
+        else:
+            stmt_calls = stmt_calls.where(Call.tenant_id == target_tenant)
+    stmt_calls = stmt_calls.order_by(Call.start_time.asc())
+    res_calls = await db.execute(stmt_calls)
+    raw_calls = res_calls.scalars().all()
+
+    # Deduplicate webphone-... rows against real Asterisk calls
+    real_calls_by_pair = {}
+    for c in raw_calls:
+        cid_s = str(c.id or "")
+        if not cid_s.startswith("webphone-"):
+            pk = (str(c.caller_number or "").strip(), str(c.callee_number or "").strip())
+            real_calls_by_pair.setdefault(pk, []).append(c)
+
+    chronological_calls = []
+    for c in raw_calls:
+        cid_s = str(c.id or "")
+        if cid_s.startswith("webphone-") and c.start_time:
+            pk = (str(c.caller_number or "").strip(), str(c.callee_number or "").strip())
+            matching_reals = real_calls_by_pair.get(pk, [])
+            if any(rc.start_time and abs((rc.start_time - c.start_time).total_seconds()) <= 30 for rc in matching_reals):
+                continue
+        chronological_calls.append(c)
+
+    def norm_phone(num_str: str) -> str:
+        raw = str(num_str or "").strip()
+        if not raw or raw.lower() in ("unknown", "anonymous", "bilinmeyen", "s"):
+            return ""
+        digits = re.sub(r"\D", "", raw)
+        if len(digits) >= 10:
+            return digits[-10:]
+        return digits or raw
+
+    # 4. Run Chronological State Machine per normalized phone number
+    missed_map = {}  # phone_key -> missed item dict
+
+    for c in chronological_calls:
+        caller_str = str(c.caller_number or "").strip()
+        callee_str = str(c.callee_number or "").strip()
+        hsrc = str(c.hangup_source or "").strip()
+        st = str(c.status or "").strip().lower()
+        dur_col = int(getattr(c, "duration", 0) or 0)
+        calc_dur = (
+            dur_col
+            if dur_col > 0
+            else (
+                max(0, int((c.end_time - c.start_time).total_seconds()))
+                if (c.end_time and c.start_time)
+                else 0
+            )
+        )
+
+        # Skip calls currently ringing/active within the last 3 minutes
+        if st in ("in_progress", "ringing") and c.end_time is None and c.start_time and (now_utc - c.start_time).total_seconds() < 180:
+            continue
+
+        is_q_call = bool(hsrc.startswith("queue:") or (callee_str in queue_lookup))
+
+        if is_q_call:
+            q_raw = (
+                hsrc.split(":")[1].strip()
+                if (hsrc.startswith("queue:") and ":" in hsrc)
+                else callee_str
+            )
+            q_info = queue_lookup.get(q_raw) or {"id": q_raw, "extension": q_raw, "name": f"Kuyruk ({q_raw})"}
+            p_key = norm_phone(caller_str)
+            if not p_key or caller_str == q_info["extension"]:
+                continue
+
+            is_answered_q = bool(
+                ":answered:" in hsrc
+                or (
+                    st in ("completed", "answered", "transferred")
+                    and ":abandoned" not in hsrc
+                    and not hsrc.startswith("queue:")
+                    and calc_dur > 0
+                )
+                or (
+                    st in ("completed", "answered", "transferred")
+                    and getattr(c, "agent_name", None)
+                    and ":abandoned" not in hsrc
+                )
+            )
+
+            if is_answered_q:
+                # Rule: Customer called the queue again and was answered by an agent -> remove from missed list!
+                missed_map.pop(p_key, None)
+            else:
+                # Unanswered / Abandoned Queue Call
+                if q_raw not in my_queue_keys and q_info.get("extension") not in my_queue_keys and q_info.get("id") not in my_queue_keys:
+                    continue
+                if queue_id and queue_id not in ("all", "undefined", "null"):
+                    if str(queue_id) not in (str(q_raw), str(q_info.get("extension")), str(q_info.get("id"))):
+                        continue
+
+                if p_key in missed_map:
+                    # Rule: Same number called queue again and went unanswered -> replace/update with latest missed time
+                    missed_map[p_key]["id"] = str(c.id)
+                    missed_map[p_key]["call_id"] = str(c.id)
+                    missed_map[p_key]["caller_number"] = caller_str
+                    missed_map[p_key]["queue_id"] = q_info.get("id") or q_raw
+                    missed_map[p_key]["queue_ext"] = q_info.get("extension") or q_raw
+                    missed_map[p_key]["queue_name"] = q_info.get("name") or f"Kuyruk ({q_raw})"
+                    missed_map[p_key]["last_missed_time"] = c.start_time
+                    missed_map[p_key]["missed_count"] += 1
+                else:
+                    missed_map[p_key] = {
+                        "id": str(c.id),
+                        "call_id": str(c.id),
+                        "caller_number": caller_str,
+                        "phone_key": p_key,
+                        "queue_id": q_info.get("id") or q_raw,
+                        "queue_ext": q_info.get("extension") or q_raw,
+                        "queue_name": q_info.get("name") or f"Kuyruk ({q_raw})",
+                        "first_missed_time": c.start_time,
+                        "last_missed_time": c.start_time,
+                        "missed_count": 1,
+                        "callback_count": 0,
+                        "last_callback_time": None,
+                        "last_callback_agent": None,
+                        "last_callback_status": None
+                    }
+        else:
+            # Direct Inbound or Outbound Call
+            p_caller = norm_phone(caller_str)
+            p_callee = norm_phone(callee_str)
+
+            # 1) Did the customer call directly later and get answered?
+            if p_caller and p_caller in missed_map:
+                is_direct_answered = bool(
+                    st in ("completed", "answered", "transferred")
+                    and not hsrc.startswith("webrtc:unanswered")
+                    and calc_dur > 0
+                )
+                if is_direct_answered:
+                    missed_map.pop(p_caller, None)
+                    continue
+
+            # 2) Did ANY agent call this customer back (either via "Geri Ara" button or manually on WebPhone)?
+            if p_callee and p_callee in missed_map:
+                entry = missed_map[p_callee]
+                if c.start_time and entry["first_missed_time"] and c.start_time >= entry["first_missed_time"]:
+                    is_unanswered_cb = bool(
+                        st in ("no_answer", "missed", "busy", "cancelled", "failed", "abandoned", "rejected_limit", "blocked")
+                        or hsrc.startswith("webrtc:unanswered")
+                        or calc_dur == 0
+                    )
+                    is_answered_cb = bool(
+                        st in ("completed", "answered", "transferred")
+                        and not is_unanswered_cb
+                        and calc_dur > 0
+                    )
+
+                    if is_answered_cb:
+                        # Rule: Agent called customer back and connected -> remove from all agents' missed list!
+                        missed_map.pop(p_callee, None)
+                    else:
+                        # Rule: Agent called customer back and could NOT reach them -> keep & increment callback_count!
+                        entry["callback_count"] += 1
+                        entry["last_callback_time"] = c.start_time
+                        entry["last_callback_status"] = st if st != "completed" else "no_answer"
+                        cb_agent = getattr(c, "agent_name", None) or resolve_user_name_by_ext_or_id(caller_str) or caller_str
+                        entry["last_callback_agent"] = cb_agent
+
+    # 5. Resolve contact names and format response sorted by last_missed_time DESC
+    contacts_list = []
+    try:
+        res_ct = await db.execute(select(Contact))
+        contacts_list = res_ct.scalars().all()
+    except Exception:
+        pass
+
+    def lookup_contact_name(raw_num: str, p_key: str) -> str:
+        for ct in contacts_list:
+            ct_ph = norm_phone(getattr(ct, "phone", ""))
+            if ct_ph and ct_ph == p_key:
+                return str(getattr(ct, "name", "") or "").strip()
+        try:
+            return resolve_contact_name_by_phone(raw_num) or ""
+        except Exception:
+            return ""
+
+    result_items = list(missed_map.values())
+    result_items.sort(key=lambda x: x["last_missed_time"] or datetime.datetime.min, reverse=True)
+
+    formatted_out = []
+    for item in result_items:
+        c_name = lookup_contact_name(item["caller_number"], item["phone_key"])
+        last_dt = item["last_missed_time"]
+        cb_dt = item["last_callback_time"]
+        formatted_out.append({
+            "id": item["id"],
+            "call_id": item["call_id"],
+            "caller_number": item["caller_number"],
+            "caller_name": c_name,
+            "queue_id": item["queue_id"],
+            "queue_ext": item["queue_ext"],
+            "queue_name": item["queue_name"],
+            "timestamp": (last_dt.isoformat() + "Z") if last_dt else None,
+            "last_missed_time": (last_dt.isoformat() + "Z") if last_dt else None,
+            "missed_count": item["missed_count"],
+            "callback_count": item["callback_count"],
+            "last_callback_time": (cb_dt.isoformat() + "Z") if cb_dt else None,
+            "last_callback_agent": item["last_callback_agent"],
+            "last_callback_status": item["last_callback_status"]
+        })
+
+    return formatted_out
 
 
 # ----------------- SECURITY SHIELD & FAIL2BAN / UFW ENGINE -----------------

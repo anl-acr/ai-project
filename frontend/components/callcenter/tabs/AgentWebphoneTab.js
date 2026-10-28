@@ -118,7 +118,7 @@ export default function AgentWebphoneTab({
       const [contactsRes, dirRes, callsRes, queuesRes] = await Promise.all([
         fetch(`${protocol}//${backendHost}/api/contacts`),
         fetch(`${protocol}//${backendHost}/api/agent/directory`),
-        fetch(`${protocol}//${backendHost}/api/calls`),
+        fetch(`${protocol}//${backendHost}/api/calls?extension=${encodeURIComponent(myExt)}`),
         fetch(`${protocol}//${backendHost}/api/settings/queues`)
       ]);
       if (contactsRes.ok) {
@@ -132,7 +132,15 @@ export default function AgentWebphoneTab({
       if (callsRes.ok) {
         const clData = await callsRes.json();
         if (Array.isArray(clData)) {
-          setRecentCalls(clData.slice(0, 8));
+          const personalCalls = clData.filter((c) => {
+            const hs = String(c.hangup_source || "");
+            const isQueue = Boolean(c.is_queue_call || hs.startsWith("queue:"));
+            if (isQueue && c.caller_number !== myExt) {
+              return hs.includes(`:answered:${myExt}`);
+            }
+            return true;
+          });
+          setRecentCalls(personalCalls.slice(0, 8));
         }
       }
       if (queuesRes.ok) {
@@ -665,7 +673,14 @@ export default function AgentWebphoneTab({
                         : c.caller_number || c.callee_number || "";
                       const m = findContactByPhone(rawNum, contacts, directory);
                       const shownNum = maskPhoneNumbers ? maskPhoneLast4(rawNum, true) : rawNum;
-                      const isMissed = c.status === "missed" || c.status === "no_answer" || c.status === "busy";
+                      const stLower = String(c.status || "").toLowerCase();
+                      const isMissed =
+                        stLower === "missed" ||
+                        stLower === "no_answer" ||
+                        stLower === "busy" ||
+                        stLower === "cancelled" ||
+                        stLower === "failed";
+                      const isDirectMissed = !isOutbound && isMissed && !c.is_queue_call;
                       const rawTime = String(c.start_time || "");
                       const utcTimeStr = rawTime
                         ? /[Zz]|[+-]\d{2}:?\d{2}$/.test(rawTime)
@@ -675,11 +690,15 @@ export default function AgentWebphoneTab({
                       return (
                         <div
                           key={c.id}
-                          className="p-3 rounded-2xl bg-slate-50/80 dark:bg-slate-800/50 border border-slate-200/60 dark:border-slate-800 flex items-center justify-between gap-3 hover:border-slate-300 dark:hover:border-slate-700 transition-all"
+                          className={`p-3 rounded-2xl border flex items-center justify-between gap-3 transition-all ${
+                            isDirectMissed
+                              ? "bg-rose-50/70 dark:bg-rose-950/25 border-rose-200/90 dark:border-rose-800/60 hover:border-rose-300 dark:hover:border-rose-700"
+                              : "bg-slate-50/80 dark:bg-slate-800/50 border-slate-200/60 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                          }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <div
-                              className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                              className={`relative h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
                                 isMissed
                                   ? "bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-400"
                                   : `${lightBg} ${text}`
@@ -692,11 +711,31 @@ export default function AgentWebphoneTab({
                               ) : (
                                 <PhoneIncoming size={15} />
                               )}
+                              {isDirectMissed && (
+                                <span
+                                  className="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-white dark:ring-slate-900 animate-pulse"
+                                  title="Doğrudan Cevapsız Çağrı"
+                                />
+                              )}
                             </div>
                             <div className="min-w-0">
-                              <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
-                                {m?.displayName || (!isOutbound && c.caller_name) || shownNum || "Bilinmeyen"}
-                              </p>
+                              <div className="flex items-center gap-1.5">
+                                <p
+                                  className={`text-xs font-extrabold truncate ${
+                                    isDirectMissed
+                                      ? "text-rose-700 dark:text-rose-300"
+                                      : "text-slate-800 dark:text-white"
+                                  }`}
+                                >
+                                  {m?.displayName || (!isOutbound && c.caller_name) || shownNum || "Bilinmeyen"}
+                                </p>
+                                {isDirectMissed && (
+                                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase bg-rose-100 text-rose-600 dark:bg-rose-900/50 dark:text-rose-300 border border-rose-200 dark:border-rose-800 shrink-0">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                                    Cevapsız
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
                                 <span>{shownNum}</span>
                                 {utcTimeStr && (

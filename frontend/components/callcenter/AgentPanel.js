@@ -293,10 +293,79 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   }, [isVisible, tabs]);
 
   const isWebphoneScreenActive = Boolean(isVisible && activeTab === "webphone");
+  const [missedQueueCount, setMissedQueueCount] = useState(0);
+  const [unseenDirectMissedCount, setUnseenDirectMissedCount] = useState(0);
+  const myExt = String(currentUser?.extension || "1000").trim();
+  const myUid = String(currentUser?.id || "").trim();
 
   useEffect(() => {
     webphoneManager.setWebphoneScreenActive(isWebphoneScreenActive);
   }, [isWebphoneScreenActive]);
+
+  useEffect(() => {
+    if (activeTab === "history" && typeof window !== "undefined") {
+      localStorage.setItem(`seen_direct_missed_ts_${myExt}`, String(Date.now()));
+      setUnseenDirectMissedCount(0);
+    }
+  }, [activeTab, myExt]);
+
+  useEffect(() => {
+    let mounted = true;
+    const pollBadges = async () => {
+      try {
+        const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
+        const [mqRes, callsRes] = await Promise.all([
+          fetch(`${protocol}//${host}/api/agent/missed_queue_calls?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&t=${Date.now()}`),
+          fetch(`${protocol}//${host}/api/calls?extension=${encodeURIComponent(myExt)}&t=${Date.now()}`)
+        ]);
+        if (mounted && mqRes.ok) {
+          const mqData = await mqRes.json();
+          setMissedQueueCount(Array.isArray(mqData) ? mqData.length : 0);
+        }
+        if (mounted && callsRes.ok) {
+          const cData = await callsRes.json();
+          if (Array.isArray(cData)) {
+            const seenTs = Number(
+              (typeof window !== "undefined" && localStorage.getItem(`seen_direct_missed_ts_${myExt}`)) || 0
+            );
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+            const minTs = Math.max(seenTs, todayStart.getTime());
+
+            const directMissed = cData.filter((c) => {
+              const hs = String(c.hangup_source || "");
+              const isQueue = Boolean(c.is_queue_call || hs.startsWith("queue:"));
+              if (isQueue) return false;
+              const isOutbound = c.caller_number === myExt;
+              if (isOutbound) return false;
+              const st = String(c.status || "").toLowerCase();
+              const isUnanswered =
+                st === "no_answer" || st === "missed" || st === "busy" || st === "cancelled" || st === "failed";
+              if (!isUnanswered) return false;
+              if (!c.start_time) return false;
+              const dt = new Date(c.start_time + (String(c.start_time).endsWith("Z") ? "" : "Z")).getTime();
+              return !isNaN(dt) && dt > minTs;
+            });
+            setUnseenDirectMissedCount(activeTab === "history" ? 0 : directMissed.length);
+          }
+        }
+      } catch (e) {}
+    };
+
+    const handleMqUpdate = (e) => {
+      if (typeof e?.detail === "number") {
+        setMissedQueueCount(e.detail);
+      }
+    };
+    window.addEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
+    pollBadges();
+    const timer = setInterval(pollBadges, 6000);
+    return () => {
+      mounted = false;
+      window.removeEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
+      clearInterval(timer);
+    };
+  }, [host, myExt, myUid, activeTab]);
 
   return (
     <div className="flex h-full w-full max-w-[1600px] gap-5 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
@@ -305,20 +374,47 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
         className={`w-64 shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:flex md:flex-col transition-all duration-200`}
       >
         <div className="flex flex-col space-y-1.5">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
-                activeTab === tab.id
-                  ? `${bg} text-white shadow-md`
-                  : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
-              }`}
-            >
-              <tab.icon size={18} />
-              <span className="text-sm">{tab.name}</span>
-            </button>
-          ))}
+          {tabs.map((tab) => {
+            const isSelected = activeTab === tab.id;
+            const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
+            const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
+                  isSelected
+                    ? `${bg} text-white shadow-md`
+                    : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
+                }`}
+              >
+                <span className="flex items-center gap-3 min-w-0">
+                  <tab.icon size={18} className="shrink-0" />
+                  <span className="text-sm truncate">{tab.name}</span>
+                </span>
+                {showMissedBadge && (
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
+                      isSelected
+                        ? "bg-white text-rose-600"
+                        : "bg-rose-500 text-white animate-pulse"
+                    }`}
+                    title={`${missedQueueCount} adet geri dönülmemiş kuyruk kayıp çağrısı`}
+                  >
+                    {missedQueueCount}
+                  </span>
+                )}
+                {showHistoryDot && (
+                  <span
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse"
+                    title={`${unseenDirectMissedCount} yeni doğrudan cevapsız çağrı`}
+                  >
+                    {unseenDirectMissedCount}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         {/* Agent Session & Break Status Card placed below Sohbet */}
@@ -335,20 +431,33 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       {/* Mobile Tabs (Horizontal) - Just in case on small screens */}
       <div className={`md:hidden shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 w-full overflow-x-auto`}>
         <div className="flex space-x-2 min-w-max">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-xl font-medium transition-all ${
-                activeTab === tab.id
-                  ? `${bg} text-white shadow-md`
-                  : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
-              }`}
-            >
-              <tab.icon size={16} />
-              <span className="text-xs">{tab.name}</span>
-            </button>
-          ))}
+          {tabs.map(tab => {
+            const isSelected = activeTab === tab.id;
+            const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
+            const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl font-medium transition-all ${
+                  isSelected
+                    ? `${bg} text-white shadow-md`
+                    : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
+                }`}
+              >
+                <tab.icon size={16} />
+                <span className="text-xs">{tab.name}</span>
+                {showMissedBadge && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white">
+                    {missedQueueCount}
+                  </span>
+                )}
+                {showHistoryDot && (
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
