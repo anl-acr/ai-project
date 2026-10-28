@@ -286,41 +286,138 @@ def register_event_handlers(manager: Manager):
         manager.register_event(sec_ev)(_handle_ami_security_event)
 
 
+_last_asterisk_self_heal_ts = 0.0
+
+
+def _probe_ami_banner_sync(timeout_sec: float = 2.0) -> bool:
+    """Probes AMI port and verifies that Asterisk actually sends its 'Asterisk Call Manager' banner (not deadlocked)."""
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout_sec)
+    try:
+        s.connect((AMI_HOST, AMI_PORT))
+        banner = s.recv(128)
+        return bool(banner and b"Asterisk" in banner)
+    except Exception:
+        return False
+    finally:
+        try:
+            s.close()
+        except Exception:
+            pass
+
+
+def ensure_asterisk_alive_sync(force_restart: bool = False) -> bool:
+    """
+    Checks if local Asterisk is responsive on AMI (port 5038).
+    If deadlocked (TCP open but 0 bytes returned) or stopped on a Linux host, force-restarts Asterisk cleanly.
+    """
+    global _last_asterisk_self_heal_ts
+    import time, subprocess
+    if not os.path.exists("/etc/asterisk"):
+        return False
+
+    if not force_restart and _probe_ami_banner_sync(timeout_sec=2.0):
+        return True
+
+    now = time.time()
+    if not force_restart and (now - _last_asterisk_self_heal_ts) < 45.0:
+        return False
+    _last_asterisk_self_heal_ts = now
+
+    print("[AMI Self-Heal] Asterisk AMI yanıt vermiyor veya kilitlendi (deadlock). Otomatik kurtarma başlatılıyor...")
+    try:
+        if os.path.exists("/etc/asterisk/keys"):
+            os.chmod("/etc/asterisk/keys", 0o755)
+            for fn in os.listdir("/etc/asterisk/keys"):
+                fp = os.path.join("/etc/asterisk/keys", fn)
+                if os.path.isfile(fp):
+                    os.chmod(fp, 0o644)
+        subprocess.run(
+            ["chown", "-R", "asterisk:asterisk", "/etc/asterisk/keys", "/var/log/asterisk", "/var/run/asterisk"],
+            check=False, capture_output=True, timeout=3.0
+        )
+    except Exception:
+        pass
+
+    try:
+        subprocess.run(["systemctl", "kill", "-s", "SIGKILL", "asterisk"], check=False, capture_output=True, timeout=3.0)
+    except Exception:
+        pass
+    try:
+        subprocess.run(["killall", "-9", "asterisk"], check=False, capture_output=True, timeout=3.0)
+    except Exception:
+        pass
+    time.sleep(0.5)
+    try:
+        subprocess.run(["systemctl", "restart", "asterisk"], check=False, capture_output=True, timeout=8.0)
+    except Exception:
+        try:
+            subprocess.run(["service", "asterisk", "restart"], check=False, capture_output=True, timeout=8.0)
+        except Exception:
+            pass
+
+    for _ in range(8):
+        time.sleep(0.6)
+        if _probe_ami_banner_sync(timeout_sec=1.5):
+            print("[AMI Self-Heal] Asterisk servisi başarıyla kurtarıldı ve AMI aktif!")
+            return True
+    return False
+
+
 async def get_ami_manager() -> Manager:
     """Returns or initializes the active AMI manager connection."""
     global manager_instance
-    if manager_instance is None or not manager_instance._connected:
-        print(f"[AMI] Connecting to Asterisk AMI at {AMI_HOST}:{AMI_PORT}...")
+    if manager_instance is not None and getattr(manager_instance, "_connected", False):
+        return manager_instance
+
+    # Close any stale disconnected manager instance before creating a new one
+    if manager_instance is not None:
         try:
-            manager_instance = Manager(
-                host=AMI_HOST,
-                port=AMI_PORT,
-                username=AMI_USER,
-                secret=AMI_SECRET,
-                loop=asyncio.get_event_loop()
-            )
-            await asyncio.wait_for(manager_instance.connect(), timeout=1.5)
-            register_event_handlers(manager_instance)
-            print("[AMI] Connected successfully and event handlers registered!")
-            
-            # Fetch initial SIP registration states (only active registered contacts)
-            try:
-                res = await manager_instance.send_action({"Action": "PJSIPShowContacts"})
-                for r in _iter_ami_responses(res):
-                    if hasattr(r, "get") and r.get('Event') == 'ContactList':
-                        aor = r.get('AOR') or r.get('ObjectName')
-                        status = r.get('Status')
-                        uri = r.get('URI') or r.get('ViaAddress') or ""
-                        import re
-                        ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
-                        extracted_ip = ip_match.group(0) if ip_match else ""
-                        if aor and status in ["Reachable", "Created", "Registered"]:
-                            registered_endpoints.add(aor, extracted_ip)
-            except Exception as ex:
-                print(f"[AMI] Error fetching initial contacts: {ex}")
-        except Exception as e:
-            print(f"[AMI] Connection error: {e}")
-            manager_instance = None
+            manager_instance.close()
+        except Exception:
+            pass
+        manager_instance = None
+
+    # Verify AMI socket is responsive (not deadlocked) before connecting panoramisk
+    banner_ok = await asyncio.to_thread(_probe_ami_banner_sync, 1.8)
+    if not banner_ok and os.path.exists("/etc/asterisk"):
+        recovered = await asyncio.to_thread(ensure_asterisk_alive_sync, False)
+        if not recovered:
+            return None
+
+    print(f"[AMI] Connecting to Asterisk AMI at {AMI_HOST}:{AMI_PORT}...")
+    try:
+        mgr = Manager(
+            host=AMI_HOST,
+            port=AMI_PORT,
+            username=AMI_USER,
+            secret=AMI_SECRET,
+            loop=asyncio.get_event_loop()
+        )
+        await asyncio.wait_for(mgr.connect(), timeout=2.0)
+        register_event_handlers(mgr)
+        manager_instance = mgr
+        print("[AMI] Connected successfully and event handlers registered!")
+
+        # Fetch initial SIP registration states with strict timeout so it never hangs
+        try:
+            res = await asyncio.wait_for(mgr.send_action({"Action": "PJSIPShowContacts"}), timeout=2.5)
+            for r in _iter_ami_responses(res):
+                if hasattr(r, "get") and r.get('Event') == 'ContactList':
+                    aor = r.get('AOR') or r.get('ObjectName')
+                    status = r.get('Status')
+                    uri = r.get('URI') or r.get('ViaAddress') or ""
+                    import re
+                    ip_match = re.search(r'\b(?:\d{1,3}\.){3}\d{1,3}\b', uri)
+                    extracted_ip = ip_match.group(0) if ip_match else ""
+                    if aor and status in ["Reachable", "Created", "Registered"]:
+                        registered_endpoints.add(aor, extracted_ip)
+        except Exception as ex:
+            print(f"[AMI] Error fetching initial contacts: {ex}")
+    except Exception as e:
+        print(f"[AMI] Connection error: {e}")
+        manager_instance = None
     return manager_instance
 
 async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_human", context: str = "default") -> bool:

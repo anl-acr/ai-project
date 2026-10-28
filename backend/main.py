@@ -1697,13 +1697,14 @@ async def upload_ssl_certificates(
         raise HTTPException(status_code=500, detail=f"Sertifikalar yüklenirken hata oluştu: {str(e)}")
 
 def run_pjsip_reload():
-    # Trigger Asterisk PJSIP & Dialplan Reload command dynamically
+    # Trigger Asterisk HTTP/WSS, PJSIP & Dialplan Reload command dynamically
     try:
         import subprocess
+        subprocess.run(["asterisk", "-rx", "module reload http"], capture_output=True, text=True, timeout=2.0)
         res = subprocess.run(["asterisk", "-rx", "pjsip reload"], capture_output=True, text=True, timeout=2.0)
         subprocess.run(["asterisk", "-rx", "dialplan reload"], capture_output=True, text=True, timeout=2.0)
         if res.returncode == 0:
-            print("[Asterisk Config] PJSIP ve Dialplan başarıyla yenilendi (host).")
+            print("[Asterisk Config] HTTP/WSS, PJSIP ve Dialplan başarıyla yenilendi (host).")
             return
     except Exception as e:
         print(f"[Asterisk Config] Direct PJSIP reload failed: {e}")
@@ -2371,33 +2372,33 @@ password={pwd}
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/pjsip_custom.conf yazılamadı: {e}")
             
-    # Comprehensive search for SSL certificate (Let's Encrypt / System)
+    # Comprehensive search for SSL certificate (Let's Encrypt)
     try:
         ast_keys_dir = "/etc/asterisk/keys"
         os.makedirs(ast_keys_dir, exist_ok=True)
+        try:
+            os.chmod(ast_keys_dir, 0o755)
+        except Exception:
+            pass
         target_cert = None
         target_key = None
 
         letsencrypt_base = "/etc/letsencrypt/live"
         if os.path.exists(letsencrypt_base):
             try:
+                candidates = []
                 for root, dirs, files in os.walk(letsencrypt_base):
                     if "fullchain.pem" in files and "privkey.pem" in files:
-                        target_cert = os.path.join(root, "fullchain.pem")
-                        target_key = os.path.join(root, "privkey.pem")
-                        break
+                        fc_p = os.path.join(root, "fullchain.pem")
+                        pk_p = os.path.join(root, "privkey.pem")
+                        score = 2 if ("aida" in root.lower() or "saphira" in root.lower()) else 1
+                        candidates.append((score, fc_p, pk_p))
+                if candidates:
+                    candidates.sort(key=lambda x: x[0], reverse=True)
+                    target_cert = candidates[0][1]
+                    target_key = candidates[0][2]
             except Exception:
                 pass
-
-        if not target_cert:
-            for ssl_path in ["/etc/nginx", "/etc/ssl", "/etc/pki"]:
-                if os.path.exists(ssl_path):
-                    for root, dirs, files in os.walk(ssl_path):
-                        for f in files:
-                            if (f.endswith(".crt") or f.endswith(".pem") or "fullchain" in f) and not target_cert:
-                                target_cert = os.path.join(root, f)
-                            elif (f.endswith(".key") or "privkey" in f) and not target_key:
-                                target_key = os.path.join(root, f)
 
         if target_cert and target_key:
             try:
@@ -2405,22 +2406,23 @@ password={pwd}
                 ast_pk = os.path.join(ast_keys_dir, "webphone_privkey.pem")
                 ast_combined = os.path.join(ast_keys_dir, "asterisk.pem")
 
-                shutil.copy2(target_cert, ast_fc)
-                shutil.copy2(target_key, ast_pk)
+                shutil.copy2(os.path.realpath(target_cert), ast_fc)
+                shutil.copy2(os.path.realpath(target_key), ast_pk)
 
                 with open(ast_fc, "r") as f1, open(ast_pk, "r") as f2, open(ast_combined, "w") as fout:
-                    fout.write(f1.read() + "\n" + f2.read())
+                    fout.write(f1.read().strip() + "\n" + f2.read().strip() + "\n")
 
                 os.chmod(ast_fc, 0o644)
                 os.chmod(ast_pk, 0o644)
                 os.chmod(ast_combined, 0o644)
+                subprocess.run(["chown", "-R", "asterisk:asterisk", ast_keys_dir], check=False, capture_output=True, timeout=2.0)
                 print(f"[Asterisk Config] SSL sertifikası Asterisk için hazırlandı ve birleştirildi: {ast_combined}")
             except Exception as e_ssl_main:
                 print(f"[Asterisk Config] SSL birleştirme hatası: {e_ssl_main}")
     except Exception as e_keys:
         print(f"[Asterisk Config] SSL anahtar dizini oluşturulamadı/erişilemedi: {e_keys}")
 
-    # Auto-sync /etc/asterisk/http.conf for WebRTC WebSocket port 8088
+    # Auto-sync /etc/asterisk/http.conf for WebRTC WebSocket port 8088 & WSS port 8089
     http_content = """; ==========================================
 ; Asterisk HTTP/WebSocket (WSS) Konfigürasyonu
 ; ==========================================
@@ -2432,14 +2434,16 @@ tlsenable=yes
 tlsbindaddr=0.0.0.0:8089
 tlscertfile=/etc/asterisk/keys/asterisk.pem
 tlsprivatekey=/etc/asterisk/keys/webphone_privkey.pem
+sessionlimit=1000
+session_inactivity=30000
+session_keep_alive=15000
 """
     if os.path.exists("/etc/asterisk"):
         try:
             http_etc_path = "/etc/asterisk/http.conf"
             with open(http_etc_path, "w", encoding="utf-8") as f:
                 f.write(http_content)
-            subprocess.run(["asterisk", "-rx", "pjsip reload"], check=False)
-            print("[Asterisk Config] /etc/asterisk/http.conf ve WebSocket servisi başarıyla yenilendi.")
+            print("[Asterisk Config] /etc/asterisk/http.conf güncellendi.")
         except Exception as e:
             print(f"[Asterisk Config] /etc/asterisk/http.conf güncellenemedi: {e}")
 
@@ -15321,8 +15325,27 @@ ignoreip = {ignore_ip_str}
         except Exception as e_f2b:
             print(f"[Fail2Ban Config Error]: {e_f2b}")
 
-    # Re-enforce kernel drops for all previously blocked IPs
-    for item in settings_db.get("security_blocked_ips", []):
+    # Purge any false-positive 'ChallengeSent' / 'SuccessfulAuth' bans that blocked legitimate WebPhone clients
+    existing_blocked = settings_db.get("security_blocked_ips", [])
+    cleaned_blocked = [
+        item for item in existing_blocked
+        if "ChallengeSent" not in str(item.get("reason") or "")
+        and "SuccessfulAuth" not in str(item.get("reason") or "")
+    ]
+    if len(cleaned_blocked) != len(existing_blocked):
+        removed_count = len(existing_blocked) - len(cleaned_blocked)
+        settings_db["security_blocked_ips"] = cleaned_blocked
+        save_settings(settings_db)
+        _enforced_kernel_ban_ips.clear()
+        try:
+            subprocess.run(["iptables", "-t", "raw", "-F", "PREROUTING"], check=False, capture_output=True, timeout=2.0)
+            subprocess.run(["fail2ban-client", "unban", "--all"], check=False, capture_output=True, timeout=2.0)
+            print(f"[Fail2Ban Cleanup] {removed_count} adet hatalı ChallengeSent IP engeli kaldırıldı ve güvenlik duvarı temizlendi.")
+        except Exception:
+            pass
+
+    # Re-enforce kernel drops for up to the 40 most recent real blocked IPs
+    for item in settings_db.get("security_blocked_ips", [])[:40]:
         b_ip = str(item.get("ip") or "").strip()
         if b_ip and not _is_trusted_or_local_ip(b_ip):
             _enforce_kernel_drop_for_ip(b_ip)
@@ -15336,6 +15359,8 @@ def record_and_ban_realtime_sip_attack(ip_addr: str, event_type: str = "InvalidA
     sinyallerini yakalar ve saldırgan IP'yi milisaniyeler içinde engeller.
     """
     import datetime
+    if event_type in ("ChallengeSent", "SuccessfulAuth"):
+        return
     ip_clean = str(ip_addr or "").strip()
     if not ip_clean or _is_trusted_or_local_ip(ip_clean):
         return
@@ -15369,7 +15394,7 @@ def record_and_ban_realtime_sip_attack(ip_addr: str, event_type: str = "InvalidA
 def scan_asterisk_failed_sip_attempts(auto_ban: bool = True) -> list:
     """
     /var/log/asterisk/messages, /var/log/asterisk/security ve /var/log/asterisk/full dosyalarındaki
-    PJSIP 'No matching endpoint found', 'Failed to authenticate' ve 'SecurityEvent' saldırı kayıtlarını tarar;
+    PJSIP 'No matching endpoint found', 'Failed to authenticate' ve gerçek başarısız 'SecurityEvent' saldırı kayıtlarını tarar;
     botnet tarayıcılarını (örn. <sip:1@1>) ve limit aşan saldırgan IP'leri otomatik olarak çekirdek güvenlik duvarında engeller.
     """
     import re
@@ -15388,7 +15413,7 @@ def scan_asterisk_failed_sip_attempts(auto_ban: bool = True) -> list:
         r"(?:\[([^\]]+)\]|^(\S+\s+\d+\s+\d+:\d+:\d+)).*log_failed_request:\s*Request\s*'([^']+)'\s*from\s*'([^']+)'\s*failed for\s*'(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})(?::\d+)?'(?:\s*\(callid:\s*([^)]+)\))?\s*-\s*(.+)$"
     )
     pattern_sec = re.compile(
-        r'(?:\[([^\]]+)\]|^(\S+\s+\d+\s+\d+:\d+:\d+)).*SecurityEvent="([^"]+)".*AccountID="([^"]*)".*RemoteAddress="IPV[46]/(?:UDP|TCP|TLS|WS|WSS)/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/\d+"'
+        r'(?:\[([^\]]+)\]|^(\S+\s+\d+\s+\d+:\d+:\d+)).*SecurityEvent="(FailedACL|InvalidAccountID|ChallengeResponseFailed|InvalidPassword|RequestNotSupported|UnexpectedAddress)".*AccountID="([^"]*)".*RemoteAddress="IPV[46]/(?:UDP|TCP|TLS|WS|WSS)/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})/\d+"'
     )
 
     all_lines = []
@@ -16537,12 +16562,12 @@ async def startup_event():
 
     # Regenerate Asterisk configs (PJSIP endpoints, trunks, queues, dialplan) for native or docker Asterisk
     try:
+        from backend.services.ami_manager import ensure_asterisk_alive_sync
         regenerate_pjsip_custom_conf()
         regenerate_queues_conf()
         regenerate_extensions_custom_conf()
-        configure_and_sync_fail2ban(install_if_missing=False)
-        scan_asterisk_failed_sip_attempts(auto_ban=True)
-        print("[Asterisk Startup Sync] PJSIP, Kuyruk, Dialplan ve Fail2Ban güvenlik kuralları başarıyla güncellendi.")
+        await asyncio.to_thread(ensure_asterisk_alive_sync, False)
+        print("[Asterisk Startup Sync] PJSIP, Kuyruk ve Dialplan başarıyla güncellendi.")
     except Exception as e_ast:
         print(f"[Asterisk Startup Sync Error]: {e_ast}")
 
@@ -19236,7 +19261,26 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
         
         # Dynamically compute WebSocket URL and resolved viaHost IPv4
         req_host = request.headers.get("host", "").split(":")[0] or request.url.hostname or "127.0.0.1"
-        client_ip = request.client.host if request.client else "127.0.0.1"
+        xff = (request.headers.get("x-forwarded-for") or request.headers.get("x-real-ip") or "").split(",")[0].strip()
+        client_ip = xff or (request.client.host if request.client else "127.0.0.1")
+
+        # Ensure WebRTC client IP is never blocked by SIP firewall
+        if client_ip and client_ip not in ("127.0.0.1", "::1", "localhost"):
+            try:
+                blocked_ips_set = {item.get("ip") for item in settings_db.get("security_blocked_ips", [])}
+                if client_ip in blocked_ips_set or client_ip in _enforced_kernel_ban_ips:
+                    await asyncio.to_thread(_execute_firewall_unban, client_ip, True)
+            except Exception:
+                pass
+
+        # If Asterisk AMI is not currently connected, trigger background self-heal check so WSS port 8089 is ready
+        try:
+            from backend.services.ami_manager import manager_instance as _ami_mgr, get_ami_manager
+            if _ami_mgr is None or not getattr(_ami_mgr, "_connected", False):
+                asyncio.create_task(get_ami_manager())
+        except Exception:
+            pass
+
         scheme = "wss" if request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https" else "ws"
         if scheme == "wss":
             wss_url = f"wss://{req_host}:8089/ws"
@@ -19260,6 +19304,7 @@ async def get_webrtc_config(request: Request, db: AsyncSession = Depends(get_db)
 
         return {
             "asteriskWssUrl": wss_url,
+            "fallbackWssUrl": f"{scheme}://{req_host}/ws",
             "agentExtension": agent_ext,
             "agentName": agent_name,
             "password": sip_password,
