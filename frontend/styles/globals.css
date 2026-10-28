@@ -15,3 +15,11 @@ body {
 .dark body {
   @apply bg-slate-950 text-slate-100;
 }
+
+@layer base {
+  .dark *,
+  .dark ::before,
+  .dark ::after {
+    border-color: rgba(30, 41, 59, 0.8);
+  }
+}

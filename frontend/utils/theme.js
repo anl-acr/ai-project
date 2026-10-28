@@ -37,7 +37,7 @@ export function useTheme() {
     ring: "focus:ring-primary/20",
     lightBg: "bg-primary/5 dark:bg-primary/10",
     lightText: "text-primary dark:text-primary",
-    borderLight: "border-primary/20 dark:border-primary/30"
+    borderLight: "border-slate-200/80 dark:border-slate-800/80"
   };
   
   return {
