@@ -478,13 +478,57 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
         </div>
       )}
 
-      {/* Break Quota / Concurrent Limit Warning Banner */}
-      {breakError && (
-        <div className="mb-3 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2 text-rose-600 dark:text-rose-400 text-[11px] font-semibold">
-          <AlertTriangle size={15} className="shrink-0 mt-0.5" />
-          <div className="flex-1">{breakError}</div>
-          <button onClick={() => setBreakError("")} className="text-[10px] font-bold underline">Kapat</button>
-        </div>
+      {/* Queue Membership / Break Quota Warning Popup Modal (Portal) */}
+      {breakError && typeof document !== "undefined" && createPortal(
+        <div
+          className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setBreakError("")}
+        >
+          <div
+            className="relative w-full max-w-sm p-6 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl shadow-2xl space-y-5 animate-in zoom-in-95 duration-200 text-center flex flex-col items-center"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setBreakError("")}
+              className="absolute top-4 right-4 p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              title="Kapat"
+            >
+              <X size={16} />
+            </button>
+
+            <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/50 shadow-inner shrink-0">
+              <ShieldAlert size={34} className="animate-pulse" />
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="font-extrabold text-base text-slate-900 dark:text-white tracking-tight">
+                {breakError.includes("kuyruğuna üye olmadığınız")
+                  ? "Kuyruk Üyeliği Bulunamadı"
+                  : "Oturum & Mola Uyarısı"}
+              </h4>
+              <p className="text-xs text-slate-500 dark:text-slate-400 font-semibold leading-relaxed">
+                {breakError}
+              </p>
+              {currentUser?.extension && (
+                <div className="pt-1">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200/60 dark:border-slate-700">
+                    Dahili: {currentUser.extension}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setBreakError("")}
+              className={`w-full py-2.5 rounded-xl text-xs font-extrabold text-white uppercase tracking-wider transition-all shadow-md cursor-pointer ${bg} ${hover}`}
+            >
+              Anladım
+            </button>
+          </div>
+        </div>,
+        document.body
       )}
 
       {/* Break Overtime Warning Banner */}
