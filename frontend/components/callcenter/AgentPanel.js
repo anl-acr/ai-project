@@ -171,7 +171,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             "call_panel:webphone_transfer",
             "call_panel:webphone_conference",
             "call_panel:webphone_reject",
-            "call_panel:webphone_mask_number"
+            "call_panel:webphone_mask_number",
+            "call_panel:cti_screen_pop"
           ].includes(p)
         )
       : false;
@@ -226,6 +227,12 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             perms.includes("live_translator:access") ||
             perms.includes("live_translator"))
       );
+    const canCtiScreenPop =
+      isRoleAdmin ||
+      !perms ||
+      perms.includes("call_panel:cti_screen_pop") ||
+      perms.includes("cti_integration:read") ||
+      perms.includes("cti_integration:write");
 
     return {
       rawPermissions: perms || [],
@@ -235,6 +242,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       canTransfer: checkWebphoneFeature("call_panel:webphone_transfer"),
       canConference: checkWebphoneFeature("call_panel:webphone_conference"),
       canRejectCall: checkWebphoneFeature("call_panel:webphone_reject"),
+      canCtiScreenPop,
       canLiveTranslate,
       canVoiceInterpret,
       maskPhoneNumbers: Boolean(perms && perms.includes("call_panel:webphone_mask_number")),
@@ -245,6 +253,10 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       checkTab
     };
   }, [rolePermissions, currentUser?.role]);
+
+  useEffect(() => {
+    webphoneManager.setCtiPermissionAllowed(callPanelPerms.canCtiScreenPop !== false);
+  }, [callPanelPerms.canCtiScreenPop]);
 
   const tabs = useMemo(() => {
     const orderMap = new Map();

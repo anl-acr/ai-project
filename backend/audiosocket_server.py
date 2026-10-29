@@ -154,18 +154,58 @@ async def execute_async_tool_and_feed_context(tool_name: str, args_dict: dict, c
             tool_result = f"Randevu Başarıyla Kaydedildi! Tarih: {date_val}, Saat: {time_val}, İsim: {customer_val}."
             
         elif tool_name in ["musteri_sorgula", "fetch_crm_contact"]:
-            phone_val = args_dict.get("phone") or args_dict.get("telefon") or ""
-            from backend.database.db import AsyncSessionLocal
+            phone_val = str(args_dict.get("phone") or args_dict.get("telefon") or "").strip()
+            phone_digits = "".join(ch for ch in phone_val if ch.isdigit())
+            last_10 = phone_digits[-10:] if len(phone_digits) >= 10 else phone_digits
             from backend.database.models import Contact
             from sqlalchemy import select
             
+            found_parts = []
             async with AsyncSessionLocal() as session:
-                res = await session.execute(select(Contact).where(Contact.phone == phone_val))
-                contact = res.scalars().first()
-                if contact:
-                    tool_result = f"Müşteri Bulundu: {contact.full_name}, Firma: {contact.company}, E-Posta: {contact.email}"
-                else:
-                    tool_result = f"Telefon numarası ({phone_val}) için kayıt bulunamadı."
+                res = await session.execute(select(Contact))
+                for c in res.scalars().all():
+                    c_digits = "".join(ch for ch in str(c.phone or "") if ch.isdigit())
+                    if c_digits and (c_digits == phone_digits or (len(last_10) >= 7 and c_digits.endswith(last_10))):
+                        found_parts.append(
+                            f"Yerel Rehber Kaydı: {c.name}, Firma: {c.company or '-'}, E-Posta: {c.email or '-'}, Etiket: {c.tag or '-'}, Not: {c.notes or '-'}"
+                        )
+                        break
+
+            try:
+                st = load_settings()
+                for ag in st.get("ai_agents", []):
+                    if ag.get("crm_enabled", True) and ag.get("crm_api_url"):
+                        crm_url = (
+                            str(ag.get("crm_api_url"))
+                            .replace("{caller}", phone_val)
+                            .replace("{caller_clean}", phone_digits)
+                            .replace("{phone}", phone_digits)
+                            .replace("{last10}", last_10)
+                            .replace("{call_id}", str(call_id or ""))
+                        )
+                        headers = {"Accept": "application/json"}
+                        auth_t = str(ag.get("crm_auth_type") or "none").lower()
+                        auth_tok = str(ag.get("crm_auth_token") or "").strip()
+                        if auth_t == "bearer" and auth_tok:
+                            headers["Authorization"] = f"Bearer {auth_tok}"
+                        elif auth_t == "api_key" and auth_tok:
+                            headers[str(ag.get("crm_auth_header_name") or "X-API-Key")] = auth_tok
+                        import httpx
+                        async with httpx.AsyncClient(timeout=4.0, verify=False) as client:
+                            if str(ag.get("crm_api_method") or "GET").upper() == "POST":
+                                resp = await client.post(crm_url, json={"caller": phone_val, "caller_clean": phone_digits, "call_id": call_id}, headers=headers)
+                            else:
+                                resp = await client.get(crm_url, headers=headers)
+                            if resp.status_code < 400:
+                                found_parts.append(f"Harici CRM Yanıtı: {resp.text[:600]}")
+                        break
+            except Exception as e_crm_tool:
+                print(f"[Async Tool CRM Error]: {e_crm_tool}")
+
+            if found_parts:
+                tool_result = " | ".join(found_parts)
+            else:
+                tool_result = f"Telefon numarası ({phone_val}) için CRM'de kayıt bulunamadı."
                     
         elif tool_name in ["webhook_tetikle", "trigger_webhook"]:
             url = args_dict.get("url")
@@ -619,6 +659,209 @@ async def get_all_knowledge_base_context() -> str:
         print(f"[RAG Context Error]: {e}")
         return ""
 
+
+async def fetch_customer_crm_context_for_ai(call_id: str, did: str, ai_agent: dict) -> str:
+    """
+    Çağrı başladığında AI görüşüyorsa:
+    Müşterinin arayan numarasını (Caller ID) alır, hem yerel Rehber / Randevu kayıtlarına
+    hem de AI Agent'ın yapılandırılmış müşteri CRM API'sine bağlanarak müşteri verilerini çeker.
+    Çekilen verileri ve CRM konuşma ilerletme kurallarını (crm_prompt_mapping) sistem talimatına enjekte eder.
+    """
+    if not ai_agent or not ai_agent.get("crm_enabled", True):
+        return ""
+
+    try:
+        from sqlalchemy import select
+        from backend.database.models import Contact, Appointment
+
+        caller_raw = ""
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, call_id)
+            if db_call and db_call.caller_number:
+                caller_raw = str(db_call.caller_number).strip()
+
+        if not caller_raw or caller_raw in ("Bilinmeyen", "Bilinmeyen Temsilci", "s", "unknown"):
+            return ""
+
+        caller_clean = "".join(ch for ch in caller_raw if ch.isdigit())
+        last_10 = caller_clean[-10:] if len(caller_clean) >= 10 else caller_clean
+
+        crm_sections = []
+        lookup_local = bool(ai_agent.get("crm_lookup_local_contacts", True))
+
+        # 1. Local Contacts & Appointments Lookup
+        if lookup_local and caller_clean:
+            try:
+                async with AsyncSessionLocal() as session:
+                    res_c = await session.execute(select(Contact))
+                    for c in res_c.scalars().all():
+                        c_digits = "".join(ch for ch in str(c.phone or "") if ch.isdigit())
+                        if c_digits and (c_digits == caller_clean or (len(last_10) >= 7 and c_digits.endswith(last_10))):
+                            crm_sections.append(
+                                f"- Müşteri Adı Soyadı: {c.name}\n"
+                                f"- Firma / Kurum: {c.company or 'Belirtilmemiş'}\n"
+                                f"- E-Posta: {c.email or 'Belirtilmemiş'}\n"
+                                f"- Müşteri Segmenti / Etiket: {c.tag or 'Standart'}\n"
+                                f"- Müşteri Özel Notu: {c.notes or 'Yok'}"
+                            )
+                            break
+
+                    res_a = await session.execute(select(Appointment).order_by(Appointment.id.desc()).limit(25))
+                    matched_apps = []
+                    for a in res_a.scalars().all():
+                        a_digits = "".join(ch for ch in str(a.customer_phone or "") if ch.isdigit())
+                        if a_digits and (a_digits == caller_clean or (len(last_10) >= 7 and a_digits.endswith(last_10))):
+                            matched_apps.append(
+                                f"  * Randevu Tarihi: {a.appointment_date} | Durum: {a.status} | Not: {a.notes or '-'}"
+                            )
+                    if matched_apps:
+                        crm_sections.append("- Mevcut Randevu Kayıtları:\n" + "\n".join(matched_apps[:3]))
+            except Exception as loc_err:
+                print(f"[AI CRM Local Lookup Warning]: {loc_err}")
+
+        # 2. External Customer CRM REST API Lookup
+        crm_api_url = str(ai_agent.get("crm_api_url") or "").strip()
+        if crm_api_url:
+            def _sub_vars(tpl: str) -> str:
+                return (
+                    tpl.replace("{caller}", caller_raw)
+                       .replace("{caller_clean}", caller_clean)
+                       .replace("{phone}", caller_clean)
+                       .replace("{last10}", last_10)
+                       .replace("{call_id}", str(call_id or ""))
+                       .replace("{did}", str(did or ""))
+                )
+
+            resolved_url = _sub_vars(crm_api_url)
+            api_method = str(ai_agent.get("crm_api_method") or "GET").upper()
+            auth_type = str(ai_agent.get("crm_auth_type") or "none").lower()
+            auth_header = str(ai_agent.get("crm_auth_header_name") or "X-API-Key").strip()
+            auth_token = str(ai_agent.get("crm_auth_token") or "").strip()
+            req_body_tpl = str(ai_agent.get("crm_request_body_template") or "").strip()
+
+            headers = {"Accept": "application/json", "User-Agent": "AIDA-AI-Voice-CRM/2.5"}
+            if auth_type == "bearer" and auth_token:
+                headers["Authorization"] = f"Bearer {auth_token}"
+            elif auth_type == "api_key" and auth_token:
+                headers[auth_header or "X-API-Key"] = auth_token
+            elif auth_type == "basic" and auth_token:
+                import base64
+                b64_val = base64.b64encode(auth_token.encode("utf-8")).decode("utf-8") if ":" in auth_token else auth_token
+                headers["Authorization"] = f"Basic {b64_val}"
+
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=3.5, verify=False) as client:
+                    if api_method == "POST":
+                        headers["Content-Type"] = "application/json"
+                        if req_body_tpl:
+                            body_str = _sub_vars(req_body_tpl)
+                            try:
+                                resp = await client.post(resolved_url, json=json.loads(body_str), headers=headers)
+                            except Exception:
+                                resp = await client.post(resolved_url, content=body_str.encode("utf-8"), headers=headers)
+                        else:
+                            resp = await client.post(
+                                resolved_url,
+                                json={"caller": caller_raw, "caller_clean": caller_clean, "call_id": call_id, "did": did},
+                                headers=headers
+                            )
+                    else:
+                        resp = await client.get(resolved_url, headers=headers)
+
+                    if resp.status_code < 400:
+                        try:
+                            ext_json = resp.json()
+                            crm_sections.append(f"- Harici Müşteri CRM Verisi (JSON):\n{json.dumps(ext_json, ensure_ascii=False, indent=2)[:1500]}")
+                        except Exception:
+                            if resp.text.strip():
+                                crm_sections.append(f"- Harici Müşteri CRM Yanıtı:\n{resp.text.strip()[:1000]}")
+                        print(f"[AI CRM Live Connect] Harici CRM verisi başarıyla çekildi ({resolved_url})")
+                    else:
+                        print(f"[AI CRM Live Connect] Harici CRM HTTP {resp.status_code} döndürdü: {resolved_url}")
+            except Exception as ext_err:
+                print(f"[AI CRM Live Connect Error]: {ext_err}")
+
+        crm_prompt_mapping = str(ai_agent.get("crm_prompt_mapping") or "").strip()
+
+        if not crm_sections and not crm_prompt_mapping:
+            return f"\n\n--- ARAYAN MÜŞTERİ BİLGİSİ ---\nArayan Telefon Numarası: {caller_raw} (CRM üzerinde kayıtlı müşteri kartı bulunamadı, yeni müşteri olarak karşıla).\n"
+
+        block = "\n\n--- CANLI MÜŞTERİ CRM VERİSİ VE GÖRÜŞME İLERLETME TALİMATI ---\n"
+        block += f"Arayan Telefon Numarası: {caller_raw}\n"
+        if crm_sections:
+            block += "Müşteri CRM sisteminden gerçek zamanlı olarak çekilen veriler aşağıdadır:\n"
+            block += "\n".join(crm_sections) + "\n"
+            block += (
+                "\n[CRM KULLANIM KURALI]: Müşteriye ismiyle hitap et ve yukarıdaki CRM verilerini "
+                "(firma, segment, bakiye/sipariş/randevu durumu, özel notlar vb.) dikkate alarak görüşmeyi kişiselleştirip ilerlet.\n"
+            )
+        else:
+            block += "CRM Sorgu Sonucu: Bu telefon numarası için kayıtlı müşteri kartı bulunamadı.\n"
+
+        if crm_prompt_mapping:
+            block += f"\n[ÖZEL CRM KARAR VE AKIŞ YÖNLENDİRME KURALLARI]:\n{crm_prompt_mapping}\n"
+
+        return block
+    except Exception as e:
+        print(f"[AI CRM Context Fatal Warning]: {e}")
+        return ""
+
+
+async def dispatch_ai_crm_post_call_webhook(call_id: str, did: str, ai_agent: dict, hangup_source: str = "customer"):
+    """Görüşme tamamlandığında AI Agent için tanımlanmış CRM Post-Call Webhook URL varsa çağrı özetini ve transkriptini CRM'e iletir."""
+    if not ai_agent:
+        return
+    webhook_url = str(ai_agent.get("crm_post_call_webhook_url") or "").strip()
+    if not webhook_url:
+        return
+    try:
+        from sqlalchemy import select
+        from backend.database.models import Transcript
+        caller_num = ""
+        duration_sec = 0
+        transcript_lines = []
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, call_id)
+            if db_call:
+                caller_num = str(db_call.caller_number or "")
+                if db_call.start_time and db_call.end_time:
+                    duration_sec = max(0, int((db_call.end_time - db_call.start_time).total_seconds()))
+            res_t = await session.execute(select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp))
+            for t in res_t.scalars().all():
+                transcript_lines.append({"speaker": t.speaker, "text": t.text, "timestamp": str(t.timestamp or "")})
+
+        headers = {"Content-Type": "application/json", "User-Agent": "AIDA-AI-Voice-CRM/2.5"}
+        auth_type = str(ai_agent.get("crm_auth_type") or "none").lower()
+        auth_header = str(ai_agent.get("crm_auth_header_name") or "X-API-Key").strip()
+        auth_token = str(ai_agent.get("crm_auth_token") or "").strip()
+        if auth_type == "bearer" and auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        elif auth_type == "api_key" and auth_token:
+            headers[auth_header or "X-API-Key"] = auth_token
+
+        import httpx
+        async with httpx.AsyncClient(timeout=5.0, verify=False) as client:
+            await client.post(
+                webhook_url,
+                json={
+                    "event": "ai_call_completed",
+                    "call_id": call_id,
+                    "caller": caller_num,
+                    "caller_clean": "".join(ch for ch in caller_num if ch.isdigit()),
+                    "did": did,
+                    "ai_agent_id": ai_agent.get("id"),
+                    "ai_agent_name": ai_agent.get("name"),
+                    "hangup_source": hangup_source,
+                    "duration_seconds": duration_sec,
+                    "transcript": transcript_lines
+                },
+                headers=headers
+            )
+            print(f"[AI CRM Post-Call Webhook] Çağrı verisi CRM'e iletildi -> {webhook_url}")
+    except Exception as e_wh:
+        print(f"[AI CRM Post-Call Webhook Warning]: {e_wh}")
+
 async def auto_blacklist_call(call_id: str, reason: str):
     from sqlalchemy import select
     from backend.main import add_system_log
@@ -1060,6 +1303,12 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                 print(f"[RAG Live Inject] Bilgi bankası dökümanları doğrudan zeka motoruna yüklendi ({len(kb_context)} karakter).")
         else:
             print("[RAG Live Inject] Bu AI temsilcisi için Bilgi Bankası (RAG) kullanımı devre dışı bırakıldı.")
+
+        # Inject Live Customer CRM Data & Progression Rules into system prompt if enabled for this agent
+        crm_context = await fetch_customer_crm_context_for_ai(call_id, did, ai_agent)
+        if crm_context:
+            system_instruction += crm_context
+            print(f"[AI CRM Live Inject] Müşteri CRM verileri ve yönlendirme kuralları zeka motoruna yüklendi ({len(crm_context)} karakter).")
         
         # Check if Dynamic Emotion Management is enabled (either globally or per-agent)
         try:
@@ -1781,6 +2030,11 @@ Eğer müşteri üst üste 2 kez sinirli/öfkeli tepki vermeye devam ederse veya
                 
             # Generate summary in background (optional, or just save end of call)
             await end_call_db(call_id, hangup_source=h_source)
+            try:
+                if 'ai_agent' in locals() and ai_agent and ai_agent.get("crm_post_call_webhook_url"):
+                    asyncio.create_task(dispatch_ai_crm_post_call_webhook(call_id, locals().get("did", "s"), ai_agent, hangup_source=h_source))
+            except Exception as e_post_crm:
+                print(f"[AI CRM Post-Call Trigger Warning]: {e_post_crm}")
 
 async def start_server():
     server = await asyncio.start_server(handle_audiosocket_connection, '', PORT)

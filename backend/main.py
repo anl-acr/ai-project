@@ -667,6 +667,7 @@ class UserSchema(BaseModel):
     two_factor_enrolled: Optional[bool] = False
     managed_users: Optional[List[Union[int, str]]] = []
     managed_queues: Optional[List[Union[int, str]]] = []
+    cti_config: Optional[dict] = None
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -920,6 +921,17 @@ class AIAgentSchema(BaseModel):
     max_call_duration_sec: Optional[int] = 600
     abuse_shield_enabled: Optional[bool] = True
     auto_emotion_transfer: Optional[bool] = True
+    # Live CRM & CTI Integration Settings for AI Agent
+    crm_enabled: Optional[bool] = False
+    crm_lookup_local_contacts: Optional[bool] = True
+    crm_api_url: Optional[str] = ""
+    crm_api_method: Optional[str] = "GET"
+    crm_auth_type: Optional[str] = "none"
+    crm_auth_header_name: Optional[str] = "X-API-Key"
+    crm_auth_token: Optional[str] = ""
+    crm_request_body_template: Optional[str] = ""
+    crm_prompt_mapping: Optional[str] = ""
+    crm_post_call_webhook_url: Optional[str] = ""
 
 
 import json
@@ -1482,8 +1494,11 @@ def load_settings():
                             u_dict["managed_users"] = du.get("managed_users")
                         if not u_dict.get("managed_queues") and du.get("managed_queues"):
                             u_dict["managed_queues"] = du.get("managed_queues")
+                        if not u_dict.get("cti_config") and du.get("cti_config"):
+                            u_dict["cti_config"] = du.get("cti_config")
                     u_dict["managed_users"] = u_dict.get("managed_users") if isinstance(u_dict.get("managed_users"), list) else []
                     u_dict["managed_queues"] = u_dict.get("managed_queues") if isinstance(u_dict.get("managed_queues"), list) else []
+                    u_dict["cti_config"] = u_dict.get("cti_config") if isinstance(u_dict.get("cti_config"), dict) else {}
                     users_list.append(u_dict)
                 db["users"] = users_list
 
@@ -1599,6 +1614,9 @@ def load_settings():
                 for tr_perm in ["live_translator:access", "call_panel:live_translation", "call_panel:voice_interpreter"]:
                     if tr_perm not in new_perms:
                         new_perms.append(tr_perm)
+                for cti_perm in ["cti_integration:read", "cti_integration:write", "call_panel:cti_screen_pop"]:
+                    if cti_perm not in new_perms:
+                        new_perms.append(cti_perm)
             
             # Auto assign omnichannel to admin, supervisor, and agent if missing
             if r.get("role_code") in ["admin", "supervisor", "agent"]:
@@ -6706,6 +6724,7 @@ class ProfileUpdateSchema(BaseModel):
     current_password: Optional[str] = None
     new_password: Optional[str] = None
     call_panel_prefs: Optional[dict] = None
+    cti_config: Optional[dict] = None
 
 @app.post("/api/agent/profile/{user_id}")
 async def update_agent_profile_endpoint(user_id: Union[int, str], payload: ProfileUpdateSchema):
@@ -6784,6 +6803,11 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     if payload.call_panel_prefs is not None:
         user["call_panel_prefs"] = payload.call_panel_prefs
 
+    if payload.cti_config is not None:
+        has_cti_perm = "cti_integration:write" in role_perms or "call_panel:cti_screen_pop" in role_perms or role_code == "admin"
+        if has_cti_perm:
+            user["cti_config"] = payload.cti_config
+
     if payload.auto_logout_enabled is not None:
         user["auto_logout_enabled"] = payload.auto_logout_enabled
     if payload.auto_logout_duration is not None:
@@ -6850,6 +6874,9 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 if payload.profiles is not None:
                     db_u.profiles = user["profiles"]
                     flag_modified(db_u, "profiles")
+                if payload.cti_config is not None and user.get("cti_config") is not None:
+                    db_u.cti_config = user["cti_config"]
+                    flag_modified(db_u, "cti_config")
                 if payload.two_factor_enabled is not None:
                     db_u.two_factor_enabled = bool(user.get("two_factor_enabled", False))
                 if payload.two_factor_method is not None:
@@ -19769,6 +19796,7 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS two_factor_enrolled BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_users JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS cti_config JSON DEFAULT '{}';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs JSON DEFAULT '[\"alaw\", \"ulaw\", \"g722\", \"g729\"]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_enabled BOOLEAN DEFAULT FALSE;",
@@ -20277,6 +20305,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["managed_users"] = disk_u.get("managed_users")
             if not u.get("managed_queues") and disk_u.get("managed_queues"):
                 u["managed_queues"] = disk_u.get("managed_queues")
+            if not u.get("cti_config") and disk_u.get("cti_config"):
+                u["cti_config"] = disk_u.get("cti_config")
         if u.get("two_factor_method") == "app" or not u.get("two_factor_method"):
             u["two_factor_method"] = "google_auth"
         u["two_factor_enabled"] = bool(u.get("two_factor_enabled", False))
@@ -20290,13 +20320,15 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                     u[mk] = []
             elif not isinstance(mval, list):
                 u[mk] = []
-        for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer"):
+        for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer", "cti_config"):
             fval = u.get(fk)
             if isinstance(fval, str) and fval.strip().startswith("{"):
                 try:
                     u[fk] = json.loads(fval)
                 except Exception:
                     pass
+        if not isinstance(u.get("cti_config"), dict):
+            u["cti_config"] = {}
         u["sip_password"] = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         ensure_user_profiles(u)
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
@@ -20352,7 +20384,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         new_users_out = []
         changes = []
         valid_keys = {c.name for c in SystemUser.__table__.columns}
-        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues"}
+        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues", "cti_config"}
         saved_payload_by_ext = {}
         saved_payload_by_id = {}
 
@@ -20386,6 +20418,8 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 data["managed_users"] = (getattr(target_user, "managed_users", None) if target_user else None) or prev_disk.get("managed_users") or []
             if data.get("managed_queues") is None:
                 data["managed_queues"] = (getattr(target_user, "managed_queues", None) if target_user else None) or prev_disk.get("managed_queues") or []
+            if data.get("cti_config") is None:
+                data["cti_config"] = (getattr(target_user, "cti_config", None) if target_user else None) or prev_disk.get("cti_config") or {}
 
             if ext_str:
                 saved_payload_by_ext[ext_str] = data
@@ -20515,7 +20549,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                             u_dict["sip_password"] = p_match.get("sip_password")
                         if p_match.get("sip_username"):
                             u_dict["sip_username"] = p_match.get("sip_username")
-                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "managed_users", "managed_queues"):
+                        for tf_k in ("two_factor_enabled", "two_factor_method", "two_factor_secret", "two_factor_enrolled", "managed_users", "managed_queues", "cti_config"):
                             if p_match.get(tf_k) is not None:
                                 u_dict[tf_k] = p_match.get(tf_k)
                     u_dict["sip_password"] = resolve_secure_sip_password(ext_u, u_dict.get("sip_password") or "")
@@ -20584,6 +20618,196 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
     except Exception as e:
         print(f"[Save Users Fatal Error]: {e}")
         return {"status": "success", "users": settings_db.get("users", [])}
+
+
+class CtiLookupRequest(BaseModel):
+    caller: str
+    call_id: Optional[str] = ""
+    extension: Optional[str] = ""
+    queue: Optional[str] = ""
+    did: Optional[str] = ""
+    agent_id: Optional[Union[int, str]] = None
+    ai_agent_id: Optional[Union[int, str]] = None
+    custom_api_url: Optional[str] = None
+    custom_api_method: Optional[str] = "GET"
+    custom_auth_type: Optional[str] = "none"
+    custom_auth_header_name: Optional[str] = "X-API-Key"
+    custom_auth_token: Optional[str] = None
+    custom_request_body: Optional[str] = None
+
+
+@app.post("/api/cti/lookup")
+@app.post("/api/cti/test")
+async def cti_customer_lookup_endpoint(payload: CtiLookupRequest, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    """
+    Müşteri CRM & CTI Veri Sorgulama Servisi:
+    Hem yerel Rehber / Randevu kayıtlarını hem de yapılandırılmış harici CRM REST API'sini sorgular.
+    """
+    caller_raw = str(payload.caller or "").strip()
+    caller_clean = "".join(ch for ch in caller_raw if ch.isdigit())
+    last_10 = caller_clean[-10:] if len(caller_clean) >= 10 else caller_clean
+
+    local_contact = None
+    local_appointments = []
+    try:
+        if caller_clean:
+            res_c = await db.execute(select(Contact))
+            for c in res_c.scalars().all():
+                c_digits = "".join(ch for ch in str(c.phone or "") if ch.isdigit())
+                if c_digits and (c_digits == caller_clean or (len(last_10) >= 7 and c_digits.endswith(last_10))):
+                    local_contact = {
+                        "id": c.id,
+                        "name": c.name,
+                        "phone": c.phone,
+                        "email": c.email or "",
+                        "company": c.company or "",
+                        "tag": c.tag or "Müşteri",
+                        "notes": c.notes or ""
+                    }
+                    break
+            res_a = await db.execute(select(Appointment).order_by(Appointment.id.desc()).limit(30))
+            for a in res_a.scalars().all():
+                a_digits = "".join(ch for ch in str(a.customer_phone or "") if ch.isdigit())
+                if a_digits and (a_digits == caller_clean or (len(last_10) >= 7 and a_digits.endswith(last_10))):
+                    local_appointments.append({
+                        "id": a.id,
+                        "customer_name": a.customer_name,
+                        "date": str(a.appointment_date or ""),
+                        "status": a.status,
+                        "notes": a.notes or ""
+                    })
+    except Exception as e_loc:
+        print(f"[CTI Lookup Local DB Warning]: {e_loc}")
+
+    # Resolve target CRM API config from custom params, user cti_config, or AI agent config
+    api_url = (payload.custom_api_url or "").strip()
+    api_method = (payload.custom_api_method or "GET").upper()
+    auth_type = (payload.custom_auth_type or "none").lower()
+    auth_header = (payload.custom_auth_header_name or "X-API-Key").strip()
+    auth_token = (payload.custom_auth_token or "").strip()
+    req_body_tpl = (payload.custom_request_body or "").strip()
+    screen_pop_url = ""
+    crm_name = "Müşteri CRM"
+
+    if not api_url and payload.agent_id is not None:
+        for u in settings_db.get("users", []):
+            if str(u.get("id")) == str(payload.agent_id) or str(u.get("extension")) == str(payload.agent_id):
+                cti_cfg = u.get("cti_config") or {}
+                if isinstance(cti_cfg, dict):
+                    crm_name = cti_cfg.get("crm_name") or crm_name
+                    screen_pop_url = cti_cfg.get("screen_pop_url") or ""
+                    if cti_cfg.get("lookup_api_enabled") and cti_cfg.get("lookup_api_url"):
+                        api_url = str(cti_cfg.get("lookup_api_url")).strip()
+                        api_method = str(cti_cfg.get("lookup_api_method") or "GET").upper()
+                        auth_type = str(cti_cfg.get("lookup_auth_type") or "none").lower()
+                        auth_header = str(cti_cfg.get("lookup_auth_header_name") or "X-API-Key").strip()
+                        auth_token = str(cti_cfg.get("lookup_auth_token") or "").strip()
+                break
+
+    if not api_url and payload.ai_agent_id is not None:
+        for ag in settings_db.get("ai_agents", []):
+            if str(ag.get("id")) == str(payload.ai_agent_id):
+                if ag.get("crm_api_url"):
+                    api_url = str(ag.get("crm_api_url")).strip()
+                    api_method = str(ag.get("crm_api_method") or "GET").upper()
+                    auth_type = str(ag.get("crm_auth_type") or "none").lower()
+                    auth_header = str(ag.get("crm_auth_header_name") or "X-API-Key").strip()
+                    auth_token = str(ag.get("crm_auth_token") or "").strip()
+                    req_body_tpl = str(ag.get("crm_request_body_template") or "").strip()
+                break
+
+    def replace_placeholders(tpl: str) -> str:
+        if not tpl:
+            return ""
+        return (
+            tpl.replace("{caller}", caller_raw)
+               .replace("{caller_clean}", caller_clean)
+               .replace("{phone}", caller_clean)
+               .replace("{last10}", last_10)
+               .replace("{call_id}", str(payload.call_id or ""))
+               .replace("{extension}", str(payload.extension or ""))
+               .replace("{queue}", str(payload.queue or ""))
+               .replace("{did}", str(payload.did or ""))
+        )
+
+    resolved_screen_pop_url = replace_placeholders(screen_pop_url)
+    external_crm_data = None
+    external_crm_status = None
+    external_crm_error = None
+
+    if api_url:
+        resolved_api_url = replace_placeholders(api_url)
+        headers = {"Accept": "application/json", "User-Agent": "AIDA-CTI-Engine/2.5"}
+        if auth_type == "bearer" and auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        elif auth_type == "api_key" and auth_token:
+            headers[auth_header or "X-API-Key"] = auth_token
+        elif auth_type == "basic" and auth_token:
+            import base64
+            b64_val = base64.b64encode(auth_token.encode("utf-8")).decode("utf-8") if ":" in auth_token else auth_token
+            headers["Authorization"] = f"Basic {b64_val}"
+
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=4.5, verify=False) as client:
+                if api_method == "POST":
+                    headers["Content-Type"] = "application/json"
+                    if req_body_tpl:
+                        body_str = replace_placeholders(req_body_tpl)
+                        try:
+                            json_payload = json.loads(body_str)
+                            resp = await client.post(resolved_api_url, json=json_payload, headers=headers)
+                        except Exception:
+                            resp = await client.post(resolved_api_url, content=body_str.encode("utf-8"), headers=headers)
+                    else:
+                        resp = await client.post(
+                            resolved_api_url,
+                            json={"caller": caller_raw, "caller_clean": caller_clean, "call_id": payload.call_id, "extension": payload.extension},
+                            headers=headers
+                        )
+                else:
+                    resp = await client.get(resolved_api_url, headers=headers)
+                external_crm_status = resp.status_code
+                try:
+                    external_crm_data = resp.json()
+                except Exception:
+                    external_crm_data = {"raw_response": resp.text[:1000]}
+        except Exception as e_ext:
+            external_crm_error = str(e_ext)
+
+    # Normalize a friendly summary card for UI/AI consumption
+    summary_name = (local_contact or {}).get("name") or ""
+    summary_company = (local_contact or {}).get("company") or ""
+    summary_notes = (local_contact or {}).get("notes") or ""
+    if isinstance(external_crm_data, dict):
+        src = external_crm_data.get("data") if isinstance(external_crm_data.get("data"), dict) else (
+            external_crm_data.get("customer") if isinstance(external_crm_data.get("customer"), dict) else external_crm_data
+        )
+        if isinstance(src, dict):
+            summary_name = src.get("name") or src.get("full_name") or src.get("customer_name") or summary_name
+            summary_company = src.get("company") or src.get("organization") or summary_company
+            summary_notes = src.get("notes") or src.get("summary") or src.get("segment") or summary_notes
+
+    return {
+        "status": "success",
+        "caller": caller_raw,
+        "caller_clean": caller_clean,
+        "crm_name": crm_name,
+        "screen_pop_url": resolved_screen_pop_url,
+        "customer_summary": {
+            "name": summary_name,
+            "company": summary_company,
+            "notes": summary_notes
+        },
+        "local_contact": local_contact,
+        "local_appointments": local_appointments,
+        "external_crm": {
+            "queried": bool(api_url),
+            "status_code": external_crm_status,
+            "data": external_crm_data,
+            "error": external_crm_error
+        }
+    }
 
 @app.put("/api/settings/users/{user_id}")
 @app.put("/settings/users/{user_id}")

@@ -257,6 +257,7 @@ class SystemUser(Base):
     two_factor_enrolled = Column(Boolean, default=False)
     managed_users = Column(JSON, default=list)
     managed_queues = Column(JSON, default=list)
+    cti_config = Column(JSON, default=dict)
 
 class SystemRole(Base):
     __tablename__ = "system_roles"

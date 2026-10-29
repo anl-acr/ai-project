@@ -116,6 +116,21 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
   const [abuseShieldEnabled, setAbuseShieldEnabled] = useState(true);
   const [autoEmotionTransfer, setAutoEmotionTransfer] = useState(true);
 
+  // Live Customer CRM Integration States for AI Agent
+  const [crmEnabled, setCrmEnabled] = useState(true);
+  const [crmLookupLocalContacts, setCrmLookupLocalContacts] = useState(true);
+  const [crmApiUrl, setCrmApiUrl] = useState("");
+  const [crmApiMethod, setCrmApiMethod] = useState("GET");
+  const [crmAuthType, setCrmAuthType] = useState("none");
+  const [crmAuthHeaderName, setCrmAuthHeaderName] = useState("X-API-Key");
+  const [crmAuthToken, setCrmAuthToken] = useState("");
+  const [crmRequestBodyTemplate, setCrmRequestBodyTemplate] = useState("");
+  const [crmPromptMapping, setCrmPromptMapping] = useState("");
+  const [crmPostCallWebhookUrl, setCrmPostCallWebhookUrl] = useState("");
+  const [crmTestPhone, setCrmTestPhone] = useState("05321234567");
+  const [crmTesting, setCrmTesting] = useState(false);
+  const [crmTestResult, setCrmTestResult] = useState(null);
+
   // TTS & Ambient Noise Testing Studio States
   const [testText, setTestText] = useState("Merhaba, ben yapay zeka temsilciniz. Size nasıl yardımcı olabilirim?");
   const [ttsLoading, setTtsLoading] = useState(false);
@@ -527,6 +542,20 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setAbuseShieldEnabled(true);
     setAutoEmotionTransfer(true);
 
+    setCrmEnabled(true);
+    setCrmLookupLocalContacts(true);
+    setCrmApiUrl("");
+    setCrmApiMethod("GET");
+    setCrmAuthType("none");
+    setCrmAuthHeaderName("X-API-Key");
+    setCrmAuthToken("");
+    setCrmRequestBodyTemplate("");
+    setCrmPromptMapping(
+      "Müşteri CRM'de kayıtlıysa ismiyle hitap et. Aktif siparişi, randevusu veya açık destek talebi varsa önce bu bilgiyi paylaşarak görüşmeyi ilerlet. VIP müşteriyse öncelikli ve özenli davran, talebi çözülmezse doğrudan canlı temsilciye aktar."
+    );
+    setCrmPostCallWebhookUrl("");
+    setCrmTestResult(null);
+
     setTestText("Merhaba, ben yeni yapay zeka temsilciniz. Size nasıl yardımcı olabilirim?");
     setEditTab("general_prompt");
     setViewMode("edit");
@@ -592,6 +621,19 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
     setMaxCallDurationSec(agent.max_call_duration_sec !== undefined ? agent.max_call_duration_sec : 600);
     setAbuseShieldEnabled(agent.abuse_shield_enabled !== undefined ? Boolean(agent.abuse_shield_enabled) : true);
     setAutoEmotionTransfer(agent.auto_emotion_transfer !== undefined ? Boolean(agent.auto_emotion_transfer) : true);
+
+    // CRM Integration
+    setCrmEnabled(agent.crm_enabled !== undefined ? Boolean(agent.crm_enabled) : true);
+    setCrmLookupLocalContacts(agent.crm_lookup_local_contacts !== undefined ? Boolean(agent.crm_lookup_local_contacts) : true);
+    setCrmApiUrl(agent.crm_api_url || "");
+    setCrmApiMethod(agent.crm_api_method || "GET");
+    setCrmAuthType(agent.crm_auth_type || "none");
+    setCrmAuthHeaderName(agent.crm_auth_header_name || "X-API-Key");
+    setCrmAuthToken(agent.crm_auth_token || "");
+    setCrmRequestBodyTemplate(agent.crm_request_body_template || "");
+    setCrmPromptMapping(agent.crm_prompt_mapping || "");
+    setCrmPostCallWebhookUrl(agent.crm_post_call_webhook_url || "");
+    setCrmTestResult(null);
 
     setTestText(agent.greeting_prompt || `Merhaba, ben yapay zeka temsilciniz ${agent.name}. Size nasıl yardımcı olabilirim?`);
     setEditTab("general_prompt");
@@ -659,7 +701,17 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       max_silence_retries: parseInt(maxSilenceRetries) || 2,
       max_call_duration_sec: parseInt(maxCallDurationSec) || 600,
       abuse_shield_enabled: abuseShieldEnabled,
-      auto_emotion_transfer: autoEmotionTransfer
+      auto_emotion_transfer: autoEmotionTransfer,
+      crm_enabled: crmEnabled,
+      crm_lookup_local_contacts: crmLookupLocalContacts,
+      crm_api_url: crmApiUrl.trim(),
+      crm_api_method: crmApiMethod || "GET",
+      crm_auth_type: crmAuthType || "none",
+      crm_auth_header_name: crmAuthHeaderName || "X-API-Key",
+      crm_auth_token: crmAuthToken || "",
+      crm_request_body_template: crmRequestBodyTemplate || "",
+      crm_prompt_mapping: crmPromptMapping || "",
+      crm_post_call_webhook_url: crmPostCallWebhookUrl.trim()
     };
 
     try {
@@ -1014,6 +1066,11 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
       id: "behavior_guardrails",
       label: "Konuşma Doğallığı & Güvenlik",
       icon: Shield
+    },
+    {
+      id: "crm_integration",
+      label: "Müşteri CRM Entegrasyonu",
+      icon: Database
     }
   ];
 
@@ -2203,6 +2260,284 @@ export default function AIAgentsSettings({ backendHost = "localhost:8000" }) {
                     />
                   </div>
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 7: MÜŞTERİ CRM ENTEGRASYONU & ÇAĞRI İLERLETME */}
+          {editTab === "crm_integration" && (
+            <div className="space-y-6 animate-in fade-in duration-200">
+              <div className="border-b border-slate-100 dark:border-slate-800 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
+                    <Database size={16} className="text-indigo-500" />
+                    <span>Canlı Müşteri CRM Bağlantısı & Akıllı Çağrı İlerletme</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Çağrı geldiğinde AI görüşüyorsa müşterinin CRM kartına bağlanıp verileri (ad, firma, segment, sipariş, randevu, özel not) çeker ve görüşmeyi bu verilere göre kişiselleştirerek ilerletir.
+                  </p>
+                </div>
+                <label className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={crmEnabled}
+                    onChange={(e) => setCrmEnabled(e.target.checked)}
+                    className="h-4 w-4 accent-emerald-600 rounded"
+                  />
+                  <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                    {crmEnabled ? "CRM Veri Çekme Aktif" : "CRM Bağlantısı Kapalı"}
+                  </span>
+                </label>
+              </div>
+
+              {/* 1. Local Contacts & Appointments Toggle */}
+              <div className="p-4 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 flex items-center justify-between gap-4">
+                <div>
+                  <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                    Yerel Rehber & Randevu Veritabanını Otomatik Sorgula
+                  </div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Arayan numaranın sistemdeki Rehber kartını (Ad Soyad, Firma, Etiket, Özel Notlar) ve aktif Randevu kayıtlarını çağrı başlangıcında AI hafızasına otomatik yükler.
+                  </p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={crmLookupLocalContacts}
+                  onChange={(e) => setCrmLookupLocalContacts(e.target.checked)}
+                  className="h-4 w-4 accent-emerald-600 rounded shrink-0"
+                />
+              </div>
+
+              {/* 2. External Customer CRM REST API Connection */}
+              <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30 space-y-4">
+                <div>
+                  <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                    Harici Müşteri CRM / ERP REST API Bağlantısı
+                  </h4>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Kendi CRM/ERP yazılımınızdan arayan numaraya göre müşteri bilgisi, sipariş durumu, bakiye veya destek kaydı çekmek için API adresini tanımlayın.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className="sm:col-span-3">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                      HTTP Metodu
+                    </label>
+                    <select
+                      value={crmApiMethod}
+                      onChange={(e) => setCrmApiMethod(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold"
+                    >
+                      <option value="GET">GET</option>
+                      <option value="POST">POST</option>
+                    </select>
+                  </div>
+                  <div className="sm:col-span-9">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                      Müşteri CRM Sorgu Endpoint URL
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="https://crm.sirketiniz.com/api/v1/customer?phone={caller_clean}&call_id={call_id}"
+                      value={crmApiUrl}
+                      onChange={(e) => setCrmApiUrl(e.target.value)}
+                      className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[10px] font-bold text-slate-400 mr-1">URL Parametresi Ekle:</span>
+                  {["{caller_clean}", "{caller}", "{last10}", "{call_id}", "{did}"].map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => setCrmApiUrl((prev) => (prev || "") + tag)}
+                      className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-slate-400"
+                    >
+                      + {tag}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                  <div className="sm:col-span-4">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                      Kimlik Doğrulama (Auth)
+                    </label>
+                    <select
+                      value={crmAuthType}
+                      onChange={(e) => setCrmAuthType(e.target.value)}
+                      className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold"
+                    >
+                      <option value="none">Doğrulama Yok</option>
+                      <option value="bearer">Bearer Token (Authorization)</option>
+                      <option value="api_key">Özel Header (API Key)</option>
+                      <option value="basic">Basic Auth (kullanici:sifre)</option>
+                    </select>
+                  </div>
+
+                  {crmAuthType === "api_key" && (
+                    <div className="sm:col-span-3">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                        Header Adı
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="X-API-Key"
+                        value={crmAuthHeaderName}
+                        onChange={(e) => setCrmAuthHeaderName(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono"
+                      />
+                    </div>
+                  )}
+
+                  {crmAuthType !== "none" && (
+                    <div className={crmAuthType === "api_key" ? "sm:col-span-5" : "sm:col-span-8"}>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                        API Token / Şifre
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="CRM API gizli anahtarınızı giriniz..."
+                        value={crmAuthToken}
+                        onChange={(e) => setCrmAuthToken(e.target.value)}
+                        className="w-full px-3 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono"
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {crmApiMethod === "POST" && (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                      POST JSON İstek Gövdesi (Opsiyonel Şablon)
+                    </label>
+                    <textarea
+                      rows={2}
+                      placeholder='{"phone": "{caller_clean}", "call_id": "{call_id}", "did": "{did}"}'
+                      value={crmRequestBodyTemplate}
+                      onChange={(e) => setCrmRequestBodyTemplate(e.target.value)}
+                      className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono"
+                    />
+                  </div>
+                )}
+
+                {/* Live Test Button */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    placeholder="Test Arayan No (0532...)"
+                    value={crmTestPhone}
+                    onChange={(e) => setCrmTestPhone(e.target.value)}
+                    className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono sm:w-56"
+                  />
+                  <button
+                    type="button"
+                    disabled={crmTesting}
+                    onClick={async () => {
+                      setCrmTesting(true);
+                      setCrmTestResult(null);
+                      try {
+                        const res = await tenantFetch(`${API_BASE}/api/cti/test`, {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            caller: crmTestPhone || "05321234567",
+                            call_id: "ai-test-call-01",
+                            ai_agent_id: agentId,
+                            custom_api_url: crmApiUrl,
+                            custom_api_method: crmApiMethod,
+                            custom_auth_type: crmAuthType,
+                            custom_auth_header_name: crmAuthHeaderName,
+                            custom_auth_token: crmAuthToken,
+                            custom_request_body: crmRequestBodyTemplate
+                          })
+                        });
+                        const data = await res.json();
+                        setCrmTestResult(data);
+                      } catch (err) {
+                        setCrmTestResult({ status: "error", message: err.message });
+                      } finally {
+                        setCrmTesting(false);
+                      }
+                    }}
+                    className="px-4 py-2 rounded-xl text-xs font-extrabold bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center gap-1.5 transition"
+                  >
+                    <Play size={13} />
+                    <span>{crmTesting ? "CRM Sorgulanıyor..." : "CRM Veri Çekmeyi Test Et"}</span>
+                  </button>
+                </div>
+
+                {crmTestResult && (
+                  <div className="p-3 rounded-xl bg-slate-900 text-slate-100 text-[11px] font-mono overflow-x-auto max-h-44">
+                    <pre>{JSON.stringify(crmTestResult, null, 2)}</pre>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. CRM Data Progression Rules (How AI uses CRM data during the call) */}
+              <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                      CRM Verisine Göre Çağrı İlerletme & Karar Talimatı
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      CRM'den dönen müşteri verilerine (segment, sipariş durumu, borç/bakiye, randevu vb.) göre yapay zekanın çağrıyı nasıl yönlendireceğini belirtin.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCrmPromptMapping(
+                          "1. Müşteri CRM'de kayıtlıysa ismiyle hitap ederek karşıla.\n2. Eğer aktif siparişi veya kargosu varsa doğrudan sipariş durumunu paylaş.\n3. Eğer VIP segmentindeyse öncelikli işlem yap ve talebi halinde bekletmeden canlı temsilciye aktar."
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50"
+                    >
+                      + E-Ticaret / Sipariş Şablonu
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCrmPromptMapping(
+                          "1. Müşterinin CRM'deki yaklaşan randevusu varsa tarih ve saatini hatırlatarak onay veya değişiklik talebi olup olmadığını sor.\n2. Kayıtlı randevusu yoksa uygun saatleri sunarak yeni randevu oluştur."
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/50"
+                    >
+                      + Klinik / Randevu Şablonu
+                    </button>
+                  </div>
+                </div>
+
+                <textarea
+                  rows={4}
+                  placeholder="Örn: Müşteri CRM'de kayıtlıysa ismiyle hitap et. Eğer 'segment' alanı 'VIP' ise doğrudan özel temsilciye aktar; 'bakiye_borc' alanı varsa ödeme hatırlatması yap..."
+                  value={crmPromptMapping}
+                  onChange={(e) => setCrmPromptMapping(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs leading-relaxed"
+                />
+              </div>
+
+              {/* 4. Post-Call CRM Webhook */}
+              <div className="p-5 rounded-2xl border border-slate-200/80 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-950/30 space-y-2">
+                <label className="block text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                  Çağrı Sonu CRM Webhook URL (Görüşme Özeti & Transkript Gönderimi)
+                </label>
+                <p className="text-[11px] text-slate-400">
+                  AI görüşmesi tamamlandığında çağrı süresi, arayan numara ve konuşma dökümünü (transkript) CRM sisteminize otomatik POST eder.
+                </p>
+                <input
+                  type="text"
+                  placeholder="https://crm.sirketiniz.com/api/v1/call-webhook"
+                  value={crmPostCallWebhookUrl}
+                  onChange={(e) => setCrmPostCallWebhookUrl(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-mono"
+                />
               </div>
             </div>
           )}

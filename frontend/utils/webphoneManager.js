@@ -55,7 +55,9 @@ class WebphoneManager {
       isConferenceActive: false,
       attendedTransferPending: false,
       // Group ringing calls alert state (visual only, no ringtone)
-      groupRingingCalls: []
+      groupRingingCalls: [],
+      // CTI & CRM Customer Card / Screen Pop state
+      ctiCustomerInfo: null
     };
 
     this.startGlobalDurationLoop();
@@ -869,6 +871,8 @@ class WebphoneManager {
         const ringtoneSpeakerLabel = localStorage.getItem("selected_ringtone_speaker_label") || null;
         playRingtoneSound(selectedRingtone, ringtoneSpeaker, ringtoneSpeakerLabel);
         this.triggerIncomingDesktopNotification(lineObj, myExt);
+        this.fetchCtiCustomerLookup(lineObj);
+        this.triggerCtiScreenPop(lineObj, "on_ring", false);
         window.dispatchEvent(new CustomEvent("INCOMING_WEBPHONE_CALL", { detail: callerNum }));
       }
     }
@@ -892,6 +896,7 @@ class WebphoneManager {
         this.attachRemoteAudioForLine(currentLine);
         this.syncLinesToState({ activeLineId: lineId });
         this.applyAllLinesAudioState();
+        this.triggerCtiScreenPop(currentLine, "on_answer", false);
 
         this.logWebrtcCallToBackend("answer", {
           sip_call_id: sipCallId,
@@ -917,10 +922,135 @@ class WebphoneManager {
 
         this.removeLineAudioElement(lineId);
         this.linesMap.delete(lineId);
-        this.syncLinesToState();
+        const remainingLines = Array.from(this.linesMap.values());
+        this.syncLinesToState({
+          ctiCustomerInfo: remainingLines.length > 0 ? remainingLines[0].ctiCustomerInfo || null : null
+        });
         this.applyAllLinesAudioState();
       }
     });
+  }
+
+  resolveUserCtiConfig() {
+    let curU = this.state.currentUser;
+    if (typeof window !== "undefined") {
+      try {
+        const stored = JSON.parse(localStorage.getItem("current_user") || "null");
+        if (stored && stored.cti_config) {
+          curU = { ...(curU || {}), ...stored };
+        }
+      } catch (e) {}
+    }
+    let cfg = curU?.cti_config;
+    if (typeof cfg === "string") {
+      try {
+        cfg = JSON.parse(cfg);
+      } catch (e) {
+        cfg = null;
+      }
+    }
+    return cfg && typeof cfg === "object" ? cfg : {};
+  }
+
+  buildCtiScreenPopUrl(lineObj) {
+    const cfg = this.resolveUserCtiConfig();
+    const tpl = String(cfg.screen_pop_url || "").trim();
+    if (!tpl) return "";
+    const callerRaw = String(lineObj?.remoteNumber || this.state.remoteNumber || "").trim();
+    const callerClean = callerRaw.replace(/\D/g, "");
+    const last10 = callerClean.slice(-10);
+    const myExt = String(this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension || "1000");
+    const callId = String(lineObj?.sipCallId || this.state.activeSipCallId || "");
+    const queueVal = String(lineObj?.queueName || this.state.queueName || "");
+    const agentName = String(this.state.currentUser?.full_name || this.state.currentUser?.username || "");
+
+    return tpl
+      .replace(/\{caller\}/g, encodeURIComponent(callerRaw))
+      .replace(/\{caller_clean\}/g, encodeURIComponent(callerClean))
+      .replace(/\{phone\}/g, encodeURIComponent(callerClean))
+      .replace(/\{last10\}/g, encodeURIComponent(last10))
+      .replace(/\{extension\}/g, encodeURIComponent(myExt))
+      .replace(/\{call_id\}/g, encodeURIComponent(callId))
+      .replace(/\{queue\}/g, encodeURIComponent(queueVal))
+      .replace(/\{agent_name\}/g, encodeURIComponent(agentName));
+  }
+
+  setCtiPermissionAllowed(allowed) {
+    this.ctiPermissionAllowed = allowed !== false;
+  }
+
+  triggerCtiScreenPop(lineObj, phase = "on_ring", forceOpen = false) {
+    if (typeof window === "undefined") return false;
+    if (this.ctiPermissionAllowed === false) return false;
+    const cfg = this.resolveUserCtiConfig();
+    if (!forceOpen && !cfg.enabled) return false;
+
+    const targetLine =
+      lineObj ||
+      (this.state.activeLineId ? this.linesMap.get(this.state.activeLineId) : null) ||
+      Array.from(this.linesMap.values())[0];
+    if (!targetLine && !forceOpen) return false;
+
+    const url = this.buildCtiScreenPopUrl(targetLine);
+    if (!url) return false;
+
+    const triggerMode = cfg.trigger_mode || "on_ring";
+    if (!forceOpen) {
+      if (targetLine?.ctiScreenPopOpened) return false;
+      const shouldOpenNow =
+        triggerMode === phase || (phase === "on_answer" && targetLine?.ctiPopupBlockedOnRing);
+      if (!shouldOpenNow) return false;
+    }
+
+    const targetTab = cfg.open_mode === "reuse_tab" ? "aida_crm_tab" : "_blank";
+    try {
+      const win = window.open(url, targetTab, "noopener,noreferrer");
+      if (win) {
+        if (targetLine) {
+          targetLine.ctiScreenPopOpened = true;
+          targetLine.ctiPopupBlockedOnRing = false;
+        }
+        return true;
+      } else if (targetLine && phase === "on_ring") {
+        // Browser popup blocker blocked background ring popup; retry automatically on Answer click!
+        targetLine.ctiPopupBlockedOnRing = true;
+      }
+    } catch (e) {
+      if (targetLine && phase === "on_ring") {
+        targetLine.ctiPopupBlockedOnRing = true;
+      }
+    }
+    return false;
+  }
+
+  async fetchCtiCustomerLookup(lineObj) {
+    if (!lineObj || !lineObj.remoteNumber) return;
+    const myExt = String(this.state.webrtcConfig?.agentExtension || this.state.currentUser?.extension || "1000");
+    const curU = this.state.currentUser;
+    try {
+      const res = await fetch(`${this.getApiBase()}/api/cti/lookup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          caller: lineObj.remoteNumber,
+          call_id: lineObj.sipCallId || "",
+          extension: myExt,
+          queue: lineObj.queueName || "",
+          agent_id: curU?.id || myExt
+        })
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const activeLine = this.linesMap.get(lineObj.id);
+      if (activeLine && data && data.status === "success") {
+        activeLine.ctiCustomerInfo = data;
+        const foundName = data.customer_summary?.name || data.local_contact?.name || "";
+        if (foundName && (!activeLine.remoteDisplayName || activeLine.remoteDisplayName === activeLine.remoteNumber)) {
+          activeLine.remoteDisplayName = foundName;
+        }
+        this.syncLinesToState({ ctiCustomerInfo: data });
+      }
+    } catch (e) {}
   }
 
   closeLineDesktopNotification(lineObj) {
@@ -1177,6 +1307,7 @@ class WebphoneManager {
 
     try {
       stopRingtoneSound();
+      this.triggerCtiScreenPop(line, "on_answer", false);
       // Place any other active lines on hold before answering
       for (const other of this.linesMap.values()) {
         if (other.id !== line.id && other.callStatus === "InCall") {

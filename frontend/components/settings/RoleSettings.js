@@ -51,6 +51,7 @@ export const CALL_PANEL_SUB_GROUPS = [
       { id: "call_panel:webphone_transfer", name: "Çağrı Transferi" },
       { id: "call_panel:webphone_conference", name: "Konferans" },
       { id: "call_panel:webphone_reject", name: "Çağrı Reddi" },
+      { id: "call_panel:cti_screen_pop", name: "CTI & CRM Müşteri Ekranı Otomatik Açma (Screen Pop - 2. Sekme)" },
       { id: "call_panel:live_translation", name: "Anlık Konuşma Metni Çevirisi (İngilizce/Yabancı Dil → Türkçe Metin)" },
       { id: "call_panel:voice_interpreter", name: "Anlık Sesli Çeviri & Çift Yönlü Tercüman (TR ↔ Yabancı Dil Ses)" },
       {
@@ -112,6 +113,7 @@ const SYSTEM_FEATURES = [
   { id: "supervisor", name: "Supervizor İşlemleri (Canlı Durum Müdahale & Ekip/Kuyruk Yönetimi)", icon: Shield, type: "access", color: "indigo" },
   { id: "call_monitor", name: "Araya Girme, Sufle ve Fısıldama (Canlı Çağrı Müdahale)", icon: Headphones, type: "call_monitor", color: "amber" },
   { id: "call_panel", name: "Temsilci Çağrı Paneli", icon: PhoneCall, type: "access", color: "emerald" },
+  { id: "cti_integration", name: "CTI & CRM Entegrasyonu (Müşteri Kartı Otomatik Açma & CRM Konfigürasyonu)", icon: Cable, type: "crud_partial", color: "indigo" },
   { id: "live_translator", name: "Canlı Çeviri & Simultane Tercüman (Anlık Altyazı & Çift Yönlü Sesli Çeviri)", icon: Languages, type: "access", color: "indigo" },
   { id: "omnichannel", name: "Ortak Gelen Kutusu", icon: MessageSquare, type: "access", color: "purple" },
   { id: "api_budgets", name: "API Bütçe ve Tüketim", icon: Database, type: "crud_partial", color: "emerald" },
@@ -406,7 +408,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "operations",
       name: "Operasyon ve İzleme",
       icon: Activity,
-      items: ["dashboard", "wallboard", "supervisor", "call_monitor", "call_panel", "live_translator", "omnichannel", "api_budgets"]
+      items: ["dashboard", "wallboard", "supervisor", "call_monitor", "call_panel", "cti_integration", "live_translator", "omnichannel", "api_budgets"]
     },
     {
       id: "supervisor_ops",
@@ -426,6 +428,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       icon: PhoneCall,
       items: [
         "users",
+        "cti_integration",
         "announcements",
         "acd_queues",
         "autoprovision",

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
-import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff } from "lucide-react";
+import { Plus, Trash2, Edit2, X, User, Mail, Phone, Shield, Check, CheckCircle, ToggleLeft, ToggleRight, Search, Copy, RefreshCw, KeyRound, PhoneCall, Settings, Image as ImageIcon, Monitor, Smartphone, AlertTriangle, PhoneOutgoing, Users, Forward, Mic, MicOff, Download, Upload, Building2, Eye, EyeOff, Cable, ExternalLink, Database, Play } from "lucide-react";
 import * as XLSX from "xlsx";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -294,6 +294,26 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const [managedQueues, setManagedQueues] = useState([]);
   const [supUserSearch, setSupUserSearch] = useState("");
   const [supQueueSearch, setSupQueueSearch] = useState("");
+
+  // CTI & CRM Integration Fields (Per Human Agent)
+  const DEFAULT_CTI_CONFIG = {
+    enabled: false,
+    crm_name: "Müşteri CRM",
+    preset: "custom",
+    screen_pop_url: "",
+    trigger_mode: "on_ring",
+    open_mode: "new_tab",
+    lookup_api_enabled: false,
+    lookup_api_url: "",
+    lookup_api_method: "GET",
+    lookup_auth_type: "none",
+    lookup_auth_header_name: "X-API-Key",
+    lookup_auth_token: ""
+  };
+  const [ctiConfig, setCtiConfig] = useState(DEFAULT_CTI_CONFIG);
+  const [ctiTestPhone, setCtiTestPhone] = useState("05321234567");
+  const [ctiTesting, setCtiTesting] = useState(false);
+  const [ctiTestResult, setCtiTestResult] = useState(null);
 
   const safeFetch = async (path, options = {}) => {
     const apiBase = getApiBaseUrl(backendHost);
@@ -859,6 +879,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     setManagedQueues([]);
     setSupUserSearch("");
     setSupQueueSearch("");
+    setCtiConfig(DEFAULT_CTI_CONFIG);
+    setCtiTestResult(null);
   };
 
   const getNextAvailableExtension = (targetTenantId = null) => {
@@ -1004,6 +1026,16 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
     }
     setManagedQueues(Array.isArray(parsedManagedQueues) ? parsedManagedQueues.map(String) : []);
 
+    let parsedCti = u.cti_config;
+    if (typeof parsedCti === "string") {
+      try { parsedCti = JSON.parse(parsedCti); } catch (e) { parsedCti = null; }
+    }
+    setCtiConfig({
+      ...DEFAULT_CTI_CONFIG,
+      ...(parsedCti && typeof parsedCti === "object" ? parsedCti : {})
+    });
+    setCtiTestResult(null);
+
     setShowModal(true);
   };
 
@@ -1121,7 +1153,8 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
       active_profile: activeProfile || "available",
       profiles: userProfiles,
       managed_users: managedUsers,
-      managed_queues: managedQueues
+      managed_queues: managedQueues,
+      cti_config: ctiConfig
     };
 
     setSubmitting(true);
@@ -1305,6 +1338,54 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
   const hasSupervisorPerm =
     String(role || "").toLowerCase() === "supervisor" ||
     selectedRolePerms.some((p) => String(p || "").startsWith("supervisor"));
+
+  const currentAdminRoleObj = (Array.isArray(systemRoles) ? systemRoles : []).find(
+    (r) => String(r.role_code || "").toLowerCase() === String(currentUser?.role || "").toLowerCase()
+  );
+  const currentAdminPerms = Array.isArray(currentAdminRoleObj?.permissions) ? currentAdminRoleObj.permissions : [];
+  const canViewCtiTab =
+    isAdmin ||
+    currentAdminPerms.includes("cti_integration:read") ||
+    currentAdminPerms.includes("cti_integration:write") ||
+    currentAdminPerms.includes("call_panel:cti_screen_pop") ||
+    currentAdminPerms.includes("users:write");
+  const canWriteCtiTab =
+    isAdmin ||
+    currentAdminPerms.includes("cti_integration:write") ||
+    currentAdminPerms.includes("users:write");
+  const targetRoleHasCtiPerm =
+    String(role || "").toLowerCase() === "admin" ||
+    selectedRolePerms.includes("call_panel:cti_screen_pop") ||
+    selectedRolePerms.includes("cti_integration:read") ||
+    selectedRolePerms.includes("cti_integration:write");
+
+  const handleToggleTargetRoleCtiPerm = async () => {
+    if (!selectedRoleObj) return;
+    const currentPerms = Array.isArray(selectedRoleObj.permissions) ? [...selectedRoleObj.permissions] : [];
+    let updatedPerms;
+    if (targetRoleHasCtiPerm) {
+      updatedPerms = currentPerms.filter(
+        (p) => p !== "call_panel:cti_screen_pop" && p !== "cti_integration:read" && p !== "cti_integration:write"
+      );
+    } else {
+      updatedPerms = Array.from(
+        new Set([...currentPerms, "call_panel:cti_screen_pop", "cti_integration:read", "cti_integration:write"])
+      );
+    }
+    const updatedRoles = systemRoles.map((r) =>
+      r.id === selectedRoleObj.id ? { ...r, permissions: updatedPerms } : r
+    );
+    setSystemRoles(updatedRoles);
+    try {
+      await safeFetch(`/api/settings/roles`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updatedRoles)
+      });
+    } catch (e) {
+      console.error("CTI role permission update error:", e);
+    }
+  };
 
   return (
     <div className="w-full space-y-6">
@@ -1760,6 +1841,23 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                             <Settings size={16} />
                             Özellikler
                         </button>
+                        {canViewCtiTab && (
+                            <button
+                                type="button"
+                                onClick={() => setActiveTab("cti")}
+                                className={"w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl text-xs font-bold transition-all " + (activeTab === 'cti' ? ("bg-white dark:bg-slate-800 " + text + " shadow-sm border border-slate-200 dark:border-slate-700") : "text-slate-500 hover:bg-white/50 dark:hover:bg-slate-800/50 hover:text-slate-700 dark:hover:text-slate-300 border border-transparent")}
+                            >
+                                <span className="flex items-center gap-3">
+                                    <Cable size={16} />
+                                    CTI
+                                </span>
+                                {ctiConfig?.enabled && (
+                                    <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                                        AKTİF
+                                    </span>
+                                )}
+                            </button>
+                        )}
                         <button
                             type="button"
                             onClick={() => setActiveTab("avatar")}
@@ -3205,6 +3303,383 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                                         </label>
                                                     );
                                                 })}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* TAB: CTI & CRM ENTEGRASYONU */}
+                        {activeTab === "cti" && (
+                            <div className="space-y-5 animate-in fade-in duration-300">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100 dark:border-slate-800/60">
+                                    <div>
+                                        <h5 className="text-sm font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
+                                            <Cable size={16} className={text} />
+                                            CTI & Müşteri CRM Otomatik Ekran Açma (Screen Pop)
+                                        </h5>
+                                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                            Bu insan temsilciye çağrı geldiğinde müşterinin CRM kartını otomatik olarak 2. sekmede açın ve arayan verisini aktarın.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        disabled={!canWriteCtiTab}
+                                        onClick={() => setCtiConfig(prev => ({ ...prev, enabled: !prev.enabled }))}
+                                        className={`px-3.5 py-2 rounded-xl border text-xs font-extrabold flex items-center gap-2 transition-all ${
+                                            ctiConfig.enabled
+                                                ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-800/70 text-emerald-700 dark:text-emerald-300"
+                                                : "bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500"
+                                        } disabled:opacity-50`}
+                                    >
+                                        {ctiConfig.enabled ? <ToggleRight size={20} className="text-emerald-500" /> : <ToggleLeft size={20} />}
+                                        <span>{ctiConfig.enabled ? "CTI Otomatik Ekran Açık" : "CTI Devre Dışı"}</span>
+                                    </button>
+                                </div>
+
+                                {/* Role Permission Quick Banner */}
+                                <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
+                                    targetRoleHasCtiPerm
+                                        ? "bg-emerald-50/70 dark:bg-emerald-950/20 border-emerald-200/70 dark:border-emerald-800/50"
+                                        : "bg-amber-50/80 dark:bg-amber-950/20 border-amber-200/80 dark:border-amber-800/50"
+                                }`}>
+                                    <div className="flex items-start gap-2.5">
+                                        <Shield size={16} className={targetRoleHasCtiPerm ? "text-emerald-600 dark:text-emerald-400 mt-0.5 shrink-0" : "text-amber-600 dark:text-amber-400 mt-0.5 shrink-0"} />
+                                        <div>
+                                            <div className="text-xs font-extrabold text-slate-800 dark:text-white">
+                                                Rol Bazlı CTI Yetki Durumu ({selectedRoleObj?.name || role}):{" "}
+                                                <span className={targetRoleHasCtiPerm ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}>
+                                                    {targetRoleHasCtiPerm ? "YETKİLİ (AÇIK)" : "YETKİ KAPALI"}
+                                                </span>
+                                            </div>
+                                            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+                                                {targetRoleHasCtiPerm
+                                                    ? "Bu kullanıcının bağlı olduğu rolde CTI & CRM otomatik sekme açma yetkisi aktif."
+                                                    : "Bu kullanıcının rolünde CTI yetkisi kapalı. Sağdaki butonla veya Rol ve Yetki Tanımları ekranından açıp kapatabilirsiniz."}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    {isAdmin && selectedRoleObj && (
+                                        <button
+                                            type="button"
+                                            onClick={handleToggleTargetRoleCtiPerm}
+                                            className={`px-3 py-1.5 rounded-xl text-[11px] font-extrabold border shrink-0 transition-all ${
+                                                targetRoleHasCtiPerm
+                                                    ? "bg-white dark:bg-slate-900 border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50"
+                                                    : `${bg} ${hover} border-transparent text-white shadow-sm`
+                                            }`}
+                                        >
+                                            {targetRoleHasCtiPerm ? "Rolün CTI Yetkisini Kapat" : "Rolün CTI Yetkisini Aç"}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {/* 1. CRM Preset & Screen Pop URL Configuration */}
+                                <div className="p-4 bg-slate-50/70 dark:bg-slate-900/50 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-4">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                                Hızlı CRM Şablonu
+                                            </label>
+                                            <select
+                                                disabled={!canWriteCtiTab}
+                                                value={ctiConfig.preset || "custom"}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    const presets = {
+                                                        custom: { crm_name: ctiConfig.crm_name || "Özel Müşteri CRM", url: ctiConfig.screen_pop_url || "https://crm.sirketiniz.com/musteri?telefon={caller_clean}&cagri={call_id}" },
+                                                        hubspot: { crm_name: "HubSpot CRM", url: "https://app.hubspot.com/contacts/search?query={caller_clean}" },
+                                                        salesforce: { crm_name: "Salesforce CRM", url: "https://login.salesforce.com/_ui/search/ui/UnifiedSearchResults?str={caller_clean}" },
+                                                        zoho: { crm_name: "Zoho CRM", url: "https://crm.zoho.com/crm/Search?searchword={caller_clean}" },
+                                                        zendesk: { crm_name: "Zendesk Support", url: "https://sirketiniz.zendesk.com/agent/search/1?q={caller_clean}" },
+                                                        bitrix24: { crm_name: "Bitrix24 CRM", url: "https://sirketiniz.bitrix24.com.tr/crm/configs/import/?phone={caller_clean}" },
+                                                        freshdesk: { crm_name: "Freshdesk CRM", url: "https://sirketiniz.freshdesk.com/a/search/tickets?term={caller_clean}" }
+                                                    };
+                                                    const picked = presets[val] || presets.custom;
+                                                    setCtiConfig(prev => ({
+                                                        ...prev,
+                                                        preset: val,
+                                                        crm_name: picked.crm_name,
+                                                        screen_pop_url: picked.url
+                                                    }));
+                                                }}
+                                                className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                            >
+                                                <option value="custom">Özel CRM / ERP / Web Uygulaması</option>
+                                                <option value="hubspot">HubSpot CRM</option>
+                                                <option value="salesforce">Salesforce CRM</option>
+                                                <option value="zoho">Zoho CRM</option>
+                                                <option value="zendesk">Zendesk Support</option>
+                                                <option value="bitrix24">Bitrix24 CRM</option>
+                                                <option value="freshdesk">Freshdesk / Freshsales</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                                CRM Sistem Başlığı
+                                            </label>
+                                            <input
+                                                type="text"
+                                                disabled={!canWriteCtiTab}
+                                                placeholder="Örn: Şirket CRM / ERP Müşteri Kartı"
+                                                value={ctiConfig.crm_name || ""}
+                                                onChange={(e) => setCtiConfig(prev => ({ ...prev, crm_name: e.target.value }))}
+                                                className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-1.5">
+                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                                2. Sekmede Otomatik Açılacak Müşteri CRM URL Adresi (Screen Pop URL)
+                                            </label>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const rawTpl = (ctiConfig.screen_pop_url || "").trim();
+                                                    if (!rawTpl) {
+                                                        setError("Lütfen önce test edilecek Müşteri CRM URL adresini giriniz.");
+                                                        return;
+                                                    }
+                                                    const samplePhone = (ctiTestPhone || "05321234567").trim();
+                                                    const sampleClean = samplePhone.replace(/\D/g, "");
+                                                    const sampleLast10 = sampleClean.slice(-10);
+                                                    const testUrl = rawTpl
+                                                        .replace(/\{caller\}/g, encodeURIComponent(samplePhone))
+                                                        .replace(/\{caller_clean\}/g, encodeURIComponent(sampleClean))
+                                                        .replace(/\{phone\}/g, encodeURIComponent(sampleClean))
+                                                        .replace(/\{last10\}/g, encodeURIComponent(sampleLast10))
+                                                        .replace(/\{extension\}/g, encodeURIComponent(extension || "1000"))
+                                                        .replace(/\{call_id\}/g, "test-call-1001")
+                                                        .replace(/\{queue\}/g, "2000")
+                                                        .replace(/\{agent_name\}/g, encodeURIComponent(fullName || "Temsilci"));
+                                                    if (typeof window !== "undefined") {
+                                                        window.open(testUrl, ctiConfig.open_mode === "reuse_tab" ? "aida_crm_tab" : "_blank", "noopener,noreferrer");
+                                                    }
+                                                }}
+                                                className={`px-3 py-1 rounded-lg text-[11px] font-extrabold ${bg} ${hover} text-white flex items-center gap-1.5 shadow-sm transition-all`}
+                                            >
+                                                <ExternalLink size={12} />
+                                                <span>2. Sekmede Test Et</span>
+                                            </button>
+                                        </div>
+                                        <input
+                                            type="text"
+                                            disabled={!canWriteCtiTab}
+                                            placeholder="https://crm.sirketiniz.com/musteri-karti?telefon={caller_clean}&dahili={extension}&call_id={call_id}"
+                                            value={ctiConfig.screen_pop_url || ""}
+                                            onChange={(e) => setCtiConfig(prev => ({ ...prev, screen_pop_url: e.target.value }))}
+                                            className="w-full text-xs font-mono px-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                        />
+                                        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                                            <span className="text-[10px] font-bold text-slate-400 mr-1">Dinamik Parametre Ekle:</span>
+                                            {[
+                                                { tag: "{caller_clean}", desc: "Rakam Numara (05321234567)" },
+                                                { tag: "{caller}", desc: "Ham Arayan No" },
+                                                { tag: "{last10}", desc: "Son 10 Hane (5321234567)" },
+                                                { tag: "{extension}", desc: "Temsilci Dahili" },
+                                                { tag: "{call_id}", desc: "Çağrı ID" },
+                                                { tag: "{queue}", desc: "Kuyruk No" },
+                                                { tag: "{agent_name}", desc: "Temsilci Adı" }
+                                            ].map((chip) => (
+                                                <button
+                                                    key={chip.tag}
+                                                    type="button"
+                                                    disabled={!canWriteCtiTab}
+                                                    onClick={() =>
+                                                        setCtiConfig(prev => ({
+                                                            ...prev,
+                                                            screen_pop_url: (prev.screen_pop_url || "") + chip.tag
+                                                        }))
+                                                    }
+                                                    title={chip.desc}
+                                                    className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:border-slate-400 transition-all"
+                                                >
+                                                    + {chip.tag}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                                Otomatik Sekme Açılma Zamanı
+                                            </label>
+                                            <select
+                                                disabled={!canWriteCtiTab}
+                                                value={ctiConfig.trigger_mode || "on_ring"}
+                                                onChange={(e) => setCtiConfig(prev => ({ ...prev, trigger_mode: e.target.value }))}
+                                                className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                            >
+                                                <option value="on_ring">Çağrı Çaldığında Otomatik Aç (Anında 2. Sekme)</option>
+                                                <option value="on_answer">Çağrı Cevaplandığında Otomatik Aç (Görüşme Başlayınca)</option>
+                                                <option value="manual">Sadece Manuel Buton İle Aç</option>
+                                            </select>
+                                        </div>
+
+                                        <div>
+                                            <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1.5">
+                                                Tarayıcı Sekme Davranışı
+                                            </label>
+                                            <select
+                                                disabled={!canWriteCtiTab}
+                                                value={ctiConfig.open_mode || "new_tab"}
+                                                onChange={(e) => setCtiConfig(prev => ({ ...prev, open_mode: e.target.value }))}
+                                                className="w-full text-xs px-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none"
+                                            >
+                                                <option value="new_tab">Her Çağrıda Yeni Sekme Aç (_blank)</option>
+                                                <option value="reuse_tab">Mevcut CRM Sekmesini Yenile (Tek Sekme)</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 2. Optional Live CRM API Lookup for Agent Webphone Card */}
+                                <div className="p-4 bg-slate-50/70 dark:bg-slate-900/50 rounded-2xl border border-slate-200/70 dark:border-slate-800 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <div>
+                                            <h6 className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
+                                                <Database size={14} className={text} />
+                                                Webphone Üzerinde Canlı CRM Müşteri Kartı Ön İzleme (REST API)
+                                            </h6>
+                                            <p className="text-[10px] text-slate-400 mt-0.5">
+                                                2. sekmede CRM ekranını açarken aynı zamanda temsilcinin Webphone ekranında müşterinin CRM özet bilgilerini gösterir.
+                                            </p>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            disabled={!canWriteCtiTab}
+                                            onClick={() => setCtiConfig(prev => ({ ...prev, lookup_api_enabled: !prev.lookup_api_enabled }))}
+                                            className="text-slate-400 hover:text-slate-700 transition-colors"
+                                        >
+                                            {ctiConfig.lookup_api_enabled ? <ToggleRight size={24} className={text} /> : <ToggleLeft size={24} />}
+                                        </button>
+                                    </div>
+
+                                    {ctiConfig.lookup_api_enabled && (
+                                        <div className="space-y-3 pt-2 border-t border-slate-200/60 dark:border-slate-800/60">
+                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                                                <div className="sm:col-span-3">
+                                                    <label className="block text-[10px] font-bold text-slate-500 mb-1">HTTP Metodu</label>
+                                                    <select
+                                                        disabled={!canWriteCtiTab}
+                                                        value={ctiConfig.lookup_api_method || "GET"}
+                                                        onChange={(e) => setCtiConfig(prev => ({ ...prev, lookup_api_method: e.target.value }))}
+                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                                                    >
+                                                        <option value="GET">GET</option>
+                                                        <option value="POST">POST</option>
+                                                    </select>
+                                                </div>
+                                                <div className="sm:col-span-9">
+                                                    <label className="block text-[10px] font-bold text-slate-500 mb-1">CRM Müşteri Sorgu API URL</label>
+                                                    <input
+                                                        type="text"
+                                                        disabled={!canWriteCtiTab}
+                                                        placeholder="https://api.sirketiniz.com/v1/customers/lookup?phone={caller_clean}"
+                                                        value={ctiConfig.lookup_api_url || ""}
+                                                        onChange={(e) => setCtiConfig(prev => ({ ...prev, lookup_api_url: e.target.value }))}
+                                                        className="w-full text-xs font-mono px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+                                                <div className="sm:col-span-4">
+                                                    <label className="block text-[10px] font-bold text-slate-500 mb-1">Kimlik Doğrulama (Auth)</label>
+                                                    <select
+                                                        disabled={!canWriteCtiTab}
+                                                        value={ctiConfig.lookup_auth_type || "none"}
+                                                        onChange={(e) => setCtiConfig(prev => ({ ...prev, lookup_auth_type: e.target.value }))}
+                                                        className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                                                    >
+                                                        <option value="none">Doğrulama Yok</option>
+                                                        <option value="bearer">Bearer Token</option>
+                                                        <option value="api_key">Özel Header (API Key)</option>
+                                                        <option value="basic">Basic Auth</option>
+                                                    </select>
+                                                </div>
+                                                {ctiConfig.lookup_auth_type === "api_key" && (
+                                                    <div className="sm:col-span-3">
+                                                        <label className="block text-[10px] font-bold text-slate-500 mb-1">Header Adı</label>
+                                                        <input
+                                                            type="text"
+                                                            disabled={!canWriteCtiTab}
+                                                            placeholder="X-API-Key"
+                                                            value={ctiConfig.lookup_auth_header_name || "X-API-Key"}
+                                                            onChange={(e) => setCtiConfig(prev => ({ ...prev, lookup_auth_header_name: e.target.value }))}
+                                                            className="w-full text-xs font-mono px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                                                        />
+                                                    </div>
+                                                )}
+                                                {ctiConfig.lookup_auth_type && ctiConfig.lookup_auth_type !== "none" && (
+                                                    <div className={ctiConfig.lookup_auth_type === "api_key" ? "sm:col-span-5" : "sm:col-span-8"}>
+                                                        <label className="block text-[10px] font-bold text-slate-500 mb-1">API Token / Anahtar</label>
+                                                        <input
+                                                            type="password"
+                                                            disabled={!canWriteCtiTab}
+                                                            placeholder="Gizli API anahtarınızı giriniz..."
+                                                            value={ctiConfig.lookup_auth_token || ""}
+                                                            onChange={(e) => setCtiConfig(prev => ({ ...prev, lookup_auth_token: e.target.value }))}
+                                                            className="w-full text-xs font-mono px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Live CRM Test Row */}
+                                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-2">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Test Telefon No (0532...)"
+                                                    value={ctiTestPhone}
+                                                    onChange={(e) => setCtiTestPhone(e.target.value)}
+                                                    className="text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 sm:w-56"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    disabled={ctiTesting}
+                                                    onClick={async () => {
+                                                        setCtiTesting(true);
+                                                        setCtiTestResult(null);
+                                                        try {
+                                                            const res = await safeFetch(`/api/cti/test`, {
+                                                                method: "POST",
+                                                                headers: { "Content-Type": "application/json" },
+                                                                body: JSON.stringify({
+                                                                    caller: ctiTestPhone || "05321234567",
+                                                                    extension: extension || "1000",
+                                                                    call_id: "test-call-1001",
+                                                                    custom_api_url: ctiConfig.lookup_api_url,
+                                                                    custom_api_method: ctiConfig.lookup_api_method || "GET",
+                                                                    custom_auth_type: ctiConfig.lookup_auth_type || "none",
+                                                                    custom_auth_header_name: ctiConfig.lookup_auth_header_name || "X-API-Key",
+                                                                    custom_auth_token: ctiConfig.lookup_auth_token || ""
+                                                                })
+                                                            });
+                                                            const data = await res.json();
+                                                            setCtiTestResult(data);
+                                                        } catch (err) {
+                                                            setCtiTestResult({ status: "error", message: err.message });
+                                                        } finally {
+                                                            setCtiTesting(false);
+                                                        }
+                                                    }}
+                                                    className="px-3.5 py-2 rounded-xl text-xs font-extrabold bg-slate-800 hover:bg-slate-700 text-white flex items-center justify-center gap-1.5 transition-all"
+                                                >
+                                                    <Play size={12} />
+                                                    <span>{ctiTesting ? "Sorgulanıyor..." : "CRM Sorgusunu Test Et"}</span>
+                                                </button>
+                                            </div>
+
+                                            {ctiTestResult && (
+                                                <div className="p-3 rounded-xl bg-slate-900 text-slate-100 text-[11px] font-mono overflow-x-auto max-h-40">
+                                                    <pre>{JSON.stringify(ctiTestResult, null, 2)}</pre>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
                                 </div>

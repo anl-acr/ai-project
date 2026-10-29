@@ -26,7 +26,11 @@ import {
   Tag,
   Check,
   Search,
-  Save
+  Save,
+  ExternalLink,
+  Building2,
+  Calendar,
+  Database
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
@@ -57,10 +61,12 @@ export default function AgentWebphoneTab({
   const canTransfer = callPanelPerms.canTransfer !== false;
   const canConference = callPanelPerms.canConference !== false;
   const canRejectCall = callPanelPerms.canRejectCall !== false;
+  const canCtiScreenPop = callPanelPerms.canCtiScreenPop !== false;
   const canLiveTranslate = Boolean(callPanelPerms.canLiveTranslate || callPanelPerms.canViewTranscripts !== false);
   const canVoiceInterpret = Boolean(callPanelPerms.canVoiceInterpret);
   const hasAnyTranslatorPerm = canLiveTranslate || canVoiceInterpret;
   const maskPhoneNumbers = Boolean(callPanelPerms.maskPhoneNumbers);
+  const userCtiConfig = webphoneManager.resolveUserCtiConfig();
 
   // In-Call Transfer, Conference & Live Translator Popovers/Panels
   const [transferOpen, setTransferOpen] = useState(false);
@@ -1102,6 +1108,17 @@ export default function AgentWebphoneTab({
                             Rehbere Ekle
                           </button>
                         )}
+                        {canCtiScreenPop && userCtiConfig?.enabled !== false && userCtiConfig?.screen_pop_url && (
+                          <button
+                            type="button"
+                            onClick={() => webphoneManager.triggerCtiScreenPop(null, "manual", true)}
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg ${bg} ${hover} text-white text-[11px] font-bold shadow-sm transition-all`}
+                            title="Müşteri CRM ekranını yeni sekmede aç"
+                          >
+                            <ExternalLink size={13} />
+                            {userCtiConfig.crm_name ? `${userCtiConfig.crm_name} Aç (2. Sekme)` : "Müşteri CRM Aç (2. Sekme)"}
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1339,6 +1356,67 @@ export default function AgentWebphoneTab({
                     )}
                   </div>
                 </div>
+
+                {/* Live CTI Customer CRM Card */}
+                {canCtiScreenPop &&
+                  (wpState.ctiCustomerInfo?.local_contact ||
+                    wpState.ctiCustomerInfo?.customer_summary?.name ||
+                    wpState.ctiCustomerInfo?.external_crm ||
+                    (wpState.ctiCustomerInfo?.upcoming_appointments || []).length > 0) && (
+                    <div className={`p-3.5 rounded-2xl border ${borderLight} ${lightBg} flex flex-wrap items-center justify-between gap-3`}>
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className={`p-2 rounded-xl bg-white dark:bg-slate-900 ${text} shadow-xs shrink-0`}>
+                          <Database size={16} />
+                        </div>
+                        <div className="min-w-0 space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                              Canlı CRM Müşteri Kartı
+                            </span>
+                            {wpState.ctiCustomerInfo?.customer_summary?.segment && (
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${bg} text-white`}>
+                                {wpState.ctiCustomerInfo.customer_summary.segment}
+                              </span>
+                            )}
+                            {wpState.ctiCustomerInfo?.customer_summary?.company && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                                <Building2 size={12} />
+                                {wpState.ctiCustomerInfo.customer_summary.company}
+                              </span>
+                            )}
+                          </div>
+                          {wpState.ctiCustomerInfo?.customer_summary?.notes && (
+                            <p className="text-xs text-slate-700 dark:text-slate-200 font-medium">
+                              Not: {wpState.ctiCustomerInfo.customer_summary.notes}
+                            </p>
+                          )}
+                          {(wpState.ctiCustomerInfo?.upcoming_appointments || []).length > 0 && (
+                            <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                              {wpState.ctiCustomerInfo.upcoming_appointments.map((apt, idx) => (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/80 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-slate-700 dark:text-slate-200"
+                                >
+                                  <Calendar size={11} className={text} />
+                                  Randevu: {apt.date} {apt.time} ({apt.status})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {userCtiConfig?.screen_pop_url && (
+                        <button
+                          type="button"
+                          onClick={() => webphoneManager.triggerCtiScreenPop(null, "manual", true)}
+                          className={`px-3 py-1.5 rounded-xl ${bg} ${hover} text-white text-xs font-bold flex items-center gap-1.5 shrink-0 shadow-xs`}
+                        >
+                          <ExternalLink size={13} />
+                          CRM&apos;de Görüntüle
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                 {/* Integrated Quick Disposition & Call Note Bar */}
                 <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-col gap-2.5">
