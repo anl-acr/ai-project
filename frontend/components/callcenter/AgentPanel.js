@@ -440,6 +440,45 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     };
   }, [host, myExt, myUid, activeTab, currentUser?.full_name, currentUser?.username, currentUser?.role]);
 
+  const prevAgentSubTabRef = React.useRef(null);
+  useEffect(() => {
+    if (!isVisible || !activeTab) return;
+    if (prevAgentSubTabRef.current === null) {
+      prevAgentSubTabRef.current = activeTab;
+      return;
+    }
+    if (prevAgentSubTabRef.current === activeTab) return;
+    prevAgentSubTabRef.current = activeTab;
+
+    const SUB_TAB_LABELS = {
+      activecalls: "Çağrı Paneli > Aktif Çağrı",
+      missed: "Çağrı Paneli > Cevapsız Çağrı",
+      history: "Çağrı Paneli > Çağrı Geçmişi",
+      directory: "Çağrı Paneli > Rehber",
+      chat: "Çağrı Paneli > Sohbet"
+    };
+    const label = SUB_TAB_LABELS[activeTab] || `Çağrı Paneli > ${activeTab}`;
+    const uid = currentUser?.id || currentUser?.extension || myUid || myExt;
+    if (!uid || typeof window === "undefined") return;
+    const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+    fetch(`${protocol}//${host}/api/audit/activity`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-User-ID": String(uid)
+      },
+      body: JSON.stringify({
+        user_id: String(uid),
+        user_name: currentUser?.full_name ? (currentUser?.extension ? `${currentUser.full_name} (Dahili: ${currentUser.extension})` : currentUser.full_name) : undefined,
+        extension: currentUser?.extension || undefined,
+        action: "PAGE_VIEW",
+        module: "Call Panel",
+        screen_name: label,
+        summary: `Kullanıcı '${label}' sekmesine geçiş yaptı.`
+      })
+    }).catch(() => {});
+  }, [activeTab, isVisible, host, currentUser, myUid, myExt]);
+
   const isTopNav = panelPrefs?.navPosition === "top";
   const [topNavSlot, setTopNavSlot] = useState(null);
 

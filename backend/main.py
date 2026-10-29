@@ -41,12 +41,6 @@ def add_system_log(source: str, level: str, message: str):
     system_logs.append({"timestamp": now, "source": source, "level": level, "message": message})
     if len(system_logs) > 50:
         system_logs.pop(0)
-    try:
-        loop = asyncio.get_running_loop()
-        if loop and loop.is_running():
-            loop.create_task(log_event(user_id=source, action=level, module=source, details={"message": message}))
-    except Exception:
-        pass
 
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
@@ -65,11 +59,48 @@ def is_default_tenant(tenant_id: str) -> bool:
 def is_global_tenant(tenant_id: str) -> bool:
     return tenant_id in ["all", "global"]
 
+def resolve_audit_user_label(raw_user_id: Optional[str]) -> str:
+    uid = str(raw_user_id or "").strip()
+    if not uid or uid.lower() in ["bilinmeyen", "unknown", "none", "null", "undefined"]:
+        return "Sistem Yöneticisi"
+    if uid.lower() in ["admin", "9999", "superadmin"]:
+        users_list = globals().get("settings_db", {}).get("users", [])
+        admin_u = next((u for u in users_list if str(u.get("role", "")).lower() == "admin" or str(u.get("username", "")).lower() == "admin"), None)
+        if admin_u and admin_u.get("full_name"):
+            return f"{admin_u.get('full_name')} (Yönetici)"
+        return "Sistem Yöneticisi (admin)"
+    users_list = globals().get("settings_db", {}).get("users", [])
+    for u in users_list:
+        if (
+            str(u.get("id", "")).strip() == uid
+            or str(u.get("extension", "")).strip() == uid
+            or str(u.get("username", "")).strip().lower() == uid.lower()
+            or str(u.get("email", "")).strip().lower() == uid.lower()
+        ):
+            fname = str(u.get("full_name") or u.get("name") or u.get("username") or uid).strip()
+            ext = str(u.get("extension") or "").strip()
+            if ext and ext not in fname:
+                return f"{fname} (Dahili: {ext})"
+            return fname
+    return uid
+
+def extract_client_ip(request: Optional[Request]) -> str:
+    if not request:
+        return "127.0.0.1"
+    xf = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
+    if xf:
+        return xf.split(",")[0].strip()
+    xr = request.headers.get("x-real-ip") or request.headers.get("X-Real-IP")
+    if xr:
+        return xr.strip()
+    return request.client.host if request.client else "127.0.0.1"
+
 def get_user_info(request: Request):
-    user_id = request.headers.get("X-User-ID", "Bilinmeyen")
+    raw_user_id = request.headers.get("X-User-ID", "admin")
+    user_label = resolve_audit_user_label(raw_user_id)
     tenant_id = request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
-    print(f"[TENANT RESOLVER] Path: {request.url.path} -> Resolved Tenant: '{tenant_id}'")
-    return {"user_id": user_id, "tenant_id": tenant_id, "ip_address": request.client.host if request.client else None}
+    client_ip = extract_client_ip(request)
+    return {"user_id": user_label, "raw_user_id": raw_user_id, "tenant_id": tenant_id, "ip_address": client_ip}
 
 app = FastAPI(title="AI PBX & Omnichannel Backend API")
 
@@ -98,7 +129,172 @@ async def auto_api_prefix_middleware(request: Request, call_next):
     path = request.scope.get("path", "")
     if path and not path.startswith("/api") and not path.startswith("/uploads") and not path.startswith("/static"):
         request.scope["path"] = "/api" + path
-    return await call_next(request)
+    response = await call_next(request)
+
+    try:
+        method = request.method.upper()
+        req_path = request.scope.get("path", "")
+        if method in ("POST", "PUT", "DELETE", "PATCH") and 200 <= response.status_code < 300:
+            # Skip endpoints that already log explicitly or are high-frequency background/realtime endpoints
+            skip_prefixes = (
+                "/api/audit/",
+                "/api/settings/users",
+                "/api/settings/roles",
+                "/api/settings/queues",
+                "/api/settings/trunks",
+                "/api/agent/status",
+                "/api/webrtc/",
+                "/api/webhook",
+                "/api/webhooks",
+                "/api/calls/",
+                "/api/system/logs",
+                "/api/settings/needs-apply",
+                "/api/v1/telemetry",
+                "/api/auth/",
+                "/api/omnichannel/sessions",
+                "/api/chat/",
+            )
+            if req_path != "/api/settings" and not any(req_path.startswith(sp) for sp in skip_prefixes):
+                raw_uid = request.headers.get("X-User-ID") or request.headers.get("User-ID") or request.query_params.get("user_id")
+                if raw_uid:
+                    user_label = resolve_audit_user_label(raw_uid)
+                    client_ip = extract_client_ip(request)
+                    audit_mod = None
+                    audit_act = None
+                    audit_sum = None
+
+                    if req_path.startswith("/api/contacts"):
+                        audit_mod = "Contacts"
+                        if method == "DELETE":
+                            cid = req_path.rstrip("/").split("/")[-1]
+                            audit_act = "DELETE_CONTACT"
+                            audit_sum = f"Rehberden kişi kaydı silindi (Kayıt ID: #{cid})."
+                        elif method == "PUT":
+                            cid = req_path.rstrip("/").split("/")[-1]
+                            audit_act = "UPDATE_CONTACT"
+                            audit_sum = f"Rehberdeki kişi bilgileri güncellendi (Kayıt ID: #{cid})."
+                        else:
+                            audit_act = "CREATE_CONTACT"
+                            audit_sum = "Rehbere yeni kişi eklendi."
+                    elif req_path.startswith("/api/blacklist"):
+                        audit_mod = "Blacklist"
+                        if method == "DELETE":
+                            bid = req_path.rstrip("/").split("/")[-1]
+                            audit_act = "DELETE_BLACKLIST"
+                            audit_sum = f"Kara listeden numara engeli kaldırıldı (ID: #{bid})."
+                        else:
+                            audit_act = "CREATE_BLACKLIST"
+                            audit_sum = "Kara listeye yeni engelli numara eklendi."
+                    elif req_path.startswith("/api/block-words"):
+                        audit_mod = "Blacklist"
+                        if method == "DELETE":
+                            wid = req_path.rstrip("/").split("/")[-1]
+                            audit_act = "DELETE_BLOCK_WORD"
+                            audit_sum = f"Yasaklı kelime listesinden kayıt silindi (ID: #{wid})."
+                        else:
+                            audit_act = "CREATE_BLOCK_WORD"
+                            audit_sum = "Yasaklı kelime listesine yeni ifade eklendi."
+                    elif req_path.startswith("/api/canned-responses"):
+                        audit_mod = "Settings"
+                        if method == "DELETE":
+                            audit_act = "DELETE_ITEM"
+                            audit_sum = "Hazır yanıt şablonu silindi."
+                        elif method == "PUT":
+                            audit_act = "UPDATE_SETTINGS"
+                            audit_sum = "Hazır yanıt şablonu güncellendi."
+                        else:
+                            audit_act = "CREATE_ITEM"
+                            audit_sum = "Yeni hazır yanıt şablonu eklendi."
+                    elif req_path.startswith("/api/settings/inbound_rules") or req_path.startswith("/api/settings/inbound-rules"):
+                        audit_mod = "Inbound Rules"
+                        audit_act = "DELETE_RULE" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Gelen arama yönlendirme kuralı silindi." if method == "DELETE" else "Gelen arama yönlendirme kuralları güncellendi."
+                    elif req_path.startswith("/api/settings/outbound_rules") or req_path.startswith("/api/settings/outbound-rules"):
+                        audit_mod = "Outbound Rules"
+                        audit_act = "DELETE_RULE" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Giden arama kuralı silindi." if method == "DELETE" else "Giden arama kuralları güncellendi."
+                    elif req_path.startswith("/api/settings/breaks"):
+                        audit_mod = "Breaks"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Mola tanımı silindi." if method == "DELETE" else "Sistem mola tanımları güncellendi."
+                    elif req_path.startswith("/api/settings/announcements"):
+                        audit_mod = "Announcements"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "CREATE_ITEM"
+                        audit_sum = "Sesli karşılama anons dosyası silindi." if method == "DELETE" else "Sesli karşılama anonsu eklendi / güncellendi."
+                    elif req_path.startswith("/api/settings/speed_dials") or req_path.startswith("/api/settings/speed-dials"):
+                        audit_mod = "Speed Dials"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Hızlı arama kodu silindi." if method == "DELETE" else "Hızlı arama numaraları güncellendi."
+                    elif req_path.startswith("/api/settings/conferences"):
+                        audit_mod = "Conferences"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Konferans odası silindi." if method == "DELETE" else "Konferans odası ayarları güncellendi."
+                    elif req_path.startswith("/api/settings/call_pickup_groups"):
+                        audit_mod = "Call Pickup Groups"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Çağrı yakalama grubu silindi." if method == "DELETE" else "Çağrı yakalama grupları güncellendi."
+                    elif req_path.startswith("/api/settings/subscriber_groups"):
+                        audit_mod = "Subscriber Groups"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Abone grubu silindi." if method == "DELETE" else "Abone grupları güncellendi."
+                    elif req_path.startswith("/api/settings/autoprovision"):
+                        audit_mod = "AutoProvision"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "IP Telefon (AutoProvision) cihaz kaydı silindi." if method == "DELETE" else "IP Telefon (AutoProvision) cihaz ayarları güncellendi."
+                    elif req_path.startswith("/api/settings/call-flow"):
+                        audit_mod = "CallFlow"
+                        audit_act = "UPDATE_SETTINGS"
+                        audit_sum = "Görsel çağrı akışı (IVR / CallFlow) tasarımı güncellendi."
+                    elif req_path.startswith("/api/settings/ai-agents"):
+                        audit_mod = "AI Agents"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Yapay zeka asistanı silindi." if method == "DELETE" else "Yapay zeka asistanı / senaryo ayarları güncellendi."
+                    elif req_path.startswith("/api/settings/apply"):
+                        audit_mod = "Settings"
+                        audit_act = "APPLY_CONFIG"
+                        audit_sum = "Santral yapılandırma değişiklikleri Asterisk sunucusuna uygulandı."
+                    elif req_path.startswith("/api/agent/profile/"):
+                        ext_part = req_path.rstrip("/").split("/")[-1]
+                        audit_mod = "Profile"
+                        audit_act = "UPDATE_PROFILE"
+                        audit_sum = f"Kullanıcı kendi profil ayarlarını güncelledi (Dahili: {ext_part})."
+                    elif req_path.startswith("/api/tenants") or req_path.startswith("/api/settings/tenants"):
+                        audit_mod = "Tenants"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else ("CREATE_ITEM" if method == "POST" else "UPDATE_SETTINGS")
+                        audit_sum = "Müşteri (Tenant) hesabı silindi." if method == "DELETE" else "Müşteri (Tenant) hesabı eklendi / güncellendi."
+                    elif req_path.startswith("/api/settings/channels"):
+                        audit_mod = "Channels"
+                        audit_act = "UPDATE_SETTINGS"
+                        audit_sum = "Omnichannel iletişim kanalı (WhatsApp / Telegram / Meta) ayarları güncellendi."
+                    elif req_path.startswith("/api/settings/nat"):
+                        audit_mod = "Network & NAT"
+                        audit_act = "UPDATE_SETTINGS"
+                        audit_sum = "Ağ ve NAT (Dış IP) yapılandırma ayarları güncellendi."
+                    elif req_path.startswith("/api/settings/holidays") or req_path.startswith("/api/settings/work-hours"):
+                        audit_mod = "Work Hours"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "UPDATE_SETTINGS"
+                        audit_sum = "Çalışma saatleri ve tatil günleri yapılandırması güncellendi."
+                    elif req_path.startswith("/api/knowledge-base"):
+                        audit_mod = "Knowledge Base"
+                        audit_act = "DELETE_ITEM" if method == "DELETE" else "CREATE_ITEM"
+                        audit_sum = "Bilgi bankasından doküman/içerik silindi." if method == "DELETE" else "Bilgi bankasına yeni içerik/doküman eklendi."
+                    elif req_path.startswith("/api/rules"):
+                        audit_mod = "Evaluation"
+                        audit_act = "DELETE_RULE" if method == "DELETE" else "CREATE_RULE"
+                        audit_sum = "Kalite değerlendirme kriteri silindi." if method == "DELETE" else "Kalite değerlendirme kriteri eklendi / güncellendi."
+
+                    if audit_mod and audit_act and audit_sum:
+                        asyncio.create_task(log_event(
+                            user_id=user_label,
+                            action=audit_act,
+                            module=audit_mod,
+                            details={"summary": audit_sum, "endpoint": req_path, "method": method},
+                            ip_address=client_ip
+                        ))
+    except Exception as _ae:
+        pass
+
+    return response
 
 
 
@@ -6052,6 +6248,7 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
                 active_log.duration_seconds = max(0, int((now_utc - active_log.start_time).total_seconds()))
                 ended_any_break = True
 
+        audit_user_lbl = resolve_audit_user_label(user_id_str or ext_str)
         if payload.status == "break" and payload.current_break:
             break_name = payload.current_break.get("name", "Mola")
             new_log = AgentBreakLog(
@@ -6063,6 +6260,12 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
                 duration_seconds=0
             )
             db.add(new_log)
+            asyncio.create_task(log_event(
+                user_id=audit_user_lbl,
+                action="BREAK_START",
+                module="CallPanel",
+                details={"summary": f"'{break_name}' molasına ayrıldı.", "break_name": break_name}
+            ))
         elif (payload.status == "offline" or not payload.is_logged_in) and (user_id_str or ext_str):
             db.add(AgentBreakLog(
                 user_id=user_id_str,
@@ -6072,21 +6275,41 @@ async def update_agent_status_endpoint(payload: AgentStateSchema, db: AsyncSessi
                 end_time=now_utc,
                 duration_seconds=0
             ))
-        elif payload.status == "online" and payload.is_logged_in and not ended_any_break and conditions:
-            stmt_latest = select(AgentBreakLog).where(
-                or_(*conditions)
-            ).order_by(AgentBreakLog.start_time.desc(), AgentBreakLog.id.desc()).limit(1)
-            res_latest = await db.execute(stmt_latest)
-            latest_log = res_latest.scalars().first()
-            if not latest_log or str(latest_log.break_name or "") != "__LOGIN__":
-                db.add(AgentBreakLog(
-                    user_id=user_id_str,
-                    extension=ext_str,
-                    break_name="__LOGIN__",
-                    start_time=now_utc,
-                    end_time=now_utc,
-                    duration_seconds=0
+            asyncio.create_task(log_event(
+                user_id=audit_user_lbl,
+                action="QUEUE_LOGOUT",
+                module="CallPanel",
+                details={"summary": "Temsilci çağrı kuyruğu oturumunu kapattı (Çevrimdışı oldu)."}
+            ))
+        elif payload.status == "online" and payload.is_logged_in and conditions:
+            if ended_any_break:
+                asyncio.create_task(log_event(
+                    user_id=audit_user_lbl,
+                    action="BREAK_END",
+                    module="CallPanel",
+                    details={"summary": "Molasını sonlandırarak Müsait (Çağrı Alabilir) durumuna geçti."}
                 ))
+            else:
+                stmt_latest = select(AgentBreakLog).where(
+                    or_(*conditions)
+                ).order_by(AgentBreakLog.start_time.desc(), AgentBreakLog.id.desc()).limit(1)
+                res_latest = await db.execute(stmt_latest)
+                latest_log = res_latest.scalars().first()
+                if not latest_log or str(latest_log.break_name or "") != "__LOGIN__":
+                    db.add(AgentBreakLog(
+                        user_id=user_id_str,
+                        extension=ext_str,
+                        break_name="__LOGIN__",
+                        start_time=now_utc,
+                        end_time=now_utc,
+                        duration_seconds=0
+                    ))
+                    asyncio.create_task(log_event(
+                        user_id=audit_user_lbl,
+                        action="QUEUE_LOGIN",
+                        module="CallPanel",
+                        details={"summary": "Temsilci çağrı kuyruğunda oturum açtı (Müsait durumuna geçti)."}
+                    ))
 
         await db.commit()
     except Exception as e_brk:
@@ -14285,51 +14508,237 @@ async def get_reports_agents():
 
         return agents_state
 
+TECHNICAL_LOG_SOURCES = {
+    "SYSTEM", "System", "DATABASE", "ASTERISK", "BROWSER", "WHATSAPP", "WhatsApp",
+    "WHATSAPP_OUTBOUND", "WHATSAPP_TEMPLATE", "WHATSAPP_CAMPAIGN", "Meta Webhook",
+    "CHAT_SERVICE", "AUTO_PAUSE", "RESTORE_POINT", "MOBILE_TRANSFER", "ABUSE_SHIELD",
+    "LICENSE", "NOTIFICATIONS", "QUEUE_SURVEY", "PBX", "SECURITY", "EMAIL_SENT",
+    "EMAIL_EXCEPTION", "META_SENT", "META_ERROR", "META_EXCEPTION", "TELEGRAM_SENT",
+    "TELEGRAM_ERROR", "TELEGRAM_EXCEPTION", "DatabaseDisasterRecovery"
+}
+
+TECHNICAL_LOG_ACTIONS = {
+    "INFO", "WARNING", "ERROR", "SUCCESS", "SYSTEM_STARTUP", "POST_RECEIVED",
+    "INBOUND_MESSAGE", "PARSE_ERROR", "PROCESS_ERROR"
+}
+
+AUDIT_MODULE_TRANSLATIONS = {
+    "Auth": "Oturum & Kimlik Doğrulama",
+    "Navigation": "Menü & Ekran Gezinme",
+    "CallPanel": "Temsilci Çağrı Paneli",
+    "Users": "Kullanıcı Yönetimi",
+    "Roles": "Rol & Yetki Yönetimi",
+    "Queues": "Kuyruk Yönetimi",
+    "ACD Queues": "Kuyruk Yönetimi",
+    "SIP Trunks": "Dış Hatlar (SIP Trunk)",
+    "Trunks": "Dış Hatlar (SIP Trunk)",
+    "InboundRules": "Gelen Arama Kuralları",
+    "OutboundRules": "Giden Arama Kuralları",
+    "Contacts": "Rehber Yönetimi",
+    "Blacklist": "Numara Engelleme (Kara Liste)",
+    "BlockWords": "Yasaklı Kelimeler",
+    "CannedResponses": "Hazır Yanıtlar",
+    "Breaks": "Mola Tanımları",
+    "Announcements": "Sesli Karşılama & Anonslar",
+    "SpeedDials": "Hızlı Arama Kısayolları",
+    "Conferences": "Konferans Odaları",
+    "PickupGroups": "Çağrı Çekme Grupları",
+    "SubscriberGroups": "Abone Grupları",
+    "Autoprovision": "Oto-Provizyon (Masa Telefonu)",
+    "CallFlow": "Görsel Çağrı Akışı (IVR)",
+    "AIAgents": "Yapay Zeka Ajanları",
+    "KnowledgeBase": "Bilgi Bankası (RAG)",
+    "Rules": "İş & Otomasyon Kuralları",
+    "Profile": "Kişisel Profil Ayarları",
+    "Tenants": "Müşteri (Tenant) Yönetimi",
+    "SystemSettings": "Sistem Yapılandırması"
+}
+
+AUDIT_ACTION_META = {
+    "LOGIN": ("Sisteme Giriş", "auth"),
+    "LOGOUT": ("Sistemden Çıkış", "auth"),
+    "QUEUE_LOGIN": ("Kuyruk Oturumu Açma", "auth"),
+    "QUEUE_LOGOUT": ("Kuyruk Oturumu Kapatma", "auth"),
+    "BREAK_START": ("Molaya Çıkma", "auth"),
+    "BREAK_END": ("Molayı Bitirme", "auth"),
+    "PAGE_VIEW": ("Ekran / Menü Girişi", "navigation"),
+    "CREATE": ("Yeni Kayıt Ekleme", "create"),
+    "CREATE_USER": ("Kullanıcı Ekleme", "create"),
+    "CREATE_ROLE": ("Rol Oluşturma", "create"),
+    "CREATE_QUEUE": ("Kuyruk Oluşturma", "create"),
+    "CREATE_TRUNK": ("Dış Hat Ekleme", "create"),
+    "ADD_BLACKLIST": ("Numara Engelleme", "create"),
+    "UPDATE": ("Düzenleme / Güncelleme", "update"),
+    "UPDATE_USERS": ("Kullanıcı Düzenleme", "update"),
+    "UPDATE_USER": ("Kullanıcı Düzenleme", "update"),
+    "UPDATE_ROLES": ("Rol & Yetki Düzenleme", "update"),
+    "UPDATE_ROLE": ("Rol & Yetki Düzenleme", "update"),
+    "UPDATE_QUEUES": ("Kuyruk & Üye Düzenleme", "update"),
+    "UPDATE_QUEUE": ("Kuyruk & Üye Düzenleme", "update"),
+    "SAVE_QUEUE": ("Kuyruk Düzenleme", "update"),
+    "SAVE_TRUNK": ("Dış Hat Düzenleme", "update"),
+    "UPDATE_TRUNK": ("Dış Hat Düzenleme", "update"),
+    "UPDATE_PROFILE": ("Profil Ayarı Güncelleme", "update"),
+    "APPLY_SETTINGS": ("Santral Ayarlarını Uygulama", "update"),
+    "DELETE": ("Kayıt Silme", "delete"),
+    "DELETE_USER": ("Kullanıcı Silme", "delete"),
+    "DELETE_ROLE": ("Rol Silme", "delete"),
+    "DELETE_QUEUE": ("Kuyruk Silme", "delete"),
+    "DELETE_TRUNK": ("Dış Hat Silme", "delete"),
+    "REMOVE_BLACKLIST": ("Engel Kaldırma", "delete"),
+}
+
+def _build_human_summary_for_log(action: str, module_tr: str, details: Optional[dict], user_display: str) -> str:
+    if isinstance(details, dict):
+        if details.get("summary"):
+            return str(details["summary"])
+        if details.get("screen_name"):
+            return f"'{details['screen_name']}' ekranına giriş yaptı."
+        if details.get("changes") and isinstance(details["changes"], list):
+            parts = []
+            for ch in details["changes"]:
+                if not isinstance(ch, dict):
+                    continue
+                c_act = ch.get("action", "")
+                c_name = ch.get("name") or ch.get("extension") or "Kayıt"
+                c_ext = f" (Dahili: {ch['extension']})" if ch.get("extension") and str(ch.get("extension")) not in str(c_name) else ""
+                if c_act == "CREATED":
+                    parts.append(f"Yeni eklendi: {c_name}{c_ext}")
+                elif c_act == "DELETED":
+                    parts.append(f"Silindi: {c_name}{c_ext}")
+                elif c_act == "UPDATED":
+                    if ch.get("summary"):
+                        parts.append(str(ch["summary"]))
+                    else:
+                        parts.append(f"Güncellendi: {c_name}{c_ext}")
+            if parts:
+                return " • ".join(parts)
+        if details.get("trunk_name"):
+            return f"Dış hat işlem gördü: {details['trunk_name']}"
+        if details.get("message") and action not in TECHNICAL_LOG_ACTIONS:
+            return str(details["message"])
+    act_label, _ = AUDIT_ACTION_META.get(action, (action, "update"))
+    return f"{module_tr} bölümünde '{act_label}' işlemi gerçekleştirildi."
+
+
+class UserActivityAuditSchema(BaseModel):
+    action: str
+    module: Optional[str] = "Navigation"
+    summary: Optional[str] = None
+    screen_name: Optional[str] = None
+    user_id: Optional[str] = None
+    details: Optional[Dict[str, Any]] = None
+
+
+@app.post("/api/audit/activity")
+@app.post("/audit/activity")
+async def record_user_activity_audit(
+    payload: UserActivityAuditSchema,
+    request: Request,
+    user_info: dict = Depends(get_user_info)
+):
+    raw_uid = payload.user_id or user_info.get("raw_user_id") or user_info.get("user_id") or "admin"
+    user_label = resolve_audit_user_label(raw_uid)
+    client_ip = user_info.get("ip_address") or extract_client_ip(request)
+
+    det = dict(payload.details or {})
+    if payload.summary:
+        det["summary"] = payload.summary
+    if payload.screen_name:
+        det["screen_name"] = payload.screen_name
+        if not det.get("summary"):
+            det["summary"] = f"'{payload.screen_name}' ekranına giriş yaptı."
+
+    await log_event(
+        user_id=user_label,
+        action=payload.action,
+        module=payload.module or "Navigation",
+        details=det,
+        ip_address=client_ip
+    )
+    return {"status": "success"}
+
+
 @app.get("/api/system/logs")
-async def get_system_logs(limit: int = 100, offset: int = 0, module: Optional[str] = None):
+async def get_system_logs(limit: int = 300, offset: int = 0, module: Optional[str] = None, category: Optional[str] = None):
     import json
     from backend.database.models import EventLog
     async with AsyncSessionLocal() as session:
+        # Clean up legacy technical logs automatically so the table stays clean
+        try:
+            stmt_cleanup = delete(EventLog).where(
+                or_(
+                    EventLog.module.in_(list(TECHNICAL_LOG_SOURCES)),
+                    EventLog.user_id.in_(list(TECHNICAL_LOG_SOURCES)),
+                    EventLog.action.in_(list(TECHNICAL_LOG_ACTIONS))
+                )
+            )
+            await session.execute(stmt_cleanup)
+            await session.commit()
+        except Exception:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+
         stmt = select(EventLog).order_by(EventLog.timestamp.desc())
-        if module:
+        if module and module != "all":
             stmt = stmt.where(EventLog.module == module)
         stmt = stmt.offset(offset).limit(limit)
-        
+
         result = await session.execute(stmt)
         logs = result.scalars().all()
-        
+
         formatted_logs = []
         for l in logs:
+            raw_mod = str(l.module or "").strip()
+            raw_uid = str(l.user_id or "").strip()
+            raw_act = str(l.action or "").strip()
+
+            if raw_mod in TECHNICAL_LOG_SOURCES or raw_uid in TECHNICAL_LOG_SOURCES or raw_act in TECHNICAL_LOG_ACTIONS:
+                continue
+
             det = None
             if l.details:
                 try:
                     det = json.loads(l.details)
                 except Exception:
-                    det = {"message": l.details}
+                    det = {"summary": str(l.details)}
+
+            if isinstance(det, dict) and det.get("status") == "No changes detected":
+                continue
+
+            user_display = resolve_audit_user_label(raw_uid)
+            module_tr = AUDIT_MODULE_TRANSLATIONS.get(raw_mod, raw_mod or "Sistem")
+            action_tr, resolved_cat = AUDIT_ACTION_META.get(raw_act, (raw_act, "update"))
+            if "DELETE" in raw_act or "REMOVE" in raw_act:
+                resolved_cat = "delete"
+            elif "CREATE" in raw_act or "ADD" in raw_act:
+                resolved_cat = "create"
+            elif raw_act in ("LOGIN", "LOGOUT", "QUEUE_LOGIN", "QUEUE_LOGOUT", "BREAK_START", "BREAK_END"):
+                resolved_cat = "auth"
+            elif raw_act == "PAGE_VIEW":
+                resolved_cat = "navigation"
+
+            if category and category != "all" and resolved_cat != category:
+                continue
+
+            summary_text = _build_human_summary_for_log(raw_act, module_tr, det, user_display)
+
             formatted_logs.append({
                 "id": l.id,
                 "timestamp": l.timestamp.isoformat() if l.timestamp else datetime.datetime.utcnow().isoformat(),
-                "user_id": l.user_id or "System",
-                "action": l.action or "INFO",
-                "module": l.module or "System",
+                "user_id": user_display,
+                "action": raw_act,
+                "action_tr": action_tr,
+                "category": resolved_cat,
+                "module": raw_mod,
+                "module_tr": module_tr,
+                "summary": summary_text,
                 "details": det,
                 "ip_address": l.ip_address or "127.0.0.1"
             })
 
-        if not formatted_logs and system_logs:
-            idx = 1
-            for sl in reversed(system_logs):
-                formatted_logs.append({
-                    "id": idx,
-                    "timestamp": datetime.datetime.utcnow().isoformat(),
-                    "user_id": sl.get("source", "System"),
-                    "action": sl.get("level", "INFO"),
-                    "module": sl.get("source", "System"),
-                    "details": {"message": sl.get("message", "")},
-                    "ip_address": "127.0.0.1"
-                })
-                idx += 1
-        
         return {
             "status": "success",
             "logs": formatted_logs
@@ -20024,6 +20433,23 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                     except Exception as e_pres:
                         print(f"[Preserve Historical Agent Name Warning]: {e_pres}")
 
+                user_field_labels = {
+                    "full_name": "Ad Soyad",
+                    "extension": "Dahili Numara",
+                    "role": "Kullanıcı Rolü",
+                    "email": "E-Posta",
+                    "gsm_number": "Cep Telefonu (GSM)",
+                    "outbound_permission": "Dış Arama Yetkisi",
+                    "is_active": "Durum",
+                    "two_factor_enabled": "İki Faktörlü Doğrulama (2FA)"
+                }
+                user_diff = {}
+                for fk, flabel in user_field_labels.items():
+                    old_v = getattr(target_user, fk, None)
+                    new_v = filtered_data.get(fk)
+                    if new_v is not None and str(old_v or "") != str(new_v or ""):
+                        user_diff[flabel] = {"old": str(old_v if old_v is not None else "-"), "new": str(new_v)}
+
                 for k, v in filtered_data.items():
                     setattr(target_user, k, v)
                     if k in json_cols:
@@ -20032,18 +20458,36 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                         except Exception:
                             pass
                 payload_user_ids.add(target_user.id)
-                changes.append({"action": "UPDATED", "name": data.get("full_name"), "extension": data.get("extension")})
+                if user_diff or is_single:
+                    changes.append({
+                        "action": "UPDATED",
+                        "name": data.get("full_name"),
+                        "extension": data.get("extension"),
+                        "summary": f"'{data.get('full_name')}' (Dahili: {data.get('extension')}) kullanıcısının bilgileri güncellendi.",
+                        "diff": user_diff
+                    })
             else:
                 new_sys_user = SystemUser(**filtered_data)
                 try:
                     db.add(new_sys_user)
                 except Exception:
                     pass
-                changes.append({"action": "CREATED", "name": data.get("full_name"), "extension": data.get("extension")})
+                changes.append({
+                    "action": "CREATED",
+                    "name": data.get("full_name"),
+                    "extension": data.get("extension"),
+                    "summary": f"Yeni kullanıcı eklendi: {data.get('full_name')} (Dahili: {data.get('extension')}, Rol: {data.get('role')})"
+                })
 
         if not is_single and existing_users_db:
             for u in existing_users_db:
                 if u.id not in payload_user_ids and u.role != "admin" and str(u.id) != "admin":
+                    changes.append({
+                        "action": "DELETED",
+                        "name": u.full_name,
+                        "extension": u.extension,
+                        "summary": f"Kullanıcı silindi: {u.full_name} (Dahili: {u.extension})"
+                    })
                     try:
                         await db.delete(u)
                     except Exception:
@@ -20116,6 +20560,19 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         settings_db["users"] = new_users_out
         save_settings(settings_db)
 
+        if changes:
+            has_created = any(c.get("action") == "CREATED" for c in changes)
+            has_deleted = any(c.get("action") == "DELETED" for c in changes)
+            act_code = "CREATE_USER" if has_created and not has_deleted else ("DELETE_USER" if has_deleted and not has_created else "UPDATE_USER")
+            summary_str = " • ".join([c.get("summary") or f"{c.get('name')} ({c.get('extension')})" for c in changes])
+            asyncio.create_task(log_event(
+                user_id=user_info.get("user_id", "Sistem Yöneticisi"),
+                action=act_code,
+                module="Users",
+                details={"summary": summary_str, "changes": changes},
+                ip_address=user_info.get("ip_address")
+            ))
+
         try:
             regenerate_pjsip_custom_conf()
         except Exception as e_pjsip:
@@ -20138,12 +20595,16 @@ async def update_single_user_endpoint(user_id: int, payload: UserSchema, backgro
 @app.delete("/settings/users/{user_id}")
 async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        deleted_name = str(user_id)
+        deleted_ext = ""
         try:
             res = await db.execute(select(SystemUser).where(SystemUser.id == user_id))
             u = res.scalars().first()
             if u:
                 if u.role == "admin" or str(u.id) == "admin":
                     raise HTTPException(status_code=400, detail="Admin kullanıcısı silinemez.")
+                deleted_name = u.full_name or str(user_id)
+                deleted_ext = u.extension or ""
                 await db.delete(u)
                 await db.commit()
         except HTTPException:
@@ -20156,10 +20617,25 @@ async def delete_single_user_endpoint(user_id: int, user_info: dict = Depends(ge
                 pass
 
         current_users = settings_db.get("users", [])
+        for cu in current_users:
+            if cu.get("id") == user_id:
+                deleted_name = cu.get("full_name") or cu.get("name") or deleted_name
+                deleted_ext = cu.get("extension") or deleted_ext
         new_users = [u for u in current_users if u.get("id") != user_id or u.get("role") == "admin"]
         settings_db["needs_apply"] = True
         settings_db["users"] = new_users
         save_settings(settings_db)
+
+        asyncio.create_task(log_event(
+            user_id=user_info.get("user_id", "Sistem Yöneticisi"),
+            action="DELETE_USER",
+            module="Users",
+            details={
+                "summary": f"Kullanıcı silindi: {deleted_name}" + (f" (Dahili: {deleted_ext})" if deleted_ext else ""),
+                "changes": [{"action": "DELETED", "name": deleted_name, "extension": deleted_ext}]
+            },
+            ip_address=user_info.get("ip_address")
+        ))
 
         return {"status": "success", "users": new_users}
     except HTTPException:
@@ -20229,12 +20705,31 @@ async def new_save_roles_endpoint(payload: Union[List[RoleSchema], RoleSchema], 
                 target_role = existing_by_code[code]
             
             if target_role:
+                old_perms = set(target_role.permissions or [])
+                new_perms = set(data.get("permissions") or [])
+                added_perms = list(new_perms - old_perms)
+                removed_perms = list(old_perms - new_perms)
+                role_diff = {}
+                if target_role.name != data.get("name"):
+                    role_diff["Rol Adı"] = {"old": target_role.name, "new": data.get("name")}
+                if added_perms:
+                    role_diff["Eklenen Yetkiler"] = {"old": "-", "new": f"{len(added_perms)} yetki eklendi ({', '.join(added_perms[:5])})"}
+                if removed_perms:
+                    role_diff["Kaldırılan Yetkiler"] = {"old": f"{len(removed_perms)} yetki ({', '.join(removed_perms[:5])})", "new": "Kaldırıldı"}
+
                 target_role.role_code = code
                 target_role.name = data.get("name")
                 target_role.permissions = data.get("permissions", [])
                 target_role.allowed_breaks = data.get("allowed_breaks", [])
                 payload_role_ids.add(target_role.id)
-                changes.append({"action": "UPDATED", "name": data.get("name"), "role_code": code})
+                if role_diff or is_single:
+                    changes.append({
+                        "action": "UPDATED",
+                        "name": data.get("name"),
+                        "role_code": code,
+                        "summary": f"'{data.get('name')}' rolünün yetki ve erişim ayarları güncellendi.",
+                        "diff": role_diff
+                    })
             else:
                 new_sys_role = SystemRole(
                     role_code=code,
@@ -20243,13 +20738,23 @@ async def new_save_roles_endpoint(payload: Union[List[RoleSchema], RoleSchema], 
                     allowed_breaks=data.get("allowed_breaks", [])
                 )
                 db.add(new_sys_role)
-                changes.append({"action": "CREATED", "name": data.get("name"), "role_code": code})
+                changes.append({
+                    "action": "CREATED",
+                    "name": data.get("name"),
+                    "role_code": code,
+                    "summary": f"Yeni rol oluşturuldu: '{data.get('name')}' ({code})"
+                })
                 
         if not is_single:
             for r in existing_roles_db:
                 if r.id not in payload_role_ids and r.role_code not in ["admin", "superadmin", "agent", "supervisor", "manager"]:
                     await db.delete(r)
-                    changes.append({"action": "DELETED", "name": r.name, "role_code": r.role_code})
+                    changes.append({
+                        "action": "DELETED",
+                        "name": r.name,
+                        "role_code": r.role_code,
+                        "summary": f"Rol silindi: '{r.name}' ({r.role_code})"
+                    })
 
         await db.commit()
 
@@ -20265,6 +20770,19 @@ async def new_save_roles_endpoint(payload: Union[List[RoleSchema], RoleSchema], 
                 json.dump(settings_db, f, ensure_ascii=False, indent=4)
         except Exception:
             pass
+
+        if changes:
+            has_created = any(c.get("action") == "CREATED" for c in changes)
+            has_deleted = any(c.get("action") == "DELETED" for c in changes)
+            act_code = "CREATE_ROLE" if has_created and not has_deleted else ("DELETE_ROLE" if has_deleted and not has_created else "UPDATE_ROLE")
+            summary_str = " • ".join([c.get("summary") or str(c.get("name")) for c in changes])
+            asyncio.create_task(log_event(
+                user_id=user_info.get("user_id", "Sistem Yöneticisi"),
+                action=act_code,
+                module="Roles",
+                details={"summary": summary_str, "changes": changes},
+                ip_address=user_info.get("ip_address")
+            ))
         
         return {"status": "success", "roles": new_roles_out}
     except HTTPException:
@@ -20282,11 +20800,13 @@ async def update_single_role_endpoint(role_id: int, payload: RoleSchema, user_in
 @app.delete("/api/settings/roles/{role_id}")
 async def delete_single_role_endpoint(role_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        deleted_role_name = str(role_id)
         res = await db.execute(select(SystemRole).where(SystemRole.id == role_id))
         r = res.scalars().first()
         if r:
             if r.role_code in ["admin", "superadmin", "agent", "supervisor", "manager"]:
                 raise HTTPException(status_code=400, detail="Sistem varsayılan rolü silinemez.")
+            deleted_role_name = r.name or r.role_code or str(role_id)
             await db.delete(r)
             await db.commit()
         
@@ -20301,6 +20821,17 @@ async def delete_single_role_endpoint(role_id: int, user_info: dict = Depends(ge
                 json.dump(settings_db, f, ensure_ascii=False, indent=4)
         except Exception:
             pass
+
+        asyncio.create_task(log_event(
+            user_id=user_info.get("user_id", "Sistem Yöneticisi"),
+            action="DELETE_ROLE",
+            module="Roles",
+            details={
+                "summary": f"Rol silindi: '{deleted_role_name}'",
+                "changes": [{"action": "DELETED", "name": deleted_role_name}]
+            },
+            ip_address=user_info.get("ip_address")
+        ))
         
         return {"status": "success", "roles": new_roles_out}
     except HTTPException:
@@ -20308,17 +20839,7 @@ async def delete_single_role_endpoint(role_id: int, user_info: dict = Depends(ge
     except Exception as e:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Rol silinirken hata oluştu: {str(e)}")
-        
-        try:
-            await log_event(
-                user_id=user_info["user_id"],
-                action="UPDATE_ROLES",
-                module="Roles",
-                details={"changes": changes} if changes else {"status": "No changes detected"},
-                ip_address=user_info["ip_address"]
-            )
-        except Exception as le:
-            print(f"[Log Event Error]: {le}")
+
 
 @app.get("/api/settings/queues")
 @app.get("/settings/queues")
@@ -20343,6 +20864,20 @@ async def new_get_queues_endpoint(request: Request, user_info: dict = Depends(ge
     return [q for q in all_queues if q.get("tenant_id") == target_tenant or (not q.get("tenant_id") and target_tenant == "tenant-default")]
 
 
+def _extract_queue_member_exts(raw_members) -> set:
+    exts = set()
+    if not isinstance(raw_members, list):
+        return exts
+    for m in raw_members:
+        if isinstance(m, dict):
+            val = str(m.get("extension") or m.get("user_id") or m.get("id") or "").strip()
+        else:
+            val = str(m or "").strip()
+        if val:
+            exts.add(val)
+    return exts
+
+
 @app.post("/api/settings/queues")
 @app.post("/settings/queues")
 async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str, Any]], background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
@@ -20360,7 +20895,7 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
             check_name_uniqueness(name_val, "queues", item_id, label="Kuyruk")
 
         payload_queue_ids = set()
-
+        queue_changes = []
         new_queues_out = []
         valid_keys = {c.name for c in PBXQueue.__table__.columns}
 
@@ -20381,18 +20916,55 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
                     target_q = existing_by_num[str(data.get("queue_number"))]
 
                 filtered_data = {k: v for k, v in data.items() if k in valid_keys and k != "id"}
+                q_name = data.get("name") or "Kuyruk"
+                q_ext = data.get("extension") or data.get("queue_number") or ""
 
                 if target_q:
+                    old_members = _extract_queue_member_exts(getattr(target_q, "members", None))
+                    new_members = _extract_queue_member_exts(filtered_data.get("members") or data.get("queueMembers"))
+                    added_m = sorted(list(new_members - old_members))
+                    removed_m = sorted(list(old_members - new_members))
+                    q_diff = {}
+                    summary_parts = []
+                    if added_m:
+                        added_labels = [resolve_audit_user_label(m) for m in added_m]
+                        q_diff["Eklenen Kuyruk Üyeleri"] = {"old": "-", "new": ", ".join(added_labels)}
+                        summary_parts.append(f"'{q_name} ({q_ext})' kuyruğuna üye eklendi: {', '.join(added_labels)}")
+                    if removed_m:
+                        removed_labels = [resolve_audit_user_label(m) for m in removed_m]
+                        q_diff["Çıkarılan Kuyruk Üyeleri"] = {"old": ", ".join(removed_labels), "new": "Çıkarıldı"}
+                        summary_parts.append(f"'{q_name} ({q_ext})' kuyruğundan üye çıkarıldı: {', '.join(removed_labels)}")
+                    if getattr(target_q, "strategy", None) != filtered_data.get("strategy") and filtered_data.get("strategy"):
+                        q_diff["Çaldırma Stratejisi"] = {"old": str(getattr(target_q, "strategy", "-")), "new": str(filtered_data.get("strategy"))}
+
                     for k, v in filtered_data.items():
                         setattr(target_q, k, v)
                     payload_queue_ids.add(target_q.id)
+
+                    if q_diff or is_single:
+                        queue_changes.append({
+                            "action": "UPDATED",
+                            "name": f"{q_name} ({q_ext})",
+                            "summary": " • ".join(summary_parts) if summary_parts else f"'{q_name} ({q_ext})' kuyruk ayarları güncellendi.",
+                            "diff": q_diff
+                        })
                 else:
                     new_sys_q = PBXQueue(**filtered_data)
                     db.add(new_sys_q)
+                    queue_changes.append({
+                        "action": "CREATED",
+                        "name": f"{q_name} ({q_ext})",
+                        "summary": f"Yeni çağrı kuyruğu eklendi: {q_name} (Numara: {q_ext})"
+                    })
 
             if not is_single:
                 for q in existing_queues_db:
                     if q.id not in payload_queue_ids:
+                        queue_changes.append({
+                            "action": "DELETED",
+                            "name": f"{q.name} ({q.extension})",
+                            "summary": f"Çağrı kuyruğu silindi: {q.name} (Numara: {q.extension})"
+                        })
                         await db.delete(q)
 
             await db.commit()
@@ -20416,6 +20988,19 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
         settings_db["queues"] = new_queues_out
         save_settings(settings_db)
 
+        if queue_changes:
+            has_created = any(c.get("action") == "CREATED" for c in queue_changes)
+            has_deleted = any(c.get("action") == "DELETED" for c in queue_changes)
+            act_code = "CREATE_QUEUE" if has_created and not has_deleted else ("DELETE_QUEUE" if has_deleted and not has_created else "UPDATE_QUEUE")
+            summary_str = " • ".join([c.get("summary") or str(c.get("name")) for c in queue_changes])
+            asyncio.create_task(log_event(
+                user_id=user_info.get("user_id", "Sistem Yöneticisi"),
+                action=act_code,
+                module="Queues",
+                details={"summary": summary_str, "changes": queue_changes},
+                ip_address=user_info.get("ip_address")
+            ))
+
         return {"status": "success", "queues": new_queues_out}
     except HTTPException:
         raise
@@ -20435,9 +21020,13 @@ async def update_single_queue_endpoint(queue_id: int, payload: Dict[str, Any], b
 @app.delete("/settings/queues/{queue_id}")
 async def delete_single_queue_endpoint(queue_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        deleted_q_name = str(queue_id)
+        deleted_q_ext = ""
         res = await db.execute(select(PBXQueue).where(PBXQueue.id == queue_id))
         q = res.scalars().first()
         if q:
+            deleted_q_name = q.name or str(queue_id)
+            deleted_q_ext = q.extension or ""
             await db.delete(q)
             await db.commit()
 
@@ -20447,6 +21036,17 @@ async def delete_single_queue_endpoint(queue_id: int, user_info: dict = Depends(
 
         settings_db["needs_apply"] = True
         settings_db["queues"] = new_queues_out
+
+        asyncio.create_task(log_event(
+            user_id=user_info.get("user_id", "Sistem Yöneticisi"),
+            action="DELETE_QUEUE",
+            module="Queues",
+            details={
+                "summary": f"Çağrı kuyruğu silindi: {deleted_q_name}" + (f" (Numara: {deleted_q_ext})" if deleted_q_ext else ""),
+                "changes": [{"action": "DELETED", "name": f"{deleted_q_name} ({deleted_q_ext})"}]
+            },
+            ip_address=user_info.get("ip_address")
+        ))
 
         return {"status": "success", "queues": new_queues_out}
     except Exception as e:
@@ -21268,6 +21868,7 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
 
     out = []
 
+    trunk_changes = []
     try:
         res_existing = await db.execute(select(Trunk))
         existing_trunks_db = res_existing.scalars().all()
@@ -21301,8 +21902,19 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
                 target_trunk = existing_by_name[data["trunk_name"]]
 
             if target_trunk:
+                field_diffs = {}
                 for k, v in filtered_data.items():
+                    old_v = getattr(target_trunk, k, None)
+                    if str(old_v or "") != str(v or "") and k not in ("sip_password", "password"):
+                        field_diffs[k] = {"old": old_v, "new": v}
                     setattr(target_trunk, k, v)
+                if field_diffs:
+                    trunk_changes.append({
+                        "action": "UPDATED",
+                        "name": target_trunk.trunk_name,
+                        "summary": f"SIP dış hat (Trunk) güncellendi: {target_trunk.trunk_name} ({target_trunk.host or '-'})",
+                        "fields": field_diffs
+                    })
             else:
                 if not filtered_data.get("trunk_name"):
                     filtered_data["trunk_name"] = "Yeni_Trunk"
@@ -21314,6 +21926,11 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
                     filtered_data["transfer_target"] = "200"
                 t = Trunk(**filtered_data)
                 db.add(t)
+                trunk_changes.append({
+                    "action": "CREATED",
+                    "name": filtered_data.get("trunk_name"),
+                    "summary": f"Yeni SIP dış hat (Trunk) eklendi: {filtered_data.get('trunk_name')} (Sunucu: {filtered_data.get('host') or '-'}, Numara: {filtered_data.get('did_number') or '-'})"
+                })
 
         await db.commit()
 
@@ -21350,15 +21967,31 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
     except Exception as e_ast:
         print(f"[Save Trunk Asterisk Regeneration Warning]: {e_ast}")
 
+    if trunk_changes:
+        has_created = any(c.get("action") == "CREATED" for c in trunk_changes)
+        act_code = "CREATE_TRUNK" if has_created else "UPDATE_TRUNK"
+        summary_str = " • ".join([c.get("summary") or str(c.get("name")) for c in trunk_changes])
+        asyncio.create_task(log_event(
+            user_id=user_info.get("user_id", "Sistem Yöneticisi"),
+            action=act_code,
+            module="SIP Trunks",
+            details={"summary": summary_str, "changes": trunk_changes},
+            ip_address=user_info.get("ip_address")
+        ))
+
     return {"status": "success", "trunks": out}
 
 @app.delete("/api/settings/trunks/{trunk_id}")
 @app.delete("/settings/trunks/{trunk_id}")
 async def new_delete_trunk(trunk_id: int, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
+        deleted_trunk_name = str(trunk_id)
+        deleted_trunk_host = ""
         res = await db.execute(select(Trunk).where(Trunk.id == trunk_id))
         t = res.scalars().first()
         if t:
+            deleted_trunk_name = t.trunk_name or str(trunk_id)
+            deleted_trunk_host = t.host or ""
             await db.delete(t)
             await db.commit()
 
@@ -21378,6 +22011,17 @@ async def new_delete_trunk(trunk_id: int, background_tasks: BackgroundTasks, use
             regenerate_extensions_custom_conf(background_tasks)
         except Exception as e_ast:
             print(f"[Trunk Delete Config Regeneration Warning]: {e_ast}")
+
+        asyncio.create_task(log_event(
+            user_id=user_info.get("user_id", "Sistem Yöneticisi"),
+            action="DELETE_TRUNK",
+            module="SIP Trunks",
+            details={
+                "summary": f"SIP dış hat (Trunk) silindi: {deleted_trunk_name}" + (f" (Sunucu: {deleted_trunk_host})" if deleted_trunk_host else ""),
+                "changes": [{"action": "DELETED", "name": deleted_trunk_name}]
+            },
+            ip_address=user_info.get("ip_address")
+        ))
 
         return {"status": "success", "message": "SIP Trunk başarıyla silindi.", "trunks": settings_db["trunks"]}
     except Exception as e:
@@ -22141,7 +22785,6 @@ async def handle_whatsapp_webhook(request: Request):
             body_str = raw_body.decode('utf-8', errors='ignore')
             print(f"[WhatsApp Webhook POST] Raw payload: {body_str}")
             add_system_log("WHATSAPP", "INFO", f"POST Webhook alındı: {body_str[:120]}")
-            asyncio.create_task(log_event(user_id="Meta Webhook", action="POST_RECEIVED", module="WhatsApp", details={"payload": body_str[:300]}))
             
             body = await request.json()
             values_to_process = []
@@ -22192,7 +22835,6 @@ async def handle_whatsapp_webhook(request: Request):
 
                         print(f"[WhatsApp Inbound] Processing message from {sender_phone} ({sender_name}) on line {recipient_phone_num or recipient_phone_id}: '{text_body}'")
                         add_system_log("WHATSAPP", "SUCCESS", f"Gelen Mesaj ({sender_phone} - {sender_name}): '{text_body}'")
-                        asyncio.create_task(log_event(user_id=f"{sender_name} ({sender_phone})", action="INBOUND_MESSAGE", module="WhatsApp", details={"text": text_body, "phone": sender_phone, "recipient_phone_id": recipient_phone_id}))
                         asyncio.create_task(
                             handle_inbound_chat_message(
                                 channel="whatsapp",
@@ -22205,7 +22847,6 @@ async def handle_whatsapp_webhook(request: Request):
         except Exception as e:
             print(f"[WhatsApp Webhook Parse Error]: {e}")
             add_system_log("WHATSAPP", "ERROR", f"Webhook Parse Hatası: {e}")
-            asyncio.create_task(log_event(user_id="Meta Webhook", action="PARSE_ERROR", module="WhatsApp", details={"error": str(e)}))
         return Response(content='{"status":"success"}', media_type="application/json", status_code=200)
 
     # GET method: Verification request

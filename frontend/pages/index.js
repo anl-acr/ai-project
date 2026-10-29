@@ -1294,6 +1294,7 @@ export default function Home() {
       setCurrentUser(activeAdminUser);
       setIsLoggedIn(true);
       checkRolePermissions(activeAdminUser);
+      sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${activeAdminUser.full_name || "Sistem Yöneticisi"} web yönetim paneline giriş yaptı.`, activeAdminUser);
       return { success: true };
     }
 
@@ -1325,6 +1326,7 @@ export default function Home() {
       setCurrentUser(foundUser);
       setIsLoggedIn(true);
       checkRolePermissions(foundUser);
+      sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${foundUser.full_name || foundUser.username || "Kullanıcı"} (Dahili: ${foundUser.extension || "-"}) sisteme giriş yaptı.`, foundUser);
       return { success: true };
     } else {
       setLoginError("Geçersiz kullanıcı adı veya şifre.");
@@ -1350,6 +1352,7 @@ export default function Home() {
       setCurrentUser(updatedUser);
       setIsLoggedIn(true);
       checkRolePermissions(updatedUser);
+      sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi (2FA)", `${updatedUser.full_name || updatedUser.username || "Kullanıcı"} 2 aşamalı doğrulama ile sisteme giriş yaptı.`, updatedUser);
     }
   };
 
@@ -1379,6 +1382,80 @@ export default function Home() {
     localStorage.setItem("theme", newMode ? "dark" : "light");
   };
 
+  const sendUserAuditActivity = React.useCallback((action, module, screenName, summary, userOverride = null) => {
+    try {
+      if (typeof window === "undefined") return;
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const u = userOverride || currentUser;
+      const uid = u?.id || u?.extension || sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id");
+      if (!uid) return;
+      fetch(`${protocol}//${backendHost}/api/audit/activity`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": String(uid)
+        },
+        body: JSON.stringify({
+          user_id: String(uid),
+          user_name: u?.full_name ? (u?.extension ? `${u.full_name} (Dahili: ${u.extension})` : u.full_name) : undefined,
+          extension: u?.extension || undefined,
+          action,
+          module,
+          screen_name: screenName,
+          summary
+        })
+      }).catch(() => {});
+    } catch (e) {}
+  }, [backendHost, currentUser]);
+
+  const prevLoggedTabRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!isLoggedIn || !currentUser || !activeTab) return;
+    if (prevLoggedTabRef.current === null) {
+      prevLoggedTabRef.current = activeTab;
+      return;
+    }
+    if (prevLoggedTabRef.current === activeTab) return;
+    prevLoggedTabRef.current = activeTab;
+
+    const TAB_LABELS = {
+      "dashboard": "Gerçek Zamanlı AI Pano",
+      "wallboard": "Canlı Duvar (Wallboard)",
+      "call-center": "Temsilci Çağrı Paneli",
+      "omnichannel": "Çok Kanallı Sohbet (Omnichannel)",
+      "reports": "Çağrı ve Performans Raporları",
+      "satisfaction-analytics": "Müşteri Memnuniyet Analitiği",
+      "contacts": "Telefon Rehberi",
+      "appointments": "Randevu Yönetimi",
+      "knowledge": "Bilgi Bankası (RAG)",
+      "evaluation": "Kalite Değerlendirme",
+      "blacklist": "Kara Liste & Engellenenler",
+      "tenants": "Müşteri (Tenant) Yönetimi",
+      "system-logs": "Olay Günlükleri (Denetim Kayıtları)",
+      "sip-debugger": "SIP / WebRTC Paket Analizi",
+      "pbx-settings": "Santral (PBX) Ayarları",
+      "settings": "Sistem Ayarları"
+    };
+    const screenLabel = TAB_LABELS[activeTab] || activeTab;
+    sendUserAuditActivity(
+      "PAGE_VIEW",
+      "Navigation",
+      screenLabel,
+      `Kullanıcı '${screenLabel}' ekranına giriş yaptı.`
+    );
+  }, [activeTab, isLoggedIn, currentUser, sendUserAuditActivity]);
+
+  React.useEffect(() => {
+    if (settingsModalOpen && isLoggedIn && currentUser) {
+      sendUserAuditActivity(
+        "PAGE_VIEW",
+        "Profile",
+        "Profil Ayarları",
+        "Kullanıcı 'Profil Ayarları' penceresine giriş yaptı."
+      );
+    }
+  }, [settingsModalOpen, isLoggedIn, currentUser, sendUserAuditActivity]);
+
   const handleLogout = async () => {
     setProfileDropdownOpen(false);
     try {
@@ -1386,6 +1463,23 @@ export default function Home() {
       const targetUserId = currentUser?.id || currentUser?.extension || localStorage.getItem('current_user_id') || sessionStorage.getItem('current_user_id');
 
       if (targetUserId) {
+        await fetch(`${protocol}//${backendHost}/api/audit/activity`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-User-ID": String(targetUserId)
+          },
+          body: JSON.stringify({
+            user_id: String(targetUserId),
+            user_name: currentUser?.full_name ? (currentUser?.extension ? `${currentUser.full_name} (Dahili: ${currentUser.extension})` : currentUser.full_name) : undefined,
+            extension: currentUser?.extension || undefined,
+            action: "LOGOUT",
+            module: "Auth",
+            screen_name: "Web Paneli Çıkışı",
+            summary: `${currentUser?.full_name || "Kullanıcı"} web panelinden çıkış yaptı.`
+          })
+        }).catch(() => {});
+
         await fetch(`${protocol}//${backendHost}/api/webrtc/unregister_notify`, {
           method: "POST",
           headers: {
@@ -1432,6 +1526,24 @@ export default function Home() {
     const originalError = console.error;
     const rawFetch = window.fetch;
 
+    // Automatically attach X-User-ID header to all backend API calls for accurate User Audit Trail
+    window.fetch = function (input, init = {}) {
+      try {
+        const urlStr = typeof input === "string" ? input : (input?.url || "");
+        if (urlStr.includes("/api/") || urlStr.includes("/settings/")) {
+          const activeUid = sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id");
+          if (activeUid) {
+            const headers = new Headers(init.headers || {});
+            if (!headers.has("X-User-ID")) {
+              headers.set("X-User-ID", String(activeUid));
+            }
+            init = { ...init, headers };
+          }
+        }
+      } catch (e) {}
+      return rawFetch.call(this, input, init);
+    };
+
     const sendLog = (level, args) => {
       if (level !== "error") return;
       const message = args.map(arg => {
@@ -1464,6 +1576,7 @@ export default function Home() {
     };
 
     return () => {
+      window.fetch = rawFetch;
       console.log = originalLog;
       console.warn = originalWarn;
       console.error = originalError;
