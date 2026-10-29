@@ -2192,44 +2192,85 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     };
   };
 
-  const getCallDurations = (call) => {
-    if (!call) return { talk: "0:00", queue: "0:00", ivr: "0:00", total: "0:00" };
-    let totalSeconds = 0;
-    if (call.end_time) {
-      totalSeconds = Math.max(0, Math.floor((new Date(call.end_time) - new Date(call.start_time)) / 1000));
-    } else {
-      totalSeconds = Math.max(0, Math.floor((new Date() - new Date(call.start_time)) / 1000));
+  const parseUtcSafeDate = (dateVal) => {
+    if (!dateVal) return new Date();
+    const raw = String(dateVal).trim();
+    let cleanStr = raw;
+    if (!raw.endsWith("Z") && !raw.includes("+") && !raw.includes("GMT") && raw.includes("T")) {
+      cleanStr = raw + "Z";
     }
+    const parsed = new Date(cleanStr);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  };
 
-    if (totalSeconds === 0) {
-      return { talk: "0:00", queue: "0:00", ivr: "0:00", total: "0:00" };
+  const getCallDurations = (call) => {
+    if (!call) {
+      return { talk: "0:00", queue: "0:00", ivr: "0:00", total: "0:00", talkSecs: 0, queueSecs: 0, ivrSecs: 0, totalSecs: 0 };
+    }
+    const startDt = parseUtcSafeDate(call.start_time);
+    const endDt = call.end_time ? parseUtcSafeDate(call.end_time) : new Date();
+    const totalSeconds = Math.max(
+      0,
+      call.duration_total != null && call.end_time
+        ? Math.round(Number(call.duration_total))
+        : Math.floor((endDt.getTime() - startDt.getTime()) / 1000)
+    );
+
+    if (totalSeconds === 0 && call.talk_duration == null && call.duration_talk == null) {
+      return { talk: "0:00", queue: "0:00", ivr: "0:00", total: "0:00", talkSecs: 0, queueSecs: 0, ivrSecs: 0, totalSecs: 0 };
     }
 
     const formatSecs = (secs) => {
-      const mins = Math.floor(secs / 60);
-      const remainingSecs = secs % 60;
+      const safe = Math.max(0, Math.round(secs));
+      const mins = Math.floor(safe / 60);
+      const remainingSecs = safe % 60;
       return `${mins}:${remainingSecs.toString().padStart(2, "0")}`;
     };
+
+    const ivrSeconds = Math.max(0, Math.round(Number(call.duration_ivr || 0)));
+    const queueSeconds = Math.max(0, Math.round(Number(call.duration_queue || 0)));
 
     const status = getCallStatus(call);
     if (status === "Başarısız") {
       return {
         talk: "0:00",
-        queue: "0:00",
-        ivr: "0:00",
-        total: formatSecs(totalSeconds)
+        queue: formatSecs(queueSeconds),
+        ivr: formatSecs(ivrSeconds),
+        total: formatSecs(totalSeconds),
+        talkSecs: 0,
+        queueSecs: queueSeconds,
+        ivrSecs: ivrSeconds,
+        totalSecs: totalSeconds
       };
     }
 
-    const ivrSeconds = Math.max(0, Number(call.duration_ivr || 0));
-    const queueSeconds = Math.max(0, Number(call.duration_queue || 0));
-    const talkSeconds = Math.max(0, totalSeconds - ivrSeconds - queueSeconds);
+    let talkSeconds = 0;
+    if (call.talk_duration != null) {
+      talkSeconds = Math.max(0, Math.round(Number(call.talk_duration)));
+    } else if (call.duration_talk != null) {
+      talkSeconds = Math.max(0, Math.round(Number(call.duration_talk)));
+    } else if (call.answered_at) {
+      const ansDt = parseUtcSafeDate(call.answered_at);
+      talkSeconds = Math.max(0, Math.floor((endDt.getTime() - ansDt.getTime()) / 1000));
+    } else {
+      talkSeconds = Math.max(0, totalSeconds - ivrSeconds - queueSeconds);
+    }
+
+    if (totalSeconds > 0 && talkSeconds > totalSeconds) {
+      talkSeconds = totalSeconds;
+    }
+
+    const effectiveTotal = Math.max(totalSeconds, talkSeconds);
 
     return {
       talk: formatSecs(talkSeconds),
       queue: formatSecs(queueSeconds),
       ivr: formatSecs(ivrSeconds),
-      total: formatSecs(totalSeconds)
+      total: formatSecs(effectiveTotal),
+      talkSecs: talkSeconds,
+      queueSecs: queueSeconds,
+      ivrSecs: ivrSeconds,
+      totalSecs: effectiveTotal
     };
   };
 
@@ -2774,17 +2815,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return { label: "Kayıt Öncesi (Belirtilmedi)", isKnown: false };
   };
 
-  const parseUtcSafeDate = (dateVal) => {
-    if (!dateVal) return new Date();
-    const raw = String(dateVal).trim();
-    let cleanStr = raw;
-    if (!raw.endsWith("Z") && !raw.includes("+") && !raw.includes("GMT") && raw.includes("T")) {
-      cleanStr = raw + "Z";
-    }
-    const parsed = new Date(cleanStr);
-    return isNaN(parsed.getTime()) ? new Date() : parsed;
-  };
-
   const getCallFlowTimeline = (call) => {
     if (!call) return [];
 
@@ -2806,6 +2836,17 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const callee = String(call.callee_number || "").trim();
     const hs = String(call.hangup_source || "").trim();
     const stLower = String(call.status || "").toLowerCase();
+
+    let realAnswerOffsetSecs = null;
+    if (call.answered_at) {
+      const ansDt = parseUtcSafeDate(call.answered_at);
+      realAnswerOffsetSecs = Math.max(
+        1,
+        Math.min(realTotalSecs, Math.floor((ansDt.getTime() - baseTime.getTime()) / 1000))
+      );
+    } else if ((call.talk_duration != null || call.duration_talk != null) && durations.talkSecs > 0) {
+      realAnswerOffsetSecs = Math.max(1, Math.min(realTotalSecs, realTotalSecs - durations.talkSecs));
+    }
 
     const formatOffsetTime = (secs) => {
       const clampedSecs = endTime ? Math.min(secs, realTotalSecs) : secs;
@@ -2847,6 +2888,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     };
 
     if (pickupMeta) {
+      const pkAnsOffset = realAnswerOffsetSecs ?? Math.min(3, realTotalSecs);
       timeline.push({
         time: formatOffsetTime(0),
         title: "Çağrı Başlangıcı (Arayan → Aranan)",
@@ -2854,12 +2896,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         status: "info"
       });
       timeline.push({
-        time: formatOffsetTime(Math.min(3, realTotalSecs)),
+        time: formatOffsetTime(pkAnsOffset),
         title: "Pickup ile Çağrı Çekildi",
         description: `Aranan dahili (${pickupMeta.origCalleeDisplay}) çalarken, aynı abone grubundaki ${pickupMeta.pickerDisplay} tarafından çağrı Pickup ile çekilerek yanıtlandı.`,
         status: "success"
       });
-      appendMidCallEvents(4);
+      appendMidCallEvents(pkAnsOffset + 1);
       if (endTime) {
         timeline.push({
           time: formatOffsetTime(realTotalSecs),
@@ -2907,13 +2949,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       });
 
       if (statusLabel === "Başarılı") {
+        const intAnsOffset = realAnswerOffsetSecs ?? Math.min(4, realTotalSecs);
         timeline.push({
-          time: formatOffsetTime(Math.min(4, realTotalSecs)),
+          time: formatOffsetTime(intAnsOffset),
           title: "Çağrı Yanıtlandı",
           description: `${calleeLabel} çağrıyı yanıtladı. Görüşme başladı.`,
           status: "success"
         });
-        appendMidCallEvents(5);
+        appendMidCallEvents(intAnsOffset + 1);
         timeline.push({
           time: formatOffsetTime(realTotalSecs),
           title: "Çağrı Kapatıldı",
@@ -3006,6 +3049,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           });
           appendMidCallEvents(offset + 2);
         } else {
+          const inAnsOffset = realAnswerOffsetSecs != null ? Math.max(offset + 1, realAnswerOffsetSecs) : offset + 2;
           timeline.push({
             time: formatOffsetTime(offset),
             title: "Abone / Temsilci Çaldırılıyor",
@@ -3013,12 +3057,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
             status: "info"
           });
           timeline.push({
-            time: formatOffsetTime(offset + 2),
+            time: formatOffsetTime(inAnsOffset),
             title: "Çağrı Yanıtlandı",
             description: `${agentDetail.display} çağrıyı yanıtladı. Görüşme başladı.`,
             status: "success"
           });
-          appendMidCallEvents(offset + 3);
+          appendMidCallEvents(inAnsOffset + 1);
         }
 
         timeline.push({
@@ -3090,15 +3134,22 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         status: "success"
       });
 
+      const ringStepOffset =
+        realAnswerOffsetSecs != null
+          ? Math.min(2, Math.max(1, realAnswerOffsetSecs - 1))
+          : Math.min(3, realTotalSecs);
       timeline.push({
-        time: formatOffsetTime(Math.min(3, realTotalSecs)),
+        time: formatOffsetTime(ringStepOffset),
         title: "Hedef Çaldırılıyor",
         description: `Karşı tarafın (${targetNumber}) telefonu çaldırılıyor...`,
         status: "info"
       });
 
       if (statusLabel === "Başarılı") {
-        const answerOffset = Math.min(6, Math.max(2, realTotalSecs - 1));
+        const answerOffset =
+          realAnswerOffsetSecs != null
+            ? Math.max(ringStepOffset, realAnswerOffsetSecs)
+            : Math.min(6, Math.max(2, realTotalSecs - 1));
         timeline.push({
           time: formatOffsetTime(answerOffset),
           title: "Hedef Çağrıyı Yanıtladı",

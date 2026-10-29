@@ -63,6 +63,8 @@ class Call(Base):
     agent_name = Column(String, nullable=True)
     ended_by = Column(String, nullable=True)
     trunk_name = Column(String, nullable=True)
+    answered_at = Column(DateTime, nullable=True)
+    talk_duration = Column(Integer, nullable=True)
 
     transcripts = relationship("Transcript", back_populates="call", cascade="all, delete-orphan")
     appointments = relationship("Appointment", back_populates="call")

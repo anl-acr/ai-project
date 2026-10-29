@@ -17,6 +17,32 @@ call_id_to_asterisk_id = {}
 uniqueid_to_linkedid = {}
 # Registry to record the FIRST leg that initiated hangup per Linkedid / Uniqueid
 first_hangup_by_id = {}
+# Registry to record exact UTC timestamp when a call was bridged / answered per Linkedid / Uniqueid
+answered_at_by_id = {}
+
+
+def _record_call_answered(uniqueid: str, linkedid: str):
+    import datetime
+    uid_s = str(uniqueid or "").strip()
+    lid_s = str(linkedid or "").strip() or uniqueid_to_linkedid.get(uid_s, "") or uid_s
+    now_utc = datetime.datetime.utcnow()
+    if len(answered_at_by_id) > 800:
+        for old_k in list(answered_at_by_id.keys())[:200]:
+            answered_at_by_id.pop(old_k, None)
+    if lid_s and lid_s not in answered_at_by_id:
+        answered_at_by_id[lid_s] = now_utc
+    if uid_s and uid_s not in answered_at_by_id:
+        answered_at_by_id[uid_s] = now_utc
+
+
+def resolve_call_answered_at(call_id: str):
+    """Returns exact UTC datetime when the call was answered/bridged according to AMI events, or None."""
+    cid_s = str(call_id or "").strip()
+    ast_id = str(call_id_to_asterisk_id.get(cid_s) or "").strip()
+    for lookup_key in (ast_id, cid_s):
+        if lookup_key and lookup_key in answered_at_by_id:
+            return answered_at_by_id[lookup_key]
+    return None
 
 
 def _record_first_hangup(uniqueid: str, linkedid: str, channel: str, caller: str = "", cause: str = ""):
@@ -279,9 +305,19 @@ def register_event_handlers(manager: Manager):
             cause=event.get('Cause')
         )
 
+    @manager.register_event('BridgeEnter')
+    def handle_bridge_enter(m, event):
+        ch_s = str(event.get('Channel') or "").strip()
+        if ch_s and not ch_s.lower().startswith("local/"):
+            _record_call_answered(
+                uniqueid=event.get('Uniqueid'),
+                linkedid=event.get('Linkedid')
+            )
+
     @manager.register_event('Newstate')
     def handle_new_state(m, event):
         uniqueid = event.get('Uniqueid')
+        linkedid = event.get('Linkedid')
         channel = event.get('Channel')
         caller_num = str(event.get('CallerIDNum') or "").strip()
         exten = str(event.get('Exten') or "").strip()
@@ -290,6 +326,13 @@ def register_event_handlers(manager: Manager):
         state_code = str(event.get('ChannelState') or "").strip()
         if uniqueid:
             mapped = "busy" if (state_desc == "up" or state_code == "6") else "ringing"
+            if mapped == "busy":
+                uid_s = str(uniqueid).strip()
+                lid_s = str(linkedid or uniqueid_to_linkedid.get(uid_s) or "").strip()
+                ch_raw = str(channel or active_channels.get(uniqueid, "") or "").strip()
+                # If a dialed child B-leg transitions to Up, the call has genuinely been answered
+                if lid_s and uid_s != lid_s and not ch_raw.lower().startswith("local/"):
+                    _record_call_answered(uid_s, lid_s)
             existing = channel_states.get(uniqueid, {})
             channel_states[uniqueid] = {
                 "channel": channel or existing.get("channel") or active_channels.get(uniqueid, ""),

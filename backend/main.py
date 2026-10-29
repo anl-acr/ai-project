@@ -3332,7 +3332,7 @@ exten => h,1,NoOp(Cagri sonlandi: ${{EXTEN}}, Call ID: ${{CALL_UUID}}, Status: $
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_def_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
 same => n(done_def_h),Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
@@ -3444,7 +3444,7 @@ exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}}&answeredtime=${{ANSWEREDTIME}}&dialedtime=${{DIALEDTIME}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer: 100-999999) ve Prefix'li Dış Aramalar (99805..., 905..., 507... vb. >= 7 hane)
@@ -12584,6 +12584,8 @@ async def handle_ami_queue_call_event(
                 db_call.callee_number = q_clean
                 db_call.hangup_source = f"queue:{q_clean}:answered:{agent_ext}"
                 db_call.status = "in_progress"
+                if not db_call.answered_at:
+                    db_call.answered_at = now_utc
                 ag_nm = resolve_user_name_by_ext_or_id(agent_ext)
                 if ag_nm:
                     db_call.agent_name = ag_nm
@@ -12592,6 +12594,7 @@ async def handle_ami_queue_call_event(
                     db_call.callee_number = q_clean
                     db_call.hangup_source = f"queue:{q_clean}:abandoned"
                     db_call.status = "no_answer"
+                    db_call.talk_duration = 0
                     if not db_call.ended_by:
                         db_call.ended_by = "customer"
                     if not db_call.end_time:
@@ -12611,7 +12614,9 @@ async def end_call_endpoint(
     queuestatus: Optional[str] = None,
     memberinterface: Optional[str] = None,
     hangupsource: Optional[str] = None,
-    trunk: Optional[str] = None
+    trunk: Optional[str] = None,
+    answeredtime: Optional[str] = None,
+    dialedtime: Optional[str] = None
 ):
     async with AsyncSessionLocal() as session:
         db_call = await session.get(Call, call_id)
@@ -12707,6 +12712,38 @@ async def end_call_endpoint(
                 resolved_status = "transferred"
             db_call.status = resolved_status
 
+            # Resolve exact talk_duration (excluding dialing/ringing time) and answered_at
+            try:
+                from backend.services.ami_manager import resolve_call_answered_at
+                ami_ans_dt = resolve_call_answered_at(call_id)
+                if ami_ans_dt and not db_call.answered_at:
+                    db_call.answered_at = ami_ans_dt
+            except Exception:
+                pass
+
+            wall_sec = max(0, round(dur_sec))
+            ast_ans_str = str(answeredtime or "").strip()
+            ast_ans_sec = int(ast_ans_str) if ast_ans_str.isdigit() else None
+
+            if resolved_status in ("no_answer", "busy", "cancelled", "failed", "blocked", "rejected_limit", "missed"):
+                db_call.talk_duration = 0
+            else:
+                computed_talk = None
+                if ast_ans_sec is not None and ast_ans_sec > 0:
+                    computed_talk = ast_ans_sec
+                elif db_call.talk_duration is not None and db_call.talk_duration > 0:
+                    computed_talk = db_call.talk_duration
+                elif db_call.answered_at and db_call.end_time:
+                    computed_talk = max(0, round((db_call.end_time - db_call.answered_at).total_seconds()))
+
+                if computed_talk is not None:
+                    if wall_sec > 0:
+                        computed_talk = min(computed_talk, wall_sec)
+                    db_call.talk_duration = max(0, int(computed_talk))
+                    if not db_call.answered_at and db_call.end_time:
+                        inferred_ans = db_call.end_time - datetime.timedelta(seconds=db_call.talk_duration)
+                        db_call.answered_at = max(db_call.start_time, inferred_ans) if db_call.start_time else inferred_ans
+
             # Resolve who terminated the call (ended_by) if not already set by WebRTC or AudioSocket
             if not db_call.ended_by:
                 try:
@@ -12732,7 +12769,7 @@ async def end_call_endpoint(
                     print(f"[End Call Initiator Resolve Warning]: {e_endby}")
 
             await session.commit()
-            print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus}, EndedBy: {db_call.ended_by}, QueueCall: {is_queue_call})")
+            print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus}, TalkSec: {db_call.talk_duration}, EndedBy: {db_call.ended_by}, QueueCall: {is_queue_call})")
             add_system_log("ASTERISK", "INFO", f"Arama Sonlandı: ID={call_id}, Durum={resolved_status}")
 
             # Trigger Post-Call Recording & Dynamic Retention Evaluator (also handles auto-transcription & AI Call Analyzer)
@@ -12777,6 +12814,21 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                 set_live_extension_call_state(caller, "busy")
                 if target_ring_ext:
                     set_live_extension_call_state(target_ring_ext, None)
+                if event_type == "answer":
+                    async with AsyncSessionLocal() as session:
+                        stmt_pka = (
+                            select(Call)
+                            .where(
+                                Call.hangup_source == f"pickup:{caller}",
+                                Call.start_time >= now_utc - datetime.timedelta(minutes=30)
+                            )
+                            .order_by(Call.start_time.desc())
+                        )
+                        res_pka = await session.execute(stmt_pka)
+                        pk_ans_call = res_pka.scalars().first()
+                        if pk_ans_call and not pk_ans_call.answered_at:
+                            pk_ans_call.answered_at = now_utc
+                            await session.commit()
             elif event_type == "end":
                 set_live_extension_call_state(caller, None)
                 async with AsyncSessionLocal() as session:
@@ -12793,6 +12845,12 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     if pk_call:
                         pk_call.end_time = now_utc
                         pk_call.status = "completed"
+                        if duration > 0:
+                            wall_pk = max(1, round((now_utc - pk_call.start_time).total_seconds())) if pk_call.start_time else duration
+                            pk_call.talk_duration = max(0, min(duration, wall_pk))
+                            if not pk_call.answered_at:
+                                inf_pk_ans = now_utc - datetime.timedelta(seconds=pk_call.talk_duration)
+                                pk_call.answered_at = max(pk_call.start_time, inf_pk_ans) if pk_call.start_time else inf_pk_ans
                         if terminated_by and not pk_call.ended_by:
                             pk_call.ended_by = terminated_by
                         await session.commit()
@@ -12846,12 +12904,23 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                         active_queue_call.agent_name = ag_nm
                     if event_type == "answer":
                         active_queue_call.status = "in_progress"
+                        if not active_queue_call.answered_at:
+                            active_queue_call.answered_at = now_utc
                     else:
                         active_queue_call.status = "completed"
                         if terminated_by and not active_queue_call.ended_by:
                             active_queue_call.ended_by = terminated_by
                         if not active_queue_call.end_time:
                             active_queue_call.end_time = now_utc
+                        if duration > 0:
+                            end_q_ref = active_queue_call.end_time or now_utc
+                            wall_q = max(1, round((end_q_ref - active_queue_call.start_time).total_seconds())) if active_queue_call.start_time else duration
+                            capped_q_dur = max(0, min(duration, wall_q))
+                            if active_queue_call.talk_duration is None or active_queue_call.talk_duration == 0 or active_queue_call.talk_duration > capped_q_dur:
+                                active_queue_call.talk_duration = capped_q_dur
+                            if not active_queue_call.answered_at:
+                                inf_q_ans = end_q_ref - datetime.timedelta(seconds=active_queue_call.talk_duration)
+                                active_queue_call.answered_at = max(active_queue_call.start_time, inf_q_ans) if active_queue_call.start_time else inf_q_ans
                     await session.commit()
                     return {"status": "queue_call_answered", "call_id": active_queue_call.id}
                 else:
@@ -12908,6 +12977,7 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     if (event_type == "end" and duration == 0 and resolved_init_status in ("no_answer", "cancelled", "busy", "failed", "missed"))
                     else ("webrtc:answered" if (event_type == "end" and duration > 0) else None)
                 )
+                init_start = now_utc - datetime.timedelta(seconds=max(0, duration)) if event_type == "end" else now_utc
                 db_call = Call(
                     id=call_id,
                     caller_number=caller,
@@ -12916,8 +12986,10 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     hangup_source=init_hsrc,
                     ended_by=terminated_by if (event_type == "end" and terminated_by) else None,
                     tenant_id=call_tenant,
-                    start_time=now_utc - datetime.timedelta(seconds=max(0, duration)) if event_type == "end" else now_utc,
+                    start_time=init_start,
+                    answered_at=init_start if (event_type == "end" and duration > 0) else None,
                     end_time=now_utc if event_type == "end" else None,
+                    talk_duration=max(0, duration) if event_type == "end" else None,
                     agent_name=resolved_agent_name or None,
                     summary="Dahili Görüşme" if (len(caller) <= 5 and len(callee) <= 5) else None
                 )
@@ -12928,6 +13000,8 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                 cur_hsrc = str(db_call.hangup_source or "").strip()
                 if event_type == "answer":
                     db_call.status = "in_progress"
+                    if not db_call.answered_at:
+                        db_call.answered_at = now_utc
                     if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
                         db_call.hangup_source = "webrtc:answered"
                 elif event_type == "end":
@@ -12947,6 +13021,20 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                             db_call.hangup_source = f"webrtc:unanswered:{status}"
                     elif db_call.status not in ("completed", "transferred", "blocked"):
                         db_call.status = status if status not in ("in_progress", "ringing") else "no_answer"
+
+                    if duration > 0:
+                        end_ref = db_call.end_time or now_utc
+                        wall_c = max(1, round((end_ref - db_call.start_time).total_seconds())) if db_call.start_time else duration
+                        capped_dur = max(0, min(duration, wall_c))
+                        if db_call.talk_duration is None or db_call.talk_duration == 0 or db_call.talk_duration > capped_dur:
+                            db_call.talk_duration = capped_dur
+                        if not db_call.answered_at:
+                            inf_ans = end_ref - datetime.timedelta(seconds=db_call.talk_duration)
+                            db_call.answered_at = max(db_call.start_time, inf_ans) if db_call.start_time else inf_ans
+                    elif duration == 0 and db_call.status in ("no_answer", "cancelled", "busy", "failed", "missed", "blocked"):
+                        if db_call.talk_duration is None:
+                            db_call.talk_duration = 0
+
                     if not db_call.summary and len(caller) <= 5 and len(callee) <= 5:
                         db_call.summary = "Dahili Görüşme"
 
@@ -13661,6 +13749,29 @@ async def list_calls(
                     c.resolved_trunk_name = raw_t if (raw_t and raw_t != "Operator_Trunk") else ""
                     c.resolved_trunk_did = ""
                     c.has_configured_trunk = bool(c.resolved_trunk_name)
+
+                # Expose exact talk, queue, and total durations (in seconds) so CDR & KPIs never include ringing time in talk time
+                total_wall_sec = max(0, int((c_end - c_start).total_seconds()))
+                st_norm = str(c.status or "").strip().lower()
+                is_unanswered_st = st_norm in ("no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "blocked", "rejected_limit", "missed", "abandoned") or ":abandoned" in hangup_src
+
+                if is_unanswered_st:
+                    resolved_talk_sec = 0
+                elif getattr(c, "talk_duration", None) is not None and c.end_time is not None:
+                    resolved_talk_sec = min(total_wall_sec, max(0, int(c.talk_duration)))
+                elif getattr(c, "answered_at", None) is not None:
+                    resolved_talk_sec = min(total_wall_sec, max(0, int((c_end - c.answered_at).total_seconds())))
+                elif st_norm in ("in_progress", "ongoing", "ringing") and c.end_time is None:
+                    resolved_talk_sec = 0
+                else:
+                    resolved_talk_sec = total_wall_sec
+
+                c.duration_total = total_wall_sec
+                c.duration_talk = resolved_talk_sec
+                if is_queue_call:
+                    c.duration_queue = total_wall_sec if is_unanswered_st else max(0, total_wall_sec - resolved_talk_sec)
+                else:
+                    c.duration_queue = 0
 
                 rec_val = str(getattr(c, "recording_path", "") or "").strip()
                 if rec_val in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
@@ -14749,7 +14860,15 @@ async def get_wallboard_stats():
 
         if completed_calls:
             durations = [
-                max(0, (c.end_time - c.start_time).total_seconds())
+                (
+                    max(0, int(c.talk_duration))
+                    if getattr(c, "talk_duration", None) is not None
+                    else (
+                        max(0, (c.end_time - c.answered_at).total_seconds())
+                        if getattr(c, "answered_at", None) is not None
+                        else max(0, (c.end_time - c.start_time).total_seconds())
+                    )
+                )
                 for c in completed_calls if c.end_time and c.start_time
             ]
             avg_hold_time = round(sum(durations) / len(durations)) if durations else 0
@@ -17586,7 +17705,14 @@ async def get_agent_timeline_report(
 
             c_start = call.start_time
             c_end = call.end_time or c_start
-            c_dur = max(0, int((c_end - c_start).total_seconds()))
+            c_wall_dur = max(0, int((c_end - c_start).total_seconds()))
+            has_explicit_talk = getattr(call, "talk_duration", None) is not None and int(call.talk_duration or 0) > 0
+            if getattr(call, "talk_duration", None) is not None and call.end_time is not None:
+                c_dur = min(c_wall_dur, max(0, int(call.talk_duration)))
+            elif getattr(call, "answered_at", None) is not None:
+                c_dur = min(c_wall_dur, max(0, int((c_end - call.answered_at).total_seconds())))
+            else:
+                c_dur = c_wall_dur
 
             # Detect Call Pickup dial codes (*8 or **ext)
             if is_caller and (callee.startswith("*8") or callee.startswith("**")):
@@ -17612,7 +17738,7 @@ async def get_agent_timeline_report(
 
             # Check if call was answered or missed
             is_failed = st in ("missed", "no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "abandoned", "blocked")
-            if not is_failed and c_dur <= 5 and not call.recording_path and st in ("completed", "in_progress"):
+            if not is_failed and not has_explicit_talk and c_wall_dur <= 5 and not call.recording_path and st in ("completed", "in_progress"):
                 is_failed = True
 
             # Check if internal extension-to-extension call (both 3-4 digits)
@@ -20425,6 +20551,8 @@ async def startup_event():
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS ended_by VARCHAR;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS trunk_name VARCHAR;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS answered_at TIMESTAMP;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS talk_duration INTEGER;",
                 "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;"
             ]
             for stmt_sql in ddl_statements:

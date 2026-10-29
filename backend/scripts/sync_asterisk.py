@@ -898,7 +898,7 @@ exten => h,1,NoOp(Cagri sonlandi: ${EXTEN}, Call ID: ${CALL_UUID}, Status: ${DIA
 same => n,GotoIf($["${CALL_UUID}" = ""]?done_def_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&trunk=${URIENCODE(${OUT_TRUNK_NAME})})})
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&trunk=${URIENCODE(${OUT_TRUNK_NAME})}&answeredtime=${ANSWEREDTIME}&dialedtime=${DIALEDTIME})})
 same => n(done_def_h),Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
@@ -994,7 +994,7 @@ exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${CALL_UUID}, Status: ${DI
 same => n,GotoIf($["${CALL_UUID}" = ""]?done_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&trunk=${URIENCODE(${OUT_TRUNK_NAME})})})
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&trunk=${URIENCODE(${OUT_TRUNK_NAME})}&answeredtime=${ANSWEREDTIME}&dialedtime=${DIALEDTIME})})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer: 100-999999) ve Prefix'li Dış Aramalar (99805..., 905..., 507... vb. >= 7 hane)

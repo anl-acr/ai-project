@@ -600,7 +600,8 @@ async def register_call_db(call_id: str):
                 caller_number="Bilinmeyen Temsilci", 
                 callee_number="Santral AI",
                 status="in_progress",
-                start_time=datetime.datetime.utcnow()
+                start_time=datetime.datetime.utcnow(),
+                answered_at=datetime.datetime.utcnow()
             )
             session.add(new_call)
             await session.commit()
@@ -612,6 +613,11 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
         if db_call:
             db_call.status = "completed" if db_call.status == "in_progress" else db_call.status
             db_call.end_time = datetime.datetime.utcnow()
+            ans_ref = getattr(db_call, "answered_at", None) or db_call.start_time
+            if ans_ref and db_call.status in ("completed", "transferred"):
+                db_call.talk_duration = max(0, round((db_call.end_time - ans_ref).total_seconds()))
+            elif db_call.status in ("blocked", "no_answer", "busy", "cancelled", "failed"):
+                db_call.talk_duration = 0
             if summary:
                 db_call.summary = summary
             if hangup_source:
@@ -1105,6 +1111,10 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                     if is_blocked_call and db_call:
                         db_call.status = "blocked"
                         db_call.end_time = datetime.datetime.utcnow()
+                        db_call.talk_duration = 0
+                        await session.commit()
+                    elif db_call and not getattr(db_call, "answered_at", None):
+                        db_call.answered_at = datetime.datetime.utcnow()
                         await session.commit()
 
                 if is_blocked_call:
