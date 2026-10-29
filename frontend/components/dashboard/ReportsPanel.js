@@ -394,6 +394,27 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return Array.from(map.values());
   }, [trunks]);
 
+  const [filterIvrWorkflowsSelected, setFilterIvrWorkflowsSelected] = useState([]);
+
+  const ivrWorkflowFilterItems = React.useMemo(() => {
+    const map = new Map();
+    (Array.isArray(workflows) ? workflows : []).forEach((wf, idx) => {
+      const rawName = String(wf.name || `Arama Akışı ${idx + 1}`).trim();
+      const ext = String(wf.extension || "").trim();
+      const key = String(wf.id ?? rawName);
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          workflowId: wf.id,
+          rawName,
+          extension: ext,
+          name: ext && ext !== rawName ? `${rawName} (${ext})` : rawName,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [workflows]);
+
   const parseCallDateObj = (dateStr) => {
     if (!dateStr) return null;
     const raw = String(dateStr).trim();
@@ -2258,7 +2279,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
       }
@@ -2346,7 +2367,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
     }
@@ -2394,6 +2415,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterTrunkStartHour("");
     setFilterTrunkEndHour("");
     setFilterTrunksSelected([]);
+    setFilterIvrWorkflowsSelected([]);
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -2691,52 +2713,99 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
   const computeIvrReportData = (callsToAnalyze = filteredCalls) => {
     const configuredMenus = [];
+    const hasWorkflowFilter = filterIvrWorkflowsSelected.length > 0;
+    const addedWfKeys = new Set();
 
-    // 1. Check Inbound Rules routed to an active CallFlow (Workflow) containing IVR menu nodes
+    const pushWorkflowMenus = (wf, didPatterns = [], matchMode = "all") => {
+      if (!wf || !Array.isArray(wf.nodes)) return;
+      const wfKey = String(wf.id ?? wf.name ?? "").trim();
+      if (hasWorkflowFilter && !filterIvrWorkflowsSelected.includes(wfKey)) {
+        return;
+      }
+      const menuNodes = wf.nodes.filter((n) => String(n.type || "").toLowerCase() === "menu");
+      const conns = Array.isArray(wf.connections) ? wf.connections : [];
+      const wfExt = String(wf.extension || "").trim();
+      menuNodes.forEach((mNode) => {
+        const outConns = conns.filter((c) => c.fromNode === mNode.id);
+        if (outConns.length > 0) {
+          outConns.forEach((conn) => {
+            const targetNode = wf.nodes.find((n) => n.id === conn.toNode);
+            const portLabel = conn.fromPort || "*";
+            const targetDesc = targetNode
+              ? resolveTargetName(targetNode.value || targetNode.target || targetNode.title || targetNode.type)
+              : "Bilinmeyen Hedef";
+            configuredMenus.push({
+              id: `${wf.id}-${mNode.id}-${portLabel}`,
+              workflowKey: wfKey,
+              wfExtension: wfExt,
+              trunkId: wf.trunk_id ?? null,
+              name: `${wf.name} — Tuş [${portLabel}]`,
+              didPatterns,
+              matchMode,
+              next: targetDesc
+            });
+          });
+        } else {
+          configuredMenus.push({
+            id: `${wf.id}-${mNode.id}`,
+            workflowKey: wfKey,
+            wfExtension: wfExt,
+            trunkId: wf.trunk_id ?? null,
+            name: `${wf.name} (${mNode.title || "IVR Menü"})`,
+            didPatterns,
+            matchMode,
+            next: wf.name
+          });
+        }
+      });
+    };
+
+    // 1a. Check Inbound Rules routed to a CallFlow (Workflow) containing IVR menu nodes
     if (Array.isArray(inboundRules) && inboundRules.length > 0) {
       inboundRules.forEach((rule) => {
         const destType = String(rule.destination_type || "").toLowerCase();
         if (destType === "call_flow" || destType === "ivr") {
           const wf = (workflows || []).find(
-            (w) => String(w.id) === String(rule.destination_id) && w.status !== "draft"
+            (w) =>
+              String(w.id) === String(rule.destination_id) &&
+              (w.status !== "draft" || hasWorkflowFilter)
           );
-          if (wf && Array.isArray(wf.nodes)) {
-            const menuNodes = wf.nodes.filter((n) => String(n.type || "").toLowerCase() === "menu");
-            const conns = Array.isArray(wf.connections) ? wf.connections : [];
-            menuNodes.forEach((mNode) => {
-              const outConns = conns.filter((c) => c.fromNode === mNode.id);
-              if (outConns.length > 0) {
-                outConns.forEach((conn) => {
-                  const targetNode = wf.nodes.find((n) => n.id === conn.toNode);
-                  const portLabel = conn.fromPort || "*";
-                  const targetDesc = targetNode
-                    ? resolveTargetName(targetNode.value || targetNode.target || targetNode.title || targetNode.type)
-                    : "Bilinmeyen Hedef";
-                  configuredMenus.push({
-                    id: `${wf.id}-${mNode.id}-${portLabel}`,
-                    name: `${wf.name} — Tuş [${portLabel}]`,
-                    didPatterns: Array.isArray(rule.did_patterns) ? rule.did_patterns : [],
-                    matchMode: rule.did_match_mode || "all",
-                    next: targetDesc
-                  });
-                });
-              } else {
-                configuredMenus.push({
-                  id: `${wf.id}-${mNode.id}`,
-                  name: `${wf.name} (${mNode.title || "IVR Menü"})`,
-                  didPatterns: Array.isArray(rule.did_patterns) ? rule.did_patterns : [],
-                  matchMode: rule.did_match_mode || "all",
-                  next: wf.name
-                });
-              }
-            });
+          if (wf) {
+            const wfKey = String(wf.id ?? wf.name ?? "").trim();
+            addedWfKeys.add(wfKey);
+            pushWorkflowMenus(
+              wf,
+              Array.isArray(rule.did_patterns) ? rule.did_patterns : [],
+              rule.did_match_mode || "all"
+            );
           }
         }
       });
     }
 
-    // 2. Check PBX Queues that have active ivr_routes configured
-    if (Array.isArray(queues) && queues.length > 0) {
+    // 1b. Also check active/selected workflows configured directly in Arama Akış Yönetimi
+    if (Array.isArray(workflows) && workflows.length > 0) {
+      workflows.forEach((wf, idx) => {
+        const wfKey = String(wf.id ?? wf.name ?? `Arama Akışı ${idx + 1}`).trim();
+        if (addedWfKeys.has(wfKey)) return;
+        if (!hasWorkflowFilter && wf.status === "draft") return;
+        const didNode = Array.isArray(wf.nodes)
+          ? wf.nodes.find((n) => String(n.type || "").toLowerCase() === "did")
+          : null;
+        const isWildcard = didNode?.extra_fields?.is_wildcard !== false;
+        const didNums = Array.isArray(didNode?.extra_fields?.did_numbers)
+          ? didNode.extra_fields.did_numbers.filter((d) => d && d !== "x." && d !== "X.")
+          : [];
+        pushWorkflowMenus(
+          wf,
+          didNums,
+          !isWildcard && didNums.length > 0 ? "specific" : "all"
+        );
+      });
+    }
+
+    // 2. Check PBX Queues that have active ivr_routes configured (only when no specific CallFlow filter is selected)
+    if (!hasWorkflowFilter && Array.isArray(queues) && queues.length > 0) {
       queues.forEach((q) => {
         const routes = q.ivr_routes;
         if (routes && typeof routes === "object") {
@@ -2769,21 +2838,33 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     const inboundList = (callsToAnalyze || []).filter((c) => getCallDirection(c) === "Gelen");
-    let totalIvrHits = 0;
-    let totalIvrDrops = 0;
-    let totalIvrTransfers = 0;
+
+    const matchesMenuCall = (call, menu) => {
+      const callee = String(call.callee_number || "").trim();
+      if (menu.queueExt) {
+        return callee === menu.queueExt;
+      }
+      const callWfId = String(call.workflow_id ?? call.call_flow_id ?? "").trim();
+      if (callWfId && menu.workflowKey && callWfId === menu.workflowKey) {
+        return true;
+      }
+      if (menu.wfExtension && callee === menu.wfExtension) {
+        return true;
+      }
+      if (menu.matchMode === "specific" && Array.isArray(menu.didPatterns) && menu.didPatterns.length > 0) {
+        return menu.didPatterns.some((p) => p && (callee === p || callee.endsWith(p) || p.endsWith(callee)));
+      }
+      if (hasWorkflowFilter && menu.trunkId !== null && menu.trunkId !== undefined && Array.isArray(trunks) && trunks.length > 1) {
+        const matchedT = matchCallToTrunkObj(call);
+        if (matchedT && String(matchedT.id) !== String(menu.trunkId)) {
+          return false;
+        }
+      }
+      return true;
+    };
 
     const menuStats = configuredMenus.map((menu) => {
-      const matchingCalls = inboundList.filter((call) => {
-        const callee = String(call.callee_number || "").trim();
-        if (menu.queueExt) {
-          return callee === menu.queueExt;
-        }
-        if (menu.matchMode === "specific" && Array.isArray(menu.didPatterns) && menu.didPatterns.length > 0) {
-          return menu.didPatterns.some((p) => p && (callee === p || callee.endsWith(p) || p.endsWith(callee)));
-        }
-        return true;
-      });
+      const matchingCalls = inboundList.filter((call) => matchesMenuCall(call, menu));
 
       const hits = matchingCalls.length;
       const drops = matchingCalls.filter((c) => getCallStatus(c) === "Başarısız").length;
@@ -2802,9 +2883,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       };
     });
 
-    totalIvrHits = inboundList.length;
-    totalIvrDrops = inboundList.filter((c) => getCallStatus(c) === "Başarısız").length;
-    totalIvrTransfers = inboundList.filter(
+    const activeInboundList = hasWorkflowFilter
+      ? inboundList.filter((call) => configuredMenus.some((menu) => matchesMenuCall(call, menu)))
+      : inboundList;
+
+    const totalIvrHits = activeInboundList.length;
+    const totalIvrDrops = activeInboundList.filter((c) => getCallStatus(c) === "Başarısız").length;
+    const totalIvrTransfers = activeInboundList.filter(
       (c) =>
         Boolean(c.is_transferred) ||
         c.status === "transferred" ||
@@ -4017,7 +4102,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const matchedKey = matchedT ? String(matchedT.id ?? matchedT.trunk_name) : "";
         if (!matchedKey || !filterTrunksSelected.includes(matchedKey)) return false;
       }
-    } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
+    } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "ivr-drop") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
         return false;
@@ -4044,7 +4129,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant / Agent Filter across applicable report modes
-    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
+    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
@@ -4518,6 +4603,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterDirection !== "All" || filterTrafficStartHour !== "" || filterTrafficEndHour !== "")
                     : viewMode === "trunk"
                     ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterTrunksSelected.length > 0)
+                    : viewMode === "ivr-drop"
+                    ? Boolean(filterStartDate || filterEndDate || filterIvrWorkflowsSelected.length > 0)
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
@@ -5178,9 +5265,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "ivr-drop" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range (and side-by-side Hour range for trunk mode) */}
-                <div className={viewMode === "trunk" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "trunk" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "ivr-drop" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className={viewMode === "trunk" ? "grid grid-cols-2 sm:grid-cols-4 gap-2.5" : "contents"}>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
@@ -5573,6 +5660,20 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </>
                     )}
                   />
+                ) : viewMode === "ivr-drop" ? (
+                  <DualListBox 
+                    title="Arama Akış Yönetimi"
+                    availableItems={ivrWorkflowFilterItems}
+                    selectedIds={filterIvrWorkflowsSelected}
+                    onChangeSelectedIds={setFilterIvrWorkflowsSelected}
+                    columns={["İsim"]}
+                    bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                    renderRow={(item) => (
+                      <>
+                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                      </>
+                    )}
+                  />
                 ) : (
                   <>
                     {/* Call Direction */}
@@ -5922,7 +6023,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
               </div>
-            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode) ? (
+            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode && !isIvrDropMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
                 Kayıt bulunamadı.
               </div>
@@ -8823,7 +8924,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
             ) : isIvrDropMode ? (
               /* IVR Drop Mode */
-              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+              <div className="p-5 flex flex-col gap-6 flex-1 overflow-y-auto scrollbar-thin">
                 {(() => {
                   const {
                     hasConfiguredIvr,
@@ -8838,7 +8939,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   return (
                     <>
                       {/* KPI Header */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <p className={"text-xs font-bold uppercase tracking-wider " + text}>Toplam IVR Etkileşimi</p>
                           <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
@@ -8865,7 +8966,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 shrink-0">
                         {/* IVR Funnel Chart / Breakdown */}
                         <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
                           <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Terk Dağılımı (Funnel)</h4>
@@ -8873,10 +8974,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             {ivrMenus.length === 0 ? (
                               <div className="py-8 px-4 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
                                 <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                                  Sistemde aktif bir IVR (Sesli Yanıt) menüsü tanımlı değildir.
+                                  {filterIvrWorkflowsSelected.length > 0
+                                    ? "Seçili arama akışında tanımlı IVR (Sesli Yanıt) menüsü bulunmuyor."
+                                    : "Sistemde aktif bir IVR (Sesli Yanıt) menüsü tanımlı değildir."}
                                 </p>
                                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-                                  Gelen Arama Kuralları veya Kuyruk IVR yönlendirmelerinde aktif bir IVR menüsü bulunmadığı için terk dağılım verisi oluşmamıştır.
+                                  {filterIvrWorkflowsSelected.length > 0
+                                    ? "Seçtiğiniz arama akışı şemasında Menü düğümü yer almadığı için terk dağılım verisi oluşmamıştır."
+                                    : "Gelen Arama Kuralları veya Kuyruk IVR yönlendirmelerinde aktif bir IVR menüsü bulunmadığı için terk dağılım verisi oluşmamıştır."}
                                 </p>
                               </div>
                             ) : (
@@ -8886,7 +8991,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   <div key={idx} className="flex flex-col gap-1">
                                     <div className="flex justify-between items-end">
                                       <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate pr-2">{menu.name}</span>
-                                      <span className="text-[10px] font-bold text-rose-500 flex items-center gap-1">
+                                      <span className="text-[10px] font-bold text-rose-500 flex items-center gap-1 shrink-0">
                                         <UserX size={10} /> {menu.drops} Terk (%{dropPercent})
                                       </span>
                                     </div>
@@ -8902,8 +9007,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
                         {/* IVR Menus Table */}
                         <div className="lg:col-span-2 flex flex-col gap-4">
-                          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Menü Performans Detayları</h4>
-                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                          <div className="flex items-center justify-between">
+                            <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Menü Performans Detayları</h4>
+                            {filterIvrWorkflowsSelected.length > 0 && (
+                              <span className="text-xs font-bold text-slate-400">
+                                Filtrelenen {filterIvrWorkflowsSelected.length} Arama Akışı
+                              </span>
+                            )}
+                          </div>
+                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40">
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
@@ -8918,12 +9030,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 {ivrMenus.length === 0 ? (
                                   <tr>
                                     <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium text-sm">
-                                      Sistemde tanımlı aktif bir IVR menüsü veya seçili tarih aralığında kaydedilmiş IVR tuşlama verisi bulunmamaktadır.
+                                      {filterIvrWorkflowsSelected.length > 0
+                                        ? "Seçili arama akışında tanımlı IVR menüsü veya seçili tarih aralığında kaydedilmiş tuşlama verisi bulunmamaktadır."
+                                        : "Sistemde tanımlı aktif bir IVR menüsü veya seçili tarih aralığında kaydedilmiş IVR tuşlama verisi bulunmamaktadır."}
                                     </td>
                                   </tr>
                                 ) : (
                                   ivrMenus.map((m, idx) => (
-                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}>
                                       {visibleColumns.menuName && <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{m.name}</td>}
                                       {visibleColumns.hits && <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{m.hits}</td>}
                                       {visibleColumns.drops && <td className="p-4 text-center font-black text-rose-500">{m.drops}</td>}
