@@ -16,7 +16,8 @@ import {
   Clock,
   Award,
   TrendingUp,
-  Columns
+  Columns,
+  X
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { useTheme } from "../../utils/theme";
@@ -38,6 +39,7 @@ export default function QueueSurveyReportPanel({ backendHost }) {
 
   const [loading, setLoading] = useState(true);
   const [isColumnsDropdownOpen, setIsColumnsDropdownOpen] = useState(false);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [visibleColumns, setVisibleColumns] = useState(() => {
     const initial = {};
     Object.keys(SURVEY_REPORT_COLUMNS).forEach((k) => {
@@ -95,6 +97,24 @@ export default function QueueSurveyReportPanel({ backendHost }) {
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+
+  const activeFilterCount = [
+    selectedQueue,
+    selectedAgent,
+    scoreFilter,
+    startDate,
+    endDate,
+    searchQuery.trim()
+  ].filter(Boolean).length;
+
+  const handleClearFilters = () => {
+    setSelectedQueue("");
+    setSelectedAgent("");
+    setScoreFilter("");
+    setStartDate("");
+    setEndDate("");
+    setSearchQuery("");
+  };
 
   // Audio playback
   const [playingCallId, setPlayingCallId] = useState(null);
@@ -289,8 +309,8 @@ export default function QueueSurveyReportPanel({ backendHost }) {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      {/* Üst Başlık ve Filtre Barı */}
-      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm space-y-4">
+      {/* Üst Başlık Barı */}
+      <div className="p-5 bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800/80 rounded-2xl shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div className="flex items-center gap-3.5">
             <div className={"p-3 rounded-2xl " + lightBg + " " + text}>
@@ -338,7 +358,7 @@ export default function QueueSurveyReportPanel({ backendHost }) {
                           type="checkbox"
                           checked={!!visibleColumns[key]}
                           onChange={() => handleToggleColumn(key)}
-                          className="rounded border-slate-300 text-primary focus:ring-purple-500 h-3.5 w-3.5 cursor-pointer"
+                          className="rounded border-slate-300 text-primary focus:ring-primary h-3.5 w-3.5 cursor-pointer"
                         />
                         <span>{col.label}</span>
                       </label>
@@ -351,112 +371,201 @@ export default function QueueSurveyReportPanel({ backendHost }) {
             <button
               type="button"
               onClick={fetchSurveyReport}
-              className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2 transition-all"
+              className="px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/60 hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 flex items-center gap-2 transition-all cursor-pointer"
               title="Verileri Yenile"
             >
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-              Yenile
+              <span>Yenile</span>
             </button>
 
             <button
               type="button"
               onClick={handleExportExcel}
-              className={"px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm flex items-center gap-2 transition-all " + bg + " " + hover}
+              className={"px-4 py-2 rounded-xl text-xs font-bold text-white shadow-sm flex items-center gap-2 transition-all cursor-pointer " + bg + " " + hover}
               title="Excel Raporu İndir"
             >
               <Download size={14} />
-              Excel İndir
+              <span>Excel İndir</span>
+            </button>
+
+            {/* Filtrele Butonu (Diğer Rapor Tipleriyle Uyumlu) */}
+            <button
+              type="button"
+              onClick={() => setIsFilterOpen(true)}
+              className={
+                "px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2 transition-all cursor-pointer " +
+                (activeFilterCount > 0
+                  ? `${bg} ${hover} text-white ${border} shadow-sm`
+                  : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`)
+              }
+              title="Detaylı Filtreleme Seçenekleri"
+            >
+              <Filter size={14} />
+              <span>Filtrele</span>
+              {activeFilterCount > 0 && (
+                <span className="px-1.5 py-0.5 rounded-full bg-white/25 text-white text-[10px] font-extrabold leading-none">
+                  {activeFilterCount}
+                </span>
+              )}
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Filtre Alanları */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 pt-3 border-t border-slate-100 dark:border-slate-800/60">
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Kuyruk Filtresi
-            </label>
-            <select
-              value={selectedQueue}
-              onChange={(e) => setSelectedQueue(e.target.value)}
-              className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 " + ring}
-            >
-              <option value="">Tüm Kuyruklar</option>
-              {(reportData.queues || []).map((q) => (
-                <option key={q.extension} value={q.extension}>
-                  {q.name} ({q.extension})
-                </option>
-              ))}
-            </select>
-          </div>
+      {/* Detaylı Filtreleme Modal Popup (Diğer Raporlarla Aynı Yapı) */}
+      {isFilterOpen && (
+        <div
+          className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setIsFilterOpen(false)}
+        >
+          <div
+            className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-2xl w-full max-w-xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                <Filter size={16} className={text} />
+                <span>Detaylı Filtreleme</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsFilterOpen(false)}
+                className="p-1.5 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 rounded-lg transition cursor-pointer"
+                title="Kapat"
+              >
+                <X size={14} />
+              </button>
+            </div>
 
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Temsilci Filtresi
-            </label>
-            <select
-              value={selectedAgent}
-              onChange={(e) => setSelectedAgent(e.target.value)}
-              className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 " + ring}
-            >
-              <option value="">Tüm Temsilciler</option>
-              {(reportData.by_agent || []).map((ag) => (
-                <option key={ag.agent_extension} value={ag.agent_extension}>
-                  {ag.agent_name} ({ag.agent_extension})
-                </option>
-              ))}
-            </select>
-          </div>
+            {/* Modal Body */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Tarih Aralığı */}
+              <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/60 dark:bg-slate-950/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Başlangıç Tarihi
+                  </label>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 " + ring}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Bitiş Tarihi
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 " + ring}
+                  />
+                </div>
+              </div>
 
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Puan / Durum Filtresi
-            </label>
-            <select
-              value={scoreFilter}
-              onChange={(e) => setScoreFilter(e.target.value)}
-              className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 " + ring}
-            >
-              <option value="">Tüm Yanıtlar</option>
-              <option value="high">⭐ Yüksek Memnuniyet (4-5 Puan)</option>
-              <option value="low">🚨 Düşük / Kritik Puan (1-2 Puan)</option>
-              <option value="5">⭐⭐⭐⭐⭐ Sadece 5 Yıldız</option>
-              <option value="4">⭐⭐⭐⭐ Sadece 4 Yıldız</option>
-              <option value="3">⭐⭐⭐ Sadece 3 Yıldız</option>
-              <option value="2">⭐⭐ Sadece 2 Yıldız</option>
-              <option value="1">⭐ Sadece 1 Yıldız</option>
-            </select>
-          </div>
+              {/* Kuyruk Filtresi */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Kuyruk Filtresi
+                </label>
+                <select
+                  value={selectedQueue}
+                  onChange={(e) => setSelectedQueue(e.target.value)}
+                  className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-bold focus:outline-none focus:ring-2 " + ring}
+                >
+                  <option value="">Tüm Kuyruklar</option>
+                  {(reportData.queues || []).map((q) => (
+                    <option key={q.extension} value={q.extension}>
+                      {q.name} ({q.extension})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Başlangıç Tarihi
-            </label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-              className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 " + ring}
-            />
-          </div>
+              {/* Temsilci Filtresi */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Temsilci Filtresi
+                </label>
+                <select
+                  value={selectedAgent}
+                  onChange={(e) => setSelectedAgent(e.target.value)}
+                  className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-bold focus:outline-none focus:ring-2 " + ring}
+                >
+                  <option value="">Tüm Temsilciler</option>
+                  {(reportData.by_agent || []).map((ag) => (
+                    <option key={ag.agent_extension} value={ag.agent_extension}>
+                      {ag.agent_name} ({ag.agent_extension})
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-          <div>
-            <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
-              Hızlı Arama
-            </label>
-            <div className="relative">
-              <input
-                type="text"
-                placeholder="Numara, temsilci, kuyruk..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className={"w-full text-xs pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 " + ring}
-              />
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              {/* Puan / Durum Filtresi */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Puan / Durum Filtresi
+                </label>
+                <select
+                  value={scoreFilter}
+                  onChange={(e) => setScoreFilter(e.target.value)}
+                  className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-bold focus:outline-none focus:ring-2 " + ring}
+                >
+                  <option value="">Tüm Yanıtlar</option>
+                  <option value="high">⭐ Yüksek Memnuniyet (4-5 Puan)</option>
+                  <option value="low">🚨 Düşük / Kritik Puan (1-2 Puan)</option>
+                  <option value="5">⭐⭐⭐⭐⭐ Sadece 5 Yıldız</option>
+                  <option value="4">⭐⭐⭐⭐ Sadece 4 Yıldız</option>
+                  <option value="3">⭐⭐⭐ Sadece 3 Yıldız</option>
+                  <option value="2">⭐⭐ Sadece 2 Yıldız</option>
+                  <option value="1">⭐ Sadece 1 Yıldız</option>
+                </select>
+              </div>
+
+              {/* Hızlı Arama */}
+              <div className="flex flex-col gap-1">
+                <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Hızlı Arama
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="Numara, temsilci, kuyruk..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className={"w-full text-xs pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 " + ring}
+                  />
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="flex items-center gap-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={handleClearFilters}
+                className="flex-1 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+              >
+                Filtreleri Temizle
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  fetchSurveyReport();
+                  setIsFilterOpen(false);
+                }}
+                className={"flex-1 py-2 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer " + bg + " " + hover}
+              >
+                Uygula
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 4 Özet KPI Kartı */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
