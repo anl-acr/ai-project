@@ -85,24 +85,46 @@ def resolve_audit_user_label(raw_user_id: Optional[str]) -> str:
     return uid
 
 def extract_client_ip(request: Optional[Request]) -> str:
-    if not request:
-        return "127.0.0.1"
-    xf = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
-    if xf:
-        return xf.split(",")[0].strip()
-    xr = request.headers.get("x-real-ip") or request.headers.get("X-Real-IP")
-    if xr:
-        return xr.strip()
-    return request.client.host if request.client else "127.0.0.1"
+    from backend.services.audit_logger import is_loopback_or_empty_ip, resolve_real_ip, record_known_user_ip
+    raw_uid = request.headers.get("X-User-ID", "") if request else ""
+    if request:
+        for hdr in ("x-client-ip", "X-Client-IP", "cf-connecting-ip", "CF-Connecting-IP", "true-client-ip", "True-Client-IP", "x-forwarded-for", "X-Forwarded-For", "x-real-ip", "X-Real-IP"):
+            val = request.headers.get(hdr)
+            if val:
+                for part in val.split(","):
+                    cand = part.strip()
+                    if not is_loopback_or_empty_ip(cand):
+                        record_known_user_ip(raw_uid, cand)
+                        return cand
+        if request.client and not is_loopback_or_empty_ip(request.client.host):
+            record_known_user_ip(raw_uid, request.client.host)
+            return request.client.host
+    return resolve_real_ip(None, raw_uid)
 
 def get_user_info(request: Request):
     raw_user_id = request.headers.get("X-User-ID", "admin")
     user_label = resolve_audit_user_label(raw_user_id)
     tenant_id = request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
     client_ip = extract_client_ip(request)
+    from backend.services.audit_logger import record_known_user_ip
+    record_known_user_ip(user_label, client_ip)
     return {"user_id": user_label, "raw_user_id": raw_user_id, "tenant_id": tenant_id, "ip_address": client_ip}
 
 app = FastAPI(title="AI PBX & Omnichannel Backend API")
+
+@app.middleware("http")
+async def audit_client_ip_middleware(request: Request, call_next):
+    from backend.services.audit_logger import current_request_ip_ctx, record_known_user_ip, is_loopback_or_empty_ip
+    resolved_ip = extract_client_ip(request)
+    raw_uid = request.headers.get("X-User-ID", "")
+    if not is_loopback_or_empty_ip(resolved_ip):
+        record_known_user_ip(raw_uid, resolved_ip)
+        record_known_user_ip(resolve_audit_user_label(raw_uid), resolved_ip)
+    token = current_request_ip_ctx.set(resolved_ip)
+    try:
+        return await call_next(request)
+    finally:
+        current_request_ip_ctx.reset(token)
 
 from backend.routers import sip_debugger
 app.include_router(sip_debugger.router)
@@ -5797,10 +5819,8 @@ async def webrtc_register_notify(request: Request, payload: dict, db: AsyncSessi
     ext = str(payload.get("extension") or payload.get("user_id") or "").strip()
     user_id_val = payload.get("user_id")
 
-    # Extract client IP from headers or connection
-    x_forwarded = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
-    x_real = request.headers.get("x-real-ip") or request.headers.get("X-Real-IP")
-    client_ip = x_forwarded.split(",")[0].strip() if x_forwarded else (x_real.strip() if x_real else (request.client.host if request.client else "127.0.0.1"))
+    # Extract real client IP from headers, AMI, or fallback
+    client_ip = str(payload.get("client_ip") or "").strip() or extract_client_ip(request)
 
     if ext:
         registered_endpoints.add(ext, client_ip)
@@ -14752,6 +14772,14 @@ async def get_system_logs(limit: int = 300, offset: int = 0, module: Optional[st
 
             summary_text = _build_human_summary_for_log(raw_act, module_tr, det, user_display)
 
+            from backend.services.audit_logger import is_loopback_or_empty_ip, resolve_real_ip
+            row_ip = str(l.ip_address or "").strip()
+            if is_loopback_or_empty_ip(row_ip):
+                row_ip = resolve_real_ip(None, user_display)
+                if not is_loopback_or_empty_ip(row_ip) and l.ip_address != row_ip:
+                    l.ip_address = row_ip
+                    dirty_ip_updated = True
+
             formatted_logs.append({
                 "id": l.id,
                 "timestamp": l.timestamp.isoformat() if l.timestamp else datetime.datetime.utcnow().isoformat(),
@@ -14763,8 +14791,14 @@ async def get_system_logs(limit: int = 300, offset: int = 0, module: Optional[st
                 "module_tr": module_tr,
                 "summary": summary_text,
                 "details": det,
-                "ip_address": l.ip_address or "127.0.0.1"
+                "ip_address": row_ip or "127.0.0.1"
             })
+
+        if locals().get("dirty_ip_updated"):
+            try:
+                await session.commit()
+            except Exception:
+                pass
 
         return {
             "status": "success",

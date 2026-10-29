@@ -15,7 +15,12 @@ channel_states = {}
 call_id_to_asterisk_id = {}
 class RegisteredEndpointsDict(dict):
     def add(self, key, ip=""):
-        self[str(key)] = str(ip or "")
+        k = str(key)
+        ip_s = str(ip or "").strip()
+        existing = self.get(k, "")
+        if ip_s in ("", "127.0.0.1", "::1", "localhost") and existing and existing not in ("", "127.0.0.1", "::1", "localhost"):
+            return
+        self[k] = ip_s
 
     def discard(self, key):
         self.pop(str(key), None)
