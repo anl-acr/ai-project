@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { LayoutDashboard, PhoneCall, List, PhoneMissed, Users, History, Voicemail, MessageSquare, Headphones, Smartphone } from "lucide-react";
 import AgentDashboardTab from "./tabs/AgentDashboardTab";
 import dynamic from "next/dynamic";
@@ -31,6 +32,7 @@ export const ALL_TABS = [
 export const DEFAULT_CALL_PANEL_PREFS = {
   viewMode: "list", // "list" | "box"
   boxSize: "large", // "large" | "small"
+  navPosition: "left", // "left" | "top"
   tabOrder: ALL_TABS.map((t) => t.id),
 };
 
@@ -41,13 +43,14 @@ export function normalizeCallPanelPrefs(raw) {
   }
   const viewMode = raw.viewMode === "box" ? "box" : "list";
   const boxSize = raw.boxSize === "small" ? "small" : "large";
+  const navPosition = raw.navPosition === "top" ? "top" : "left";
   let tabOrder = Array.isArray(raw.tabOrder) ? raw.tabOrder.filter((id) => defaultOrder.includes(id)) : [];
   for (const id of defaultOrder) {
     if (!tabOrder.includes(id)) {
       tabOrder.push(id);
     }
   }
-  return { viewMode, boxSize, tabOrder };
+  return { viewMode, boxSize, navPosition, tabOrder };
 }
 
 export function loadCallPanelPrefs(currentUser) {
@@ -437,114 +440,196 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     };
   }, [host, myExt, myUid, activeTab, currentUser?.full_name, currentUser?.username, currentUser?.role]);
 
-  return (
-    <div className="flex h-full w-full gap-4 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
-      {/* Sidebar & Tabs + Agent Session Card */}
-      <div
-        className={`w-64 shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:flex md:flex-col transition-all duration-200`}
-      >
-        <div className="flex flex-col space-y-1.5">
-          {tabs.map((tab) => {
-            const isSelected = activeTab === tab.id;
-            const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
-            const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
-            const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
-                  isSelected
-                    ? `${bg} text-white shadow-md`
-                    : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
-                }`}
-              >
-                <span className="flex items-center gap-3 min-w-0">
-                  <tab.icon size={18} className="shrink-0" />
-                  <span className="text-sm truncate">{tab.name}</span>
-                </span>
-                {showMissedBadge && (
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
-                      isSelected
-                        ? "bg-white text-rose-600"
-                        : "bg-rose-500 text-white animate-pulse"
-                    }`}
-                    title={`${missedQueueCount} adet geri dönülmemiş kuyruk kayıp çağrısı`}
-                  >
-                    {missedQueueCount}
-                  </span>
-                )}
-                {showHistoryDot && (
-                  <span
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse"
-                    title={`${unseenDirectMissedCount} yeni doğrudan cevapsız çağrı`}
-                  >
-                    {unseenDirectMissedCount}
-                  </span>
-                )}
-                {showChatBadge && (
-                  <span
-                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse"
-                    title={`${unseenChatCount} yeni sohbet mesajı`}
-                  >
-                    {unseenChatCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+  const isTopNav = panelPrefs?.navPosition === "top";
+  const [topNavSlot, setTopNavSlot] = useState(null);
 
-        {/* Agent Session & Break Status Card placed below Sohbet */}
-        <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
-          <AgentSessionCard
-            backendHost={backendHost}
-            currentUser={currentUser}
-            activeCallId={activeCallId}
-            compact={true}
-          />
-        </div>
+  useEffect(() => {
+    if (typeof document !== "undefined" && isTopNav && isVisible) {
+      const el = document.getElementById("agent-top-nav-slot");
+      setTopNavSlot(el || null);
+    } else {
+      setTopNavSlot(null);
+    }
+  }, [isTopNav, isVisible, activeTab]);
+
+  const renderHorizontalNavContent = () => (
+    <div className="flex items-center justify-between gap-3 w-full min-w-0">
+      <div className="flex items-center gap-1 overflow-x-auto py-1 no-scrollbar min-w-0">
+        {tabs.map((tab) => {
+          const isSelected = activeTab === tab.id;
+          const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
+          const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
+          const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              onClick={() => setActiveTab(tab.id)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+                isSelected
+                  ? `${bg} text-white shadow-sm`
+                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"
+              }`}
+            >
+              <tab.icon size={15} className="shrink-0" />
+              <span>{tab.name}</span>
+              {showMissedBadge && (
+                <span
+                  className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold shrink-0 ${
+                    isSelected ? "bg-white text-rose-600" : "bg-rose-500 text-white animate-pulse"
+                  }`}
+                >
+                  {missedQueueCount}
+                </span>
+              )}
+              {showHistoryDot && (
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse">
+                  {unseenDirectMissedCount}
+                </span>
+              )}
+              {showChatBadge && (
+                <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse">
+                  {unseenChatCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
+
+      <div className="shrink-0 pl-2 border-l border-slate-200/80 dark:border-slate-800">
+        <AgentSessionCard
+          backendHost={backendHost}
+          currentUser={currentUser}
+          activeCallId={activeCallId}
+          headerBar={true}
+        />
+      </div>
+    </div>
+  );
+
+  return (
+    <div className={`flex ${isTopNav ? "flex-col" : ""} h-full w-full gap-4 animate-in fade-in zoom-in-95 duration-300 overflow-hidden`}>
+      {/* Top Navigation Portal into Header Bar (when in Full-Screen Agent Mode & navPosition === "top") */}
+      {isTopNav && isVisible && topNavSlot && createPortal(renderHorizontalNavContent(), topNavSlot)}
+
+      {/* Fallback Inline Top Navigation Bar (when navPosition === "top" but header slot is not active) */}
+      {isTopNav && !topNavSlot && (
+        <div className={`shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm px-4 py-2.5 w-full`}>
+          {renderHorizontalNavContent()}
+        </div>
+      )}
+
+      {/* Left Vertical Sidebar & Tabs + Agent Session Card (when navPosition === "left") */}
+      {!isTopNav && (
+        <div
+          className={`w-64 shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 h-full overflow-y-auto hidden md:flex md:flex-col transition-all duration-200`}
+        >
+          <div className="flex flex-col space-y-1.5">
+            {tabs.map((tab) => {
+              const isSelected = activeTab === tab.id;
+              const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
+              const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
+              const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl font-medium transition-all text-left w-full ${
+                    isSelected
+                      ? `${bg} text-white shadow-md`
+                      : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
+                  }`}
+                >
+                  <span className="flex items-center gap-3 min-w-0">
+                    <tab.icon size={18} className="shrink-0" />
+                    <span className="text-sm truncate">{tab.name}</span>
+                  </span>
+                  {showMissedBadge && (
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
+                        isSelected
+                          ? "bg-white text-rose-600"
+                          : "bg-rose-500 text-white animate-pulse"
+                      }`}
+                      title={`${missedQueueCount} adet geri dönülmemiş kuyruk kayıp çağrısı`}
+                    >
+                      {missedQueueCount}
+                    </span>
+                  )}
+                  {showHistoryDot && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse"
+                      title={`${unseenDirectMissedCount} yeni doğrudan cevapsız çağrı`}
+                    >
+                      {unseenDirectMissedCount}
+                    </span>
+                  )}
+                  {showChatBadge && (
+                    <span
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse"
+                      title={`${unseenChatCount} yeni sohbet mesajı`}
+                    >
+                      {unseenChatCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Agent Session & Break Status Card placed below Sohbet */}
+          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800">
+            <AgentSessionCard
+              backendHost={backendHost}
+              currentUser={currentUser}
+              activeCallId={activeCallId}
+              compact={true}
+            />
+          </div>
+        </div>
+      )}
 
       {/* Mobile Tabs (Horizontal) - Just in case on small screens */}
-      <div className={`md:hidden shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 w-full overflow-x-auto`}>
-        <div className="flex space-x-2 min-w-max">
-          {tabs.map(tab => {
-            const isSelected = activeTab === tab.id;
-            const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
-            const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
-            const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-3 py-2 rounded-xl font-medium transition-all ${
-                  isSelected
-                    ? `${bg} text-white shadow-md`
-                    : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
-                }`}
-              >
-                <tab.icon size={16} />
-                <span className="text-xs">{tab.name}</span>
-                {showMissedBadge && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white">
-                    {missedQueueCount}
-                  </span>
-                )}
-                {showHistoryDot && (
-                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                )}
-                {showChatBadge && (
-                  <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white animate-pulse">
-                    {unseenChatCount}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+      {!isTopNav && (
+        <div className={`md:hidden shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm p-3 w-full overflow-x-auto`}>
+          <div className="flex space-x-2 min-w-max">
+            {tabs.map(tab => {
+              const isSelected = activeTab === tab.id;
+              const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
+              const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
+              const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl font-medium transition-all ${
+                    isSelected
+                      ? `${bg} text-white shadow-md`
+                      : `text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800`
+                  }`}
+                >
+                  <tab.icon size={16} />
+                  <span className="text-xs">{tab.name}</span>
+                  {showMissedBadge && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white">
+                      {missedQueueCount}
+                    </span>
+                  )}
+                  {showHistoryDot && (
+                    <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  )}
+                  {showChatBadge && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white animate-pulse">
+                      {unseenChatCount}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Tab Content Area */}
       <div className={`flex-1 h-full overflow-hidden relative rounded-3xl bg-white dark:bg-slate-900 shadow-sm border ${borderLight}`}>

@@ -2689,8 +2689,8 @@ export default function Home() {
         
         {/* Top Header Navbar */}
         {!isEditingCallFlow && (
-        <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300">
-          <div className="flex items-center gap-3 min-w-[240px]">
+        <header className="relative z-40 h-16 border-b border-slate-200/80 dark:border-slate-800/80 flex items-center justify-between px-5 bg-white/80 dark:bg-slate-900/60 backdrop-blur-md transition-colors duration-300 gap-3">
+          <div className="flex items-center gap-3 shrink-0">
             {activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode) && (
               <div className="flex items-center gap-2.5 pr-2">
                 <div className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm">
@@ -2729,6 +2729,11 @@ export default function Home() {
               <TenantSwitcher backendHost={backendHost} currentUser={currentUser} />
             )}
           </div>
+
+          {/* Agent Top Navigation Portal Slot (Üst Bar Modu Aktifken Sekmeler ve Kuyruk Oturumu Buraya Gelir) */}
+          {activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode) && (
+            <div id="agent-top-nav-slot" className="flex-1 flex items-center justify-between px-2 min-w-0 overflow-hidden" />
+          )}
 
           {/* Global Search & Action Center Bar */}
           {!isAgentOnlyUser && currentUser?.role !== "agent" && !(activeTab === "call-center" && isAgentFullScreenMode) && (
@@ -3359,6 +3364,7 @@ export default function Home() {
 
                   const resetTabOrder = () => {
                     updatePrefsLive({
+                      navPosition: DEFAULT_CALL_PANEL_PREFS.navPosition,
                       viewMode: DEFAULT_CALL_PANEL_PREFS.viewMode,
                       boxSize: DEFAULT_CALL_PANEL_PREFS.boxSize,
                       tabOrder: [...DEFAULT_CALL_PANEL_PREFS.tabOrder]
@@ -3367,6 +3373,136 @@ export default function Home() {
 
                   return (
                     <div className="space-y-5 max-h-[65vh] overflow-y-auto pr-1">
+                      {/* 0. Menü Konumu & Yerleşim Düzeni (Sol Menü / Üst Bar) */}
+                      <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-4">
+                        <div className="flex items-center justify-between gap-2">
+                          <div>
+                            <h5 className="text-xs font-extrabold text-slate-800 dark:text-white uppercase tracking-wider">
+                              Menü Konumu & Ekran Yerleşimi
+                            </h5>
+                            <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                              Çağrı paneli sekmelerini ve kuyruk oturum kontrolünü sol dikey menüde veya üst barda konumlandırın.
+                            </p>
+                          </div>
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider shrink-0 ${lightBg} ${text} border ${borderLight}`}>
+                            {callPanelPrefs.navPosition === "top" ? "Üst Bar (Tam Genişlik)" : "Sol Menü (Klasik)"}
+                          </span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {/* Sol Menü (Dikey Yerleşim) */}
+                          <button
+                            type="button"
+                            onClick={() => updatePrefsLive({ navPosition: "left" })}
+                            className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col gap-3 cursor-pointer ${
+                              callPanelPrefs.navPosition !== "top"
+                                ? `${lightBg} ${border} ring-2 ${ring}`
+                                : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                            }`}
+                          >
+                            {/* Görsel Şema Önizlemesi - Sol Menü */}
+                            <div className="w-full h-20 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 p-2 flex flex-col gap-1.5 overflow-hidden">
+                              {/* Üst Bar Çizgisi */}
+                              <div className="h-3 w-full rounded-md bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 flex items-center justify-between px-1.5">
+                                <div className="w-6 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+                                <div className="w-8 h-1.5 rounded-full bg-slate-300 dark:bg-slate-700" />
+                              </div>
+                              {/* Gövde: Sol Menü + İçerik */}
+                              <div className="flex-1 flex gap-1.5 min-h-0">
+                                <div className={`w-12 rounded-md p-1 flex flex-col justify-between border ${
+                                  callPanelPrefs.navPosition !== "top"
+                                    ? `${lightBg} ${border}`
+                                    : "bg-white dark:bg-slate-900 border-slate-200/70 dark:border-slate-800"
+                                }`}>
+                                  <div className="space-y-1">
+                                    <div className={`h-1.5 w-full rounded-sm ${callPanelPrefs.navPosition !== "top" ? bg : "bg-slate-400 dark:bg-slate-600"}`} />
+                                    <div className="h-1 w-4/5 rounded-sm bg-slate-300 dark:bg-slate-700" />
+                                    <div className="h-1 w-3/4 rounded-sm bg-slate-300 dark:bg-slate-700" />
+                                  </div>
+                                  <div className="h-2.5 w-full rounded-sm bg-emerald-500/30 border border-emerald-500/40" />
+                                </div>
+                                <div className="flex-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 p-1.5 flex flex-col gap-1">
+                                  <div className="h-2 w-1/3 rounded-sm bg-slate-200 dark:bg-slate-800" />
+                                  <div className="flex-1 grid grid-cols-2 gap-1">
+                                    <div className="rounded-sm bg-slate-100 dark:bg-slate-800/70" />
+                                    <div className="rounded-sm bg-slate-100 dark:bg-slate-800/70" />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                  <span>Sol Menü (Dikey Yerleşim)</span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">
+                                  Sekmeler ve kuyruk oturum kartı sol sütunda yer alır. Klasik dikey kontrol düzeni.
+                                </p>
+                              </div>
+                              {callPanelPrefs.navPosition !== "top" && (
+                                <CheckCircle size={15} className={`${text} shrink-0 mt-0.5`} />
+                              )}
+                            </div>
+                          </button>
+
+                          {/* Üst Bar (Yatay Tam Genişlik Yerleşim) */}
+                          <button
+                            type="button"
+                            onClick={() => updatePrefsLive({ navPosition: "top" })}
+                            className={`p-3.5 rounded-2xl border text-left transition-all flex flex-col gap-3 cursor-pointer ${
+                              callPanelPrefs.navPosition === "top"
+                                ? `${lightBg} ${border} ring-2 ${ring}`
+                                : "bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                            }`}
+                          >
+                            {/* Görsel Şema Önizlemesi - Üst Bar */}
+                            <div className="w-full h-20 rounded-xl bg-slate-100 dark:bg-slate-950 border border-slate-200/80 dark:border-slate-800 p-2 flex flex-col gap-1.5 overflow-hidden">
+                              {/* Üst Bar (Sekmeler + Oturum Kartı Aktif) */}
+                              <div className={`h-5 w-full rounded-md px-1.5 flex items-center justify-between border ${
+                                callPanelPrefs.navPosition === "top"
+                                  ? `${lightBg} ${border}`
+                                  : "bg-white dark:bg-slate-900 border-slate-200/70 dark:border-slate-800"
+                              }`}>
+                                <div className="flex items-center gap-1">
+                                  <div className={`w-6 h-2 rounded-sm ${callPanelPrefs.navPosition === "top" ? bg : "bg-slate-400 dark:bg-slate-600"}`} />
+                                  <div className="w-5 h-2 rounded-sm bg-slate-300 dark:bg-slate-700" />
+                                  <div className="w-5 h-2 rounded-sm bg-slate-300 dark:bg-slate-700" />
+                                  <div className="w-5 h-2 rounded-sm bg-slate-300 dark:bg-slate-700" />
+                                </div>
+                                <div className="w-10 h-2.5 rounded-sm bg-emerald-500/30 border border-emerald-500/40" />
+                              </div>
+                              {/* Gövde: Tam Genişlik Çalışma Alanı */}
+                              <div className="flex-1 rounded-md bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 p-1.5 flex flex-col gap-1">
+                                <div className="h-2 w-1/4 rounded-sm bg-slate-200 dark:bg-slate-800" />
+                                <div className="flex-1 grid grid-cols-3 gap-1">
+                                  <div className="rounded-sm bg-slate-100 dark:bg-slate-800/70" />
+                                  <div className="rounded-sm bg-slate-100 dark:bg-slate-800/70" />
+                                  <div className="rounded-sm bg-slate-100 dark:bg-slate-800/70" />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <div className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-1.5">
+                                  <span>Üst Bar (Yatay Tam Genişlik)</span>
+                                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                                    Yeni
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 leading-relaxed">
+                                  Sekmeler ve mola/oturum kontrolü üst bara taşınır; alt çalışma alanı tam ekran genişliğinde açılır.
+                                </p>
+                              </div>
+                              {callPanelPrefs.navPosition === "top" && (
+                                <CheckCircle size={15} className={`${text} shrink-0 mt-0.5`} />
+                              )}
+                            </div>
+                          </button>
+                        </div>
+                      </div>
+
                       {/* 1. Temsilci Ekranı Görünüm Şekli (Liste / Kutucuk) */}
                       <div className="p-4 bg-slate-50/70 dark:bg-slate-950/40 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-4">
                         <div className="flex items-center justify-between">
@@ -3504,13 +3640,13 @@ export default function Home() {
                               Temsilci Çağrı Paneli Seçenek Sıralaması
                             </h5>
                             <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                              Seçenekleri sürükleyip bırakarak veya sağdaki yukarı/aşağı ok butonlarını kullanarak istediğiniz sıraya dizin.
+                              Seçenekleri sürükleyip bırakarak veya sağdaki yukarı/aşağı ok butonlarını kullanarak istediğiniz sıraya dizin (Sol Menü ve Üst Bar için geçerlidir).
                             </p>
                           </div>
                           <button
                             type="button"
                             onClick={resetTabOrder}
-                            className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center gap-1.5"
+                            className="px-2.5 py-1.5 rounded-xl text-[10px] font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center gap-1.5 cursor-pointer"
                             title="Varsayılan görünüm ve sıralamaya dön"
                           >
                             <RotateCcw size={12} />
@@ -3543,9 +3679,16 @@ export default function Home() {
                                   <div className="p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
                                     <IconComp size={13} />
                                   </div>
-                                  <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate">
-                                    {tabItem.label}
-                                  </span>
+                                  <div className="min-w-0">
+                                    <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate block">
+                                      {tabItem.name || tabItem.label}
+                                    </span>
+                                    {tabItem.desc && (
+                                      <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate block">
+                                        {tabItem.desc}
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
 
                                 <div className="flex items-center gap-1 shrink-0">
