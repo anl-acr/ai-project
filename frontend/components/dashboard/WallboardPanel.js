@@ -1590,7 +1590,7 @@ export default function WallboardPanel({ backendHost = "localhost:8000", current
       if (res.ok) {
         setMonitorStatus({
           type: "success",
-          text: `${modeTitle} başlatıldı (${label})! WebPhone veya masa telefonunuz otomatik olarak çağrıya bağlanıyor.`
+          text: `${modeTitle} başlatıldı (${label})! Web Telefon veya masa telefonunuz otomatik olarak çağrıya bağlanıyor.`
         });
         if (isAiCall && mode === "whisper" && callId) {
           setAiWhisperTargetCall({ id: callId, label });

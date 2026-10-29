@@ -478,7 +478,7 @@ export default function AgentWebphoneTab({
                     : callStatus === "Ringing"
                     ? "Gelen Çağrı..."
                     : isRegistered
-                    ? `WebPhone Hazır (${currentUser?.extension || "1000"})`
+                    ? `Web Telefon Hazır (${currentUser?.extension || "1000"})`
                     : "Bağlantı Bekleniyor"}
                 </span>
                 {dialNumber && (

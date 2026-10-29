@@ -67,7 +67,7 @@ export default function SSLSettings({ backendHost }) {
             SSL Sertifikaları
           </h2>
           <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            WebRTC (Web Phone) ve SIP TLS bağlantıları için SSL sertifikalarınızı buradan yükleyebilirsiniz.
+            WebRTC (Web Telefon) ve SIP TLS bağlantıları için SSL sertifikalarınızı buradan yükleyebilirsiniz.
           </p>
         </div>
       </div>

@@ -1345,7 +1345,7 @@ class WebphoneManager {
     if (!this.userAgent || !this.state.webrtcConfig) {
       this.setCallNotification({
         type: "error",
-        message: "WebPhone bağlantısı hazırlanıyor, lütfen birkaç saniye sonra tekrar deneyin."
+        message: "Web Telefon bağlantısı hazırlanıyor, lütfen birkaç saniye sonra tekrar deneyin."
       });
       return;
     }

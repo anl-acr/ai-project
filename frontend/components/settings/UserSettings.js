@@ -1577,7 +1577,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         {(u.is_registered || u.sip_status === "online" || u.is_online) ? (
                           <span className="absolute bottom-full mb-2 left-0 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 opacity-0 group-hover:opacity-100 transition-all duration-200 bg-emerald-50/95 dark:bg-emerald-950/95 backdrop-blur-md px-2.5 py-1 rounded-xl whitespace-nowrap shadow-lg border border-emerald-200/80 dark:border-emerald-800/80 z-[100] pointer-events-none flex items-center gap-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0"></span>
-                            <span>Web Phone Bağlı</span>
+                            <span>Web Telefon Bağlı</span>
                             {u.ip_address && (
                               <span className="text-emerald-600/90 dark:text-emerald-400/90 font-mono text-[9px] bg-emerald-100/70 dark:bg-emerald-900/70 px-1 py-0.2 rounded font-normal">({u.ip_address})</span>
                             )}
@@ -1585,7 +1585,7 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                         ) : (
                           <span className="absolute bottom-full mb-2 left-0 text-[10px] font-bold text-rose-600 dark:text-rose-400 opacity-0 group-hover:opacity-100 transition-all duration-200 bg-rose-50/95 dark:bg-rose-950/95 backdrop-blur-md px-2.5 py-1 rounded-xl whitespace-nowrap shadow-lg border border-rose-200/80 dark:border-rose-800/80 z-[100] pointer-events-none flex items-center gap-1.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-rose-500 shrink-0"></span>
-                            <span>Web Phone Bağlı Değil</span>
+                            <span>Web Telefon Bağlı Değil</span>
                           </span>
                         )}
                       </div>
@@ -3543,10 +3543,10 @@ export default function UserSettings({ backendHost = "localhost:8000", currentUs
                                         <div>
                                             <h6 className="text-xs font-extrabold text-slate-800 dark:text-white flex items-center gap-2">
                                                 <Database size={14} className={text} />
-                                                Webphone Üzerinde Canlı CRM Müşteri Kartı Ön İzleme (REST API)
+                                                Web Telefon Üzerinde Canlı CRM Müşteri Kartı Ön İzleme (REST API)
                                             </h6>
                                             <p className="text-[10px] text-slate-400 mt-0.5">
-                                                2. sekmede CRM ekranını açarken aynı zamanda temsilcinin Webphone ekranında müşterinin CRM özet bilgilerini gösterir.
+                                                2. sekmede CRM ekranını açarken aynı zamanda temsilcinin Web Telefon ekranında müşterinin CRM özet bilgilerini gösterir.
                                             </p>
                                         </div>
                                         <button

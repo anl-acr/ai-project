@@ -222,9 +222,9 @@ export default function GlobalSearchBar({
         id: "menu-call-center-webphone",
         category: "menu",
         groupLabel: "Temsilci Çağrı Paneli",
-        title: "Temsilci Çağrı Paneli > WebPhone (Telefon)",
+        title: "Temsilci Çağrı Paneli > Web Telefon",
         subtitle: "WebRTC telefon ekranı, tuş takımı, aktarma ve konferans",
-        keywords: "webphone telefon arama yap tuş takımı dahili ara konferans transfer",
+        keywords: "web telefon webphone arama yap tuş takımı dahili ara konferans transfer",
         icon: Phone,
         run: () => navigateTo("call-center", { agentPanelSubTab: "webphone" })
       },
@@ -953,7 +953,7 @@ export default function GlobalSearchBar({
         category: "action",
         groupLabel: "Doğrudan Arama İşlemi",
         title: `${digitsOnly} Numarasını Hemen Ara`,
-        subtitle: "WebPhone üzerinden doğrudan sesli çağrı başlat",
+        subtitle: "Web Telefon üzerinden doğrudan sesli çağrı başlat",
         icon: PhoneCall,
         badge: "Hemen Ara",
         run: () => handleDirectCall(digitsOnly)

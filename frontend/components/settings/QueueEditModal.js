@@ -923,7 +923,7 @@ export default function QueueEditModal({ isOpen, onClose, onSave, queueData = nu
               <div>
                 <div className="text-xs font-bold text-slate-800 dark:text-white">Bağlantı Koptuğunda Otomatik Mola</div>
                 <div className="text-[11px] text-slate-500 mt-0.5">
-                  WebPhone / SIP bağlantısı koptuğunda temsilciyi otomatik molaya al.
+                  Web Telefon / SIP bağlantısı koptuğunda temsilciyi otomatik molaya al.
                 </div>
               </div>
               <label className="relative inline-flex items-center cursor-pointer shrink-0 mt-0.5">

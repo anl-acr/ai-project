@@ -18,7 +18,7 @@ import { webphoneManager } from "../../utils/webphoneManager";
 
 export const ALL_TABS = [
   { id: "dashboard", perm: "call_panel:tab_dashboard", name: "Pano", desc: "Günlük çağrı ve mola özet panosu", icon: LayoutDashboard },
-  { id: "webphone", perm: "call_panel:tab_webphone", name: "Webphone", desc: "WebRTC yazılım telefonu ve hat kontrolü", icon: PhoneCall },
+  { id: "webphone", perm: "call_panel:tab_webphone", name: "Web Telefon", desc: "Tarayıcı içi WebRTC telefon ve hat kontrolü", icon: PhoneCall },
   { id: "agents", perm: "call_panel:tab_agents", name: "Temsilciler", desc: "Kuyruktaki diğer temsilcilerin canlı durumu", icon: Headphones },
   { id: "speeddial", perm: "call_panel:tab_speeddial", name: "Hızlı Arama", desc: "Tek tıkla hızlı arama kısayolları", icon: List },
   { id: "missed", perm: "call_panel:tab_missed", name: "Kayıp Çağrı", desc: "Cevapsız kalan çağrıların listesi", icon: PhoneMissed },

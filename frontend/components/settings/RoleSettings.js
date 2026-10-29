@@ -30,7 +30,7 @@ export const CALL_PANEL_SUB_GROUPS = [
     title: "Panel Sekmeleri",
     items: [
       { id: "call_panel:tab_dashboard", name: "Pano" },
-      { id: "call_panel:tab_webphone", name: "Webphone" },
+      { id: "call_panel:tab_webphone", name: "Web Telefon" },
       { id: "call_panel:tab_agents", name: "Temsilciler" },
       { id: "call_panel:tab_speeddial", name: "Hızlı Arama" },
       { id: "call_panel:tab_missed", name: "Kayıp Çağrı" },
@@ -43,7 +43,7 @@ export const CALL_PANEL_SUB_GROUPS = [
   },
   {
     id: "webphone_features",
-    title: "Webphone Özellikleri",
+    title: "Web Telefon Özellikleri",
     items: [
       { id: "call_panel:listen_records", name: "Ses Kayıt Dinleme" },
       { id: "call_panel:view_transcripts", name: "Çağrı Transkripti Görüntüleme" },

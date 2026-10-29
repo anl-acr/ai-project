@@ -390,7 +390,7 @@ export default function LiveDashboardPanel({ backendHost = "localhost:8000" }) {
       });
       const data = await res.json();
       if (res.ok) {
-        setSuccessMsg(`${modeTitle} başlatıldı! WebPhone veya masa telefonunuz otomatik olarak çağrıya bağlanıyor.`);
+        setSuccessMsg(`${modeTitle} başlatıldı! Web Telefon veya masa telefonunuz otomatik olarak çağrıya bağlanıyor.`);
         if (mode === "whisper" && whisperInputRef.current) {
           setTimeout(() => whisperInputRef.current?.focus(), 150);
         }

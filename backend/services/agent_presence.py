@@ -401,7 +401,7 @@ async def trigger_agent_auto_pause(
         break_name = "Otomatik Mola (Bağlantı Koptu)"
         grace_s = int((queue_cfg or {}).get("auto_pause_disconnect_grace_sec") or 15)
         reason_detail = (
-            f"WebPhone / SIP telefon bağlantınız koptuğu ve {grace_s} saniye içinde yeniden bağlantı sağlanamadığı için "
+            f"Web Telefon / SIP telefon bağlantınız koptuğu ve {grace_s} saniye içinde yeniden bağlantı sağlanamadığı için "
             f"hesabınız otomatik olarak mola durumuna alınmıştır."
         )
 

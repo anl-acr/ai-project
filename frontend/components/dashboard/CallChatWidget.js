@@ -646,7 +646,7 @@ export default function CallChatWidget({
               <div
                 onClick={() => setIsOpen(true)}
                 className="flex items-center gap-3 cursor-pointer pr-2 min-w-[160px] max-w-[260px]"
-                title="Mini Softphone Penceresini Aç"
+                title="Mini Web Telefon Penceresini Aç"
               >
                 <span className="relative flex h-3 w-3 shrink-0">
                   <span
@@ -745,7 +745,7 @@ export default function CallChatWidget({
                   type="button"
                   onClick={() => setIsOpen(true)}
                   className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white ml-0.5"
-                  title="Mini Softphone Penceresini Aç"
+                  title="Mini Web Telefon Penceresini Aç"
                 >
                   <Maximize2 size={14} />
                 </button>
@@ -785,7 +785,7 @@ export default function CallChatWidget({
                   : groupRingingCalls.length > 0
                   ? `Grubunda Çağrı Var (Dahili ${groupRingingCalls[0].ringing_extension})`
                   : registered
-                  ? `WebPhone • Dahili ${agentExtension}`
+                  ? `Web Telefon • Dahili ${agentExtension}`
                   : `Dahili ${agentExtension || "X"} (Bağlı Değil)`}
               </span>
             </div>
@@ -815,7 +815,7 @@ export default function CallChatWidget({
               </span>
               <div className="truncate">
                 <h4 className="font-extrabold text-xs tracking-wider uppercase truncate">
-                  Mini Softphone • Dahili {agentExtension}
+                  Mini Web Telefon • Dahili {agentExtension}
                 </h4>
                 <p className="text-[10px] text-white/80 font-medium truncate">
                   {callStatus === "Ringing"
