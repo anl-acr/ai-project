@@ -1560,8 +1560,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
-      if (filterCallId) params.append("call_id", filterCallId);
+      if (viewMode !== "perf" && viewMode !== "queue") {
+        if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
+        if (filterCallId) params.append("call_id", filterCallId);
+      }
 
       fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`, {
         headers: { "X-Tenant-ID": activeTenantId }
@@ -1580,7 +1582,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         window.removeEventListener("tenantChanged", handleTenantChange);
       }
     };
-  }, [backendHost, filterStartDate, filterEndDate, filterCallerNumber, filterCallId]);
+  }, [backendHost, viewMode, filterStartDate, filterEndDate, filterCallerNumber, filterCallId]);
+
+  useEffect(() => {
+    if (filterCallerNumber || filterCallId) {
+      fetchCalls(false);
+    }
+  }, [viewMode]);
 
   // Sync selectedCall notes and topic in ReportsPanel
   useEffect(() => {
@@ -1640,8 +1648,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
-    if (filterCallId) params.append("call_id", filterCallId);
+    if (viewMode !== "perf" && viewMode !== "queue") {
+      if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
+      if (filterCallId) params.append("call_id", filterCallId);
+    }
 
     fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`, {
       headers: { "X-Tenant-ID": activeTenantId }
@@ -3226,30 +3236,32 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const filteredCalls = calls.filter((c) => {
-    // 1. Caller Number Filter
-    if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
-      return false;
+    if (viewMode !== "perf" && viewMode !== "queue") {
+      // 1. Caller Number Filter
+      if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
+        return false;
+      }
+
+      // 2. Call ID Filter
+      if (filterCallId && !c.id?.toLowerCase().includes(filterCallId.toLowerCase())) {
+        return false;
+      }
+
+      // 3. Direction Filter
+      if (filterDirection !== "All") {
+        const dir = getCallDirection(c);
+        if (dir !== filterDirection) return false;
+      }
+
+      // 4. Status Filter
+      if (filterStatus !== "All") {
+        const statusLabel = getCallStatus(c);
+        if (statusLabel !== filterStatus) return false;
+      }
     }
 
-    // 2. Call ID Filter
-    if (filterCallId && !c.id?.toLowerCase().includes(filterCallId.toLowerCase())) {
-      return false;
-    }
-
-    // 3. Direction Filter
-    if (filterDirection !== "All") {
-      const dir = getCallDirection(c);
-      if (dir !== filterDirection) return false;
-    }
-
-    // 4. Status Filter
-    if (filterStatus !== "All") {
-      const statusLabel = getCallStatus(c);
-      if (statusLabel !== filterStatus) return false;
-    }
-
-    // 5. Conversant / Agent Filter across all report modes
-    if (filterAgentsSelected.length > 0 || filterConversant !== "All") {
+    // 5. Conversant / Agent Filter across applicable report modes
+    if (viewMode !== "queue" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
@@ -3705,7 +3717,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <button 
                 onClick={() => setIsFilterOpen(true)}
                 className={`flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-xl border font-bold cursor-pointer transition-all duration-200 ${
-                  filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0 || filterQueuesSelected.length > 0
+                  (viewMode === "perf"
+                    ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All")
+                    : viewMode === "queue"
+                    ? Boolean(filterStartDate || filterEndDate || filterQueuesSelected.length > 0)
+                    : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
                 }`}
@@ -4365,16 +4381,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className={viewMode === "queue" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "queue" || viewMode === "perf" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
                       type="date"
                       value={filterStartDate}
                       onChange={(e) => setFilterStartDate(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
+                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
                     />
                   </div>
                   <div className="flex flex-col gap-1">
@@ -4383,7 +4399,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       type="date"
                       value={filterEndDate}
                       onChange={(e) => setFilterEndDate(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-purple-500 font-semibold"
+                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
                     />
                   </div>
                 </div>
@@ -4399,6 +4415,20 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     renderRow={(item) => (
                       <>
                         <td className="p-2 text-slate-600 dark:text-slate-400 font-mono text-xs">{item.extension || item.id}</td>
+                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                      </>
+                    )}
+                  />
+                ) : viewMode === "perf" ? (
+                  <DualListBox 
+                    title="Kullanıcılar"
+                    availableItems={uniqueConversants.map(c => ({ id: c, name: c }))}
+                    selectedIds={filterAgentsSelected}
+                    onChangeSelectedIds={setFilterAgentsSelected}
+                    columns={["İsim"]}
+                    bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                    renderRow={(item) => (
+                      <>
                         <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
                       </>
                     )}
