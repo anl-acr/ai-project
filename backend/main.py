@@ -20988,6 +20988,42 @@ async def new_save_queues_endpoint(payload: Union[List[Dict[str, Any]], Dict[str
         settings_db["queues"] = new_queues_out
         save_settings(settings_db)
 
+        try:
+            regenerate_queues_conf(background_tasks)
+        except Exception as _rqe:
+            print(f"[Save Queues Asterisk Sync Warning]: {_rqe}")
+
+        # If any currently logged-in agent is no longer a member of ANY queue, automatically end their queue session
+        try:
+            if new_queues_out:
+                all_active_member_keys = set()
+                for q_obj in new_queues_out:
+                    m_list = q_obj.get("queueMembers") or q_obj.get("members") or []
+                    if isinstance(m_list, list):
+                        for m_item in m_list:
+                            if isinstance(m_item, dict):
+                                for mk in ("extension", "user_id", "id"):
+                                    mv = str(m_item.get(mk) or "").strip()
+                                    if mv:
+                                        all_active_member_keys.add(mv)
+                            elif m_item:
+                                all_active_member_keys.add(str(m_item).strip())
+                for ag_key, ag_st in list(active_agent_status.items()):
+                    if isinstance(ag_st, dict) and ag_st.get("is_logged_in"):
+                        ag_ext = str(ag_st.get("extension") or "").strip()
+                        ag_uid = str(ag_st.get("user_id") or "").strip()
+                        check_keys = {k for k in (str(ag_key).strip(), ag_ext, ag_uid) if k}
+                        if check_keys and not (check_keys & all_active_member_keys):
+                            update_agent_state(
+                                is_logged_in=False,
+                                status="offline",
+                                current_break=None,
+                                user_id=ag_uid or ag_key,
+                                extension=ag_ext or ag_key
+                            )
+        except Exception as _ale:
+            print(f"[Save Queues Active Agent Sync Warning]: {_ale}")
+
         if queue_changes:
             has_created = any(c.get("action") == "CREATED" for c in queue_changes)
             has_deleted = any(c.get("action") == "DELETED" for c in queue_changes)
@@ -21018,7 +21054,7 @@ async def update_single_queue_endpoint(queue_id: int, payload: Dict[str, Any], b
 
 @app.delete("/api/settings/queues/{queue_id}")
 @app.delete("/settings/queues/{queue_id}")
-async def delete_single_queue_endpoint(queue_id: int, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+async def delete_single_queue_endpoint(queue_id: int, background_tasks: BackgroundTasks, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
     try:
         deleted_q_name = str(queue_id)
         deleted_q_ext = ""
@@ -21036,6 +21072,11 @@ async def delete_single_queue_endpoint(queue_id: int, user_info: dict = Depends(
 
         settings_db["needs_apply"] = True
         settings_db["queues"] = new_queues_out
+        save_settings(settings_db)
+        try:
+            regenerate_queues_conf(background_tasks)
+        except Exception:
+            pass
 
         asyncio.create_task(log_event(
             user_id=user_info.get("user_id", "Sistem Yöneticisi"),

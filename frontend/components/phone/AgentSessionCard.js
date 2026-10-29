@@ -43,8 +43,14 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   useEffect(() => {
     fetchAgentStatus();
     fetchUsersAndRolesAndBreaks();
-    const interval = setInterval(fetchAgentStatus, 5000);
-    const onStatusUpdated = () => fetchAgentStatus();
+    const interval = setInterval(() => {
+      fetchAgentStatus();
+      fetchLatestQueuesAndBreaks();
+    }, 5000);
+    const onStatusUpdated = () => {
+      fetchAgentStatus();
+      fetchLatestQueuesAndBreaks();
+    };
     window.addEventListener("AGENT_STATUS_UPDATED", onStatusUpdated);
     return () => {
       clearInterval(interval);
@@ -59,10 +65,11 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   }, [activeCallId]);
 
   // Resolve agent's queue ACW duration and Disposition Codes
-  const getAgentQueueConfig = () => {
+  const getAgentQueueConfig = (overrideQueues = null) => {
     const ext = String(currentUser?.extension || agentState?.extension || "").trim();
     const uid = String(currentUser?.id || agentState?.user_id || "").trim();
-    const safeQueues = Array.isArray(queues) ? queues : [];
+    const sourceQueues = Array.isArray(overrideQueues) ? overrideQueues : queues;
+    const safeQueues = Array.isArray(sourceQueues) ? sourceQueues : [];
     const myQueues = safeQueues.filter((q) => {
       let members = q.queueMembers || q.members || [];
       if (typeof members === "string") {
@@ -213,13 +220,37 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       .catch((err) => console.error("Temsilci durumu alınamadı:", err));
   };
 
+  const fetchLatestQueuesAndBreaks = async () => {
+    try {
+      const ts = Date.now();
+      const [resBreaks, resQueues] = await Promise.all([
+        fetch(`${API_BASE}/api/settings/breaks?_t=${ts}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/api/settings/queues?_t=${ts}`, { cache: "no-store" })
+      ]);
+      if (resBreaks.ok) {
+        const dataBreaks = await resBreaks.json();
+        setBreaks(Array.isArray(dataBreaks) ? dataBreaks : (dataBreaks?.breaks || []));
+      }
+      if (resQueues.ok) {
+        const dataQueues = await resQueues.json();
+        const qList = Array.isArray(dataQueues) ? dataQueues : (dataQueues?.queues || []);
+        setQueues(qList);
+        return qList;
+      }
+    } catch (err) {
+      // silent background refresh
+    }
+    return null;
+  };
+
   const fetchUsersAndRolesAndBreaks = async () => {
     try {
+      const ts = Date.now();
       const [resUsers, resRoles, resBreaks, resQueues] = await Promise.all([
-        fetch(`${API_BASE}/api/settings/users`),
-        fetch(`${API_BASE}/api/settings/roles`),
-        fetch(`${API_BASE}/api/settings/breaks`),
-        fetch(`${API_BASE}/api/settings/queues`)
+        fetch(`${API_BASE}/api/settings/users?_t=${ts}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/api/settings/roles?_t=${ts}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/api/settings/breaks?_t=${ts}`, { cache: "no-store" }),
+        fetch(`${API_BASE}/api/settings/queues?_t=${ts}`, { cache: "no-store" })
       ]);
       if (resUsers.ok) {
         const dataUsers = await resUsers.json();
@@ -302,10 +333,21 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
 
   const effectiveUserId = currentUser?.id || agentState?.user_id;
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!currentUser) return;
-    const { isQueueMember } = getAgentQueueConfig();
-    if (Array.isArray(queues) && queues.length > 0 && !isQueueMember) {
+    setLoading(true);
+    setBreakError("");
+    let activeQueues = queues;
+    try {
+      const freshQueues = await fetchLatestQueuesAndBreaks();
+      if (Array.isArray(freshQueues)) {
+        activeQueues = freshQueues;
+      }
+    } catch (e) {}
+
+    const { isQueueMember } = getAgentQueueConfig(activeQueues);
+    if (Array.isArray(activeQueues) && activeQueues.length > 0 && !isQueueMember) {
+      setLoading(false);
       setBreakError("Herhangi bir çağrı kuyruğuna üye olmadığınız için oturum açamazsınız. Lütfen yöneticinizle iletişime geçiniz.");
       return;
     }
@@ -316,7 +358,7 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
       user_id: currentUser.id,
       extension: currentUser.extension
     };
-    updateStateOnBackend(newState);
+    await updateStateOnBackend(newState);
   };
 
   const handleLogout = () => {
