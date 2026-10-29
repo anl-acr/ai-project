@@ -444,13 +444,30 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   const [topNavSlot, setTopNavSlot] = useState(null);
 
   useEffect(() => {
-    if (typeof document !== "undefined" && isTopNav && isVisible) {
-      const el = document.getElementById("agent-top-nav-slot");
-      setTopNavSlot(el || null);
-    } else {
+    if (typeof document === "undefined" || !isTopNav || !isVisible) {
       setTopNavSlot(null);
+      return;
     }
-  }, [isTopNav, isVisible, activeTab]);
+    const findSlot = () => {
+      const el = document.getElementById("agent-top-nav-slot");
+      if (el) {
+        setTopNavSlot((prev) => (prev === el ? prev : el));
+        return true;
+      }
+      return false;
+    };
+    if (!findSlot()) {
+      const timer = setInterval(() => {
+        if (findSlot()) clearInterval(timer);
+      }, 50);
+      return () => clearInterval(timer);
+    }
+  }, [isTopNav, isVisible, activeTab, currentUser]);
+
+  const activeTopSlot =
+    isTopNav && isVisible && typeof document !== "undefined"
+      ? document.getElementById("agent-top-nav-slot") || topNavSlot
+      : null;
 
   const renderHorizontalNavContent = () => (
     <div className="flex items-center justify-between gap-2 w-full min-w-0">
@@ -510,15 +527,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
 
   return (
     <div className={`flex ${isTopNav ? "flex-col" : ""} h-full w-full gap-4 animate-in fade-in zoom-in-95 duration-300 overflow-hidden`}>
-      {/* Top Navigation Portal into Header Bar (when in Full-Screen Agent Mode & navPosition === "top") */}
-      {isTopNav && isVisible && topNavSlot && createPortal(renderHorizontalNavContent(), topNavSlot)}
-
-      {/* Fallback Inline Top Navigation Bar (when navPosition === "top" but header slot is not active) */}
-      {isTopNav && !topNavSlot && (
-        <div className={`shrink-0 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm px-4 py-2.5 w-full`}>
-          {renderHorizontalNavContent()}
-        </div>
-      )}
+      {/* Top Navigation Portal directly into the main Header Bar (when navPosition === "top") */}
+      {isTopNav && isVisible && activeTopSlot && createPortal(renderHorizontalNavContent(), activeTopSlot)}
 
       {/* Left Vertical Sidebar & Tabs + Agent Session Card (when navPosition === "left") */}
       {!isTopNav && (

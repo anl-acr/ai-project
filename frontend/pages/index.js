@@ -2730,13 +2730,13 @@ export default function Home() {
             )}
           </div>
 
-          {/* Agent Top Navigation Portal Slot (Üst Bar Modu Aktifken Sekmeler ve Kuyruk Oturumu Buraya Gelir) */}
-          {activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode) && (
+          {/* Agent Top Navigation Portal Slot (Üst Bar Modu Aktifken Sekmeler ve Kuyruk Oturumu Doğrudan Üst Bara Gelir) */}
+          {activeTab === "call-center" && (isAgentOnlyUser || currentUser?.role === "agent" || isAgentFullScreenMode || callPanelPrefs?.navPosition === "top") && (
             <div id="agent-top-nav-slot" className="flex-1 flex items-center justify-between px-2 min-w-0 overflow-hidden" />
           )}
 
           {/* Global Search & Action Center Bar */}
-          {!isAgentOnlyUser && currentUser?.role !== "agent" && !(activeTab === "call-center" && isAgentFullScreenMode) && (
+          {!isAgentOnlyUser && currentUser?.role !== "agent" && !(activeTab === "call-center" && (isAgentFullScreenMode || callPanelPrefs?.navPosition === "top")) && (
             <GlobalSearchBar
               backendHost={backendHost}
               currentUser={currentUser}
