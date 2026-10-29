@@ -369,6 +369,31 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterFcrSentimentsSelected, setFilterFcrSentimentsSelected] = useState([]);
   const [filterMissedQueuesSelected, setFilterMissedQueuesSelected] = useState([]);
   const [filterMissedCallbackSelected, setFilterMissedCallbackSelected] = useState([]);
+  const [filterTrafficStartHour, setFilterTrafficStartHour] = useState("");
+  const [filterTrafficEndHour, setFilterTrafficEndHour] = useState("");
+
+  const parseCallLocalHour = (dateStr) => {
+    if (!dateStr) return null;
+    const raw = String(dateStr).trim();
+    if (!raw) return null;
+    const cleanStr =
+      !raw.endsWith("Z") && !raw.includes("+") && !raw.includes("GMT") && raw.includes("T")
+        ? `${raw}Z`
+        : raw;
+    const d = new Date(cleanStr);
+    if (isNaN(d.getTime())) return null;
+    return d.getHours();
+  };
+
+  const isHourInTrafficRange = (hr, startRaw = filterTrafficStartHour, endRaw = filterTrafficEndHour) => {
+    if (hr === null || hr === undefined || isNaN(hr)) return false;
+    if (startRaw === "" && endRaw === "") return true;
+    const s = startRaw === "" ? 0 : parseInt(startRaw, 10);
+    const e = endRaw === "" ? 23 : parseInt(endRaw, 10);
+    if (isNaN(s) || isNaN(e)) return true;
+    if (s <= e) return hr >= s && hr <= e;
+    return hr >= s || hr <= e;
+  };
 
   const MISSED_CALLBACK_FILTER_ITEMS = [
     { id: "Dönüldü (Başarılı)", name: "Dönüldü (Başarılı)" },
@@ -1442,6 +1467,85 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return { mappedMissed, totalMissed, callbackRate, avgWaitTime };
   };
 
+  const computeFilteredTrafficReport = (callsList) => {
+    const hourlyData = Array(24).fill(0);
+    (callsList || []).forEach((call) => {
+      const hr = parseCallLocalHour(call.start_time);
+      if (hr !== null && hr >= 0 && hr < 24 && isHourInTrafficRange(hr)) {
+        hourlyData[hr]++;
+      }
+    });
+
+    const visibleHours = [];
+    for (let h = 0; h < 24; h++) {
+      if (isHourInTrafficRange(h)) visibleHours.push(h);
+    }
+
+    let peakHourIdx = visibleHours.length > 0 ? visibleHours[0] : 0;
+    let peakHourValue = 0;
+    let totalTraffic = 0;
+
+    visibleHours.forEach((h) => {
+      const val = hourlyData[h] || 0;
+      totalTraffic += val;
+      if (val > peakHourValue) {
+        peakHourValue = val;
+        peakHourIdx = h;
+      }
+    });
+
+    const maxTraffic = Math.max(peakHourValue, 1);
+    const activeHourCount = Math.max(1, visibleHours.length);
+    const avgCapacity =
+      totalTraffic > 0
+        ? Math.min(100, Math.max(5, Math.round((totalTraffic / (activeHourCount * 10)) * 100)))
+        : 0;
+    const estimatedStaff = totalTraffic > 0 ? Math.max(1, Math.ceil(peakHourValue / 12)) : 0;
+
+    const startHLabel =
+      filterTrafficStartHour !== "" ? `${String(filterTrafficStartHour).padStart(2, "0")}:00` : "00:00";
+    const endHLabel =
+      filterTrafficEndHour !== "" ? `${String(filterTrafficEndHour).padStart(2, "0")}:59` : "23:59";
+    const hasHourFilter = filterTrafficStartHour !== "" || filterTrafficEndHour !== "";
+
+    const hourlySlots = visibleHours.map((h) => {
+      const val = hourlyData[h] || 0;
+      const ratioPct = peakHourValue > 0 ? Math.round((val / maxTraffic) * 100) : 0;
+      let loadKey = "low";
+      let loadLabel = "Düşük Yoğunluk";
+      if (val > 0 && ratioPct > 80) {
+        loadKey = "critical";
+        loadLabel = "Kritik Yoğunluk (Pik)";
+      } else if (val > 0 && ratioPct > 50) {
+        loadKey = "medium";
+        loadLabel = "Orta Yoğunluk";
+      }
+      return {
+        hour: h,
+        hourLabel: String(h).padStart(2, "0"),
+        timeSlotLabel: `${String(h).padStart(2, "0")}:00 - ${String(h).padStart(2, "0")}:59`,
+        count: val,
+        ratioPct,
+        loadKey,
+        loadLabel,
+      };
+    });
+
+    return {
+      hourlyData,
+      hourlySlots,
+      activeSlots: hourlySlots.filter((s) => s.count > 0),
+      maxTraffic,
+      peakHourIdx,
+      peakHourValue,
+      totalTraffic,
+      avgCapacity,
+      estimatedStaff,
+      hasHourFilter,
+      hourRangeLabel: `${startHLabel} - ${endHLabel}`,
+    };
+  };
+
   const handleExportExcel = () => {
     let csvContent = "\uFEFF";
 
@@ -1885,6 +1989,34 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "traffic") {
+      const headers = [
+        ...(visibleColumns.timeSlot ? ["Zaman Dilimi (Saat)"] : []),
+        ...(visibleColumns.callVolume ? ["Toplam Çağrı Hacmi"] : []),
+        ...(visibleColumns.loadLevel ? ["Yük Seviyesi"] : []),
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      const { activeSlots } = computeFilteredTrafficReport(filteredCalls);
+      activeSlots.forEach((slot) => {
+        const row = [];
+        if (visibleColumns.timeSlot) row.push(slot.timeSlotLabel);
+        if (visibleColumns.callVolume) row.push(slot.count);
+        if (visibleColumns.loadLevel) row.push(slot.loadLabel);
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `cagri_trafigi_yogunluk_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -2062,7 +2194,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
       }
@@ -2150,7 +2282,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
     }
@@ -2193,6 +2325,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterFcrSentimentsSelected([]);
     setFilterMissedQueuesSelected([]);
     setFilterMissedCallbackSelected([]);
+    setFilterTrafficStartHour("");
+    setFilterTrafficEndHour("");
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -3744,7 +3878,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const filteredCalls = calls.filter((c) => {
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
+    if (viewMode === "traffic") {
+      if (filterDirection !== "All") {
+        const dir = getCallDirection(c);
+        if (dir !== filterDirection) return false;
+      }
+      if (filterTrafficStartHour !== "" || filterTrafficEndHour !== "") {
+        const hr = parseCallLocalHour(c.start_time);
+        if (!isHourInTrafficRange(hr)) return false;
+      }
+    } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
         return false;
@@ -3771,7 +3914,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant / Agent Filter across applicable report modes
-    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
+    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
@@ -4241,6 +4384,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate)
                     : viewMode === "missed"
                     ? Boolean(filterStartDate || filterEndDate || filterCallerNumber || filterMissedQueuesSelected.length > 0 || filterMissedCallbackSelected.length > 0)
+                    : viewMode === "traffic"
+                    ? Boolean(filterStartDate || filterEndDate || filterDirection !== "All" || filterTrafficStartHour !== "" || filterTrafficEndHour !== "")
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
@@ -4901,9 +5046,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
@@ -5133,6 +5278,87 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         }}
                         className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
                       />
+                    </div>
+                  </>
+                ) : viewMode === "traffic" ? (
+                  <>
+                    {/* Hour Range Filter */}
+                    <div className="flex flex-col gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Saati</label>
+                          <select
+                            value={filterTrafficStartHour}
+                            onChange={(e) => setFilterTrafficStartHour(e.target.value)}
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                          >
+                            <option value="">00:00 (Günün Başı)</option>
+                            {Array.from({ length: 24 }).map((_, h) => (
+                              <option key={h} value={String(h)}>
+                                {String(h).padStart(2, "0")}:00
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Bitiş Saati</label>
+                          <select
+                            value={filterTrafficEndHour}
+                            onChange={(e) => setFilterTrafficEndHour(e.target.value)}
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                          >
+                            <option value="">23:59 (Günün Sonu)</option>
+                            {Array.from({ length: 24 }).map((_, h) => (
+                              <option key={h} value={String(h)}>
+                                {String(h).padStart(2, "0")}:59
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {[
+                          { label: "Tüm Gün (00-23)", s: "", e: "" },
+                          { label: "Mesai (09:00-18:59)", s: "9", e: "18" },
+                          { label: "Sabah (08:00-12:59)", s: "8", e: "12" },
+                          { label: "Öğleden Sonra (13:00-17:59)", s: "13", e: "17" },
+                          { label: "Akşam (18:00-23:59)", s: "18", e: "23" },
+                        ].map((preset) => {
+                          const isActive = filterTrafficStartHour === preset.s && filterTrafficEndHour === preset.e;
+                          return (
+                            <button
+                              key={preset.label}
+                              type="button"
+                              onClick={() => {
+                                setFilterTrafficStartHour(preset.s);
+                                setFilterTrafficEndHour(preset.e);
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                                isActive
+                                  ? `${bg} text-white ${border} shadow-sm`
+                                  : `bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-primary`
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Call Direction */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Yön</label>
+                      <select
+                        value={filterDirection}
+                        onChange={(e) => setFilterDirection(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-850 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-bold"
+                      >
+                        <option value="All">Tümü (Yön)</option>
+                        {uniqueDirections.map((dir) => (
+                          <option key={dir} value={dir}>{dir}</option>
+                        ))}
+                      </select>
                     </div>
                   </>
                 ) : (
@@ -5484,7 +5710,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
               </div>
-            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode) ? (
+            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
                 Kayıt bulunamadı.
               </div>
@@ -7692,107 +7918,127 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
             ) : isTrafficMode ? (
               /* Traffic Load Mode */
-              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+              <div className="p-5 flex flex-col gap-6 flex-1 overflow-y-auto scrollbar-thin">
                 {(() => {
-                  // Simulate or calculate hourly traffic based on filteredCalls
-                  const hourlyData = Array(24).fill(0);
-                  
-                  filteredCalls.forEach(call => {
-                    if (call.start_time) {
-                      const d = new Date(call.start_time);
-                      const hr = d.getHours();
-                      if (!isNaN(hr) && hr >= 0 && hr < 24) {
-                        hourlyData[hr]++;
-                      }
-                    }
-                  });
-                  
-                  const totalFiltered = filteredCalls.length;
-                  
-                  const maxTraffic = Math.max(...hourlyData) || 1;
-                  let peakHourIdx = 0;
-                  let peakHourValue = 0;
-                  let totalTraffic = 0;
-                  
-                  hourlyData.forEach((val, idx) => {
-                    totalTraffic += val;
-                    if (val > peakHourValue) {
-                      peakHourValue = val;
-                      peakHourIdx = idx;
-                    }
-                  });
-                  
-                  // Mock calculated metrics
-                  const avgCapacity = Math.round((totalTraffic / (24 * 10)) * 100); // just a mock calculation
-                  const estimatedStaff = Math.ceil(peakHourValue / 12); // assuming 1 agent can handle 12 calls/hour
-                  
+                  const {
+                    hourlySlots,
+                    activeSlots,
+                    peakHourIdx,
+                    peakHourValue,
+                    totalTraffic,
+                    avgCapacity,
+                    estimatedStaff,
+                    hasHourFilter,
+                    hourRangeLabel,
+                  } = computeFilteredTrafficReport(filteredCalls);
+
                   return (
                     <>
                       {/* KPI Header */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <p className={"text-xs font-bold uppercase tracking-wider " + text}>En Yoğun Saat (Peak Hour)</p>
                           <h4 className="text-4xl font-black text-rose-500 flex items-center gap-3">
                             <Activity size={28} />
-                            {String(peakHourIdx).padStart(2, '0')}:00
+                            {totalTraffic > 0 ? `${String(peakHourIdx).padStart(2, "0")}:00` : "--:--"}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Maksimum {peakHourValue} çağrı alındı</p>
+                          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                            {totalTraffic > 0
+                              ? `Maksimum ${peakHourValue} çağrı alındı (Toplam: ${totalTraffic})`
+                              : "Seçilen aralıkta çağrı kaydı yok"}
+                          </p>
                         </div>
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <p className={"text-xs font-bold uppercase tracking-wider " + text}>Kapasite Kullanım Oranı</p>
-                          <h4 className={"text-4xl font-black text-amber-500"}>
-                            %{Math.min(100, Math.max(10, avgCapacity))}
+                          <h4 className="text-4xl font-black text-amber-500">
+                            %{avgCapacity}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Günlük ortalama hat / personel doluluğu</p>
+                          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+                            {hasHourFilter ? `${hourRangeLabel} ortalama hat / personel doluluğu` : "Günlük ortalama hat / personel doluluğu"}
+                          </p>
                         </div>
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <p className={"text-xs font-bold uppercase tracking-wider " + text}>Tahmini Personel İhtiyacı</p>
-                          <h4 className="text-4xl font-black text-emerald-500">{Math.max(1, estimatedStaff)} Temsilci</h4>
-                          <p className="text-sm font-medium text-slate-500">Pik saatteki SLA hedefleri için önerilen</p>
+                          <h4 className="text-4xl font-black text-emerald-500">
+                            {estimatedStaff} Temsilci
+                          </h4>
+                          <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Pik saatteki SLA hedefleri için önerilen</p>
                         </div>
                       </div>
-                      
+
                       {/* Hourly Bar Chart */}
-                      <div className={"w-full rounded-2xl p-8 border " + borderLight + " " + lightBg}>
-                        <div className="flex items-center justify-between mb-8">
+                      <div className={"w-full shrink-0 rounded-2xl p-6 md:p-8 border " + borderLight + " " + lightBg}>
+                        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
                           <div>
                             <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Saatlik Çağrı Hacmi Dağılımı</h4>
-                            <p className="text-xs text-slate-500 mt-1">24 saatlik periyotta gelen ve giden çağrı trafik yükü</p>
+                            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                              {hasHourFilter
+                                ? `${hourRangeLabel} saat aralığında gelen ve giden çağrı trafik yükü`
+                                : "24 saatlik periyotta gelen ve giden çağrı trafik yükü"}
+                            </p>
                           </div>
-                          <BarChart2 className="text-slate-400" />
+                          <div className="flex items-center gap-4 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500"></span> Düşük
+                            </span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="w-2.5 h-2.5 rounded-sm bg-amber-500"></span> Orta
+                            </span>
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="w-2.5 h-2.5 rounded-sm bg-rose-500"></span> Kritik (Pik)
+                            </span>
+                            <BarChart2 size={18} className="text-slate-400 ml-1" />
+                          </div>
                         </div>
-                        
-                        <div className="flex items-end justify-between h-48 w-full gap-1 sm:gap-2">
-                          {hourlyData.map((val, idx) => {
-                            const heightPercent = Math.max(2, Math.round((val / maxTraffic) * 100));
-                            // Color scheme based on load intensity
-                            let barColor = "bg-emerald-400 dark:bg-emerald-500";
-                            if (heightPercent > 80) barColor = "bg-rose-500 dark:bg-rose-500";
-                            else if (heightPercent > 50) barColor = "bg-amber-400 dark:bg-amber-500";
-                            
-                            return (
-                              <div key={idx} className="flex flex-col items-center flex-1 h-full justify-end group cursor-pointer relative">
-                                {/* Tooltip */}
-                                <div className="absolute -top-10 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-xs font-bold py-1 px-2 rounded whitespace-nowrap z-10 pointer-events-none">
-                                  {val} Çağrı
+
+                        <div className="w-full pt-6">
+                          <div className="flex items-end justify-between w-full gap-1.5 sm:gap-2">
+                            {hourlySlots.map((slot) => {
+                              const barHeightPx =
+                                slot.count > 0
+                                  ? Math.max(14, Math.round((slot.ratioPct / 100) * 160))
+                                  : 4;
+                              let barColor = "bg-slate-200 dark:bg-slate-800/90";
+                              if (slot.count > 0) {
+                                if (slot.loadKey === "critical") barColor = "bg-rose-500";
+                                else if (slot.loadKey === "medium") barColor = "bg-amber-500";
+                                else barColor = "bg-emerald-500";
+                              }
+
+                              return (
+                                <div key={slot.hour} className="flex flex-col items-center flex-1 min-w-[20px] group relative">
+                                  {/* Hover Tooltip */}
+                                  <div className="absolute -top-9 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 dark:bg-slate-800 text-white text-[10px] font-bold py-1 px-2 rounded-lg shadow-lg whitespace-nowrap z-20 pointer-events-none border border-slate-700">
+                                    {slot.hourLabel}:00 — {slot.count} Çağrı
+                                  </div>
+
+                                  {/* Track + Bar */}
+                                  <div className="w-full h-44 flex flex-col items-center justify-end">
+                                    {slot.count > 0 && (
+                                      <span className="mb-1 text-[10px] font-extrabold text-slate-700 dark:text-slate-200 leading-none">
+                                        {slot.count}
+                                      </span>
+                                    )}
+                                    <div
+                                      className={`w-full max-w-[36px] rounded-t-md transition-all duration-300 group-hover:brightness-110 ${barColor}`}
+                                      style={{ height: `${barHeightPx}px` }}
+                                    ></div>
+                                  </div>
+
+                                  {/* Hour Label */}
+                                  <div className="mt-2.5 text-[10px] font-bold text-slate-500 dark:text-slate-400">
+                                    {slot.hourLabel}
+                                  </div>
                                 </div>
-                                
-                                <div 
-                                  className={`w-full rounded-t-md transition-all duration-300 group-hover:opacity-80 ${barColor}`} 
-                                  style={{ height: `${heightPercent}%` }}
-                                ></div>
-                                <div className="mt-2 text-[9px] sm:text-[10px] font-bold text-slate-400 -rotate-45 sm:rotate-0">
-                                  {String(idx).padStart(2, '0')}
-                                </div>
-                              </div>
-                            );
-                          })}
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
-                      
+
                       {/* Hourly Data Table */}
-                      <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 mt-2">
-                        <table className="w-full text-left border-collapse">
+                      <div className="w-full shrink-0 overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/60">
+                        <table className="w-full text-left border-collapse min-w-[640px]">
                           <thead>
                             <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
                               {visibleColumns.timeSlot && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Zaman Dilimi (Saat)</th>}
@@ -7801,36 +8047,57 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </tr>
                           </thead>
                           <tbody>
-                            {hourlyData.map((val, idx) => {
-                              if (val === 0) return null;
-                              
-                              const heightPercent = Math.max(0, Math.round((val / maxTraffic) * 100));
-                              let levelBadge = <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100">Düşük Yoğunluk</span>;
-                              
-                              if (heightPercent > 80) {
-                                levelBadge = <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-rose-50 text-rose-600 border border-rose-100">Kritik Yoğunluk (Pik)</span>;
-                              } else if (heightPercent > 50) {
-                                levelBadge = <span className="inline-flex items-center px-2 py-1 rounded-lg text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-100">Orta Yoğunluk</span>;
-                              }
-                              
-                              return (
-                                <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                  {visibleColumns.timeSlot && (
-                                    <td className="p-4 font-bold text-slate-700 dark:text-slate-300">
-                                      {String(idx).padStart(2, '0')}:00 - {String(idx).padStart(2, '0')}:59
-                                    </td>
-                                  )}
-                                  {visibleColumns.callVolume && (
-                                    <td className="p-4 text-center font-black text-slate-800 dark:text-slate-200">{val}</td>
-                                  )}
-                                  {visibleColumns.loadLevel && (
-                                    <td className="p-4 text-center">
-                                      {levelBadge}
-                                    </td>
-                                  )}
-                                </tr>
-                              );
-                            })}
+                            {activeSlots.length === 0 ? (
+                              <tr>
+                                <td colSpan="3" className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs font-semibold">
+                                  Seçilen tarih ve saat aralığında çağrı trafiği bulunamadı.
+                                </td>
+                              </tr>
+                            ) : (
+                              activeSlots.map((slot) => {
+                                let levelBadge = (
+                                  <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/50">
+                                    Düşük Yoğunluk
+                                  </span>
+                                );
+                                if (slot.loadKey === "critical") {
+                                  levelBadge = (
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200/70 dark:border-rose-800/50">
+                                      Kritik Yoğunluk (Pik)
+                                    </span>
+                                  );
+                                } else if (slot.loadKey === "medium") {
+                                  levelBadge = (
+                                    <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/50">
+                                      Orta Yoğunluk
+                                    </span>
+                                  );
+                                }
+
+                                return (
+                                  <tr
+                                    key={slot.hour}
+                                    className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}
+                                  >
+                                    {visibleColumns.timeSlot && (
+                                      <td className="p-4 font-bold text-slate-700 dark:text-slate-200">
+                                        {slot.timeSlotLabel}
+                                      </td>
+                                    )}
+                                    {visibleColumns.callVolume && (
+                                      <td className="p-4 text-center font-black text-slate-800 dark:text-slate-100">
+                                        {slot.count}
+                                      </td>
+                                    )}
+                                    {visibleColumns.loadLevel && (
+                                      <td className="p-4 text-center">
+                                        {levelBadge}
+                                      </td>
+                                    )}
+                                  </tr>
+                                );
+                              })
+                            )}
                           </tbody>
                         </table>
                       </div>
