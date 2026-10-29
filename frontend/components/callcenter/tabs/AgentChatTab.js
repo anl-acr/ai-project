@@ -80,17 +80,38 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
   }, [activeChatId, customerMessages.length, internalRawMessages.length, isVisible]);
 
   // Fetch Real System Users & Internal Chat Messages
+  const [brokenAvatars, setBrokenAvatars] = useState({});
+
+  const resolveAvatarUrl = (rawAvatar) => {
+    const val = String(rawAvatar || "").trim();
+    if (!val || val === "null" || val === "undefined") return "";
+    if (val.startsWith("/") && !val.startsWith("//")) {
+      return `${API_BASE}${val}`;
+    }
+    return val;
+  };
+
+  const markAvatarBroken = (url) => {
+    if (!url) return;
+    setBrokenAvatars((prev) => (prev[url] ? prev : { ...prev, [url]: true }));
+  };
+
   const fetchInternalChatData = async () => {
     try {
+      const reqHeaders = {};
+      if (currentUser?.tenant_id) {
+        reqHeaders["X-Tenant-ID"] = String(currentUser.tenant_id);
+      }
       const [usersRes, chatRes] = await Promise.all([
-        fetch(`${API_BASE}/api/settings/users`),
+        fetch(`${API_BASE}/api/settings/users`, { headers: reqHeaders }),
         fetch(`${API_BASE}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myId)}&deliver=1`)
       ]);
 
       if (usersRes.ok) {
         const usersData = await usersRes.json();
-        if (Array.isArray(usersData)) {
-          const mappedUsers = usersData
+        const rawList = Array.isArray(usersData) ? usersData : (Array.isArray(usersData?.users) ? usersData.users : []);
+        if (rawList.length >= 0) {
+          const mappedUsers = rawList
             .filter(u => {
               if (myId && String(u.id) === myId) return false;
               if (myExt && u.extension && String(u.extension) === myExt) return false;
@@ -105,6 +126,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                 userId: String(u.id),
                 extension: String(u.extension || ""),
                 name: u.full_name || u.name || u.email || `Dahili ${u.extension || u.id}`,
+                avatar: resolveAvatarUrl(u.avatar || u.avatar_url),
                 role: u.extension ? `${roleLabel} (${u.extension})` : roleLabel,
                 online: isOnline,
                 status: isOnline ? "online" : "offline"
@@ -183,6 +205,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
           userId: u.userId,
           extension: u.extension,
           customerName: u.name,
+          avatar: u.avatar || "",
           role: u.role,
           platform: "İç Yazışma",
           unread: unreadCount,
@@ -1036,10 +1059,25 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                               }}
                               className="flex items-center gap-3 truncate min-w-0 flex-1 text-left"
                             >
-                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 relative ${
-                                 isSelected ? `${bg} text-white` : "bg-primary/10 text-primary dark:bg-primary/20"
-                              }`}>
-                                {session.customerName.charAt(0)}
+                              <div className="w-10 h-10 shrink-0 relative">
+                                {session.avatar && !brokenAvatars[session.avatar] ? (
+                                  <img
+                                    src={session.avatar}
+                                    alt={session.customerName}
+                                    onError={() => markAvatarBroken(session.avatar)}
+                                    className={`w-10 h-10 rounded-full object-cover bg-slate-100 dark:bg-slate-800 border ${
+                                      isSelected ? border : "border-slate-200/70 dark:border-slate-700"
+                                    }`}
+                                  />
+                                ) : (
+                                  <div
+                                    className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
+                                      isSelected ? `${bg} text-white` : "bg-primary/10 text-primary dark:bg-primary/20"
+                                    }`}
+                                  >
+                                    {session.customerName.charAt(0).toUpperCase()}
+                                  </div>
+                                )}
                                 <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${session.online ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
                               </div>
                               <div className="truncate min-w-0 flex-1">
@@ -1095,8 +1133,19 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                       onClick={() => handleStartInternalChat(user)}
                       className="w-full p-3 hover:bg-white dark:hover:bg-slate-800 border border-transparent hover:border-slate-200 dark:hover:border-slate-700 rounded-xl flex items-center gap-3 transition-colors text-left"
                     >
-                      <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-sm shrink-0 relative">
-                        {user.name.charAt(0)}
+                      <div className="w-10 h-10 shrink-0 relative">
+                        {user.avatar && !brokenAvatars[user.avatar] ? (
+                          <img
+                            src={user.avatar}
+                            alt={user.name}
+                            onError={() => markAvatarBroken(user.avatar)}
+                            className="w-10 h-10 rounded-full object-cover bg-slate-100 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-slate-600 dark:text-slate-300 font-bold text-sm">
+                            {user.name.charAt(0).toUpperCase()}
+                          </div>
+                        )}
                         <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${user.online ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
                       </div>
                       <div>
@@ -1117,11 +1166,32 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                 {/* Chat Header */}
                 <div className={`h-16 shrink-0 border-b ${borderLight} px-6 flex items-center justify-between bg-white dark:bg-slate-900`}>
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 rounded-full bg-rose-500/10 dark:bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400 font-bold text-base relative">
-                      {chatTab === "customer" 
-                        ? (selectedCustomerChat?.sender_name || selectedCustomerChat?.sender_info || "M").charAt(0).toUpperCase()
-                        : selectedInternalChat?.customerName.charAt(0).toUpperCase()
-                      }
+                    <div className="w-10 h-10 shrink-0 relative">
+                      {(() => {
+                        const headerAvatar =
+                          chatTab === "internal"
+                            ? selectedInternalChat?.avatar
+                            : resolveAvatarUrl(selectedCustomerChat?.avatar || selectedCustomerChat?.sender_avatar);
+                        const headerLabel =
+                          chatTab === "customer"
+                            ? (selectedCustomerChat?.sender_name || selectedCustomerChat?.sender_info || "M")
+                            : (selectedInternalChat?.customerName || "T");
+                        if (headerAvatar && !brokenAvatars[headerAvatar]) {
+                          return (
+                            <img
+                              src={headerAvatar}
+                              alt={headerLabel}
+                              onError={() => markAvatarBroken(headerAvatar)}
+                              className="w-10 h-10 rounded-full object-cover bg-slate-100 dark:bg-slate-800 border border-slate-200/70 dark:border-slate-700"
+                            />
+                          );
+                        }
+                        return (
+                          <div className="w-10 h-10 rounded-full bg-rose-500/10 dark:bg-rose-500/20 flex items-center justify-center text-rose-600 dark:text-rose-400 font-bold text-base">
+                            {headerLabel.charAt(0).toUpperCase()}
+                          </div>
+                        );
+                      })()}
                       {chatTab === "internal" && (
                         <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${selectedInternalChat?.online ? 'bg-emerald-500' : 'bg-slate-400'}`} />
                       )}

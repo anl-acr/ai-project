@@ -21421,6 +21421,8 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
         uid = str(u.get("id") or "")
         disk_u = disk_users_by_id.get(uid) or disk_users_by_ext.get(ext)
         if disk_u:
+            if not u.get("avatar") and disk_u.get("avatar"):
+                u["avatar"] = disk_u.get("avatar")
             if disk_u.get("active_profile"):
                 u["active_profile"] = disk_u.get("active_profile")
             if disk_u.get("profiles"):
