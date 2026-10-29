@@ -106,13 +106,34 @@ export default function EventLogsPanel({ backendHost }) {
   const [filterUser, setFilterUser] = useState("all");
 
   const [selectedLog, setSelectedLog] = useState(null);
+  const [clientPublicIp, setClientPublicIp] = useState(() =>
+    typeof window !== "undefined" ? localStorage.getItem("client_public_ip") || "" : ""
+  );
 
   const fetchLogs = async () => {
     setLoading(true);
     setError(null);
     try {
+      let resolvedIp = typeof window !== "undefined" ? localStorage.getItem("client_public_ip") || "" : "";
+      if (!resolvedIp || resolvedIp === "127.0.0.1") {
+        try {
+          const ipRes = await fetch("https://api.ipify.org?format=json", { cache: "no-store" });
+          if (ipRes.ok) {
+            const ipData = await ipRes.json();
+            if (ipData?.ip && ipData.ip !== "127.0.0.1") {
+              resolvedIp = String(ipData.ip).trim();
+              localStorage.setItem("client_public_ip", resolvedIp);
+              setClientPublicIp(resolvedIp);
+            }
+          }
+        } catch (e) {}
+      } else if (resolvedIp !== clientPublicIp) {
+        setClientPublicIp(resolvedIp);
+      }
+
       const protocol = typeof window !== "undefined" ? window.location.protocol : "https:";
-      const res = await fetch(`${protocol}//${backendHost}/api/system/logs?limit=500`);
+      const headers = resolvedIp ? { "X-Client-IP": resolvedIp } : {};
+      const res = await fetch(`${protocol}//${backendHost}/api/system/logs?limit=500`, { headers });
       if (!res.ok) throw new Error("Olay günlükleri alınırken bir hata oluştu.");
       const data = await res.json();
       setLogs(Array.isArray(data.logs) ? data.logs : []);
@@ -542,11 +563,11 @@ export default function EventLogsPanel({ backendHost }) {
                             <div className="text-xs font-bold text-slate-900 dark:text-white">
                               {log.user_id || "Sistem Yöneticisi"}
                             </div>
-                            {log.ip_address && log.ip_address !== "127.0.0.1" && (
-                              <div className="text-[10px] text-slate-400 dark:text-slate-500">
-                                IP: {log.ip_address}
-                              </div>
-                            )}
+                            <div className="text-[10px] text-slate-400 dark:text-slate-500 font-mono">
+                              {log.ip_address && log.ip_address !== "127.0.0.1"
+                                ? log.ip_address
+                                : clientPublicIp || log.ip_address || ""}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -655,8 +676,11 @@ export default function EventLogsPanel({ backendHost }) {
                     <User size={14} className={text} />
                     {selectedLog.user_id || "Sistem Yöneticisi"}
                   </div>
-                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                    IP Adresi: {selectedLog.ip_address || "Yerel Ağ"}
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-mono">
+                    IP Adresi:{" "}
+                    {selectedLog.ip_address && selectedLog.ip_address !== "127.0.0.1"
+                      ? selectedLog.ip_address
+                      : clientPublicIp || selectedLog.ip_address || "Yerel Ağ"}
                   </div>
                 </div>
 

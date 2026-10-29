@@ -61,11 +61,13 @@ def resolve_real_ip(ip_address: str = None, user_id: str = None) -> str:
         if uid_str:
             ep_ip = registered_endpoints.get_ip(uid_str)
             if not is_loopback_or_empty_ip(ep_ip):
+                record_known_user_ip(uid_str, ep_ip)
                 return ep_ip
             m_ext = re.search(r"Dahili:\s*(\d+)", uid_str)
             if m_ext:
                 ext_ip = registered_endpoints.get_ip(m_ext.group(1))
                 if not is_loopback_or_empty_ip(ext_ip):
+                    record_known_user_ip(uid_str, ext_ip)
                     return ext_ip
         for _, reg_ip in registered_endpoints.items():
             if not is_loopback_or_empty_ip(reg_ip):
@@ -76,7 +78,7 @@ def resolve_real_ip(ip_address: str = None, user_id: str = None) -> str:
     if "__last_global__" in LAST_KNOWN_USER_IPS:
         return LAST_KNOWN_USER_IPS["__last_global__"]
 
-    return get_host_public_ip_fallback()
+    return "127.0.0.1"
 
 
 async def log_event(user_id: str, action: str, module: str, details: dict = None, ip_address: str = None):
