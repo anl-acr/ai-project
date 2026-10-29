@@ -528,18 +528,18 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   const totalUnreadInternalCount = internalChatSessions.reduce((acc, s) => acc + (Number(s.unread) || 0), 0);
 
   return (
-    <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-6 flex flex-col items-center">
-      <div className="max-w-6xl w-full h-full flex flex-col space-y-4">
+    <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-6 flex flex-col">
+      <div className="w-full h-full flex flex-col space-y-4">
         {/* Header */}
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+          <h2 className="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2.5">
             <MessageSquare size={22} className="text-rose-500" />
             Takım İçi Sohbet ve Bana Atananlar
           </h2>
           <div className="flex items-center gap-2">
             <button
               onClick={() => { fetchCustomerSessions(true); if (activeChatId) fetchCustomerMessages(activeChatId, true); }}
-              className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all shadow-sm flex items-center gap-1 text-xs font-semibold"
+              className="px-3 py-2 text-slate-500 hover:text-slate-800 dark:hover:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5 text-xs font-semibold"
               title="Yenile"
             >
               <RefreshCw size={14} className={loading.sessions ? "animate-spin" : ""} />
@@ -551,13 +551,13 @@ export default function AgentChatTab({ backendHost, currentUser }) {
         <div className={`flex-1 bg-white dark:bg-slate-900 border ${borderLight} rounded-2xl shadow-sm flex overflow-hidden`}>
           
           {/* Left Sidebar - Chat List */}
-          <div className={`w-80 shrink-0 border-r ${borderLight} flex flex-col bg-slate-50/30 dark:bg-slate-900/20`}>
+          <div className={`w-96 shrink-0 border-r ${borderLight} flex flex-col bg-slate-50/30 dark:bg-slate-900/20`}>
             {/* Nav Tabs */}
-            <div className={`p-4 border-b ${borderLight} space-y-3`}>
-              <div className="flex bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+            <div className={`p-5 border-b ${borderLight} space-y-3.5`}>
+              <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800/90 p-1.5 rounded-2xl">
                 <button
                   onClick={() => { setChatTab("customer"); setIsNewChatModalOpen(false); setActiveChatId(null); }}
-                  className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                  className={`px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
                     chatTab === "customer" 
                       ? `${bg} text-white shadow-sm` 
                       : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -576,7 +576,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                 </button>
                 <button
                   onClick={() => { setChatTab("internal"); setIsNewChatModalOpen(false); setActiveChatId(null); }}
-                  className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
+                  className={`px-3 py-2.5 text-xs font-extrabold rounded-xl transition-all flex items-center justify-center gap-1.5 whitespace-nowrap ${
                     chatTab === "internal" 
                       ? `${bg} text-white shadow-sm` 
                       : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -593,10 +593,10 @@ export default function AgentChatTab({ backendHost, currentUser }) {
 
               {/* Sub-filter Selector for Customer Chats */}
               {chatTab === "customer" && (
-                <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-800/80 p-1 rounded-xl text-[11px] font-bold">
+                <div className="grid grid-cols-2 gap-1.5 bg-slate-100 dark:bg-slate-800/80 p-1.5 rounded-2xl text-[11px] font-bold">
                   <button
                     onClick={() => setCustomerFilter("assigned")}
-                    className={`flex-1 py-1.5 rounded-lg transition-colors ${
+                    className={`px-3 py-2 rounded-xl transition-all whitespace-nowrap ${
                       customerFilter === "assigned"
                         ? "bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400 shadow-sm"
                         : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -606,7 +606,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                   </button>
                   <button
                     onClick={() => setCustomerFilter("all")}
-                    className={`flex-1 py-1.5 rounded-lg transition-colors ${
+                    className={`px-3 py-2 rounded-xl transition-all whitespace-nowrap ${
                       customerFilter === "all"
                         ? "bg-white dark:bg-slate-700 text-rose-600 dark:text-rose-400 shadow-sm"
                         : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
@@ -618,20 +618,20 @@ export default function AgentChatTab({ backendHost, currentUser }) {
               )}
 
               {/* Search Field */}
-              <div className="relative">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <div className="relative pt-0.5">
+                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                 <input
                   type="text"
                   placeholder={chatTab === "customer" ? "İsim veya tel no ara..." : "Personel ara..."}
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full text-xs pl-8 pr-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-rose-500/50"
+                  className="w-full text-xs pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-950/80 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-rose-500/50"
                 />
               </div>
             </div>
 
             {/* List Content */}
-            <div className="flex-1 overflow-y-auto p-3">
+            <div className="flex-1 overflow-y-auto p-4">
               {!isNewChatModalOpen ? (
                 <div className="space-y-2">
                   {chatTab === "customer" ? (
