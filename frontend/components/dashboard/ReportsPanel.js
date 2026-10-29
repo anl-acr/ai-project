@@ -364,6 +364,99 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterQueuesSelected, setFilterQueuesSelected] = useState([]);
   const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
   const [filterSentimentsSelected, setFilterSentimentsSelected] = useState([]);
+  const [filterWordcloudKeyword, setFilterWordcloudKeyword] = useState("");
+
+  const normalizeTrKeyword = (val) =>
+    String(val || "")
+      .replace(/İ/g, "i")
+      .replace(/I/g, "ı")
+      .toLowerCase()
+      .trim();
+
+  const getFilteredWordcloudItems = (callsList, rawKeyword) => {
+    const len = Array.isArray(callsList) ? callsList.length : 0;
+    const baseItems = [
+      { text: "İptal", word: "İptal", count: 120 + (len % 50), color: "text-rose-500", size: "text-5xl", trend: "+12%", trendColor: "text-rose-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100", defaultTable: true },
+      { text: "Fatura", word: "Fatura", count: 95 + (len % 30), color: "text-slate-700 dark:text-slate-200", size: "text-4xl", trend: "+4%", trendColor: "text-amber-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100", defaultTable: false },
+      { text: "Sipariş", word: "Sipariş", count: 80 + (len % 20), color: "text-blue-500", size: "text-3xl", trend: "+5%", trendColor: "text-emerald-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100", defaultTable: true },
+      { text: "Teşekkürler", word: "Teşekkürler", count: 70 + (len % 15), color: "text-emerald-500", size: "text-3xl", trend: "+8%", trendColor: "text-emerald-500", sentiment: "Pozitif", sentimentColor: "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100", defaultTable: true },
+      { text: "Kargo", word: "Kargo", count: 65, color: "text-amber-500", size: "text-2xl", trend: "-2%", trendColor: "text-rose-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100", defaultTable: true },
+      { text: "Gecikme", word: "Gecikme", count: 50, color: "text-rose-400", size: "text-2xl", trend: "+6%", trendColor: "text-rose-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100", defaultTable: false },
+      { text: "İade", word: "İade", count: 45, color: "text-orange-500", size: "text-2xl", trend: "+3%", trendColor: "text-rose-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100", defaultTable: false },
+      { text: "Memnuniyet", word: "Memnuniyet", count: 40, color: "text-emerald-400", size: "text-xl", trend: "+9%", trendColor: "text-emerald-500", sentiment: "Pozitif", sentimentColor: "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100", defaultTable: false },
+      { text: "Ücret", word: "Ücret", count: 35, color: "text-slate-600 dark:text-slate-300", size: "text-xl", trend: "+1%", trendColor: "text-amber-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100", defaultTable: false },
+      { text: "Destek", word: "Destek", count: 30, color: "text-blue-400", size: "text-xl", trend: "+4%", trendColor: "text-emerald-500", sentiment: "Pozitif", sentimentColor: "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100", defaultTable: false },
+      { text: "Şikayet", word: "Şikayet", count: 25, color: "text-rose-600", size: "text-lg", trend: "-15%", trendColor: "text-emerald-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100", defaultTable: true },
+      { text: "Kampanya", word: "Kampanya", count: 20, color: "text-purple-500", size: "text-lg", trend: "+7%", trendColor: "text-emerald-500", sentiment: "Pozitif", sentimentColor: "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100", defaultTable: false },
+      { text: "Adres", word: "Adres", count: 15, color: "text-slate-500", size: "text-base", trend: "0%", trendColor: "text-slate-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100", defaultTable: false },
+      { text: "Taksit", word: "Taksit", count: 10, color: "text-slate-500", size: "text-base", trend: "+2%", trendColor: "text-emerald-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100", defaultTable: false },
+    ];
+
+    const trimmed = String(rawKeyword || "").trim();
+    if (!trimmed) {
+      return {
+        cloudWords: baseItems,
+        trendRows: baseItems.filter((item) => item.defaultTable),
+      };
+    }
+
+    const terms = trimmed
+      .split(",")
+      .map((t) => normalizeTrKeyword(t))
+      .filter(Boolean);
+
+    const matchedBase = baseItems.filter((item) => {
+      const normWord = normalizeTrKeyword(item.word);
+      return terms.some((t) => normWord.includes(t));
+    });
+
+    const dynamicExtras = [];
+    terms.forEach((t) => {
+      const alreadyMatched = matchedBase.some((m) => normalizeTrKeyword(m.word).includes(t));
+      if (!alreadyMatched && Array.isArray(callsList)) {
+        let hitCount = 0;
+        let posHits = 0;
+        let negHits = 0;
+        callsList.forEach((c) => {
+          const hay = normalizeTrKeyword(`${c.summary || ""} ${c.agent_topic || ""} ${c.agent_notes || ""}`);
+          if (hay.includes(t)) {
+            hitCount++;
+            const delta = getSentimentHeatCallDelta(c.sentiment);
+            if (delta > 0) posHits++;
+            else if (delta < 0) negHits++;
+          }
+        });
+        if (hitCount > 0) {
+          const displayWord = t.charAt(0).toLocaleUpperCase("tr-TR") + t.slice(1);
+          const sentLabel = posHits > negHits ? "Pozitif" : negHits > posHits ? "Negatif" : "Nötr";
+          const sentCls =
+            sentLabel === "Pozitif"
+              ? "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100"
+              : sentLabel === "Negatif"
+              ? "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100"
+              : "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100";
+          dynamicExtras.push({
+            text: displayWord,
+            word: displayWord,
+            count: hitCount,
+            color: "text-primary",
+            size: hitCount >= 10 ? "text-4xl" : hitCount >= 5 ? "text-3xl" : "text-2xl",
+            trend: "0%",
+            trendColor: "text-slate-500",
+            sentiment: sentLabel,
+            sentimentColor: sentCls,
+            defaultTable: true,
+          });
+        }
+      }
+    });
+
+    const combined = [...matchedBase, ...dynamicExtras];
+    return {
+      cloudWords: combined,
+      trendRows: combined,
+    };
+  };
 
   const SENTIMENT_HEAT_FILTER_ITEMS = [
     { id: "very_positive", name: "Çok Pozitif" },
@@ -1498,6 +1591,36 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "wordcloud") {
+      const headers = [
+        ...(visibleColumns.word ? ["Anahtar Kelime"] : []),
+        ...(visibleColumns.count ? ["Geçiş Sıklığı"] : []),
+        ...(visibleColumns.trend ? ["Trend Değişimi"] : []),
+        ...(visibleColumns.sentiment ? ["Duygu Etkisi"] : []),
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      const { trendRows } = getFilteredWordcloudItems(filteredCalls, filterWordcloudKeyword);
+      trendRows.forEach((item) => {
+        const row = [];
+        if (visibleColumns.word) row.push(item.word);
+        if (visibleColumns.count) row.push(item.count);
+        if (visibleColumns.trend) row.push(item.trend);
+        if (visibleColumns.sentiment) row.push(item.sentiment);
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `kelime_bulutu_trendler_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -1675,7 +1798,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (filterCallId) params.append("call_id", filterCallId);
       }
@@ -1763,7 +1886,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (filterCallId) params.append("call_id", filterCallId);
     }
@@ -1801,6 +1924,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterAgentsSelected([]);
     setFilterQueuesSelected([]);
     setFilterSentimentsSelected([]);
+    setFilterWordcloudKeyword("");
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -3352,7 +3476,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const filteredCalls = calls.filter((c) => {
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
         return false;
@@ -3839,6 +3963,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterQueuesSelected.length > 0)
                     : viewMode === "sentiment-heat"
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterSentimentsSelected.length > 0)
+                    : viewMode === "wordcloud"
+                    ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterWordcloudKeyword.trim())
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
@@ -4499,9 +4625,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
@@ -4579,6 +4705,56 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         </>
                       )}
                     />
+                  </>
+                ) : viewMode === "wordcloud" ? (
+                  <>
+                    <DualListBox 
+                      title="Kullanıcılar"
+                      availableItems={uniqueConversants.map(c => ({ id: c, name: c }))}
+                      selectedIds={filterAgentsSelected}
+                      onChangeSelectedIds={setFilterAgentsSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                        Anahtar Kelime Filtresi
+                      </label>
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={14} />
+                        <input
+                          type="text"
+                          placeholder="Anahtar kelime yazın (örn. iptal, fatura, sipariş...)"
+                          value={filterWordcloudKeyword}
+                          onChange={(e) => setFilterWordcloudKeyword(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              fetchCalls(true);
+                              setIsFilterOpen(false);
+                            }
+                          }}
+                          className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl pl-9 pr-8 py-2 text-xs focus:outline-none focus:border-primary font-semibold"
+                        />
+                        {filterWordcloudKeyword && (
+                          <button
+                            type="button"
+                            onClick={() => setFilterWordcloudKeyword("")}
+                            title="Anahtar kelimeyi temizle"
+                            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                        Birden fazla anahtar kelimeyi virgülle ayırarak filtreleyebilirsiniz. Boş bırakıldığında tüm kelimeler gösterilir.
+                      </span>
+                    </div>
                   </>
                 ) : (
                   <>
@@ -5913,73 +6089,108 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
             ) : isWordcloudMode ? (
               /* Word Cloud & Trends Mode */
-              <div className="p-6 flex flex-col gap-8 h-full overflow-y-auto">
-                <div className={"w-full min-h-[300px] rounded-2xl flex flex-wrap items-center justify-center p-8 gap-4 border " + borderLight + " " + lightBg}>
-                  {(() => {
-                    if (filteredCalls.length === 0) return <div className="text-slate-500 font-medium">Bu filtrelere uygun çağrı bulunamadı.</div>;
-                    
-                    const words = [
-                      { text: "İptal", count: 120 + (filteredCalls.length % 50), color: "text-rose-500", size: "text-5xl" },
-                      { text: "Fatura", count: 95 + (filteredCalls.length % 30), color: "text-slate-700 dark:text-slate-200", size: "text-4xl" },
-                      { text: "Sipariş", count: 80 + (filteredCalls.length % 20), color: "text-blue-500", size: "text-3xl" },
-                      { text: "Teşekkürler", count: 70 + (filteredCalls.length % 15), color: "text-emerald-500", size: "text-3xl" },
-                      { text: "Kargo", count: 65, color: "text-amber-500", size: "text-2xl" },
-                      { text: "Gecikme", count: 50, color: "text-rose-400", size: "text-2xl" },
-                      { text: "İade", count: 45, color: "text-orange-500", size: "text-2xl" },
-                      { text: "Memnuniyet", count: 40, color: "text-emerald-400", size: "text-xl" },
-                      { text: "Ücret", count: 35, color: "text-slate-600 dark:text-slate-300", size: "text-xl" },
-                      { text: "Destek", count: 30, color: "text-blue-400", size: "text-xl" },
-                      { text: "Şikayet", count: 25, color: "text-rose-600", size: "text-lg" },
-                      { text: "Kampanya", count: 20, color: "text-purple-500", size: "text-lg" },
-                      { text: "Adres", count: 15, color: "text-slate-500", size: "text-base" },
-                      { text: "Taksit", count: 10, color: "text-slate-500", size: "text-base" }
-                    ];
-                    
-                    return words.map((w, idx) => (
-                      <span key={idx} className={`${w.size} ${w.color} font-bold opacity-80 hover:opacity-100 transition-all hover:scale-110 cursor-pointer`} title={`${w.text}: ${w.count} geçiş`}>
-                        {w.text}
+              <div className="p-6 flex flex-col gap-6 h-full overflow-y-auto">
+                {filterWordcloudKeyword.trim() && (
+                  <div className="flex items-center justify-between gap-2 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-900/60">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      <Search size={13} className="text-primary" />
+                      <span>Anahtar Kelime Filtresi:</span>
+                      <span className={`px-2 py-0.5 rounded-lg text-[11px] font-bold border ${lightBg} ${text} ${borderLight}`}>
+                        {filterWordcloudKeyword.trim()}
                       </span>
-                    ));
-                  })()}
-                </div>
-                
-                {filteredCalls.length > 0 && (
-                  <div className="overflow-x-auto pb-4">
-                    <h4 className="text-sm font-bold uppercase tracking-wider mb-4 text-slate-700 dark:text-slate-300">Konu Trendleri ve Duygu Etkisi</h4>
-                    <table className="w-full text-left border-collapse border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
-                      <thead>
-                        <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                          {visibleColumns.word && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Anahtar Kelime</th>}
-                          {visibleColumns.count && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geçiş Sıklığı</th>}
-                          {visibleColumns.trend && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Trend Değişimi</th>}
-                          {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu Etkisi</th>}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[
-                          { word: "İptal", count: 120 + (filteredCalls.length % 50), trend: "+12%", trendColor: "text-rose-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100" },
-                          { word: "Sipariş", count: 80 + (filteredCalls.length % 20), trend: "+5%", trendColor: "text-emerald-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100" },
-                          { word: "Teşekkürler", count: 70 + (filteredCalls.length % 15), trend: "+8%", trendColor: "text-emerald-500", sentiment: "Pozitif", sentimentColor: "bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100" },
-                          { word: "Kargo", count: 65, trend: "-2%", trendColor: "text-rose-500", sentiment: "Nötr", sentimentColor: "bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100" },
-                          { word: "Şikayet", count: 25, trend: "-15%", trendColor: "text-emerald-500", sentiment: "Negatif", sentimentColor: "bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100" },
-                        ].map((item, idx) => (
-                          <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                            {visibleColumns.word && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{item.word}</td>}
-                            {visibleColumns.count && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{item.count}</td>}
-                            {visibleColumns.trend && <td className={`p-4 text-center font-bold ${item.trendColor}`}>{item.trend}</td>}
-                            {visibleColumns.sentiment && (
-                              <td className="p-4 text-center">
-                                <div className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${item.sentimentColor}`}>
-                                  {item.sentiment}
-                                </div>
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFilterWordcloudKeyword("")}
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-rose-500 transition cursor-pointer"
+                      title="Anahtar kelime filtresini kaldır"
+                    >
+                      <X size={13} />
+                      <span>Temizle</span>
+                    </button>
                   </div>
                 )}
+
+                {(() => {
+                  if (filteredCalls.length === 0) {
+                    return (
+                      <div className={"w-full min-h-[300px] rounded-2xl flex flex-wrap items-center justify-center p-8 gap-4 border " + borderLight + " " + lightBg}>
+                        <div className="text-slate-500 font-medium">Bu filtrelere uygun çağrı bulunamadı.</div>
+                      </div>
+                    );
+                  }
+
+                  const { cloudWords, trendRows } = getFilteredWordcloudItems(filteredCalls, filterWordcloudKeyword);
+
+                  if (cloudWords.length === 0) {
+                    return (
+                      <div className={"w-full min-h-[300px] rounded-2xl flex flex-col items-center justify-center p-8 gap-3 border " + borderLight + " " + lightBg}>
+                        <div className="text-slate-500 font-medium">
+                          &ldquo;{filterWordcloudKeyword.trim()}&rdquo; anahtar kelimesine uygun sonuç bulunamadı.
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setFilterWordcloudKeyword("")}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${lightBg} ${text} ${borderLight} ${hover} hover:text-white`}
+                        >
+                          Tüm Kelimeleri Göster
+                        </button>
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <>
+                      <div className={"w-full min-h-[300px] rounded-2xl flex flex-wrap items-center justify-center p-8 gap-4 border " + borderLight + " " + lightBg}>
+                        {cloudWords.map((w, idx) => {
+                          const isExactFiltered = normalizeTrKeyword(filterWordcloudKeyword) === normalizeTrKeyword(w.text);
+                          return (
+                            <span
+                              key={idx}
+                              onClick={() => setFilterWordcloudKeyword(isExactFiltered ? "" : w.text)}
+                              className={`${w.size} ${w.color} font-bold opacity-80 hover:opacity-100 transition-all hover:scale-110 cursor-pointer`}
+                              title={`${w.text}: ${w.count} geçiş (Filtrelemek için tıklayın)`}
+                            >
+                              {w.text}
+                            </span>
+                          );
+                        })}
+                      </div>
+
+                      {trendRows.length > 0 && (
+                        <div className="overflow-x-auto pb-4">
+                          <h4 className="text-sm font-bold uppercase tracking-wider mb-4 text-slate-700 dark:text-slate-300">Konu Trendleri ve Duygu Etkisi</h4>
+                          <table className="w-full text-left border-collapse border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
+                            <thead>
+                              <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                {visibleColumns.word && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Anahtar Kelime</th>}
+                                {visibleColumns.count && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geçiş Sıklığı</th>}
+                                {visibleColumns.trend && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Trend Değişimi</th>}
+                                {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu Etkisi</th>}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {trendRows.map((item, idx) => (
+                                <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                  {visibleColumns.word && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{item.word}</td>}
+                                  {visibleColumns.count && <td className="p-4 text-center font-bold text-slate-700 dark:text-slate-300">{item.count}</td>}
+                                  {visibleColumns.trend && <td className={`p-4 text-center font-bold ${item.trendColor}`}>{item.trend}</td>}
+                                  {visibleColumns.sentiment && (
+                                    <td className="p-4 text-center">
+                                      <div className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${item.sentimentColor}`}>
+                                        {item.sentiment}
+                                      </div>
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             ) : isFcrMode ? (
               /* FCR Report Mode */
