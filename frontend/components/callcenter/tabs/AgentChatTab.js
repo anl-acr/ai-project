@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X, Check, CheckCheck, Trash2 } from "lucide-react";
+import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X, Check, CheckCheck, Trash2, Phone } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import DictationButton from "../../common/DictationButton";
 import ConfirmDeleteModal from "../../dashboard/ConfirmDeleteModal";
@@ -1254,15 +1254,34 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                     </div>
                   ) : selectedInternalChat ? (
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={(e) => requestDeleteInternalConversation(selectedInternalChat, e)}
-                        className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
-                        title="Bu sohbeti yalnızca kendi ekranımdan sil (karşı taraf etkilenmez)"
-                      >
-                        <Trash2 size={14} />
-                        Sohbeti Sil
-                      </button>
+                      {(() => {
+                        const targetExt = String(
+                          selectedInternalChat.extension ||
+                            (/^\d+$/.test(String(selectedInternalChat.peerKey || "")) ? selectedInternalChat.peerKey : "")
+                        ).trim();
+                        return (
+                          <button
+                            type="button"
+                            disabled={!targetExt}
+                            onClick={() => {
+                              if (!targetExt || typeof window === "undefined") return;
+                              window.dispatchEvent(new CustomEvent("TRIGGER_CALL", { detail: targetExt }));
+                            }}
+                            className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 transition-all shadow-sm border ${
+                              targetExt
+                                ? `${lightBg} ${text} ${borderLight} ${hover} hover:text-white cursor-pointer`
+                                : "bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-600 border-slate-200 dark:border-slate-700 cursor-not-allowed"
+                            }`}
+                            title={
+                              targetExt
+                                ? `${selectedInternalChat.customerName} (${targetExt}) Dahilisini Ara`
+                                : "Bu kullanıcının tanımlı dahili numarası bulunmuyor"
+                            }
+                          >
+                            <Phone size={15} />
+                          </button>
+                        );
+                      })()}
                     </div>
                   ) : null}
                 </div>
