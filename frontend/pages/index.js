@@ -2805,17 +2805,17 @@ export default function Home() {
 
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm"
+              className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors shadow-sm cursor-pointer"
               title={isDarkMode ? "Aydınlık Mod" : "Karanlık Mod"}
             >
-              {isDarkMode ? <Sun size={14} className="text-amber-450" /> : <Moon size={14} className="text-primary" />}
+              {isDarkMode ? <Sun size={14} className="text-amber-400" /> : <Moon size={14} className="text-primary" />}
             </button>
 
             {/* Profile Dropdown */}
             <div ref={profileDropdownRef} className="relative">
               <button
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                className="flex items-center gap-2.5 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group"
+                className="flex items-center gap-2.5 px-2.5 py-1 rounded-full border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-all shadow-sm focus:outline-none group cursor-pointer"
                 title="Kullanıcı Profili ve Menüsü"
               >
                 <div className="relative shrink-0">
@@ -2852,7 +2852,7 @@ export default function Home() {
               {profileDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-72 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
                   {/* Active User Card Header */}
-                  <div className="p-3.5 bg-slate-50/90 dark:bg-slate-850/60 border-b border-slate-100 dark:border-slate-800/80">
+                  <div className="p-3.5 bg-slate-50/90 dark:bg-slate-800/40 border-b border-slate-100 dark:border-slate-800/80">
                     <div className="flex items-start gap-3">
                       <div className="relative shrink-0 mt-0.5">
                         <img
@@ -2879,7 +2879,7 @@ export default function Home() {
                             {currentUser?.role === 'admin' ? 'Sistem Yöneticisi' : currentUser?.role === 'supervisor' ? 'Süpervizör' : 'Çağrı Temsilcisi'}
                           </span>
                           {currentUser?.extension && (
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-350">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-200">
                               Dahili: {currentUser.extension}
                             </span>
                           )}
@@ -2901,7 +2901,7 @@ export default function Home() {
                           setActiveModalTab("profiles");
                           setSettingsModalOpen(true);
                         }}
-                        className={`text-[10px] font-bold ${text} hover:underline`}
+                        className={`text-[10px] font-bold ${text} hover:underline cursor-pointer`}
                       >
                         Profilleri Özelleştir
                       </button>
@@ -2918,7 +2918,7 @@ export default function Home() {
                             key={prof.id}
                             type="button"
                             onClick={() => handleQuickProfileSwitch(prof.id)}
-                            className={`px-2.5 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-1.5 ${
+                            className={`px-2.5 py-2 rounded-xl border text-left transition-all flex items-center justify-between gap-1.5 cursor-pointer ${
                               isAct
                                 ? `${border} ${lightBg} shadow-sm`
                                 : "border-slate-200/70 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 hover:bg-slate-100/70 dark:hover:bg-slate-800/60"
@@ -2942,15 +2942,15 @@ export default function Home() {
                         setProfileDropdownOpen(false);
                         setSettingsModalOpen(true);
                       }}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-350 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors"
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-slate-700 dark:text-slate-100 hover:bg-slate-100/70 dark:hover:bg-slate-800 flex items-center gap-2.5 transition-colors cursor-pointer group"
                     >
-                      <Settings size={15} className="text-slate-400 dark:text-slate-500" />
+                      <Settings size={15} className={`text-slate-500 dark:text-slate-300 group-hover:${text} transition-colors`} />
                       <span>Profil Ayarları</span>
                     </button>
                     <div className="h-px bg-slate-100 dark:bg-slate-800/80 my-1" />
                     <button
                       onClick={handleLogout}
-                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2.5 transition-colors"
+                      className="w-full text-left px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/30 flex items-center gap-2.5 transition-colors cursor-pointer"
                     >
                       <LogOut size={15} className="text-rose-500" />
                       <span>Çıkış Yap</span>
@@ -4130,7 +4130,7 @@ export default function Home() {
 
                 {/* Ringtone Selection */}
                 <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
-                  <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Çağrı Zil Sesi</label>
+                  <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Çağrı Zil Sesi</label>
                   <div className="flex gap-2">
                     <select
                       value={agentRingtone}
@@ -4169,7 +4169,7 @@ export default function Home() {
                           playRingtoneSound(agentRingtone, selectedRingtoneSpeaker, ringLabel);
                         }
                       }}
-                      className="px-4 bg-slate-105 dark:bg-slate-850 hover:bg-slate-200 dark:hover:bg-slate-800 border border-slate-200/50 dark:border-slate-800 text-slate-700 dark:text-slate-350 rounded-xl flex items-center justify-center gap-1.5 text-xs font-extrabold transition-all"
+                      className="px-4 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200/50 dark:border-slate-700 text-slate-700 dark:text-slate-200 rounded-xl flex items-center justify-center gap-1.5 text-xs font-extrabold transition-all cursor-pointer"
                     >
                       {isPreviewingRingtone ? (
                         <>
@@ -4188,7 +4188,7 @@ export default function Home() {
 
                 {/* Microphone Selection */}
                 <div className={`space-y-2 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
-                  <label className="text-[9px] font-extrabold text-slate-450 dark:text-slate-550 uppercase tracking-widest block">Ses Giriş Aygıtı (Mikrofon)</label>
+                  <label className="text-[9px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-widest block">Ses Giriş Aygıtı (Mikrofon)</label>
                   <select
                     value={selectedMic}
                     onChange={(e) => {
