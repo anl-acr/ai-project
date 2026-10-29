@@ -451,6 +451,122 @@ export default function Home() {
     }
   }, [isLoggedIn, activeTenantId]);
 
+  // Global Internal Chat Delivery Receipt & Login/Live Notification Poller
+  const [internalChatToast, setInternalChatToast] = useState(null);
+  useEffect(() => {
+    if (!isLoggedIn || !currentUser || typeof window === "undefined") {
+      setInternalChatToast(null);
+      return;
+    }
+    const uid = String(currentUser?.id || "").trim();
+    const ext = String(currentUser?.extension || "").trim();
+    const userKey = uid || ext;
+    if (!userKey) return;
+
+    const storageKey = `notified_int_chat_ids_${userKey}`;
+    const loadNotifiedSet = () => {
+      try {
+        const raw = sessionStorage.getItem(storageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) return new Set(parsed.map(String));
+        }
+      } catch (e) {}
+      return new Set();
+    };
+    const saveNotifiedSet = (setObj) => {
+      try {
+        const arr = Array.from(setObj).slice(-300);
+        sessionStorage.setItem(storageKey, JSON.stringify(arr));
+      } catch (e) {}
+    };
+
+    let mounted = true;
+    const pollInternalDeliveryAndNotify = async () => {
+      try {
+        const backendHostUrl = getBackendHost();
+        const protocol = window.location.protocol;
+        const res = await fetch(
+          `${protocol}//${backendHostUrl}/api/agent/chat?extension=${encodeURIComponent(ext)}&user_id=${encodeURIComponent(uid)}&deliver=1&t=${Date.now()}`,
+          { headers: { "X-User-ID": userKey } }
+        );
+        if (!mounted || !res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data)) return;
+
+        const myKeys = new Set([uid, ext].filter(Boolean));
+        const unreadIncoming = data.filter((m) => {
+          const s = String(m.sender_id || "").trim();
+          const r = String(m.receiver_id || "").trim();
+          return !myKeys.has(s) && myKeys.has(r) && !m.read_at;
+        });
+
+        if (unreadIncoming.length === 0) {
+          setInternalChatToast(null);
+          return;
+        }
+
+        const notifiedSet = loadNotifiedSet();
+        const activeOpenPeers = new Set(
+          (Array.isArray(window.__ACTIVE_VISIBLE_INTERNAL_PEERS__) && document.visibilityState === "visible"
+            ? window.__ACTIVE_VISIBLE_INTERNAL_PEERS__
+            : []
+          ).map(String)
+        );
+        const freshUnnotified = unreadIncoming.filter((m) => {
+          const mid = String(m.id);
+          if (notifiedSet.has(mid)) return false;
+          if (activeOpenPeers.has(String(m.sender_id || ""))) {
+            notifiedSet.add(mid);
+            return false;
+          }
+          return true;
+        });
+        saveNotifiedSet(notifiedSet);
+        if (freshUnnotified.length > 0) {
+          freshUnnotified.forEach((m) => notifiedSet.add(String(m.id)));
+          saveNotifiedSet(notifiedSet);
+
+          const latestMsg = freshUnnotified[freshUnnotified.length - 1];
+          const senderLabel = latestMsg.sender_name || `Dahili ${latestMsg.sender_id}`;
+          setInternalChatToast({
+            id: latestMsg.id,
+            senderId: String(latestMsg.sender_id || ""),
+            senderName: senderLabel,
+            text: latestMsg.text || "",
+            totalUnread: unreadIncoming.length
+          });
+
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            try {
+              new Notification(`${senderLabel} - Yeni İç Mesaj`, {
+                body: latestMsg.text || "Yeni bir mesajınız var."
+              });
+            } catch (e) {}
+          }
+        }
+      } catch (e) {}
+    };
+
+    const handleReadSync = (e) => {
+      const peerKeys = Array.isArray(e?.detail?.peerKeys) ? e.detail.peerKeys.map(String) : [];
+      setInternalChatToast((prev) => {
+        if (!prev) return null;
+        if (peerKeys.includes(String(prev.senderId))) return null;
+        return prev;
+      });
+    };
+
+    window.addEventListener("INTERNAL_CHAT_READ_SYNC", handleReadSync);
+    pollInternalDeliveryAndNotify();
+    const timer = setInterval(pollInternalDeliveryAndNotify, 3500);
+    return () => {
+      mounted = false;
+      window.removeEventListener("INTERNAL_CHAT_READ_SYNC", handleReadSync);
+      clearInterval(timer);
+    };
+  }, [isLoggedIn, currentUser?.id, currentUser?.extension]);
+
   // Profile and ringtone preferences states
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const profileDropdownRef = useClickOutside(() => setProfileDropdownOpen(false));
@@ -1622,6 +1738,13 @@ export default function Home() {
       localStorage.removeItem("agent_avatar");
       sessionStorage.removeItem("is_logged_in");
       sessionStorage.removeItem("current_user_id");
+      try {
+        const uidKey = String(currentUser?.id || "").trim();
+        const extKey = String(currentUser?.extension || "").trim();
+        if (uidKey) sessionStorage.removeItem(`notified_int_chat_ids_${uidKey}`);
+        if (extKey) sessionStorage.removeItem(`notified_int_chat_ids_${extKey}`);
+      } catch (e) {}
+      setInternalChatToast(null);
       setCurrentUser(null);
       setIsLoggedIn(false);
       if (typeof window !== "undefined") {
@@ -5429,6 +5552,69 @@ export default function Home() {
               >
                 Tamam
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Global Internal Chat Login / Live Message Notification Toast */}
+        {isLoggedIn && internalChatToast && (
+          <div className="fixed top-20 right-6 z-[9500] w-80 sm:w-96 bg-white dark:bg-slate-900 border border-slate-200/90 dark:border-slate-800 rounded-2xl shadow-2xl p-4 animate-in fade-in slide-in-from-top-3 duration-200">
+            <div className="flex items-start gap-3">
+              <div className={`w-10 h-10 rounded-xl ${lightBg} ${text} flex items-center justify-center shrink-0 border ${borderLight}`}>
+                <MessageSquare size={18} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className="text-xs font-extrabold text-slate-800 dark:text-white truncate">
+                      {internalChatToast.senderName}
+                    </p>
+                    {internalChatToast.totalUnread > 1 && (
+                      <span className={`px-1.5 py-0.5 rounded-full text-[9px] font-extrabold text-white shrink-0 ${bg}`}>
+                        {internalChatToast.totalUnread} okunmamış
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInternalChatToast(null)}
+                    className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 shrink-0 cursor-pointer"
+                    title="Bildirimi Kapat"
+                  >
+                    <X size={15} />
+                  </button>
+                </div>
+                <p className="text-[11px] font-medium text-slate-500 dark:text-slate-400 mt-1 line-clamp-2 break-words">
+                  {internalChatToast.text}
+                </p>
+                <div className="flex items-center justify-end gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => setInternalChatToast(null)}
+                    className="px-2.5 py-1.5 rounded-lg text-[11px] font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                  >
+                    Kapat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetPeer = internalChatToast.senderId;
+                      setInternalChatToast(null);
+                      setActiveTab("call-center");
+                      if (typeof window !== "undefined") {
+                        window.dispatchEvent(
+                          new CustomEvent("SWITCH_AGENT_PANEL_SUBTAB", {
+                            detail: { subTab: "chat", peerSenderId: targetPeer }
+                          })
+                        );
+                      }
+                    }}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-extrabold text-white shadow-sm transition-all cursor-pointer ${bg} ${hover}`}
+                  >
+                    Mesajı Aç
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         )}

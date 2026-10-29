@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X } from "lucide-react";
+import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X, Check, CheckCheck } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import DictationButton from "../../common/DictationButton";
 
-export default function AgentChatTab({ backendHost, currentUser }) {
+export default function AgentChatTab({ backendHost, currentUser, isVisible = true, openPeerRequest = null, onPeerOpened }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
 
   // Primary Tab State: "customer" (Müşteri Sohbetleri) | "internal" (İç Yazışma)
@@ -31,6 +31,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
 
   const messagesEndRef = useRef(null);
   const activeChatIdRef = useRef(activeChatId);
+  const markingReadInFlightRef = useRef(false);
 
   useEffect(() => {
     activeChatIdRef.current = activeChatId;
@@ -71,17 +72,17 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   };
 
   useEffect(() => {
-    if (activeChatId) {
+    if (activeChatId && isVisible) {
       markConvSeen(activeChatId);
     }
-  }, [activeChatId, customerMessages.length, internalRawMessages.length]);
+  }, [activeChatId, customerMessages.length, internalRawMessages.length, isVisible]);
 
   // Fetch Real System Users & Internal Chat Messages
   const fetchInternalChatData = async () => {
     try {
       const [usersRes, chatRes] = await Promise.all([
         fetch(`${API_BASE}/api/settings/users`),
-        fetch(`${API_BASE}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myId)}`)
+        fetch(`${API_BASE}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myId)}&deliver=1`)
       ]);
 
       if (usersRes.ok) {
@@ -95,7 +96,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
             })
             .map(u => {
               const peerKey = String(u.extension || u.id);
-              const isOnline = u.status === "online" || u.status === "available" || u.status === "busy" || u.status === "in_call";
+              const isOnline = Boolean(u.web_online || u.is_registered || u.sip_status === "online");
               const roleLabel = u.role === "admin" ? "Yönetici" : u.role === "supervisor" ? "Süpervizör" : "Temsilci";
               return {
                 id: peerKey,
@@ -104,7 +105,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                 name: u.full_name || u.name || u.email || `Dahili ${u.extension || u.id}`,
                 role: u.extension ? `${roleLabel} (${u.extension})` : roleLabel,
                 online: isOnline,
-                status: u.status || "offline"
+                status: isOnline ? "online" : "offline"
               };
             });
           setSystemUsers(mappedUsers);
@@ -125,15 +126,11 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   // Build Internal Chat Sessions dynamically from real system users & messages
   const internalChatSessions = React.useMemo(() => {
     const myKeys = new Set([myExt, myId].filter(Boolean));
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayStartMs = todayStart.getTime();
 
     return systemUsers
       .map(u => {
         const peerKeys = new Set([u.id, u.userId, u.extension].filter(Boolean));
         const convId = `internal-${u.id}`;
-        const minSeenMs = Math.max(Number(seenConvMap[convId] || 0), todayStartMs);
 
         const convMsgs = internalRawMessages
           .filter(m => {
@@ -154,6 +151,11 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                 timeStr = dt.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
               } catch (e) {}
             }
+            const msgStatus = m.read_at
+              ? "seen"
+              : m.delivered_at
+                ? "delivered"
+                : (m.status === "seen" || m.status === "delivered" ? m.status : "sent");
             return {
               id: m.id,
               sender: isAgent ? "agent" : "customer",
@@ -161,14 +163,16 @@ export default function AgentChatTab({ backendHost, currentUser }) {
               time: timeStr,
               timestamp: m.timestamp,
               msgMs,
-              status: "seen"
+              delivered_at: m.delivered_at || null,
+              read_at: m.read_at || null,
+              status: msgStatus
             };
           });
 
         const unreadCount =
-          String(activeChatId) === convId
+          isVisible && chatTab === "internal" && String(activeChatId) === convId
             ? 0
-            : convMsgs.filter(m => m.sender === "customer" && m.msgMs > minSeenMs).length;
+            : convMsgs.filter(m => m.sender === "customer" && !m.read_at).length;
 
         const lastMsg = convMsgs.length > 0 ? convMsgs[convMsgs.length - 1] : null;
         return {
@@ -195,7 +199,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
         if (a.online !== b.online) return a.online ? -1 : 1;
         return a.customerName.localeCompare(b.customerName, "tr");
       });
-  }, [systemUsers, internalRawMessages, myExt, myId, startedInternalPeers, seenConvMap, activeChatId]);
+  }, [systemUsers, internalRawMessages, myExt, myId, startedInternalPeers, activeChatId, isVisible, chatTab]);
 
   // Fetch Omnichannel Customer Sessions from Backend
   const fetchCustomerSessions = async (showSpinner = false) => {
@@ -458,7 +462,10 @@ export default function AgentChatTab({ backendHost, currentUser }) {
         sender_id: mySenderKey,
         receiver_id: receiverId,
         text: textToSend,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        delivered_at: null,
+        read_at: null,
+        status: "sent"
       };
       setInternalRawMessages(prev => [...prev, optimisticMsg]);
       setChatInput("");
@@ -497,6 +504,170 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   // Find currently active chat object
   const selectedCustomerChat = apiCustomerSessions.find(c => String(c.id) === String(activeChatId));
   const selectedInternalChat = internalChatSessions.find(c => String(c.id) === String(activeChatId));
+
+  // Open specific internal peer conversation when triggered from notification toast
+  useEffect(() => {
+    const openPeerBySenderId = (rawSenderId) => {
+      const target = String(rawSenderId || "").trim();
+      if (!target) return false;
+      const matchedUser = systemUsers.find(
+        u => u.id === target || u.userId === target || u.extension === target
+      );
+      if (!matchedUser && systemUsers.length === 0) {
+        return false;
+      }
+      const peerKey = matchedUser ? String(matchedUser.id) : target;
+      setChatTab("internal");
+      setIsNewChatModalOpen(false);
+      setStartedInternalPeers(prev => (prev.includes(peerKey) ? prev : [peerKey, ...prev]));
+      setActiveChatId(`internal-${peerKey}`);
+      return true;
+    };
+
+    if (openPeerRequest?.peerSenderId) {
+      const opened = openPeerBySenderId(openPeerRequest.peerSenderId);
+      if (opened && typeof onPeerOpened === "function") {
+        onPeerOpened();
+      }
+    }
+
+    const handleOpenPeerEvent = (e) => {
+      if (e?.detail?.peerSenderId) {
+        openPeerBySenderId(e.detail.peerSenderId);
+      }
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("OPEN_INTERNAL_CHAT_PEER", handleOpenPeerEvent);
+      return () => window.removeEventListener("OPEN_INTERNAL_CHAT_PEER", handleOpenPeerEvent);
+    }
+  }, [openPeerRequest, systemUsers, onPeerOpened]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (isVisible && chatTab === "internal" && selectedInternalChat) {
+      window.__ACTIVE_VISIBLE_INTERNAL_PEERS__ = [
+        selectedInternalChat.peerKey,
+        selectedInternalChat.userId,
+        selectedInternalChat.extension
+      ]
+        .filter(Boolean)
+        .map(String);
+    } else {
+      window.__ACTIVE_VISIBLE_INTERNAL_PEERS__ = [];
+    }
+    return () => {
+      if (typeof window !== "undefined") {
+        window.__ACTIVE_VISIBLE_INTERNAL_PEERS__ = [];
+      }
+    };
+  }, [isVisible, chatTab, selectedInternalChat]);
+
+  // Mark incoming internal messages as READ (2 blue ticks) only when recipient views the active conversation
+  useEffect(() => {
+    const tryMarkActiveInternalRead = async () => {
+      if (!isVisible || chatTab !== "internal" || !selectedInternalChat) return;
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+
+      const hasUnreadFromPeer = selectedInternalChat.messages.some(
+        m => m.sender === "customer" && !m.read_at
+      );
+      if (!hasUnreadFromPeer || markingReadInFlightRef.current) return;
+
+      markingReadInFlightRef.current = true;
+      const nowIso = new Date().toISOString();
+      const myKeys = new Set([myExt, myId].filter(Boolean));
+      const peerKeys = new Set(
+        [selectedInternalChat.peerKey, selectedInternalChat.userId, selectedInternalChat.extension].filter(Boolean)
+      );
+
+      // Optimistic local state update
+      setInternalRawMessages(prev =>
+        prev.map(m => {
+          const s = String(m.sender_id || "");
+          const r = String(m.receiver_id || "");
+          if (peerKeys.has(s) && myKeys.has(r) && !m.read_at) {
+            return {
+              ...m,
+              delivered_at: m.delivered_at || nowIso,
+              read_at: nowIso,
+              status: "seen"
+            };
+          }
+          return m;
+        })
+      );
+
+      try {
+        await fetch(`${API_BASE}/api/agent/chat/read`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reader_extension: myExt,
+            reader_user_id: myId,
+            peer_id: selectedInternalChat.peerKey,
+            peer_user_id: selectedInternalChat.userId,
+            peer_extension: selectedInternalChat.extension
+          })
+        });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("INTERNAL_CHAT_READ_SYNC", {
+              detail: {
+                peerKeys: Array.from(peerKeys)
+              }
+            })
+          );
+        }
+      } catch (err) {
+        console.error("[AgentChatTab] Error marking internal chat read:", err);
+      } finally {
+        markingReadInFlightRef.current = false;
+      }
+    };
+
+    tryMarkActiveInternalRead();
+
+    if (typeof document !== "undefined") {
+      const onVis = () => {
+        if (document.visibilityState === "visible") {
+          tryMarkActiveInternalRead();
+        }
+      };
+      document.addEventListener("visibilitychange", onVis);
+      return () => document.removeEventListener("visibilitychange", onVis);
+    }
+  }, [isVisible, chatTab, activeChatId, selectedInternalChat, API_BASE, myExt, myId]);
+
+  const renderMessageTick = (status, size = 14) => {
+    if (status === "seen") {
+      return (
+        <CheckCheck
+          size={size + 1}
+          strokeWidth={2.5}
+          className="text-sky-500 dark:text-sky-400 shrink-0 inline-block"
+          title="Okundu"
+        />
+      );
+    }
+    if (status === "delivered") {
+      return (
+        <CheckCheck
+          size={size + 1}
+          strokeWidth={2.3}
+          className="text-slate-400 dark:text-slate-500 shrink-0 inline-block"
+          title="İletildi (Kullanıcı çevrimiçi, bildirim iletildi)"
+        />
+      );
+    }
+    return (
+      <Check
+        size={size}
+        strokeWidth={2.4}
+        className="text-slate-400 dark:text-slate-500 shrink-0 inline-block"
+        title="Gönderildi (Kullanıcı çevrimdışı)"
+      />
+    );
+  };
 
   const formatTime = (ts) => {
     if (!ts) return "";
@@ -538,7 +709,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
           </h2>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => { fetchCustomerSessions(true); if (activeChatId) fetchCustomerMessages(activeChatId, true); }}
+              onClick={() => { fetchCustomerSessions(true); fetchInternalChatData(); if (activeChatId && chatTab === "customer") fetchCustomerMessages(activeChatId, true); }}
               className="px-3 py-2 text-slate-500 hover:text-slate-800 dark:hover:text-white bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl transition-all shadow-sm flex items-center gap-1.5 text-xs font-semibold"
               title="Yenile"
             >
@@ -717,6 +888,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                     /* Internal Chat List */
                     filteredInternalSessions.map((session) => {
                       const isSelected = String(activeChatId) === String(session.id);
+                      const lastMsgObj = session.messages.length > 0 ? session.messages[session.messages.length - 1] : null;
                       return (
                         <button
                           key={session.id}
@@ -748,9 +920,12 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                                   </span>
                                 )}
                               </div>
-                              <p className="text-xs text-slate-450 dark:text-slate-500 truncate mt-0.5 font-medium">
-                                {session.messages.length > 0 ? session.messages[session.messages.length - 1].text : "Mesaj yok..."}
-                              </p>
+                              <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                                {lastMsgObj && lastMsgObj.sender === "agent" && renderMessageTick(lastMsgObj.status, 12)}
+                                <p className="text-xs text-slate-450 dark:text-slate-500 truncate font-medium">
+                                  {lastMsgObj ? lastMsgObj.text : "Mesaj yok..."}
+                                </p>
+                              </div>
                             </div>
                           </div>
                         </button>
@@ -812,6 +987,9 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                         ? (selectedCustomerChat?.sender_name || selectedCustomerChat?.sender_info || "M").charAt(0).toUpperCase()
                         : selectedInternalChat?.customerName.charAt(0).toUpperCase()
                       }
+                      {chatTab === "internal" && (
+                        <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${selectedInternalChat?.online ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                      )}
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-slate-800 dark:text-white flex items-center gap-2">
@@ -838,7 +1016,9 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                             </span>
                           </>
                         ) : (
-                          selectedInternalChat?.online ? 'Çevrimiçi' : 'Çevrimdışı'
+                          <span className={selectedInternalChat?.online ? "text-emerald-600 dark:text-emerald-400 font-semibold" : "text-slate-400"}>
+                            {selectedInternalChat?.online ? 'Çevrimiçi' : 'Çevrimdışı'}
+                          </span>
                         )}
                       </p>
                     </div>
@@ -938,7 +1118,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                       const isAgent = m.sender === "agent";
                       return (
                         <div
-                          key={idx}
+                          key={m.id || idx}
                           className={`flex flex-col max-w-[75%] ${
                             isAgent ? "ml-auto items-end" : "mr-auto items-start"
                           }`}
@@ -952,15 +1132,11 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                           >
                             {m.text}
                           </div>
-                          <div className="flex items-center gap-1.5 mt-1 px-1">
+                          <div className="flex items-center gap-1 mt-1 px-1">
                             <span className="text-[10px] font-bold text-slate-450 dark:text-slate-500 tracking-wider">
                               {m.time}
                             </span>
-                            {isAgent && (
-                              <span className={`text-[10px] font-bold ${m.status === 'seen' ? 'text-blue-500' : 'text-slate-400'}`}>
-                                {m.status === 'seen' ? '✓✓' : '✓'}
-                              </span>
-                            )}
+                            {isAgent && renderMessageTick(m.status, 14)}
                           </div>
                         </div>
                       );

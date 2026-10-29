@@ -165,6 +165,7 @@ async def auto_api_prefix_middleware(request: Request, call_next):
                 "/api/settings/queues",
                 "/api/settings/trunks",
                 "/api/agent/status",
+                "/api/agent/chat",
                 "/api/webrtc/",
                 "/api/webhook",
                 "/api/webhooks",
@@ -5978,6 +5979,7 @@ async def webrtc_unregister_notify(payload: dict, db: AsyncSession = Depends(get
                 registered_endpoints.discard(str(u.get("extension")))
                 registered_endpoints.discard(str(u.get("id")))
 
+        _clear_internal_chat_heartbeat({ext, str(user_id_val or ""), str(matched_user_id or "")})
         update_agent_state(is_logged_in=False, status="offline", current_break=None, user_id=matched_user_id, extension=ext)
 
         try:
@@ -18117,25 +18119,103 @@ async def get_agent_directory(db: AsyncSession = Depends(get_db)):
         })
     return directory
 
-@app.get("/api/agent/chat")
-async def get_internal_chat(extension: str = None, user_id: str = None, db: AsyncSession = Depends(get_db)):
-    from backend.database.models import InternalChatMessage
-    from sqlalchemy import select, or_
+INTERNAL_CHAT_HEARTBEAT_TTL_SEC = 15
+internal_chat_online_heartbeats: dict[str, datetime.datetime] = {}
 
-    ext_val = str(extension or "").strip()
-    uid_val = str(user_id or "").strip()
-    identities = {v for v in (ext_val, uid_val) if v and v not in ("undefined", "null")}
+def _record_internal_chat_heartbeat(identities: set[str]):
+    now_utc = datetime.datetime.utcnow()
+    # Prune expired entries opportunistically
+    stale_keys = [
+        k for k, ts in list(internal_chat_online_heartbeats.items())
+        if (now_utc - ts).total_seconds() > INTERNAL_CHAT_HEARTBEAT_TTL_SEC * 4
+    ]
+    for k in stale_keys:
+        internal_chat_online_heartbeats.pop(k, None)
+    for ident in identities:
+        clean_id = str(ident or "").strip()
+        if clean_id and clean_id not in ("undefined", "null"):
+            internal_chat_online_heartbeats[clean_id] = now_utc
 
-    if identities:
-        settings = load_settings()
-        for u in settings.get("users", []):
-            u_id = str(u.get("id", "")).strip()
-            u_ext = str(u.get("extension", "")).strip()
-            if u_id in identities or u_ext in identities:
+def _clear_internal_chat_heartbeat(identities: set[str]):
+    for ident in identities:
+        clean_id = str(ident or "").strip()
+        if clean_id:
+            internal_chat_online_heartbeats.pop(clean_id, None)
+
+def _is_internal_chat_online(*keys: str) -> bool:
+    now_utc = datetime.datetime.utcnow()
+    for raw_k in keys:
+        k = str(raw_k or "").strip()
+        if not k or k in ("undefined", "null"):
+            continue
+        ts = internal_chat_online_heartbeats.get(k)
+        if ts and (now_utc - ts).total_seconds() <= INTERNAL_CHAT_HEARTBEAT_TTL_SEC:
+            return True
+    return False
+
+async def _resolve_user_chat_identities(raw_keys: list[str], db: AsyncSession) -> tuple[set[str], dict[str, str]]:
+    from backend.database.models import SystemUser
+    from sqlalchemy import select
+
+    identities = {
+        str(v).strip()
+        for v in (raw_keys or [])
+        if v is not None and str(v).strip() and str(v).strip() not in ("undefined", "null")
+    }
+    name_map: dict[str, str] = {}
+
+    try:
+        res_u = await db.execute(select(SystemUser))
+        db_users = res_u.scalars().all()
+        for u in db_users:
+            u_id = str(u.id).strip() if u.id is not None else ""
+            u_ext = str(u.extension or "").strip()
+            u_name = str(u.name or u_ext or u_id).strip()
+            if u_id:
+                name_map[u_id] = u_name
+            if u_ext:
+                name_map[u_ext] = u_name
+            if identities and (u_id in identities or u_ext in identities):
                 if u_id:
                     identities.add(u_id)
                 if u_ext:
                     identities.add(u_ext)
+    except Exception:
+        pass
+
+    try:
+        settings = load_settings()
+        for u in settings.get("users", []):
+            u_id = str(u.get("id", "")).strip()
+            u_ext = str(u.get("extension", "")).strip()
+            u_name = str(u.get("name") or u.get("username") or u_ext or u_id).strip()
+            if u_id and u_id not in name_map:
+                name_map[u_id] = u_name
+            if u_ext and u_ext not in name_map:
+                name_map[u_ext] = u_name
+            if identities and (u_id in identities or u_ext in identities):
+                if u_id:
+                    identities.add(u_id)
+                if u_ext:
+                    identities.add(u_ext)
+    except Exception:
+        pass
+
+    return identities, name_map
+
+@app.get("/api/agent/chat")
+async def get_internal_chat(
+    extension: str = None,
+    user_id: str = None,
+    deliver: bool = False,
+    db: AsyncSession = Depends(get_db)
+):
+    from backend.database.models import InternalChatMessage
+    from sqlalchemy import select, or_
+
+    identities, name_map = await _resolve_user_chat_identities([extension, user_id], db)
+    if deliver and identities:
+        _record_internal_chat_heartbeat(identities)
 
     conds = [InternalChatMessage.receiver_id == "broadcast"]
     for ident in identities:
@@ -18145,16 +18225,40 @@ async def get_internal_chat(extension: str = None, user_id: str = None, db: Asyn
     stmt = select(InternalChatMessage).where(or_(*conds)).order_by(InternalChatMessage.timestamp.asc())
     res = await db.execute(stmt)
     messages = res.scalars().all()
-    return [
-        {
+
+    newly_delivered_ids: set[int] = set()
+    if deliver and identities:
+        now_utc = datetime.datetime.utcnow()
+        for m in messages:
+            s_id = str(m.sender_id or "").strip()
+            r_id = str(m.receiver_id or "").strip()
+            if r_id in identities and s_id not in identities and m.delivered_at is None:
+                m.delivered_at = now_utc
+                newly_delivered_ids.add(m.id)
+        if newly_delivered_ids:
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                newly_delivered_ids.clear()
+
+    result_list = []
+    for m in messages:
+        s_id = str(m.sender_id or "")
+        status_str = "seen" if m.read_at else ("delivered" if m.delivered_at else "sent")
+        result_list.append({
             "id": m.id,
-            "sender_id": str(m.sender_id or ""),
+            "sender_id": s_id,
+            "sender_name": name_map.get(s_id) or s_id,
             "receiver_id": str(m.receiver_id or ""),
             "text": m.text or "",
-            "timestamp": (m.timestamp.isoformat() + "Z") if m.timestamp else None
-        }
-        for m in messages
-    ]
+            "timestamp": (m.timestamp.isoformat() + "Z") if m.timestamp else None,
+            "delivered_at": (m.delivered_at.isoformat() + "Z") if m.delivered_at else None,
+            "read_at": (m.read_at.isoformat() + "Z") if m.read_at else None,
+            "status": status_str,
+            "newly_delivered": m.id in newly_delivered_ids
+        })
+    return result_list
 
 @app.post("/api/agent/chat")
 async def post_internal_chat(payload: dict, db: AsyncSession = Depends(get_db)):
@@ -18169,7 +18273,9 @@ async def post_internal_chat(payload: dict, db: AsyncSession = Depends(get_db)):
         sender_id=sender_id,
         receiver_id=receiver_id,
         text=text_val,
-        timestamp=datetime.datetime.utcnow()
+        timestamp=datetime.datetime.utcnow(),
+        delivered_at=None,
+        read_at=None
     )
     db.add(msg)
     await db.commit()
@@ -18179,8 +18285,52 @@ async def post_internal_chat(payload: dict, db: AsyncSession = Depends(get_db)):
         "sender_id": str(msg.sender_id or ""),
         "receiver_id": str(msg.receiver_id or ""),
         "text": msg.text or "",
-        "timestamp": (msg.timestamp.isoformat() + "Z") if msg.timestamp else None
+        "timestamp": (msg.timestamp.isoformat() + "Z") if msg.timestamp else None,
+        "delivered_at": None,
+        "read_at": None,
+        "status": "sent"
     }
+
+@app.post("/api/agent/chat/read")
+async def mark_internal_chat_read(payload: dict, db: AsyncSession = Depends(get_db)):
+    from backend.database.models import InternalChatMessage
+    from sqlalchemy import select
+
+    reader_keys = [
+        payload.get("reader_extension"),
+        payload.get("reader_user_id"),
+    ]
+    peer_keys = [
+        payload.get("peer_id"),
+        payload.get("peer_user_id"),
+        payload.get("peer_extension"),
+    ]
+    reader_identities, _ = await _resolve_user_chat_identities(reader_keys, db)
+    peer_identities, _ = await _resolve_user_chat_identities(peer_keys, db)
+
+    if not reader_identities or not peer_identities:
+        return {"status": "ignored", "updated_count": 0}
+
+    _record_internal_chat_heartbeat(reader_identities)
+
+    stmt = select(InternalChatMessage).where(
+        InternalChatMessage.receiver_id.in_(list(reader_identities)),
+        InternalChatMessage.sender_id.in_(list(peer_identities)),
+        InternalChatMessage.read_at.is_(None)
+    )
+    res = await db.execute(stmt)
+    unread_msgs = res.scalars().all()
+    if not unread_msgs:
+        return {"status": "success", "updated_count": 0}
+
+    now_utc = datetime.datetime.utcnow()
+    for m in unread_msgs:
+        if m.delivered_at is None:
+            m.delivered_at = now_utc
+        m.read_at = now_utc
+
+    await db.commit()
+    return {"status": "success", "updated_count": len(unread_msgs)}
 
 
 @app.get("/api/agent/queue-peers")
@@ -20486,6 +20636,22 @@ async def startup_event():
     try:
         from sqlalchemy import text
         async def init_db():
+            internal_chat_had_read_col = True
+            try:
+                async with engine.begin() as conn_chk:
+                    res_tbl = await conn_chk.execute(text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_name = 'internal_chat_messages'"
+                    ))
+                    if res_tbl.first() is not None:
+                        res_chk = await conn_chk.execute(text(
+                            "SELECT column_name FROM information_schema.columns "
+                            "WHERE table_name = 'internal_chat_messages' AND column_name = 'read_at'"
+                        ))
+                        internal_chat_had_read_col = res_chk.first() is not None
+            except Exception:
+                internal_chat_had_read_col = True
+
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
             ddl_statements = [
@@ -20553,13 +20719,26 @@ async def startup_event():
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS trunk_name VARCHAR;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS answered_at TIMESTAMP;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS talk_duration INTEGER;",
-                "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;"
+                "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
+                "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP;",
+                "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP;"
             ]
             for stmt_sql in ddl_statements:
                 try:
                     async with engine.begin() as conn_ddl:
                         await conn_ddl.execute(text("SET LOCAL lock_timeout = '1s'"))
                         await conn_ddl.execute(text(stmt_sql))
+                except Exception:
+                    pass
+            if not internal_chat_had_read_col:
+                try:
+                    async with engine.begin() as conn_bf:
+                        await conn_bf.execute(text("SET LOCAL lock_timeout = '1s'"))
+                        await conn_bf.execute(text(
+                            "UPDATE internal_chat_messages "
+                            "SET delivered_at = COALESCE(timestamp, NOW()), read_at = COALESCE(timestamp, NOW()) "
+                            "WHERE read_at IS NULL"
+                        ))
                 except Exception:
                     pass
         await asyncio.wait_for(init_db(), timeout=6.0)
@@ -21115,6 +21294,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
             is_reg = True
         u["is_registered"] = is_reg
         u["sip_status"] = "online" if is_reg else "offline"
+        u["web_online"] = bool(_is_internal_chat_online(uid, ext))
         u["call_state"] = c_state
         u["ip_address"] = reg_ip if is_reg else ""
 

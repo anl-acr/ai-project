@@ -154,6 +154,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     )
   );
   const [pendingDial, setPendingDial] = useState(null);
+  const [openInternalPeerReq, setOpenInternalPeerReq] = useState(null);
 
   const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
 
@@ -183,6 +184,12 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     const handleSwitchSubTab = (e) => {
       if (e?.detail?.subTab) {
         setActiveTab(e.detail.subTab);
+      }
+      if (e?.detail?.peerSenderId) {
+        setOpenInternalPeerReq({
+          peerSenderId: String(e.detail.peerSenderId),
+          ts: Date.now()
+        });
       }
     };
     const handleOpenFullWebphone = () => {
@@ -397,11 +404,10 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       localStorage.setItem(`seen_direct_missed_ts_${myExt}`, String(Date.now()));
       setUnseenDirectMissedCount(0);
     }
-    if (activeTab === "chat" && typeof window !== "undefined") {
+    if (activeTab === "chat" && isVisible && typeof window !== "undefined") {
       localStorage.setItem(`seen_chat_ts_${myExt}`, String(Date.now()));
-      setUnseenChatCount(0);
     }
-  }, [activeTab, myExt]);
+  }, [activeTab, myExt, isVisible]);
 
   useEffect(() => {
     let mounted = true;
@@ -411,7 +417,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
         const [mqRes, callsRes, intChatRes, omniChatRes] = await Promise.all([
           fetch(`${protocol}//${host}/api/agent/missed_queue_calls?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&t=${Date.now()}`),
           fetch(`${protocol}//${host}/api/calls?extension=${encodeURIComponent(myExt)}&t=${Date.now()}`),
-          fetch(`${protocol}//${host}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&t=${Date.now()}`),
+          fetch(`${protocol}//${host}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&deliver=1&t=${Date.now()}`),
           fetch(`${protocol}//${host}/api/omnichannel/chats?t=${Date.now()}`)
         ]);
         if (mounted && mqRes.ok) {
@@ -443,68 +449,60 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               const dt = new Date(c.start_time + (String(c.start_time).endsWith("Z") ? "" : "Z")).getTime();
               return !isNaN(dt) && dt > minTs;
             });
-            setUnseenDirectMissedCount(activeTab === "history" ? 0 : directMissed.length);
+            setUnseenDirectMissedCount(activeTab === "history" && isVisible ? 0 : directMissed.length);
           }
         }
 
         if (mounted) {
-          if (activeTab === "chat") {
-            if (typeof window !== "undefined") {
-              localStorage.setItem(`seen_chat_ts_${myExt}`, String(Date.now()));
-            }
-            setUnseenChatCount(0);
-          } else {
-            const seenChatTs = Number(
-              (typeof window !== "undefined" && localStorage.getItem(`seen_chat_ts_${myExt}`)) || 0
-            );
-            const minChatTs = Math.max(seenChatTs, todayStart.getTime());
-            const myKeys = new Set([myExt, myUid].filter(Boolean));
-            let totalUnseenChats = 0;
-
-            if (intChatRes.ok) {
-              const intData = await intChatRes.json();
-              if (Array.isArray(intData)) {
-                const unseenInternal = intData.filter((m) => {
-                  const s = String(m.sender_id || "");
-                  const r = String(m.receiver_id || "");
-                  if (myKeys.has(s) || !myKeys.has(r)) return false;
-                  if (!m.timestamp) return false;
-                  let iso = String(m.timestamp);
-                  if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
-                  const dt = new Date(iso).getTime();
-                  return !isNaN(dt) && dt > minChatTs;
-                });
-                totalUnseenChats += unseenInternal.length;
-              }
-            }
-
-            if (omniChatRes.ok) {
-              const omniData = await omniChatRes.json();
-              if (Array.isArray(omniData)) {
-                const currentUserFullName = String(currentUser?.full_name || "").toLowerCase().trim();
-                const currentUsername = String(currentUser?.username || "").toLowerCase().trim();
-                const isAdmin = currentUser?.role === "admin" || currentUsername === "admin";
-                const unseenCustomer = omniData.filter((s) => {
-                  if (s.assigned_agent !== "human") return false;
-                  const assignedUser = String(s.assigned_user || "").toLowerCase().trim();
-                  const isAssignedToMe =
-                    !assignedUser ||
-                    assignedUser === currentUserFullName ||
-                    assignedUser === currentUsername ||
-                    isAdmin;
-                  if (!isAssignedToMe) return false;
-                  if (!s.last_message_time) return false;
-                  let iso = String(s.last_message_time);
-                  if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
-                  const dt = new Date(iso).getTime();
-                  return !isNaN(dt) && dt > minChatTs;
-                });
-                totalUnseenChats += unseenCustomer.length;
-              }
-            }
-
-            setUnseenChatCount(totalUnseenChats);
+          if (activeTab === "chat" && isVisible && typeof window !== "undefined") {
+            localStorage.setItem(`seen_chat_ts_${myExt}`, String(Date.now()));
           }
+          const seenChatTs = Number(
+            (typeof window !== "undefined" && localStorage.getItem(`seen_chat_ts_${myExt}`)) || 0
+          );
+          const minChatTs = Math.max(seenChatTs, todayStart.getTime());
+          const myKeys = new Set([myExt, myUid].filter(Boolean));
+          let totalUnseenChats = 0;
+
+          if (intChatRes.ok) {
+            const intData = await intChatRes.json();
+            if (Array.isArray(intData)) {
+              const unseenInternal = intData.filter((m) => {
+                const s = String(m.sender_id || "");
+                const r = String(m.receiver_id || "");
+                if (myKeys.has(s) || !myKeys.has(r)) return false;
+                return !m.read_at;
+              });
+              totalUnseenChats += unseenInternal.length;
+            }
+          }
+
+          if (!(activeTab === "chat" && isVisible) && omniChatRes.ok) {
+            const omniData = await omniChatRes.json();
+            if (Array.isArray(omniData)) {
+              const currentUserFullName = String(currentUser?.full_name || "").toLowerCase().trim();
+              const currentUsername = String(currentUser?.username || "").toLowerCase().trim();
+              const isAdmin = currentUser?.role === "admin" || currentUsername === "admin";
+              const unseenCustomer = omniData.filter((s) => {
+                if (s.assigned_agent !== "human") return false;
+                const assignedUser = String(s.assigned_user || "").toLowerCase().trim();
+                const isAssignedToMe =
+                  !assignedUser ||
+                  assignedUser === currentUserFullName ||
+                  assignedUser === currentUsername ||
+                  isAdmin;
+                if (!isAssignedToMe) return false;
+                if (!s.last_message_time) return false;
+                let iso = String(s.last_message_time);
+                if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
+                const dt = new Date(iso).getTime();
+                return !isNaN(dt) && dt > minChatTs;
+              });
+              totalUnseenChats += unseenCustomer.length;
+            }
+          }
+
+          setUnseenChatCount(totalUnseenChats);
         }
       } catch (e) {}
     };
@@ -514,15 +512,20 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
         setMissedQueueCount(e.detail);
       }
     };
+    const handleInternalReadSync = () => {
+      pollBadges();
+    };
     window.addEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
+    window.addEventListener("INTERNAL_CHAT_READ_SYNC", handleInternalReadSync);
     pollBadges();
     const timer = setInterval(pollBadges, 5000);
     return () => {
       mounted = false;
       window.removeEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
+      window.removeEventListener("INTERNAL_CHAT_READ_SYNC", handleInternalReadSync);
       clearInterval(timer);
     };
-  }, [host, myExt, myUid, activeTab, currentUser?.full_name, currentUser?.username, currentUser?.role]);
+  }, [host, myExt, myUid, activeTab, isVisible, currentUser?.full_name, currentUser?.username, currentUser?.role]);
 
   const prevAgentSubTabRef = React.useRef(null);
   useEffect(() => {
@@ -784,7 +787,17 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
         {activeTab === "directory" && <AgentDirectoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
         {activeTab === "history" && <AgentHistoryTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
         {activeTab === "voicemail" && <AgentVoicemailTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
-        {activeTab === "chat" && <AgentChatTab backendHost={backendHost} currentUser={currentUser} callPanelPerms={callPanelPerms} panelPrefs={panelPrefs} />}
+        {activeTab === "chat" && (
+          <AgentChatTab
+            backendHost={backendHost}
+            currentUser={currentUser}
+            callPanelPerms={callPanelPerms}
+            panelPrefs={panelPrefs}
+            isVisible={Boolean(isVisible && activeTab === "chat")}
+            openPeerRequest={openInternalPeerReq}
+            onPeerOpened={() => setOpenInternalPeerReq(null)}
+          />
+        )}
         {activeTab === "deskphone" && <AgentDeskphoneTab backendHost={backendHost} currentUser={currentUser} />}
       </div>
     </div>

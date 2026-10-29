@@ -158,6 +158,8 @@ class InternalChatMessage(Base):
     receiver_id = Column(String, nullable=False, index=True) # extension, username or 'broadcast'
     text = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
+    delivered_at = Column(DateTime, nullable=True)
+    read_at = Column(DateTime, nullable=True)
 class Contact(Base):
     __tablename__ = "contacts"
 
