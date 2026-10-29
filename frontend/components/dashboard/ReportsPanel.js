@@ -365,6 +365,99 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
   const [filterSentimentsSelected, setFilterSentimentsSelected] = useState([]);
   const [filterWordcloudKeyword, setFilterWordcloudKeyword] = useState("");
+  const [filterFcrStatusesSelected, setFilterFcrStatusesSelected] = useState([]);
+  const [filterFcrSentimentsSelected, setFilterFcrSentimentsSelected] = useState([]);
+
+  const FCR_STATUS_FILTER_ITEMS = [
+    { id: "success", name: "Başarılı" },
+    { id: "repeat", name: "Başarısız (Tekrar Aramış)" },
+  ];
+
+  const FCR_SENTIMENT_FILTER_ITEMS = [
+    { id: "positive", name: "Pozitif" },
+    { id: "neutral", name: "Nötr" },
+    { id: "negative", name: "Negatif" },
+  ];
+
+  const normalizeFcrSentimentKey = (rawSentiment) => {
+    const s = String(rawSentiment || "").trim().toLowerCase();
+    if (
+      s === "positive" ||
+      s === "very_positive" ||
+      s === "pozitif" ||
+      s === "çok pozitif" ||
+      s === "cok pozitif" ||
+      s === "memnun" ||
+      s === "mutlu" ||
+      s === "olumlu"
+    ) {
+      return "positive";
+    }
+    if (
+      s === "negative" ||
+      s === "very_negative" ||
+      s === "negatif" ||
+      s === "çok negatif" ||
+      s === "cok negatif" ||
+      s === "öfkeli" ||
+      s === "ofkeli" ||
+      s === "kızgın" ||
+      s === "kizgin" ||
+      s === "olumsuz"
+    ) {
+      return "negative";
+    }
+    return "neutral";
+  };
+
+  const computeFilteredFcrReport = (callsList) => {
+    const fcrData = {};
+    (callsList || []).forEach((call) => {
+      const num = getCustomerNumber(call) || "Bilinmeyen Numara";
+      if (!fcrData[num]) {
+        fcrData[num] = {
+          caller: num,
+          callCount: 0,
+          lastAgent: "",
+          totalDuration: 0,
+          sentiment: "neutral",
+        };
+      }
+      fcrData[num].callCount++;
+      fcrData[num].lastAgent = getConversant(call) || "Bilinmiyor";
+      fcrData[num].totalDuration += call.duration_talk || 0;
+      fcrData[num].sentiment = normalizeFcrSentimentKey(call.sentiment);
+    });
+
+    const callerList = Object.values(fcrData)
+      .map((c) => ({
+        ...c,
+        fcrStatusKey: c.callCount === 1 ? "success" : "repeat",
+        fcrStatusLabel: c.callCount === 1 ? "Başarılı" : "Başarısız (Tekrar Aramış)",
+        sentimentLabel: c.sentiment === "positive" ? "Pozitif" : c.sentiment === "negative" ? "Negatif" : "Nötr",
+      }))
+      .filter((c) => {
+        if (filterFcrStatusesSelected.length > 0 && !filterFcrStatusesSelected.includes(c.fcrStatusKey)) {
+          return false;
+        }
+        if (filterFcrSentimentsSelected.length > 0 && !filterFcrSentimentsSelected.includes(c.sentiment)) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => b.callCount - a.callCount);
+
+    let fcrSuccess = 0;
+    let repeatCallers = 0;
+    const totalCallers = callerList.length;
+    callerList.forEach((c) => {
+      if (c.callCount === 1) fcrSuccess++;
+      else repeatCallers++;
+    });
+    const fcrRate = totalCallers > 0 ? Math.round((fcrSuccess / totalCallers) * 100) : 0;
+
+    return { callerList, totalCallers, fcrSuccess, repeatCallers, fcrRate };
+  };
 
   const normalizeTrKeyword = (val) =>
     String(val || "")
@@ -1621,6 +1714,47 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "fcr") {
+      const headers = [
+        ...(visibleColumns.caller ? ["Numara"] : []),
+        ...(visibleColumns.callCount ? ["Arama Sayısı"] : []),
+        ...(visibleColumns.fcrStatus ? ["FCR Durumu"] : []),
+        ...(visibleColumns.lastAgent ? ["Son Temsilci"] : []),
+        ...(visibleColumns.totalDuration ? ["Top. Görüşme"] : []),
+        ...(visibleColumns.sentiment ? ["Duygu Durumu"] : []),
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      const fmtSec = (secs) => {
+        if (!secs || isNaN(secs)) return "00:00";
+        const m = Math.floor(secs / 60).toString().padStart(2, "0");
+        const s = Math.floor(secs % 60).toString().padStart(2, "0");
+        return `${m}:${s}`;
+      };
+
+      const { callerList } = computeFilteredFcrReport(filteredCalls);
+      callerList.forEach((c) => {
+        const row = [];
+        if (visibleColumns.caller) row.push(c.caller);
+        if (visibleColumns.callCount) row.push(c.callCount);
+        if (visibleColumns.fcrStatus) row.push(c.fcrStatusLabel);
+        if (visibleColumns.lastAgent) row.push(c.lastAgent);
+        if (visibleColumns.totalDuration) row.push(fmtSec(c.totalDuration));
+        if (visibleColumns.sentiment) row.push(c.sentimentLabel);
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `fcr_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -1800,7 +1934,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (filterEndDate) params.append("end_date", filterEndDate);
       if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
-        if (filterCallId) params.append("call_id", filterCallId);
+        if (viewMode !== "fcr" && filterCallId) params.append("call_id", filterCallId);
       }
 
       fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`, {
@@ -1888,7 +2022,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (filterEndDate) params.append("end_date", filterEndDate);
     if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
-      if (filterCallId) params.append("call_id", filterCallId);
+      if (viewMode !== "fcr" && filterCallId) params.append("call_id", filterCallId);
     }
 
     fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`, {
@@ -1925,6 +2059,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterQueuesSelected([]);
     setFilterSentimentsSelected([]);
     setFilterWordcloudKeyword("");
+    setFilterFcrStatusesSelected([]);
+    setFilterFcrSentimentsSelected([]);
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -3482,21 +3618,23 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         return false;
       }
 
-      // 2. Call ID Filter
-      if (filterCallId && !c.id?.toLowerCase().includes(filterCallId.toLowerCase())) {
-        return false;
-      }
+      if (viewMode !== "fcr") {
+        // 2. Call ID Filter
+        if (filterCallId && !c.id?.toLowerCase().includes(filterCallId.toLowerCase())) {
+          return false;
+        }
 
-      // 3. Direction Filter
-      if (filterDirection !== "All") {
-        const dir = getCallDirection(c);
-        if (dir !== filterDirection) return false;
-      }
+        // 3. Direction Filter
+        if (filterDirection !== "All") {
+          const dir = getCallDirection(c);
+          if (dir !== filterDirection) return false;
+        }
 
-      // 4. Status Filter
-      if (filterStatus !== "All") {
-        const statusLabel = getCallStatus(c);
-        if (statusLabel !== filterStatus) return false;
+        // 4. Status Filter
+        if (filterStatus !== "All") {
+          const statusLabel = getCallStatus(c);
+          if (statusLabel !== filterStatus) return false;
+        }
       }
     }
 
@@ -3965,6 +4103,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterSentimentsSelected.length > 0)
                     : viewMode === "wordcloud"
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterWordcloudKeyword.trim())
+                    : viewMode === "fcr"
+                    ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterCallerNumber || filterFcrStatusesSelected.length > 0 || filterFcrSentimentsSelected.length > 0)
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
@@ -4625,9 +4765,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
@@ -4754,6 +4894,64 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       <span className="text-[10px] text-slate-400 dark:text-slate-500">
                         Birden fazla anahtar kelimeyi virgülle ayırarak filtreleyebilirsiniz. Boş bırakıldığında tüm kelimeler gösterilir.
                       </span>
+                    </div>
+                  </>
+                ) : viewMode === "fcr" ? (
+                  <>
+                    <DualListBox 
+                      title="Kullanıcılar"
+                      availableItems={uniqueConversants.map(c => ({ id: c, name: c }))}
+                      selectedIds={filterAgentsSelected}
+                      onChangeSelectedIds={setFilterAgentsSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                    <DualListBox 
+                      title="FCR Durumu"
+                      availableItems={FCR_STATUS_FILTER_ITEMS}
+                      selectedIds={filterFcrStatusesSelected}
+                      onChangeSelectedIds={setFilterFcrStatusesSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                    <DualListBox 
+                      title="Duygu Durumu"
+                      availableItems={FCR_SENTIMENT_FILTER_ITEMS}
+                      selectedIds={filterFcrSentimentsSelected}
+                      onChangeSelectedIds={setFilterFcrSentimentsSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Numara Ara</label>
+                      <input
+                        type="text"
+                        placeholder="örn. 0532..."
+                        value={filterCallerNumber}
+                        onChange={(e) => setFilterCallerNumber(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            fetchCalls(true);
+                            setIsFilterOpen(false);
+                          }
+                        }}
+                        className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                      />
                     </div>
                   </>
                 ) : (
@@ -6196,37 +6394,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               /* FCR Report Mode */
               <div className="overflow-x-auto p-4 flex flex-col gap-6">
                 {(() => {
-                  const fcrData = {};
-                  let fcrSuccess = 0;
-                  let repeatCallers = 0;
-                  let totalCallers = 0;
-                  
-                  filteredCalls.forEach(call => {
-                    const num = getCustomerNumber(call) || "Bilinmeyen Numara";
-                    if (!fcrData[num]) {
-                      fcrData[num] = {
-                        caller: num,
-                        callCount: 0,
-                        lastAgent: "",
-                        totalDuration: 0,
-                        sentiment: "neutral"
-                      };
-                    }
-                    fcrData[num].callCount++;
-                    fcrData[num].lastAgent = getConversant(call) || "Bilinmiyor";
-                    fcrData[num].totalDuration += (call.duration_talk || 0);
-                    fcrData[num].sentiment = call.sentiment || "neutral";
-                  });
-                  
-                  const callerList = Object.values(fcrData).sort((a, b) => b.callCount - a.callCount);
-                  
-                  callerList.forEach(c => {
-                    totalCallers++;
-                    if (c.callCount === 1) fcrSuccess++;
-                    else repeatCallers++;
-                  });
-                  
-                  const fcrRate = totalCallers > 0 ? Math.round((fcrSuccess / totalCallers) * 100) : 0;
+                  const { callerList, totalCallers, repeatCallers, fcrRate } = computeFilteredFcrReport(filteredCalls);
                   
                   const formatSec = (secs) => {
                     if (!secs || isNaN(secs)) return "00:00";
@@ -6296,7 +6464,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                   {visibleColumns.sentiment && (
                                     <td className="p-4 text-center">
                                       <span className={`inline-flex items-center px-2 py-1 rounded-lg text-xs font-bold border ${c.sentiment === 'positive' ? 'bg-emerald-50 dark:bg-emerald-955/20 text-emerald-600 border-emerald-100' : c.sentiment === 'negative' ? 'bg-rose-50 dark:bg-rose-955/20 text-rose-600 border-rose-100' : 'bg-amber-50 dark:bg-amber-955/20 text-amber-600 border-amber-100'}`}>
-                                        {c.sentiment === 'positive' ? 'Pozitif' : c.sentiment === 'negative' ? 'Negatif' : 'Nötr'}
+                                        {c.sentimentLabel}
                                       </span>
                                     </td>
                                   )}
