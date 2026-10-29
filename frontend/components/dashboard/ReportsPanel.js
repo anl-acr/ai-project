@@ -2349,8 +2349,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
     const caller = String(call.caller_number || "").trim();
     const callee = String(call.callee_number || "").trim();
+    const hsRaw = String(call.hangup_source || "").trim();
+    const answeredQueueExt = hsRaw.includes(":answered:")
+      ? hsRaw.split(":answered:")[1]?.split(":")[0]?.trim() || ""
+      : "";
 
-    // Check if caller or callee matches a system user extension, username, or ID
+    // Check if caller, callee, or answered queue extension matches a system user
     if (Array.isArray(users) && users.length > 0) {
       const matchedUser = users.find((u) => {
         const uExt = String(u.extension || "").trim();
@@ -2358,7 +2362,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const uId = String(u.id || "").trim();
         const uFull = String(u.full_name || u.name || "").trim();
         return (
-          (uExt && (uExt === caller || uExt === callee)) ||
+          (uExt && (uExt === caller || uExt === callee || uExt === answeredQueueExt)) ||
           (uName && (uName === caller || uName === callee)) ||
           (uId && (uId === caller || uId === callee)) ||
           (uFull && (uFull === caller || uFull === callee))
@@ -2367,6 +2371,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (matchedUser) {
         return matchedUser.full_name || matchedUser.name || matchedUser.username || `Dahili ${matchedUser.extension}`;
       }
+    }
+
+    if (answeredQueueExt) {
+      return `Dahili ${answeredQueueExt}`;
     }
 
     // Check if caller or callee matches an AI Agent
@@ -2461,19 +2469,277 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return "Başarılı";
   };
 
+  const resolveUserByExtOrName = (extCandidate, nameCandidate) => {
+    const extClean = String(extCandidate || "").trim();
+    const rawName = String(nameCandidate || "")
+      .replace(/^Pickup:\s*/i, "")
+      .replace(/\s*\((?:Dahili:?|AI Agent)?\s*[^)]*\)\s*$/i, "")
+      .trim();
+    const rawNameLower = rawName.toLowerCase();
+
+    if (Array.isArray(users) && users.length > 0) {
+      const byExt = extClean
+        ? users.find(
+            (u) =>
+              String(u.extension || "").trim() === extClean ||
+              String(u.id || "").trim() === extClean ||
+              String(u.username || "").trim().toLowerCase() === extClean.toLowerCase()
+          )
+        : null;
+      if (byExt) return byExt;
+
+      if (rawNameLower && !rawNameLower.startsWith("dahili")) {
+        const byName = users.find((u) => {
+          const uFull = String(u.full_name || u.name || "").trim().toLowerCase();
+          const uUser = String(u.username || "").trim().toLowerCase();
+          return (uFull && uFull === rawNameLower) || (uUser && uUser === rawNameLower);
+        });
+        if (byName) return byName;
+      }
+    }
+    return null;
+  };
+
+  const resolveCallAgentDetail = (call) => {
+    if (!call) return { name: "Temsilci", extension: "", display: "Temsilci", isAi: false };
+
+    const pickupMeta = getPickupMetadata(call);
+    if (pickupMeta) {
+      return {
+        name: pickupMeta.pickerName || `Dahili ${pickupMeta.pickerExt}`,
+        extension: pickupMeta.pickerExt,
+        display: pickupMeta.pickerName
+          ? `${pickupMeta.pickerName} (Dahili: ${pickupMeta.pickerExt})`
+          : `Dahili: ${pickupMeta.pickerExt}`,
+        isAi: false
+      };
+    }
+
+    const direction = getCallDirection(call);
+    const caller = String(call.caller_number || "").trim();
+    const callee = String(call.callee_number || "").trim();
+    const hs = String(call.hangup_source || "").trim();
+    const rawAgentField = String(call.agent_name || call.conversant || "").trim();
+    const conversant = getConversant(call);
+
+    // Extract extension embedded inside agent_name/conversant if any, e.g. "Anıl ACAR (1000)" or "Dahili 1000"
+    let embeddedExt = "";
+    const parenExtMatch = (rawAgentField || conversant).match(/\((?:Dahili:?\s*)?(\d{2,6})\)/i);
+    if (parenExtMatch) {
+      embeddedExt = parenExtMatch[1];
+    } else {
+      const dahiliMatch = (rawAgentField || conversant).match(/^Dahili:?\s*(\d{2,6})$/i);
+      if (dahiliMatch) embeddedExt = dahiliMatch[1];
+    }
+
+    // Check queue answered extension or transfer target extension
+    const answeredQueueExt = hs.includes(":answered:")
+      ? hs.split(":answered:")[1]?.split(":")[0]?.trim() || ""
+      : "";
+    const isQueueExt = (val) =>
+      val &&
+      Array.isArray(queues) &&
+      queues.some((q) => String(q.extension || "").trim() === val || String(q.id || "").trim() === val);
+
+    let candidateExt = "";
+    if (answeredQueueExt) {
+      candidateExt = answeredQueueExt;
+    } else if (direction.includes("Giden")) {
+      if (caller && caller.length <= 6 && caller.toLowerCase() !== "ai" && !caller.startsWith("+")) {
+        candidateExt = caller;
+      }
+    } else {
+      if (callee && callee.length <= 6 && callee.toLowerCase() !== "ai" && !callee.startsWith("+") && !isQueueExt(callee)) {
+        candidateExt = callee;
+      }
+    }
+    if (!candidateExt && embeddedExt) {
+      candidateExt = embeddedExt;
+    }
+
+    const matchedUser = resolveUserByExtOrName(candidateExt, rawAgentField || conversant);
+    if (matchedUser) {
+      const uName = String(matchedUser.full_name || matchedUser.name || matchedUser.username || "").trim();
+      const uExt = String(matchedUser.extension || candidateExt || "").trim();
+      return {
+        name: uName || (uExt ? `Dahili ${uExt}` : "Temsilci"),
+        extension: uExt,
+        display: uName && uExt ? `${uName} (Dahili: ${uExt})` : uName || `Dahili: ${uExt}`,
+        isAi: false
+      };
+    }
+
+    // Check AI Agent match
+    const nameClean = String(rawAgentField || conversant || "")
+      .replace(/\s*\((?:Dahili:?|AI Agent)?\s*[^)]*\)\s*$/i, "")
+      .trim();
+    const matchedAi =
+      Array.isArray(aiAgents) && aiAgents.length > 0
+        ? aiAgents.find((a) => {
+            const aExt = String(a.extension || "").trim();
+            const aId = String(a.id || "").trim();
+            const aName = String(a.name || "").trim();
+            return (
+              (aExt && (aExt === caller || aExt === callee || aExt === candidateExt)) ||
+              (aId && (aId === caller || aId === callee)) ||
+              (aName && nameClean && aName.toLowerCase() === nameClean.toLowerCase())
+            );
+          })
+        : null;
+
+    const looksLikeAi =
+      Boolean(matchedAi) ||
+      direction === "Giden (AI)" ||
+      caller.toLowerCase() === "ai" ||
+      callee.toLowerCase() === "ai" ||
+      nameClean === "AI Asistan" ||
+      /\bai\b|asistan|sanal/i.test(nameClean);
+
+    if (looksLikeAi && !candidateExt) {
+      const aiName = matchedAi?.name || nameClean || "AI Asistan";
+      const aiExt = String(matchedAi?.extension || "").trim();
+      return {
+        name: aiName,
+        extension: aiExt,
+        display: aiExt ? `${aiName} (Dahili: ${aiExt})` : aiName,
+        isAi: true
+      };
+    }
+
+    if (nameClean && !nameClean.toLowerCase().startsWith("dahili") && nameClean !== candidateExt && nameClean !== "Temsilci") {
+      return {
+        name: nameClean,
+        extension: candidateExt,
+        display: candidateExt ? `${nameClean} (Dahili: ${candidateExt})` : nameClean,
+        isAi: false
+      };
+    }
+
+    if (candidateExt) {
+      return {
+        name: `Dahili ${candidateExt}`,
+        extension: candidateExt,
+        display: `Dahili: ${candidateExt}`,
+        isAi: false
+      };
+    }
+
+    return {
+      name: nameClean || "Temsilci",
+      extension: "",
+      display: nameClean || "Temsilci",
+      isAi: false
+    };
+  };
+
+  const resolveCallTrunkDetail = (call) => {
+    const realTrunks = Array.isArray(trunks) ? trunks : [];
+    const activeTrunks = realTrunks.filter((t) => t.is_active !== false);
+    const cleanDigits = (str) => String(str || "").replace(/\D/g, "");
+    const last10 = (str) => {
+      const d = cleanDigits(str);
+      return d.length >= 10 ? d.slice(-10) : d;
+    };
+
+    const caller = String(call?.caller_number || "").trim();
+    const callee = String(call?.callee_number || "").trim();
+    const callerL10 = last10(caller);
+    const calleeL10 = last10(callee);
+    const rawTrunkName = String(call?.trunk || call?.trunk_name || "").trim();
+
+    let matchedTrunk = realTrunks.find((t) => {
+      if (rawTrunkName && String(t.trunk_name || "").toLowerCase() === rawTrunkName.toLowerCase()) {
+        return true;
+      }
+      const didL10 = last10(t.did_number);
+      const userL10 = last10(t.username);
+      if (didL10 && didL10.length >= 7 && (callerL10 === didL10 || calleeL10 === didL10)) {
+        return true;
+      }
+      if (userL10 && userL10.length >= 7 && (callerL10 === userL10 || calleeL10 === userL10)) {
+        return true;
+      }
+      return false;
+    });
+
+    if (!matchedTrunk) {
+      matchedTrunk = activeTrunks[0] || realTrunks[0] || null;
+    }
+
+    const trunkName = matchedTrunk?.trunk_name || rawTrunkName || "Ana SIP Trunk";
+    const didNumber = String(matchedTrunk?.did_number || matchedTrunk?.username || "").trim();
+    return { trunkName, didNumber };
+  };
+
+  const parseUtcSafeDate = (dateVal) => {
+    if (!dateVal) return new Date();
+    const raw = String(dateVal).trim();
+    let cleanStr = raw;
+    if (!raw.endsWith("Z") && !raw.includes("+") && !raw.includes("GMT") && raw.includes("T")) {
+      cleanStr = raw + "Z";
+    }
+    const parsed = new Date(cleanStr);
+    return isNaN(parsed.getTime()) ? new Date() : parsed;
+  };
+
   const getCallFlowTimeline = (call) => {
     if (!call) return [];
 
     const timeline = [];
-    const baseTime = new Date(call.start_time || new Date());
+    const baseTime = parseUtcSafeDate(call.start_time);
+    const endTime = call.end_time ? parseUtcSafeDate(call.end_time) : null;
+    const realTotalSecs = endTime
+      ? Math.max(1, Math.floor((endTime.getTime() - baseTime.getTime()) / 1000))
+      : Math.max(1, Number(call.duration || 0));
+
     const direction = getCallDirection(call);
     const statusLabel = getCallStatus(call);
-    const conversant = getConversant(call);
+    const durations = getCallDurations(call);
     const pickupMeta = getPickupMetadata(call);
+    const agentDetail = resolveCallAgentDetail(call);
+    const trunkDetail = resolveCallTrunkDetail(call);
+    const caller = String(call.caller_number || "").trim();
+    const callee = String(call.callee_number || "").trim();
+    const hs = String(call.hangup_source || "").trim();
+    const stLower = String(call.status || "").toLowerCase();
 
     const formatOffsetTime = (secs) => {
-      const t = new Date(baseTime.getTime() + secs * 1000);
+      const clampedSecs = endTime ? Math.min(secs, realTotalSecs) : secs;
+      const t = new Date(baseTime.getTime() + Math.max(0, clampedSecs) * 1000);
       return t.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    };
+
+    const appendMidCallEvents = (startOffsetSecs) => {
+      let curOffset = startOffsetSecs;
+      const holdDur = Math.max(0, Number(call.hold_duration || call.duration_hold || 0));
+      const holdCnt = Math.max(0, Number(call.hold_count || (holdDur > 0 ? 1 : 0)));
+      if (holdCnt > 0 || holdDur > 0) {
+        curOffset += 2;
+        timeline.push({
+          time: formatOffsetTime(curOffset),
+          title: "Çağrı Beklemeye Alındı (Hold)",
+          description: `Görüşme esnasında çağrı ${holdCnt || 1} kez beklemeye alındı${holdDur > 0 ? ` (Toplam Bekletme: ${holdDur} sn)` : ""}.`,
+          status: "warning"
+        });
+      }
+
+      const isTransferred = Boolean(
+        call.is_transferred || stLower === "transferred" || hs.startsWith("transfer:")
+      );
+      if (isTransferred) {
+        let rawTarget = String(call.transfer_target || "").trim();
+        if (!rawTarget && hs.startsWith("transfer:")) {
+          rawTarget = hs.slice(9).trim();
+        }
+        const targetLabel = rawTarget ? resolveTargetName(rawTarget) : "Canlı Temsilci";
+        curOffset += 2;
+        timeline.push({
+          time: formatOffsetTime(curOffset),
+          title: "Çağrı Aktarıldı (Transfer)",
+          description: `Görüşme ${targetLabel} hedefine aktarıldı.`,
+          status: "info"
+        });
+      }
     };
 
     if (pickupMeta) {
@@ -2484,227 +2750,259 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         status: "info"
       });
       timeline.push({
-        time: formatOffsetTime(3),
+        time: formatOffsetTime(Math.min(3, realTotalSecs)),
         title: "Pickup ile Çağrı Çekildi",
         description: `Aranan dahili (${pickupMeta.origCalleeDisplay}) çalarken, aynı abone grubundaki ${pickupMeta.pickerDisplay} tarafından çağrı Pickup ile çekilerek yanıtlandı.`,
         status: "success"
       });
+      appendMidCallEvents(4);
+      if (endTime) {
+        timeline.push({
+          time: formatOffsetTime(realTotalSecs),
+          title: "Çağrı Kapatıldı",
+          description: `Görüşme tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
+          status: "success"
+        });
+      }
       return timeline;
     }
 
-    if (direction === "Gelen") {
-      // Step 1: Call Entry
+    // Internal extension-to-extension call (e.g. 1000 -> 1001)
+    const isInternalExtCall =
+      caller.length > 0 &&
+      caller.length <= 5 &&
+      callee.length > 0 &&
+      callee.length <= 5 &&
+      caller.toLowerCase() !== "ai" &&
+      callee.toLowerCase() !== "ai" &&
+      !(Array.isArray(queues) && queues.some((q) => String(q.extension || "").trim() === callee));
+
+    if (isInternalExtCall) {
+      const callerUser = resolveUserByExtOrName(caller, "");
+      const calleeUser = resolveUserByExtOrName(callee, "");
+      const callerLabel = callerUser
+        ? `${callerUser.full_name || callerUser.name || callerUser.username} (Dahili: ${caller})`
+        : `Dahili: ${caller}`;
+      const calleeLabel = calleeUser
+        ? `${calleeUser.full_name || calleeUser.name || calleeUser.username} (Dahili: ${callee})`
+        : `Dahili: ${callee}`;
+
       timeline.push({
         time: formatOffsetTime(0),
-        title: "Dış Hat (DID) Çağrı Girişi",
-        description: `+902129000101 numaralı dış hat üzerinden ${getCustomerNumber(call)} araması sisteme giriş yaptı.`,
+        title: "Dahili Arama Başlatıldı",
+        description: `${callerLabel} tarafından ${calleeLabel} abonesine dahili arama başlatıldı.`,
         status: "info"
       });
-
-      // Step 2: Time Condition
       timeline.push({
-        time: formatOffsetTime(2),
-        title: "Çalışma Saatleri Kontrolü",
-        description: "Zaman Kuralı (Hafta İçi Mesai Saatleri) kontrol edildi. Koşul sağlandı, Karşılama Menüsüne yönlendiriliyor.",
-        status: "success"
-      });
-
-      // Step 3: IVR Welcome
-      timeline.push({
-        time: formatOffsetTime(4),
-        title: "IVR Karşılama Anonsu",
-        description: "IVR Ana Menü seslendirmesi başladı: 'welcome_greeting.wav' (Türkçe).",
-        status: "info"
-      });
-
-      // Step 4: IVR Input
-      timeline.push({
-        time: formatOffsetTime(10),
-        title: "IVR Tuşlama Algılandı",
-        description: "Müşteri '1' (Destek / Müşteri Temsilcisi) tuşlamasını gerçekleştirdi.",
-        status: "success"
-      });
-
-      // Step 5: Queue routing
-      timeline.push({
-        time: formatOffsetTime(12),
-        title: "Kuyruğa Yönlendirildi",
-        description: "Müşteri Hizmetleri Sırasına (Destek_Kuyrugu - 900) giriş yaptı. Sıradaki Pozisyon: 1.",
+        time: formatOffsetTime(1),
+        title: "Dahili Abone Çaldırılıyor",
+        description: `${calleeLabel} çaldırılıyor...`,
         status: "info"
       });
 
       if (statusLabel === "Başarılı") {
-        if (conversant === "Ahmet Yılmaz (Agent)") {
-          // ring Kaya first (unanswered) then Ahmet (answered)
-          timeline.push({
-            time: formatOffsetTime(15),
-            title: "Temsilci Çaldırılıyor (Yanıt Yok)",
-            description: "Merve Kaya (Dahili: 202) çaldırılıyor...",
-            status: "warning"
-          });
-          timeline.push({
-            time: formatOffsetTime(25),
-            title: "Temsilci Yanıt Vermedi",
-            description: "Merve Kaya (Dahili: 202) çağrıya yanıt vermedi. Süre aşımı (10 sn). Çağrı kuyrukta sıradaki boş temsilciye aktarılıyor.",
-            status: "warning"
-          });
-          timeline.push({
-            time: formatOffsetTime(27),
-            title: "Temsilci Çaldırılıyor",
-            description: "Ahmet Yılmaz (Dahili: 200) çaldırılıyor...",
-            status: "info"
-          });
-          timeline.push({
-            time: formatOffsetTime(35),
-            title: "Çağrı Yanıtlandı",
-            description: "Ahmet Yılmaz (Dahili: 200) çağrıyı yanıtladı. Görüşme başladı.",
-            status: "success"
-          });
-        } else if (conversant === "Merve Kaya (Agent)") {
-          // ring Ahmet first (unanswered) then Merve (answered)
-          timeline.push({
-            time: formatOffsetTime(15),
-            title: "Temsilci Çaldırılıyor (Yanıt Yok)",
-            description: "Ahmet Yılmaz (Dahili: 200) çaldırılıyor...",
-            status: "warning"
-          });
-          timeline.push({
-            time: formatOffsetTime(25),
-            title: "Temsilci Yanıt Vermedi",
-            description: "Ahmet Yılmaz (Dahili: 200) çağrıya yanıt vermedi. Süre aşımı (10 sn). Çağrı kuyrukta sıradaki boş temsilciye aktarılıyor.",
-            status: "warning"
-          });
-          timeline.push({
-            time: formatOffsetTime(27),
-            title: "Temsilci Çaldırılıyor",
-            description: "Merve Kaya (Dahili: 202) çaldırılıyor...",
-            status: "info"
-          });
-          timeline.push({
-            time: formatOffsetTime(32),
-            title: "Çağrı Yanıtlandı",
-            description: "Merve Kaya (Dahili: 202) çağrıyı yanıtladı. Görüşme başladı.",
-            status: "success"
-          });
-        } else {
-          // AI Asistan
-          timeline.push({
-            time: formatOffsetTime(14),
-            title: "AI Kanalına Aktarım",
-            description: "Yapay Zeka Müşteri Asistanı (AI_Asistan - Dahili: 999) kanalına aktarım yapıldı.",
-            status: "info"
-          });
-          timeline.push({
-            time: formatOffsetTime(15),
-            title: "Çağrı Yanıtlandı (AI)",
-            description: "AI Asistan çağrıyı yanıtladı. Ses sentezleme ve LLM kanalı kuruldu.",
-            status: "success"
-          });
-        }
-
-        // Final hangup
-        const durSeconds = call.duration || 60;
         timeline.push({
-          time: formatOffsetTime(durSeconds),
-          title: "Çağrı Kapatıldı (Normal)",
-          description: "Görüşme iki tarafça normal şekilde sonlandırıldı. Çağrı durumu: Başarılı.",
+          time: formatOffsetTime(Math.min(4, realTotalSecs)),
+          title: "Çağrı Yanıtlandı",
+          description: `${calleeLabel} çağrıyı yanıtladı. Görüşme başladı.`,
+          status: "success"
+        });
+        appendMidCallEvents(5);
+        timeline.push({
+          time: formatOffsetTime(realTotalSecs),
+          title: "Çağrı Kapatıldı",
+          description: `Dahili görüşme tamamlandı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
           status: "success"
         });
       } else {
-        // Failed
         timeline.push({
-          time: formatOffsetTime(15),
-          title: "Temsilci Çaldırılıyor (Yanıt Yok)",
-          description: "Ahmet Yılmaz (Dahili: 200) çaldırılıyor...",
-          status: "warning"
-        });
-        timeline.push({
-          time: formatOffsetTime(25),
-          title: "Temsilci Yanıt Vermedi",
-          description: "Ahmet Yılmaz (Dahili: 200) çağrıya yanıt vermedi. Süre aşımı.",
-          status: "warning"
-        });
-        timeline.push({
-          time: formatOffsetTime(27),
-          title: "Temsilci Çaldırılıyor (Yanıt Yok)",
-          description: "Merve Kaya (Dahili: 202) çaldırılıyor...",
-          status: "warning"
-        });
-        timeline.push({
-          time: formatOffsetTime(37),
-          title: "Temsilci Yanıt Vermedi",
-          description: "Merve Kaya (Dahili: 202) çağrıya yanıt vermedi. Süre aşımı.",
-          status: "warning"
-        });
-        timeline.push({
-          time: formatOffsetTime(45),
-          title: "Müşteri Çağrıyı Sonlandırdı",
-          description: "Kuyrukta bekleme esnasında müşteri telefonu kapattı (Abandoned Call).",
+          time: formatOffsetTime(realTotalSecs),
+          title: "Çağrı Yanıtlanmadı",
+          description: `${calleeLabel} aramaya yanıt vermedi veya meşgul. Arama durumu: Başarısız.`,
           status: "error"
         });
+      }
+      return timeline;
+    }
+
+    if (direction === "Gelen") {
+      const inboundDidDesc = trunkDetail.didNumber
+        ? `${trunkDetail.didNumber} numaralı dış hat (${trunkDetail.trunkName})`
+        : `${trunkDetail.trunkName} dış hattı`;
+
+      timeline.push({
+        time: formatOffsetTime(0),
+        title: "Dış Hat (DID) Çağrı Girişi",
+        description: `${inboundDidDesc} üzerinden ${getCustomerNumber(call)} araması sisteme giriş yaptı.`,
+        status: "info"
+      });
+
+      if (stLower === "blocked") {
         timeline.push({
-          time: formatOffsetTime(46),
-          title: "Çağrı Sonlandırıldı (Başarısız)",
-          description: "Çağrı hiçbir temsilci veya AI kanalına bağlanamadan sonlandırıldı.",
+          time: formatOffsetTime(1),
+          title: "Kara Liste Engellemesi",
+          description: `Arayan numara (${getCustomerNumber(call)}) kara listede yer aldığı için çağrı sistem tarafından reddedildi.`,
           status: "error"
         });
+        return timeline;
+      }
+
+      let offset = 1;
+      const ivrSecs = Math.max(0, Number(call.duration_ivr || 0));
+      const queueSecs = Math.max(0, Number(call.duration_queue || 0));
+      const isQueueCall = Boolean(
+        call.is_queue_call ||
+          hs.startsWith("queue:") ||
+          queueSecs > 0 ||
+          (Array.isArray(queues) && queues.some((q) => String(q.extension || "").trim() === callee))
+      );
+
+      if (ivrSecs > 0) {
+        timeline.push({
+          time: formatOffsetTime(offset),
+          title: "IVR Karşılama Menüsü",
+          description: `Arayan çağrı IVR karşılama menüsüne yönlendirildi (${ivrSecs} sn).`,
+          status: "info"
+        });
+        offset += ivrSecs;
+      }
+
+      if (isQueueCall) {
+        const qInfo = resolveCallQueueInfo(call);
+        timeline.push({
+          time: formatOffsetTime(offset),
+          title: "Kuyruğa Yönlendirildi",
+          description: `Çağrı ${qInfo.queueName} (Dahili: ${qInfo.queueId}) sırasına alındı.`,
+          status: "info"
+        });
+        offset += Math.max(1, queueSecs || 2);
+      }
+
+      if (statusLabel === "Başarılı") {
+        if (agentDetail.isAi) {
+          timeline.push({
+            time: formatOffsetTime(offset),
+            title: "AI Kanalına Aktarım",
+            description: `Çağrı Yapay Zeka Asistanı (${agentDetail.display}) kanalına yönlendirildi.`,
+            status: "info"
+          });
+          timeline.push({
+            time: formatOffsetTime(offset + 1),
+            title: "Çağrı Yanıtlandı (AI)",
+            description: `${agentDetail.name} çağrıyı yanıtladı. Sesli asistan görüşmesi başladı.`,
+            status: "success"
+          });
+          appendMidCallEvents(offset + 2);
+        } else {
+          timeline.push({
+            time: formatOffsetTime(offset),
+            title: "Abone / Temsilci Çaldırılıyor",
+            description: `${agentDetail.display} çaldırılıyor...`,
+            status: "info"
+          });
+          timeline.push({
+            time: formatOffsetTime(offset + 2),
+            title: "Çağrı Yanıtlandı",
+            description: `${agentDetail.display} çağrıyı yanıtladı. Görüşme başladı.`,
+            status: "success"
+          });
+          appendMidCallEvents(offset + 3);
+        }
+
+        timeline.push({
+          time: formatOffsetTime(realTotalSecs),
+          title: "Çağrı Kapatıldı (Normal)",
+          description: `Görüşme tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
+          status: "success"
+        });
+      } else {
+        if (!agentDetail.isAi) {
+          timeline.push({
+            time: formatOffsetTime(offset),
+            title: "Abone / Temsilci Çaldırılıyor",
+            description: `${agentDetail.display} çaldırılıyor...`,
+            status: "warning"
+          });
+        }
+        if (hs.includes(":abandoned")) {
+          timeline.push({
+            time: formatOffsetTime(realTotalSecs),
+            title: "Müşteri Çağrıyı Sonlandırdı",
+            description: `Kuyrukta bekleme esnasında arayan numara (${getCustomerNumber(call)}) telefonu kapattı.`,
+            status: "error"
+          });
+        } else {
+          timeline.push({
+            time: formatOffsetTime(realTotalSecs),
+            title: "Çağrı Sonlandırıldı (Cevapsız / Başarısız)",
+            description: `${agentDetail.display} çağrıya yanıt vermedi veya ulaşılamadı. Çağrı durumu: Başarısız.`,
+            status: "error"
+          });
+        }
       }
     } else {
       // Outbound calls: Giden (AI), Giden (Temsilci), Giden (Dialer)
       let callerDesc = "";
       if (direction === "Giden (AI)") {
-        callerDesc = "AI Asistan (Dahili: 999)";
+        callerDesc = agentDetail.isAi ? agentDetail.display : "AI Asistan";
       } else if (direction === "Giden (Temsilci)") {
-        callerDesc = "Ahmet Yılmaz (Dahili: 200)";
+        callerDesc = agentDetail.display;
       } else {
         callerDesc = "Otomatik Dış Arama Motoru (Dialer)";
       }
 
+      const targetNumber = getCustomerNumber(call);
+      const selectedTrunkLabel = trunkDetail.didNumber
+        ? `${trunkDetail.trunkName} (${trunkDetail.didNumber})`
+        : trunkDetail.trunkName;
+
       timeline.push({
         time: formatOffsetTime(0),
         title: "Dış Arama Başlatıldı",
-        description: `${callerDesc} tarafından ${getCustomerNumber(call)} numarasına doğru arama başlatıldı.`,
+        description: `${callerDesc} tarafından ${targetNumber} numarasına doğru arama başlatıldı.`,
         status: "info"
       });
 
       timeline.push({
         time: formatOffsetTime(1),
         title: "Dış Hat (Trunk) Seçimi",
-        description: "Dış hat çıkış kuralı eşleşti. Seçilen Hat: TurkTelekom_SIP_Trunk.",
+        description: `Dış hat çıkış kuralı eşleşti. Seçilen Hat: ${selectedTrunkLabel}.`,
         status: "success"
       });
 
       timeline.push({
-        time: formatOffsetTime(3),
+        time: formatOffsetTime(Math.min(3, realTotalSecs)),
         title: "Hedef Çaldırılıyor",
-        description: "Karşı tarafın telefonu çaldırılıyor...",
+        description: `Karşı tarafın (${targetNumber}) telefonu çaldırılıyor...`,
         status: "info"
       });
 
       if (statusLabel === "Başarılı") {
+        const answerOffset = Math.min(6, Math.max(2, realTotalSecs - 1));
         timeline.push({
-          time: formatOffsetTime(10),
+          time: formatOffsetTime(answerOffset),
           title: "Hedef Çağrıyı Yanıtladı",
-          description: `Karşı taraf (${getCustomerNumber(call)}) çağrıya yanıt verdi. Görüşme başladı.`,
+          description: `Karşı taraf (${targetNumber}) çağrıya yanıt verdi. ${callerDesc} ile görüşme başladı.`,
           status: "success"
         });
 
-        const durSeconds = call.duration || 60;
+        appendMidCallEvents(answerOffset + 1);
+
         timeline.push({
-          time: formatOffsetTime(durSeconds),
+          time: formatOffsetTime(realTotalSecs),
           title: "Çağrı Kapatıldı",
-          description: "Arama sonlandırıldı. Arama durumu: Başarılı.",
+          description: `Arama tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Arama durumu: Başarılı.`,
           status: "success"
         });
       } else {
         timeline.push({
-          time: formatOffsetTime(25),
+          time: formatOffsetTime(Math.max(1, realTotalSecs - 1)),
           title: "Hedef Yanıt Vermedi",
-          description: `Karşı taraf (${getCustomerNumber(call)}) aramaya yanıt vermedi veya hat meşgule düştü.`,
+          description: `Karşı taraf (${targetNumber}) aramaya yanıt vermedi veya hat meşgule düştü.`,
           status: "error"
         });
         timeline.push({
-          time: formatOffsetTime(26),
+          time: formatOffsetTime(realTotalSecs),
           title: "Çağrı Kapatıldı",
           description: "Arama sonlandırıldı. Arama durumu: Başarısız (Cevapsız).",
           status: "error"
@@ -2839,7 +3137,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     let missedCount = 0;
     
     let directionCounts = { "Gelen": 0, "Giden (AI)": 0, "Giden (Temsilci)": 0, "Giden (Dialer)": 0 };
-    let agentCounts = { "AI Asistan": 0, "Ahmet Yılmaz (Agent)": 0, "Merve Kaya (Agent)": 0 };
+    let agentCounts = {};
     
     // Hourly distribution for Gelen vs Cevaplanan
     let hourlyIncoming = Array(24).fill(0);
@@ -2887,7 +3185,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       
       // Conversant
       const conversant = getConversant(call);
-      if (agentCounts[conversant] !== undefined) agentCounts[conversant]++;
+      if (conversant) agentCounts[conversant] = (agentCounts[conversant] || 0) + 1;
       
       // Durations parsing
       const parsedDur = getCallDurations(call);
@@ -3245,7 +3543,30 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         </div>
 
         {/* Call Flow Timeline Popup Modal */}
-        {isTimelineOpen && selectedTimelineCall && (
+        {isTimelineOpen && selectedTimelineCall && (() => {
+          const modalDir = getCallDirection(selectedTimelineCall);
+          const modalStatus = getCallStatus(selectedTimelineCall);
+          const modalAgent = resolveCallAgentDetail(selectedTimelineCall);
+          const timelineSteps = getCallFlowTimeline(selectedTimelineCall);
+          const rawHs = String(selectedTimelineCall.hangup_source || "").trim();
+          const hangupLabel =
+            rawHs === "ai"
+              ? "AI Asistan"
+              : rawHs === "customer" || rawHs.includes(":abandoned")
+              ? "Müşteri"
+              : rawHs === "agent"
+              ? modalAgent.name || "Müşteri Temsilcisi"
+              : rawHs === "system"
+              ? "Sistem"
+              : rawHs.startsWith("transfer:")
+              ? "Transfer Aktarımı"
+              : rawHs.startsWith("pickup:")
+              ? "Pickup ile Yanıtlandı"
+              : rawHs.includes(":answered:") || (modalStatus === "Başarılı" && selectedTimelineCall.end_time)
+              ? "Normal Sonlandırma"
+              : "Belirtilmedi";
+
+          return (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-6 shadow-2xl w-full max-w-lg max-h-[85vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
               {/* Header */}
@@ -3273,40 +3594,41 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               {/* Call Summary Panel */}
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
-                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan Numara</p>
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    {modalDir.includes("Giden") ? "Aranan Numara" : "Arayan Numara"}
+                  </p>
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedTimelineCall)}</p>
                 </div>
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Çağrı Yönü / Durum</p>
                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200 mt-0.5">
-                    {getCallDirection(selectedTimelineCall)} | <span className={getCallStatus(selectedTimelineCall) === "Başarılı" ? "text-primary" : "text-primary"}>{getCallStatus(selectedTimelineCall)}</span>
+                    {modalDir} | <span className="text-primary">{modalStatus}</span>
                   </p>
                 </div>
                 <div>
-                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Benzersiz Çağrı ID</p>
-                  <p className="text-[10px] font-mono font-bold text-slate-550 dark:text-slate-400 mt-0.5">{selectedTimelineCall.id}</p>
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    {modalDir.includes("Giden") ? "Başlatan Abone" : "Görüşen Abone / Temsilci"}
+                  </p>
+                  <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200 mt-0.5">{modalAgent.display}</p>
                 </div>
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Kapatan Taraf</p>
-                  <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-0.5">
-                    {selectedTimelineCall.hangup_source === "ai" ? "AI Agent" : 
-                     selectedTimelineCall.hangup_source === "customer" ? "Müşteri" : 
-                     selectedTimelineCall.hangup_source === "agent" ? "Müşteri Temsilcisi" : 
-                     selectedTimelineCall.hangup_source === "system" ? "Sistem" : "Bilinmiyor"}
-                  </p>
+                  <p className="text-[10px] font-bold text-slate-700 dark:text-slate-300 mt-0.5">{hangupLabel}</p>
+                </div>
+                <div className="col-span-2 pt-2 border-t border-slate-100 dark:border-slate-800/70">
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Benzersiz Çağrı ID</p>
+                  <p className="text-[10px] font-mono font-bold text-slate-550 dark:text-slate-400 mt-0.5 break-all">{selectedTimelineCall.id}</p>
                 </div>
               </div>
 
               {/* Timeline Container */}
               <div className="flex-1 flex flex-col gap-4 mt-2 pr-1">
-                {getCallFlowTimeline(selectedTimelineCall).map((step, idx) => {
-                  const circleColor = step.status === "success" ? "bg-primary text-white" :
-                                      step.status === "warning" ? "bg-primary text-white" :
-                                      step.status === "error" ? "bg-primary text-white" : "bg-primary text-white";
+                {timelineSteps.map((step, idx) => {
+                  const circleColor = "bg-primary text-white";
                   return (
                     <div key={idx} className="flex gap-3 relative">
                       {/* Timeline line connector */}
-                      {idx !== getCallFlowTimeline(selectedTimelineCall).length - 1 && (
+                      {idx !== timelineSteps.length - 1 && (
                         <div className="absolute left-[13px] top-[24px] bottom-[-20px] w-0.5 bg-slate-100 dark:bg-slate-800"></div>
                       )}
                       
@@ -3331,7 +3653,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
             </div>
           </div>
-        )}
+          );
+        })()}
 
         {/* Full Transcript Dialogue Popup Modal */}
         {isTranscriptPopupOpen && selectedTranscriptCall && (
@@ -3362,7 +3685,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               {/* Call Summary Panel */}
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
-                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan Numara</p>
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                    {getCallDirection(selectedTranscriptCall).includes("Giden") ? "Aranan Numara" : "Arayan Numara"}
+                  </p>
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedTranscriptCall)}</p>
                 </div>
                 <div>

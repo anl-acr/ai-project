@@ -12171,6 +12171,18 @@ def resolve_call_agent_name_snapshot(caller: str, callee: str, status: str = "",
         if t_name:
             return t_name
 
+    if h_src.startswith("pickup:"):
+        p_ext = h_src.split("pickup:", 1)[1].strip()
+        p_name = resolve_user_name_by_ext_or_id(p_ext, users_override=users_override)
+        if p_name:
+            return p_name
+
+    if ":answered:" in h_src:
+        ans_ext = h_src.split(":answered:", 1)[1].split(":", 1)[0].strip()
+        ans_name = resolve_user_name_by_ext_or_id(ans_ext, users_override=users_override)
+        if ans_name:
+            return ans_name
+
     u_caller = resolve_user_name_by_ext_or_id(c_caller, users_override=users_override)
     if u_caller:
         return u_caller
