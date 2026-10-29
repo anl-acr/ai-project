@@ -53,17 +53,50 @@ export function normalizeCallPanelPrefs(raw) {
   return { viewMode, boxSize, navPosition, tabOrder };
 }
 
+function hasSavedCallPanelPrefs(obj) {
+  return Boolean(
+    obj &&
+      typeof obj === "object" &&
+      (obj.viewMode || obj.boxSize || obj.navPosition || (Array.isArray(obj.tabOrder) && obj.tabOrder.length > 0))
+  );
+}
+
 export function loadCallPanelPrefs(currentUser) {
-  if (typeof window === "undefined") return { ...DEFAULT_CALL_PANEL_PREFS };
+  if (typeof window === "undefined") {
+    return hasSavedCallPanelPrefs(currentUser?.call_panel_prefs)
+      ? normalizeCallPanelPrefs(currentUser.call_panel_prefs)
+      : { ...DEFAULT_CALL_PANEL_PREFS };
+  }
   try {
-    const uid = currentUser?.id || currentUser?.extension || localStorage.getItem("current_user_id") || "default";
-    const userScoped = localStorage.getItem(`agent_call_panel_prefs_${uid}`);
-    if (userScoped) {
-      return normalizeCallPanelPrefs(JSON.parse(userScoped));
+    const uid =
+      currentUser?.id ||
+      currentUser?.extension ||
+      sessionStorage.getItem("current_user_id") ||
+      localStorage.getItem("current_user_id") ||
+      "default";
+
+    if (hasSavedCallPanelPrefs(currentUser?.call_panel_prefs)) {
+      const serverNormalized = normalizeCallPanelPrefs(currentUser.call_panel_prefs);
+      if (uid && uid !== "default") {
+        localStorage.setItem(`agent_call_panel_prefs_${uid}`, JSON.stringify(serverNormalized));
+      }
+      return serverNormalized;
     }
-    if (currentUser?.call_panel_prefs && typeof currentUser.call_panel_prefs === "object") {
-      return normalizeCallPanelPrefs(currentUser.call_panel_prefs);
+
+    if (uid && uid !== "default") {
+      const userScoped = localStorage.getItem(`agent_call_panel_prefs_${uid}`);
+      if (userScoped) {
+        return normalizeCallPanelPrefs(JSON.parse(userScoped));
+      }
+      if (currentUser?.extension && String(currentUser.extension) !== String(uid)) {
+        const extScoped = localStorage.getItem(`agent_call_panel_prefs_${currentUser.extension}`);
+        if (extScoped) {
+          return normalizeCallPanelPrefs(JSON.parse(extScoped));
+        }
+      }
+      return normalizeCallPanelPrefs(null);
     }
+
     const globalSaved = localStorage.getItem("agent_call_panel_prefs");
     if (globalSaved) {
       return normalizeCallPanelPrefs(JSON.parse(globalSaved));
@@ -76,8 +109,16 @@ export function saveCallPanelPrefs(currentUser, nextPrefs) {
   const normalized = normalizeCallPanelPrefs(nextPrefs);
   if (typeof window !== "undefined") {
     try {
-      const uid = currentUser?.id || currentUser?.extension || localStorage.getItem("current_user_id") || "default";
+      const uid =
+        currentUser?.id ||
+        currentUser?.extension ||
+        sessionStorage.getItem("current_user_id") ||
+        localStorage.getItem("current_user_id") ||
+        "default";
       localStorage.setItem(`agent_call_panel_prefs_${uid}`, JSON.stringify(normalized));
+      if (currentUser?.extension && String(currentUser.extension) !== String(uid)) {
+        localStorage.setItem(`agent_call_panel_prefs_${currentUser.extension}`, JSON.stringify(normalized));
+      }
       localStorage.setItem("agent_call_panel_prefs", JSON.stringify(normalized));
       window.dispatchEvent(new CustomEvent("AGENT_PANEL_PREFS_UPDATED", { detail: normalized }));
     } catch (e) {}
@@ -85,18 +126,46 @@ export function saveCallPanelPrefs(currentUser, nextPrefs) {
   return normalized;
 }
 
-export default function AgentPanel({ backendHost, currentUser, activeCallId, isVisible = true }) {
+function resolveInitialAgentTab(prefs, perms) {
+  const orderMap = new Map();
+  (prefs?.tabOrder || []).forEach((id, idx) => orderMap.set(id, idx));
+  const orderedAll = [...ALL_TABS].sort((a, b) => {
+    const idxA = orderMap.has(a.id) ? orderMap.get(a.id) : 999;
+    const idxB = orderMap.has(b.id) ? orderMap.get(b.id) : 999;
+    return idxA - idxB;
+  });
+  if (Array.isArray(perms) && perms.some((p) => p.startsWith("call_panel:tab_"))) {
+    const allowed = orderedAll.filter((t) => perms.includes(t.perm));
+    if (allowed.length > 0) return allowed[0].id;
+  }
+  return (orderedAll[0] || ALL_TABS[0]).id;
+}
+
+export default function AgentPanel({ backendHost, currentUser, activeCallId, isVisible = true, initialPermissions = null }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
-  const [activeTab, setActiveTab] = useState("dashboard");
-  const [pendingDial, setPendingDial] = useState(null);
-  const [rolePermissions, setRolePermissions] = useState(null);
   const [panelPrefs, setPanelPrefs] = useState(() => loadCallPanelPrefs(currentUser));
+  const [rolePermissions, setRolePermissions] = useState(() =>
+    Array.isArray(initialPermissions) && initialPermissions.length > 0 ? initialPermissions : null
+  );
+  const [activeTab, setActiveTab] = useState(() =>
+    resolveInitialAgentTab(
+      loadCallPanelPrefs(currentUser),
+      Array.isArray(initialPermissions) && initialPermissions.length > 0 ? initialPermissions : null
+    )
+  );
+  const [pendingDial, setPendingDial] = useState(null);
 
   const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
 
   useEffect(() => {
     setPanelPrefs(loadCallPanelPrefs(currentUser));
   }, [currentUser?.id, currentUser?.extension, currentUser?.call_panel_prefs]);
+
+  useEffect(() => {
+    if (Array.isArray(initialPermissions) && initialPermissions.length > 0) {
+      setRolePermissions(initialPermissions);
+    }
+  }, [initialPermissions]);
 
   useEffect(() => {
     const handlePrefsUpdate = (e) => {
@@ -132,7 +201,10 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     const fetchRolePerms = async () => {
       try {
         const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-        const uid = (typeof window !== "undefined" && localStorage.getItem("current_user_id")) || currentUser?.id || "admin";
+        const uid =
+          (typeof window !== "undefined" && (sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id"))) ||
+          currentUser?.id ||
+          "admin";
         const res = await fetch(`${protocol}//${host}/api/settings/roles`, {
           headers: { "X-User-ID": String(uid) }
         });

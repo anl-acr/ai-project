@@ -310,31 +310,58 @@ export function normalizeWallboardLayout(saved) {
 /**
  * WallboardStudioSettings: Rendered inside the Profile Settings Modal ("Canlı İzleme Paneli" tab)
  */
-export function WallboardStudioSettings({ backendHost = "localhost:8000", currentUserId = "admin" }) {
+export function WallboardStudioSettings({ backendHost = "localhost:8000", currentUserId = "admin", currentUser = null }) {
   const { bg, hover, text, lightBg, borderLight } = useTheme();
+  const effectiveUid = String(
+    currentUser?.id ||
+      currentUserId ||
+      (typeof window !== "undefined" ? sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") : null) ||
+      "admin"
+  );
+
+  const initialStudioNorm = (() => {
+    if (currentUser?.wallboard_layout && typeof currentUser.wallboard_layout === "object" && Object.keys(currentUser.wallboard_layout).length > 0) {
+      return normalizeWallboardLayout(currentUser.wallboard_layout);
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const localRaw = localStorage.getItem(`wallboard_layout_${effectiveUid}`);
+        if (localRaw) return normalizeWallboardLayout(JSON.parse(localRaw));
+      } catch (e) {}
+    }
+    return null;
+  })();
+
   const [customizerTab, setCustomizerTab] = useState("colors"); // 'colors' | 'widgets' | 'cards' | 'thresholds'
-  const [kpiCards, setKpiCards] = useState(DEFAULT_KPI_CARDS);
-  const [mainWidgets, setMainWidgets] = useState(DEFAULT_MAIN_WIDGETS);
-  const [agentCardDensity, setAgentCardDensity] = useState("standard");
-  const [agentSortBy, setAgentSortBy] = useState("status");
-  const [agentStatusFilter, setAgentStatusFilter] = useState("ALL");
-  const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
-  const [statusColors, setStatusColors] = useState({ ...DEFAULT_STATUS_COLORS, breakColors: {} });
+  const [kpiCards, setKpiCards] = useState(() => initialStudioNorm?.kpiCards || DEFAULT_KPI_CARDS);
+  const [mainWidgets, setMainWidgets] = useState(() => initialStudioNorm?.mainWidgets || DEFAULT_MAIN_WIDGETS);
+  const [agentCardDensity, setAgentCardDensity] = useState(() => initialStudioNorm?.agentCardDensity || "standard");
+  const [agentSortBy, setAgentSortBy] = useState(() => initialStudioNorm?.agentSortBy || "status");
+  const [agentStatusFilter, setAgentStatusFilter] = useState(() => initialStudioNorm?.agentStatusFilter || "ALL");
+  const [thresholds, setThresholds] = useState(() => initialStudioNorm?.thresholds || DEFAULT_THRESHOLDS);
+  const [statusColors, setStatusColors] = useState(() => initialStudioNorm?.statusColors || { ...DEFAULT_STATUS_COLORS, breakColors: {} });
   const [systemBreaks, setSystemBreaks] = useState([]);
-  const [activePresetKey, setActivePresetKey] = useState("standard");
+  const [activePresetKey, setActivePresetKey] = useState(() => initialStudioNorm?.activePresetKey || "standard");
   const [draggedKpiIndex, setDraggedKpiIndex] = useState(null);
   const [draggedWidgetIndex, setDraggedWidgetIndex] = useState(null);
 
   const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : "";
-  const effectiveUid = String(
-    currentUserId || (typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null) || "admin"
-  );
 
   useEffect(() => {
     try {
       const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
       if (localRaw) {
         const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+        setKpiCards(norm.kpiCards);
+        setMainWidgets(norm.mainWidgets);
+        setAgentCardDensity(norm.agentCardDensity);
+        setAgentSortBy(norm.agentSortBy);
+        setAgentStatusFilter(norm.agentStatusFilter);
+        setThresholds(norm.thresholds);
+        setStatusColors(norm.statusColors);
+        setActivePresetKey(norm.activePresetKey);
+      } else if (currentUser?.wallboard_layout && Object.keys(currentUser.wallboard_layout).length > 0) {
+        const norm = normalizeWallboardLayout(currentUser.wallboard_layout);
         setKpiCards(norm.kpiCards);
         setMainWidgets(norm.mainWidgets);
         setAgentCardDensity(norm.agentCardDensity);
@@ -1169,7 +1196,7 @@ export function WallboardStudioSettings({ backendHost = "localhost:8000", curren
   );
 }
 
-export default function WallboardPanel({ backendHost = "localhost:8000" }) {
+export default function WallboardPanel({ backendHost = "localhost:8000", currentUser: propCurrentUser = null }) {
   const { bg, hover, text, lightBg, borderLight } = useTheme();
   const [authorized, setAuthorized] = useState(true);
   const [users, setUsers] = useState([]);
@@ -1181,7 +1208,13 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
   // Monitor permissions & current user info
   const [currentUserExt, setCurrentUserExt] = useState("");
-  const [currentUserId, setCurrentUserId] = useState("");
+  const [currentUserId, setCurrentUserId] = useState(() =>
+    String(
+      propCurrentUser?.id ||
+        (typeof window !== "undefined" ? sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") : null) ||
+        ""
+    )
+  );
   const [monitorPerms, setMonitorPerms] = useState({
     listen: true,
     whisper: true,
@@ -1212,16 +1245,34 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   const [totalTodayCalls, setTotalTodayCalls] = useState(0);
   const [agentsState, setAgentsState] = useState({});
 
+  const initialPanelNorm = (() => {
+    const initUid = String(
+      propCurrentUser?.id ||
+        (typeof window !== "undefined" ? sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") : null) ||
+        "admin"
+    );
+    if (propCurrentUser?.wallboard_layout && typeof propCurrentUser.wallboard_layout === "object" && Object.keys(propCurrentUser.wallboard_layout).length > 0) {
+      return normalizeWallboardLayout(propCurrentUser.wallboard_layout);
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const localRaw = localStorage.getItem(`wallboard_layout_${initUid}`);
+        if (localRaw) return normalizeWallboardLayout(JSON.parse(localRaw));
+      } catch (e) {}
+    }
+    return null;
+  })();
+
   // Personal Layout States (Configured via Profile Settings -> Canlı İzleme Paneli tab)
-  const [kpiCards, setKpiCards] = useState(DEFAULT_KPI_CARDS);
-  const [mainWidgets, setMainWidgets] = useState(DEFAULT_MAIN_WIDGETS);
-  const [agentCardDensity, setAgentCardDensity] = useState("standard");
-  const [agentSortBy, setAgentSortBy] = useState("status");
-  const [agentStatusFilter, setAgentStatusFilter] = useState("ALL");
+  const [kpiCards, setKpiCards] = useState(() => initialPanelNorm?.kpiCards || DEFAULT_KPI_CARDS);
+  const [mainWidgets, setMainWidgets] = useState(() => initialPanelNorm?.mainWidgets || DEFAULT_MAIN_WIDGETS);
+  const [agentCardDensity, setAgentCardDensity] = useState(() => initialPanelNorm?.agentCardDensity || "standard");
+  const [agentSortBy, setAgentSortBy] = useState(() => initialPanelNorm?.agentSortBy || "status");
+  const [agentStatusFilter, setAgentStatusFilter] = useState(() => initialPanelNorm?.agentStatusFilter || "ALL");
   const [agentSearchQuery, setAgentSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [thresholds, setThresholds] = useState(DEFAULT_THRESHOLDS);
-  const [statusColors, setStatusColors] = useState({ ...DEFAULT_STATUS_COLORS, breakColors: {} });
+  const [thresholds, setThresholds] = useState(() => initialPanelNorm?.thresholds || DEFAULT_THRESHOLDS);
+  const [statusColors, setStatusColors] = useState(() => initialPanelNorm?.statusColors || { ...DEFAULT_STATUS_COLORS, breakColors: {} });
 
   const API_BASE = `${window.location.protocol}//${backendHost}`;
 
@@ -1248,6 +1299,12 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
   };
 
   useEffect(() => {
+    if (propCurrentUser?.wallboard_layout && typeof propCurrentUser.wallboard_layout === "object" && Object.keys(propCurrentUser.wallboard_layout).length > 0) {
+      applyLoadedLayout(propCurrentUser.wallboard_layout);
+    }
+  }, [propCurrentUser?.id, propCurrentUser?.wallboard_layout]);
+
+  useEffect(() => {
     const handleLayoutUpdated = (e) => {
       if (e?.detail) {
         applyLoadedLayout(e.detail);
@@ -1263,6 +1320,8 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
       const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
       if (localRaw) {
         applyLoadedLayout(JSON.parse(localRaw));
+      } else if (propCurrentUser?.wallboard_layout && Object.keys(propCurrentUser.wallboard_layout).length > 0) {
+        applyLoadedLayout(propCurrentUser.wallboard_layout);
       }
     } catch (e) {}
 
@@ -1286,7 +1345,9 @@ export default function WallboardPanel({ backendHost = "localhost:8000" }) {
 
   const checkAccess = async () => {
     try {
-      const storedUserId = typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null;
+      const storedUserId =
+        propCurrentUser?.id ||
+        (typeof window !== "undefined" ? sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") : null);
       const resStatus = await fetch(`${API_BASE}/api/agent/status`, { cache: "no-store" });
       const statusData = await resStatus.json();
 

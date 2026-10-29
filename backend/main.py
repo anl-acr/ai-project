@@ -690,6 +690,9 @@ class UserSchema(BaseModel):
     managed_users: Optional[List[Union[int, str]]] = []
     managed_queues: Optional[List[Union[int, str]]] = []
     cti_config: Optional[dict] = None
+    theme_mode: Optional[str] = None
+    call_panel_prefs: Optional[dict] = None
+    wallboard_layout: Optional[dict] = None
 
 def generate_strong_sip_password(length=24):
     alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
@@ -1530,6 +1533,17 @@ def load_settings():
         
         session = SyncSessionLocal()
         try:
+            for sync_ddl in (
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
+            ):
+                try:
+                    session.execute(text(sync_ddl))
+                    session.commit()
+                except Exception:
+                    session.rollback()
+
             settings = session.query(SystemSetting).all()
             for s in settings:
                 db[s.key] = s.value
@@ -1537,6 +1551,7 @@ def load_settings():
             db_users = session.query(SystemUser).order_by(SystemUser.id).all()
             if db_users:
                 disk_u_map = {str(du.get("id")): du for du in db.get("users", []) if isinstance(du, dict) and du.get("id") is not None}
+                wb_layouts_map = db.get("wallboard_layouts") if isinstance(db.get("wallboard_layouts"), dict) else {}
                 users_list = []
                 for u in db_users:
                     u_dict = {col.name: getattr(u, col.name) for col in SystemUser.__table__.columns}
@@ -1548,9 +1563,37 @@ def load_settings():
                             u_dict["managed_queues"] = du.get("managed_queues")
                         if not u_dict.get("cti_config") and du.get("cti_config"):
                             u_dict["cti_config"] = du.get("cti_config")
+                        if not u_dict.get("call_panel_prefs") and du.get("call_panel_prefs"):
+                            u_dict["call_panel_prefs"] = du.get("call_panel_prefs")
+                        if not u_dict.get("wallboard_layout") and du.get("wallboard_layout"):
+                            u_dict["wallboard_layout"] = du.get("wallboard_layout")
+                        if (not u_dict.get("theme_mode") or u_dict.get("theme_mode") == "light") and du.get("theme_mode"):
+                            u_dict["theme_mode"] = du.get("theme_mode")
+                    for jcol in ("cti_config", "call_panel_prefs", "wallboard_layout"):
+                        jval = u_dict.get(jcol)
+                        if isinstance(jval, str) and jval.strip().startswith("{"):
+                            try:
+                                u_dict[jcol] = json.loads(jval)
+                            except Exception:
+                                u_dict[jcol] = {}
+                        elif not isinstance(jval, dict):
+                            u_dict[jcol] = {}
+                    if not u_dict["wallboard_layout"] and wb_layouts_map:
+                        uid_str = str(u_dict.get("id") or "")
+                        ext_str = str(u_dict.get("extension") or "")
+                        t_id = str(u_dict.get("tenant_id") or "tenant-default")
+                        fallback_wb = (
+                            wb_layouts_map.get(f"{t_id}:{uid_str}")
+                            or wb_layouts_map.get(uid_str)
+                            or wb_layouts_map.get(f"{t_id}:{ext_str}")
+                            or wb_layouts_map.get(ext_str)
+                            or (wb_layouts_map.get(f"{t_id}:admin") or wb_layouts_map.get("admin") if u_dict.get("role") == "admin" else None)
+                        )
+                        if isinstance(fallback_wb, dict) and fallback_wb:
+                            u_dict["wallboard_layout"] = fallback_wb
                     u_dict["managed_users"] = u_dict.get("managed_users") if isinstance(u_dict.get("managed_users"), list) else []
                     u_dict["managed_queues"] = u_dict.get("managed_queues") if isinstance(u_dict.get("managed_queues"), list) else []
-                    u_dict["cti_config"] = u_dict.get("cti_config") if isinstance(u_dict.get("cti_config"), dict) else {}
+                    u_dict["theme_mode"] = u_dict.get("theme_mode") or "light"
                     users_list.append(u_dict)
                 db["users"] = users_list
 
@@ -1990,6 +2033,7 @@ def save_settings(settings):
     try:
         from backend.database.config import SyncSessionLocal
         from backend.database.models import SystemSetting
+        from sqlalchemy.orm.attributes import flag_modified
         
         session = SyncSessionLocal()
         try:
@@ -1997,6 +2041,7 @@ def save_settings(settings):
                 setting = session.query(SystemSetting).filter_by(key=key).first()
                 if setting:
                     setting.value = val
+                    flag_modified(setting, "value")
                 else:
                     session.add(SystemSetting(key=key, value=val))
             session.commit()
@@ -6748,7 +6793,8 @@ class ProfileUpdateSchema(BaseModel):
     avatar: Optional[str] = None
     gsm_number: Optional[str] = None
     mobile_transfer_enabled: Optional[bool] = None
-    theme_color: Optional[str] = "rose"
+    theme_color: Optional[str] = None
+    theme_mode: Optional[str] = None
     forwarding_always: Optional[dict] = None
     forwarding_busy: Optional[dict] = None
     forwarding_no_answer: Optional[dict] = None
@@ -6765,6 +6811,7 @@ class ProfileUpdateSchema(BaseModel):
     current_password: Optional[str] = None
     new_password: Optional[str] = None
     call_panel_prefs: Optional[dict] = None
+    wallboard_layout: Optional[dict] = None
     cti_config: Optional[dict] = None
 
 @app.post("/api/agent/profile/{user_id}")
@@ -6828,6 +6875,9 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     if payload.theme_color is not None:
         user["theme_color"] = payload.theme_color
 
+    if payload.theme_mode in ("dark", "light"):
+        user["theme_mode"] = payload.theme_mode
+
     if payload.forwarding_always is not None:
         user["forwarding_always"] = payload.forwarding_always
     if payload.forwarding_busy is not None:
@@ -6842,7 +6892,19 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
         ensure_user_profiles(user)
 
     if payload.call_panel_prefs is not None:
-        user["call_panel_prefs"] = payload.call_panel_prefs
+        existing_cpp = user.get("call_panel_prefs") if isinstance(user.get("call_panel_prefs"), dict) else {}
+        user["call_panel_prefs"] = {**existing_cpp, **payload.call_panel_prefs}
+
+    if payload.wallboard_layout is not None:
+        existing_wbl = user.get("wallboard_layout") if isinstance(user.get("wallboard_layout"), dict) else {}
+        merged_wbl = {**existing_wbl, **payload.wallboard_layout}
+        user["wallboard_layout"] = merged_wbl
+        if not isinstance(settings_db.get("wallboard_layouts"), dict):
+            settings_db["wallboard_layouts"] = {}
+        t_id = str(user.get("tenant_id") or "tenant-default")
+        for alias_key in filter(None, [str(user.get("id") or ""), str(user.get("extension") or ""), "admin" if user.get("role") == "admin" else ""]):
+            settings_db["wallboard_layouts"][f"{t_id}:{alias_key}"] = merged_wbl
+            settings_db["wallboard_layouts"][alias_key] = merged_wbl
 
     if payload.cti_config is not None:
         has_cti_perm = "cti_integration:write" in role_perms or "call_panel:cti_screen_pop" in role_perms or role_code == "admin"
@@ -6895,8 +6957,10 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                     db_u.password = payload.new_password
                 if payload.avatar:
                     db_u.avatar = payload.avatar
-                if payload.theme_color:
+                if payload.theme_color is not None:
                     db_u.theme_color = payload.theme_color
+                if payload.theme_mode in ("dark", "light"):
+                    db_u.theme_mode = payload.theme_mode
                 if payload.gsm_number is not None:
                     db_u.gsm_number = payload.gsm_number
                 if payload.mobile_transfer_enabled is not None:
@@ -6915,6 +6979,12 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
                 if payload.profiles is not None:
                     db_u.profiles = user["profiles"]
                     flag_modified(db_u, "profiles")
+                if payload.call_panel_prefs is not None:
+                    db_u.call_panel_prefs = user["call_panel_prefs"]
+                    flag_modified(db_u, "call_panel_prefs")
+                if payload.wallboard_layout is not None:
+                    db_u.wallboard_layout = user["wallboard_layout"]
+                    flag_modified(db_u, "wallboard_layout")
                 if payload.cti_config is not None and user.get("cti_config") is not None:
                     db_u.cti_config = user["cti_config"]
                     flag_modified(db_u, "cti_config")
@@ -14528,18 +14598,44 @@ async def get_wallboard_stats():
             "recentLogs": recent_logs
         }
 
+def _find_user_for_wallboard_uid(uid: str, tenant_id: str = "tenant-default"):
+    uid_clean = str(uid or "").strip()
+    if not uid_clean:
+        return None
+    users = settings_db.get("users", [])
+    for u in users:
+        if str(u.get("id")) == uid_clean or str(u.get("extension")) == uid_clean or str(u.get("email") or "") == uid_clean or str(u.get("username") or "") == uid_clean:
+            return u
+    if uid_clean in ("admin", "9999"):
+        for u in users:
+            if u.get("role") == "admin" and (str(u.get("tenant_id") or "tenant-default") == tenant_id or tenant_id in ("all", "global", "tenant-default")):
+                return u
+        return next((u for u in users if u.get("role") == "admin"), None)
+    return None
+
 @app.get("/api/wallboard/layout")
 async def get_user_wallboard_layout(
     user_id: Optional[str] = None,
     user_info: dict = Depends(get_user_info)
 ):
     tenant_id = user_info.get("tenant_id") or "tenant-default"
-    uid = str(user_id or user_info.get("user_id") or "admin").strip() or "admin"
+    uid = str(user_id or user_info.get("raw_user_id") or "admin").strip() or "admin"
     layouts = settings_db.get("wallboard_layouts")
     if not isinstance(layouts, dict):
         layouts = {}
-    key = f"{tenant_id}:{uid}"
-    saved = layouts.get(key) or layouts.get(uid) or None
+    matched_user = _find_user_for_wallboard_uid(uid, tenant_id)
+    saved = None
+    if matched_user and isinstance(matched_user.get("wallboard_layout"), dict) and matched_user.get("wallboard_layout"):
+        saved = matched_user.get("wallboard_layout")
+    if not saved:
+        candidate_keys = [f"{tenant_id}:{uid}", uid]
+        if matched_user:
+            for alias_id in filter(None, [str(matched_user.get("id") or ""), str(matched_user.get("extension") or ""), "admin" if matched_user.get("role") == "admin" else ""]):
+                candidate_keys.extend([f"{tenant_id}:{alias_id}", alias_id])
+        for ck in candidate_keys:
+            if isinstance(layouts.get(ck), dict) and layouts.get(ck):
+                saved = layouts.get(ck)
+                break
     return {"status": "success", "layout": saved}
 
 @app.post("/api/wallboard/layout")
@@ -14548,17 +14644,52 @@ async def save_user_wallboard_layout(
     user_info: dict = Depends(get_user_info)
 ):
     tenant_id = user_info.get("tenant_id") or "tenant-default"
-    uid = str(payload.get("user_id") or user_info.get("user_id") or "admin").strip() or "admin"
+    uid = str(payload.get("user_id") or user_info.get("raw_user_id") or "admin").strip() or "admin"
     layout_data = payload.get("layout")
     if not isinstance(layout_data, dict):
         raise HTTPException(status_code=400, detail="Geçersiz layout verisi.")
     if not isinstance(settings_db.get("wallboard_layouts"), dict):
         settings_db["wallboard_layouts"] = {}
-    key = f"{tenant_id}:{uid}"
-    settings_db["wallboard_layouts"][key] = layout_data
-    settings_db["wallboard_layouts"][uid] = layout_data
+    layouts = settings_db["wallboard_layouts"]
+    matched_user = _find_user_for_wallboard_uid(uid, tenant_id)
+
+    existing_layout = {}
+    if matched_user and isinstance(matched_user.get("wallboard_layout"), dict):
+        existing_layout.update(matched_user.get("wallboard_layout"))
+    for ck in [f"{tenant_id}:{uid}", uid]:
+        if isinstance(layouts.get(ck), dict):
+            existing_layout = {**layouts.get(ck), **existing_layout}
+
+    merged_layout = {**existing_layout, **layout_data}
+    alias_keys = {uid}
+    if matched_user:
+        matched_user["wallboard_layout"] = merged_layout
+        for alias_id in filter(None, [str(matched_user.get("id") or ""), str(matched_user.get("extension") or ""), "admin" if matched_user.get("role") == "admin" else ""]):
+            alias_keys.add(alias_id)
+
+    for ak in alias_keys:
+        layouts[f"{tenant_id}:{ak}"] = merged_layout
+        layouts[ak] = merged_layout
+
     save_settings(settings_db)
-    return {"status": "success", "layout": layout_data}
+
+    if matched_user:
+        try:
+            from backend.database.config import SyncSessionLocal
+            from backend.database.models import SystemUser
+            from sqlalchemy.orm.attributes import flag_modified
+            with SyncSessionLocal() as session:
+                db_u = session.query(SystemUser).filter(
+                    (SystemUser.id == matched_user.get("id")) | (SystemUser.extension == str(matched_user.get("extension") or ""))
+                ).first()
+                if db_u:
+                    db_u.wallboard_layout = merged_layout
+                    flag_modified(db_u, "wallboard_layout")
+                    session.commit()
+        except Exception as e_wb_db:
+            print(f"[Wallboard Layout DB Sync Warning]: {e_wb_db}")
+
+    return {"status": "success", "layout": merged_layout}
 
 @app.get("/api/reports/agents")
 async def get_reports_agents():
@@ -20086,6 +20217,9 @@ async def startup_event():
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_users JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS managed_queues JSON DEFAULT '[]';",
                 "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS cti_config JSON DEFAULT '{}';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
+                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS max_channels INTEGER DEFAULT 30;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs JSON DEFAULT '[\"alaw\", \"ulaw\", \"g722\", \"g729\"]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_enabled BOOLEAN DEFAULT FALSE;",
@@ -20564,6 +20698,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
     from backend.services.agent_presence import get_agent_state
     disk_users_by_id = {str(du.get("id")): du for du in settings_db.get("users", []) if du.get("id") is not None}
     disk_users_by_ext = {str(du.get("extension")): du for du in settings_db.get("users", []) if du.get("extension")}
+    wb_layouts_map = settings_db.get("wallboard_layouts") if isinstance(settings_db.get("wallboard_layouts"), dict) else {}
     for u in raw_users:
         ext = str(u.get("extension") or "")
         uid = str(u.get("id") or "")
@@ -20596,6 +20731,12 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                 u["managed_queues"] = disk_u.get("managed_queues")
             if not u.get("cti_config") and disk_u.get("cti_config"):
                 u["cti_config"] = disk_u.get("cti_config")
+            if not u.get("call_panel_prefs") and disk_u.get("call_panel_prefs"):
+                u["call_panel_prefs"] = disk_u.get("call_panel_prefs")
+            if not u.get("wallboard_layout") and disk_u.get("wallboard_layout"):
+                u["wallboard_layout"] = disk_u.get("wallboard_layout")
+            if (not u.get("theme_mode") or u.get("theme_mode") == "light") and disk_u.get("theme_mode"):
+                u["theme_mode"] = disk_u.get("theme_mode")
         if u.get("two_factor_method") == "app" or not u.get("two_factor_method"):
             u["two_factor_method"] = "google_auth"
         u["two_factor_enabled"] = bool(u.get("two_factor_enabled", False))
@@ -20609,7 +20750,7 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                     u[mk] = []
             elif not isinstance(mval, list):
                 u[mk] = []
-        for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer", "cti_config"):
+        for fk in ("forwarding_always", "forwarding_busy", "forwarding_no_answer", "cti_config", "call_panel_prefs", "wallboard_layout"):
             fval = u.get(fk)
             if isinstance(fval, str) and fval.strip().startswith("{"):
                 try:
@@ -20618,6 +20759,22 @@ async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get
                     pass
         if not isinstance(u.get("cti_config"), dict):
             u["cti_config"] = {}
+        if not isinstance(u.get("call_panel_prefs"), dict):
+            u["call_panel_prefs"] = {}
+        if not isinstance(u.get("wallboard_layout"), dict):
+            u["wallboard_layout"] = {}
+        if not u["wallboard_layout"] and wb_layouts_map:
+            u_tid = str(u.get("tenant_id") or target_tenant or "tenant-default")
+            fb_wb = (
+                wb_layouts_map.get(f"{u_tid}:{uid}")
+                or wb_layouts_map.get(uid)
+                or wb_layouts_map.get(f"{u_tid}:{ext}")
+                or wb_layouts_map.get(ext)
+                or (wb_layouts_map.get(f"{u_tid}:admin") or wb_layouts_map.get("admin") if u.get("role") == "admin" else None)
+            )
+            if isinstance(fb_wb, dict) and fb_wb:
+                u["wallboard_layout"] = fb_wb
+        u["theme_mode"] = u.get("theme_mode") or "light"
         u["sip_password"] = resolve_secure_sip_password(ext, u.get("sip_password") or "")
         ensure_user_profiles(u)
         reg_ip = registered_endpoints.get_ip(ext) or registered_endpoints.get_ip(uid)
@@ -20673,7 +20830,7 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
         new_users_out = []
         changes = []
         valid_keys = {c.name for c in SystemUser.__table__.columns}
-        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues", "cti_config"}
+        json_cols = {"profiles", "follow_me", "forwarding_always", "forwarding_busy", "forwarding_no_answer", "active_sessions", "managed_users", "managed_queues", "cti_config", "call_panel_prefs", "wallboard_layout"}
         saved_payload_by_ext = {}
         saved_payload_by_id = {}
 
@@ -20709,6 +20866,12 @@ async def new_save_users_endpoint(payload: Union[List[UserSchema], UserSchema], 
                 data["managed_queues"] = (getattr(target_user, "managed_queues", None) if target_user else None) or prev_disk.get("managed_queues") or []
             if data.get("cti_config") is None:
                 data["cti_config"] = (getattr(target_user, "cti_config", None) if target_user else None) or prev_disk.get("cti_config") or {}
+            if data.get("call_panel_prefs") is None:
+                data["call_panel_prefs"] = (getattr(target_user, "call_panel_prefs", None) if target_user else None) or prev_disk.get("call_panel_prefs") or {}
+            if data.get("wallboard_layout") is None:
+                data["wallboard_layout"] = (getattr(target_user, "wallboard_layout", None) if target_user else None) or prev_disk.get("wallboard_layout") or {}
+            if data.get("theme_mode") is None:
+                data["theme_mode"] = (getattr(target_user, "theme_mode", None) if target_user else None) or prev_disk.get("theme_mode") or "light"
 
             if ext_str:
                 saved_payload_by_ext[ext_str] = data

@@ -34,24 +34,47 @@ import {
  */
 export function CallPanelAgentsAppearanceSettings({
   backendHost = "localhost:8000",
-  currentUserId = "admin"
+  currentUserId = "admin",
+  currentUser = null
 }) {
   const { bg, text, lightBg, borderLight } = useTheme();
-  const [agentCardDensity, setAgentCardDensity] = useState("standard");
-  const [agentSortBy, setAgentSortBy] = useState("status");
-  const [statusColors, setStatusColors] = useState({ ...DEFAULT_STATUS_COLORS, breakColors: {} });
+  const effectiveUid = String(
+    currentUser?.id ||
+      currentUserId ||
+      (typeof window !== "undefined" ? sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") : null) ||
+      "admin"
+  );
+
+  const initialNorm = (() => {
+    if (currentUser?.wallboard_layout && typeof currentUser.wallboard_layout === "object" && Object.keys(currentUser.wallboard_layout).length > 0) {
+      return normalizeWallboardLayout(currentUser.wallboard_layout);
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const localRaw = localStorage.getItem(`wallboard_layout_${effectiveUid}`);
+        if (localRaw) return normalizeWallboardLayout(JSON.parse(localRaw));
+      } catch (e) {}
+    }
+    return null;
+  })();
+
+  const [agentCardDensity, setAgentCardDensity] = useState(() => initialNorm?.agentCardDensity || "standard");
+  const [agentSortBy, setAgentSortBy] = useState(() => initialNorm?.agentSortBy || "status");
+  const [statusColors, setStatusColors] = useState(() => initialNorm?.statusColors || { ...DEFAULT_STATUS_COLORS, breakColors: {} });
   const [systemBreaks, setSystemBreaks] = useState([]);
 
   const API_BASE = typeof window !== "undefined" ? `${window.location.protocol}//${backendHost}` : "";
-  const effectiveUid = String(
-    currentUserId || (typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null) || "admin"
-  );
 
   useEffect(() => {
     try {
       const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
       if (localRaw) {
         const norm = normalizeWallboardLayout(JSON.parse(localRaw));
+        setAgentCardDensity(norm.agentCardDensity || "standard");
+        setAgentSortBy(norm.agentSortBy || "status");
+        setStatusColors(norm.statusColors);
+      } else if (currentUser?.wallboard_layout && Object.keys(currentUser.wallboard_layout).length > 0) {
+        const norm = normalizeWallboardLayout(currentUser.wallboard_layout);
         setAgentCardDensity(norm.agentCardDensity || "standard");
         setAgentSortBy(norm.agentSortBy || "status");
         setStatusColors(norm.statusColors);
@@ -86,9 +109,12 @@ export function CallPanelAgentsAppearanceSettings({
 
   const syncAppearance = (patch = {}) => {
     let existing = {};
+    if (currentUser?.wallboard_layout && typeof currentUser.wallboard_layout === "object") {
+      existing = { ...currentUser.wallboard_layout };
+    }
     try {
       const localRaw = typeof window !== "undefined" ? localStorage.getItem(`wallboard_layout_${effectiveUid}`) : null;
-      if (localRaw) existing = JSON.parse(localRaw) || {};
+      if (localRaw) existing = { ...existing, ...(JSON.parse(localRaw) || {}) };
     } catch (e) {}
 
     const payload = {
@@ -399,19 +425,34 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
-  const [localPrefs, setLocalPrefs] = useState(() => panelPrefs || loadCallPanelPrefs(currentUser));
-  const [statusColors, setStatusColors] = useState(() => ({ ...DEFAULT_STATUS_COLORS, breakColors: {} }));
-  const [agentCardDensity, setAgentCardDensity] = useState("standard");
-  const [agentSortBy, setAgentSortBy] = useState("status");
-
-  const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
-  const API_BASE = `${typeof window !== "undefined" ? window.location.protocol : "http:"}//${host}`;
-
   const myUserId = currentUser?.id ? String(currentUser.id) : "";
   const myExtension = currentUser?.extension ? String(currentUser.extension) : "";
   const effectiveUid = String(
-    myUserId || (typeof window !== "undefined" ? localStorage.getItem("current_user_id") : null) || "admin"
+    myUserId ||
+      (typeof window !== "undefined" ? sessionStorage.getItem("current_user_id") || localStorage.getItem("current_user_id") : null) ||
+      "admin"
   );
+
+  const initialWbNorm = useMemo(() => {
+    if (currentUser?.wallboard_layout && typeof currentUser.wallboard_layout === "object" && Object.keys(currentUser.wallboard_layout).length > 0) {
+      return normalizeWallboardLayout(currentUser.wallboard_layout);
+    }
+    if (typeof window !== "undefined") {
+      try {
+        const localRaw = localStorage.getItem(`wallboard_layout_${effectiveUid}`);
+        if (localRaw) return normalizeWallboardLayout(JSON.parse(localRaw));
+      } catch (e) {}
+    }
+    return null;
+  }, [effectiveUid, currentUser?.wallboard_layout]);
+
+  const [localPrefs, setLocalPrefs] = useState(() => panelPrefs || loadCallPanelPrefs(currentUser));
+  const [statusColors, setStatusColors] = useState(() => initialWbNorm?.statusColors || { ...DEFAULT_STATUS_COLORS, breakColors: {} });
+  const [agentCardDensity, setAgentCardDensity] = useState(() => initialWbNorm?.agentCardDensity || "standard");
+  const [agentSortBy, setAgentSortBy] = useState(() => initialWbNorm?.agentSortBy || "status");
+
+  const host = backendHost || (typeof window !== "undefined" ? window.location.host : "localhost:8000");
+  const API_BASE = `${typeof window !== "undefined" ? window.location.protocol : "http:"}//${host}`;
 
   useEffect(() => {
     if (panelPrefs) {
@@ -430,6 +471,11 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
         setStatusColors(norm.statusColors);
         setAgentCardDensity(norm.agentCardDensity || "standard");
         setAgentSortBy(norm.agentSortBy || "status");
+      } else if (currentUser?.wallboard_layout && Object.keys(currentUser.wallboard_layout).length > 0) {
+        const norm = normalizeWallboardLayout(currentUser.wallboard_layout);
+        setStatusColors(norm.statusColors);
+        setAgentCardDensity(norm.agentCardDensity || "standard");
+        setAgentSortBy(norm.agentSortBy || "status");
       }
     } catch (e) {}
 
@@ -443,6 +489,9 @@ export default function AgentQueuePeersTab({ backendHost, currentUser, callPanel
           setStatusColors(norm.statusColors);
           setAgentCardDensity(norm.agentCardDensity || "standard");
           setAgentSortBy(norm.agentSortBy || "status");
+          if (typeof window !== "undefined") {
+            localStorage.setItem(`wallboard_layout_${effectiveUid}`, JSON.stringify(norm));
+          }
         }
       })
       .catch(() => {});

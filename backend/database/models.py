@@ -258,6 +258,9 @@ class SystemUser(Base):
     managed_users = Column(JSON, default=list)
     managed_queues = Column(JSON, default=list)
     cti_config = Column(JSON, default=dict)
+    theme_mode = Column(String, default="light")
+    call_panel_prefs = Column(JSON, default=dict)
+    wallboard_layout = Column(JSON, default=dict)
 
 class SystemRole(Base):
     __tablename__ = "system_roles"

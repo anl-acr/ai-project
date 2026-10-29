@@ -138,6 +138,7 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState("dashboard"); // dashboard, call-center, pbx-settings, channel-settings, rag-kb, rule-editor
   const [isAgentFullScreenMode, setIsAgentFullScreenMode] = useState(false);
   const [isAgentOnlyUser, setIsAgentOnlyUser] = useState(false);
+  const [isWallboardOnlyUser, setIsWallboardOnlyUser] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isAuthChecking, setIsAuthChecking] = useState(true);
@@ -964,6 +965,39 @@ export default function Home() {
   const backendHost = getBackendHost();
 
 
+  const persistUserVisualPatch = React.useCallback((patchPayload, userOverride = null) => {
+    try {
+      if (typeof window === "undefined" || !patchPayload || typeof patchPayload !== "object") return;
+      const targetUser = userOverride || currentUser;
+      const uid =
+        targetUser?.id ||
+        targetUser?.extension ||
+        sessionStorage.getItem("current_user_id") ||
+        localStorage.getItem("current_user_id");
+      if (!uid) return;
+      setCurrentUser((prev) => (prev ? { ...prev, ...patchPayload } : prev));
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      fetch(`${protocol}//${backendHost}/api/agent/profile/${encodeURIComponent(String(uid))}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-User-ID": String(uid)
+        },
+        body: JSON.stringify(patchPayload)
+      }).catch(() => {});
+    } catch (e) {}
+  }, [backendHost, currentUser]);
+
+  React.useEffect(() => {
+    const handleWbStateSync = (e) => {
+      if (e?.detail && typeof e.detail === "object") {
+        setCurrentUser((prev) => (prev ? { ...prev, wallboard_layout: e.detail } : prev));
+      }
+    };
+    window.addEventListener("wallboard-layout-updated", handleWbStateSync);
+    return () => window.removeEventListener("wallboard-layout-updated", handleWbStateSync);
+  }, []);
+
   const checkRolePermissions = async (providedUser = null) => {
     let currentUserData = providedUser || null;
     try {
@@ -971,47 +1005,44 @@ export default function Home() {
       const savedAuth = sessionStorage.getItem('is_logged_in') === 'true' || localStorage.getItem('is_logged_in') === 'true';
       const savedUserId = sessionStorage.getItem('current_user_id') || localStorage.getItem('current_user_id');
 
-      if (savedAuth && savedUserId) {
-        if (savedUserId === 'admin') {
-          currentUserData = SUPER_ADMIN;
-          setCurrentUser(SUPER_ADMIN);
-          
-          setHasOmnichannelPermission(true);
-          setHasContactsPermission(true);
-          setHasBlacklistPermission(true);
-          setHasMobileTransferPermission(true);
-          setHasReportsPermission(true);
-          setHasUsersPermission(true);
-          setHasAnnouncementsPermission(true);
-          setHasQueuesPermission(true);
-          setHasAutoprovisionPermission(true);
-          setHasOutboundRulesPermission(true);
-          setHasInboundRulesPermission(true);
-          setHasCallPickupPermission(true);
-          setHasSubscriberGroupsPermission(true);
-          setHasTrunksPermission(true);
-          setHasConferencesPermission(true);
-          setHasSpeedDialPermission(true);
-        }
-      } else if (!providedUser) {
+      if (!savedAuth && !savedUserId && !providedUser) {
         setIsLoggedIn(false);
+        setCurrentUser(null);
+        setIsAuthChecking(false);
+        return;
       }
 
-      // 2. Fetch users and role permissions from backend
+      // 2. Fetch users and role permissions in parallel so everything resolves in one single step
       const protocol = window.location.protocol === "https:" ? "https:" : "http:";
       let usersData = [];
+      let rolesData = [];
       try {
-        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
-        if (resUsers.ok) {
+        const [resUsers, resRoles] = await Promise.all([
+          fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`).catch(() => null),
+          fetch(`${protocol}//${backendHost}/api/settings/roles`).catch(() => null)
+        ]);
+        if (resUsers && resUsers.ok) {
           usersData = await resUsers.json();
           if (Array.isArray(usersData)) setSystemUsers(usersData);
         }
+        if (resRoles && resRoles.ok) {
+          const parsedRoles = await resRoles.json();
+          rolesData = Array.isArray(parsedRoles) ? parsedRoles : (parsedRoles?.roles || []);
+        }
       } catch (err) {
-        console.warn("Users data fetch warning:", err);
+        console.warn("Users/roles data fetch warning:", err);
       }
 
       // 3. Resolve exact current user profile and role
-      if (savedAuth && savedUserId) {
+      if (providedUser) {
+        const freshMatch = Array.isArray(usersData)
+          ? usersData.find(u =>
+              (providedUser.id && String(u.id) === String(providedUser.id)) ||
+              (providedUser.extension && String(u.extension) === String(providedUser.extension))
+            )
+          : null;
+        currentUserData = freshMatch ? { ...providedUser, ...freshMatch } : providedUser;
+      } else if (savedAuth && savedUserId) {
         if (savedUserId === 'admin') {
           const adminUserFromDb = Array.isArray(usersData) ? usersData.find(u => u.role === 'admin' || u.username === 'admin' || u.id === 1) : null;
           currentUserData = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
@@ -1019,8 +1050,8 @@ export default function Home() {
           const found = usersData.find(u => String(u.id) === String(savedUserId) || String(u.extension) === String(savedUserId) || u.email === savedUserId || u.username === savedUserId);
           if (found) {
             currentUserData = found;
-          } else if (!providedUser) {
-            // Invalid / Ghost user ID in localStorage! Clean stale state cleanly.
+          } else {
+            // Invalid / Ghost user ID in storage — clean stale state
             localStorage.removeItem('is_logged_in');
             localStorage.removeItem('current_user_id');
             sessionStorage.removeItem('is_logged_in');
@@ -1033,38 +1064,14 @@ export default function Home() {
         }
       }
 
-      if (providedUser) {
-        currentUserData = providedUser;
-      }
-
-      if (currentUserData) {
-        setIsLoggedIn(true);
-        setCurrentUser(currentUserData);
-      } else {
+      if (!currentUserData) {
         setIsLoggedIn(false);
+        setCurrentUser(null);
         setIsAuthChecking(false);
         return;
       }
 
-      if (currentUserData.role === 'admin') {
-        setHasOmnichannelPermission(true);
-        setHasContactsPermission(true);
-        setHasBlacklistPermission(true);
-        setHasMobileTransferPermission(true);
-        setHasReportsPermission(true);
-        setHasUsersPermission(true);
-        setHasAnnouncementsPermission(true);
-        setHasQueuesPermission(true);
-        setHasAutoprovisionPermission(true);
-        setHasOutboundRulesPermission(true);
-        setHasInboundRulesPermission(true);
-        setHasCallPickupPermission(true);
-        setHasSubscriberGroupsPermission(true);
-        setHasTrunksPermission(true);
-        setHasConferencesPermission(true);
-        setHasSpeedDialPermission(true);
-      }
-
+      // 4. Hydrate saved visual preferences (Avatar, Theme Color, Dark/Light Mode, Call Panel Prefs, Wallboard Layout) BEFORE revealing UI
       if (currentUserData.avatar) {
         setAgentAvatar(currentUserData.avatar);
       }
@@ -1073,57 +1080,55 @@ export default function Home() {
         const safeColor = getSafeThemeColor(currentUserData.theme_color);
         document.documentElement.style.setProperty("--color-primary", safeColor);
         localStorage.setItem("theme_primary_color", safeColor);
+        setTempThemeColor(safeColor);
       }
-      
-      const resRoles = await fetch(`${protocol}//${backendHost}/api/settings/roles`);
-      const rolesData = await resRoles.json();
-      const currentRole = Array.isArray(rolesData) ? rolesData.find(r => r.role_code === currentUserData.role) : null;
-      if (currentRole && Array.isArray(currentRole.permissions)) {
-        setCurrentRolePermissions(currentRole.permissions);
+
+      if (currentUserData.theme_mode === "dark" || currentUserData.theme_mode === "light") {
+        const wantDark = currentUserData.theme_mode === "dark";
+        setIsDarkMode(wantDark);
+        localStorage.setItem("theme", currentUserData.theme_mode);
+        if (wantDark) {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
       }
-      
+
+      if (currentUserData.wallboard_layout && typeof currentUserData.wallboard_layout === "object" && Object.keys(currentUserData.wallboard_layout).length > 0) {
+        try {
+          const wbUid = String(currentUserData.id || savedUserId || "admin");
+          localStorage.setItem(`wallboard_layout_${wbUid}`, JSON.stringify(currentUserData.wallboard_layout));
+          if (savedUserId === "admin") {
+            localStorage.setItem("wallboard_layout_admin", JSON.stringify(currentUserData.wallboard_layout));
+          }
+        } catch (e) {}
+      }
+
+      const resolvedPanelPrefs = loadCallPanelPrefs(currentUserData);
+      setCallPanelPrefs(resolvedPanelPrefs);
+
+      // 5. Resolve Role Permissions & Initial Screen BEFORE setting isLoggedIn(true)
+      const userRoleLower = String(currentUserData.role || "").toLowerCase().trim();
+      const currentRole = Array.isArray(rolesData)
+        ? rolesData.find(r =>
+            String(r.role_code || "").toLowerCase().trim() === userRoleLower ||
+            String(r.name || "").toLowerCase().trim() === userRoleLower ||
+            String(r.id || "").toLowerCase().trim() === userRoleLower
+          )
+        : null;
+
+      const permsList = currentRole && Array.isArray(currentRole.permissions) ? currentRole.permissions : [];
+      setCurrentRolePermissions(permsList);
+
       const hasPerm = (prefix) => {
-        return currentRole && currentRole.permissions && currentRole.permissions.some(p => p.startsWith(prefix + ':'));
+        return permsList.some(p => p === prefix || p.startsWith(prefix + ':'));
       };
 
-      if (!currentRole) {
-        if (currentUserData.role === 'admin') {
-          // Give admin full permissions by default
-          setHasOmnichannelPermission(true);
-          setHasContactsPermission(true);
-          setHasBlacklistPermission(true);
-          setHasMobileTransferPermission(true);
-          setHasReportsPermission(true);
-          setHasUsersPermission(true);
-          setHasAnnouncementsPermission(true);
-          setHasQueuesPermission(true);
-          setHasAutoprovisionPermission(true);
-          setHasOutboundRulesPermission(true);
-          setHasInboundRulesPermission(true);
-          setHasCallPickupPermission(true);
-          setHasSubscriberGroupsPermission(true);
-          setHasTrunksPermission(true);
-          setHasConferencesPermission(true);
-          setHasSpeedDialPermission(true);
-        } else {
-          setHasOmnichannelPermission(false);
-          setHasContactsPermission(false);
-          setHasBlacklistPermission(false);
-          setHasMobileTransferPermission(false);
-          setHasReportsPermission(false);
-          setHasUsersPermission(false);
-          setHasAnnouncementsPermission(false);
-          setHasQueuesPermission(false);
-          setHasAutoprovisionPermission(false);
-          setHasOutboundRulesPermission(false);
-          setHasInboundRulesPermission(false);
-          setHasCallPickupPermission(false);
-          setHasSubscriberGroupsPermission(false);
-          setHasTrunksPermission(false);
-          setHasConferencesPermission(false);
-          setHasSpeedDialPermission(false);
-        }
-      } else if (currentUserData.role === 'admin' || currentRole.role_code === 'admin') {
+      const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+      const explicitUrlTabSlug = urlParams ? urlParams.get("tab") : null;
+      const explicitUrlTab = explicitUrlTabSlug ? getTabFromTurkishSlug(explicitUrlTabSlug) : null;
+
+      if (userRoleLower === 'admin' || (currentRole && currentRole.role_code === 'admin')) {
         setHasOmnichannelPermission(true);
         setHasContactsPermission(true);
         setHasBlacklistPermission(true);
@@ -1141,64 +1146,162 @@ export default function Home() {
         setHasConferencesPermission(true);
         setHasSpeedDialPermission(true);
         setIsAgentOnlyUser(false);
+        setIsWallboardOnlyUser(false);
         setIsAgentFullScreenMode(false);
+        if (explicitUrlTab) {
+          setActiveTab(explicitUrlTab);
+        }
+      } else if (!currentRole) {
+        setHasOmnichannelPermission(false);
+        setHasContactsPermission(false);
+        setHasBlacklistPermission(false);
+        setHasMobileTransferPermission(false);
+        setHasReportsPermission(false);
+        setHasUsersPermission(false);
+        setHasAnnouncementsPermission(false);
+        setHasQueuesPermission(false);
+        setHasAutoprovisionPermission(false);
+        setHasOutboundRulesPermission(false);
+        setHasInboundRulesPermission(false);
+        setHasCallPickupPermission(false);
+        setHasSubscriberGroupsPermission(false);
+        setHasTrunksPermission(false);
+        setHasConferencesPermission(false);
+        setHasSpeedDialPermission(false);
+        setIsWallboardOnlyUser(false);
+        setIsAgentOnlyUser(true);
+        setIsAgentFullScreenMode(true);
+        setActiveTab('call-center');
       } else {
-        setHasOmnichannelPermission(hasPerm('omnichannel'));
-        setHasContactsPermission(hasPerm('contacts'));
-        setHasBlacklistPermission(hasPerm('blacklist'));
-        setHasMobileTransferPermission(hasPerm('mobile_transfer'));
-        setHasReportsPermission(hasPerm('reports'));
-        setHasUsersPermission(hasPerm('users'));
-        setHasAnnouncementsPermission(hasPerm('announcements'));
-        setHasQueuesPermission(hasPerm('acd_queues'));
-        setHasAutoprovisionPermission(hasPerm('autoprovision'));
-        setHasOutboundRulesPermission(hasPerm('outbound_rules'));
-        setHasInboundRulesPermission(hasPerm('inbound_rules'));
-        setHasCallPickupPermission(hasPerm('call_pickup_groups'));
-        setHasSubscriberGroupsPermission(hasPerm('subscriber_groups'));
-        setHasTrunksPermission(hasPerm('trunks'));
-        setHasConferencesPermission(hasPerm('conferences'));
-        setHasSpeedDialPermission(hasPerm('speed_dials'));
+        const canOmni = hasPerm('omnichannel');
+        const canContacts = hasPerm('contacts');
+        const canBlacklist = hasPerm('blacklist');
+        const canMobTransfer = hasPerm('mobile_transfer');
+        const canReports = hasPerm('reports') || permsList.some(p => p.startsWith('reports_'));
+        const canUsers = hasPerm('users');
+        const canAnnouncements = hasPerm('announcements');
+        const canQueues = hasPerm('acd_queues');
+        const canAutoprov = hasPerm('autoprovision');
+        const canOutRules = hasPerm('outbound_rules');
+        const canInRules = hasPerm('inbound_rules');
+        const canPickup = hasPerm('call_pickup_groups');
+        const canSubGroups = hasPerm('subscriber_groups');
+        const canTrunks = hasPerm('trunks');
+        const canConfs = hasPerm('conferences');
+        const canSpeedDial = hasPerm('speed_dials');
 
-        const roleCodeLower = String(currentUserData.role || "").toLowerCase();
-        const hasAdminOrSupModules =
-          hasPerm('dashboard') ||
-          hasPerm('wallboard') ||
-          hasPerm('reports') ||
-          hasPerm('users') ||
+        setHasOmnichannelPermission(canOmni);
+        setHasContactsPermission(canContacts);
+        setHasBlacklistPermission(canBlacklist);
+        setHasMobileTransferPermission(canMobTransfer);
+        setHasReportsPermission(canReports);
+        setHasUsersPermission(canUsers);
+        setHasAnnouncementsPermission(canAnnouncements);
+        setHasQueuesPermission(canQueues);
+        setHasAutoprovisionPermission(canAutoprov);
+        setHasOutboundRulesPermission(canOutRules);
+        setHasInboundRulesPermission(canInRules);
+        setHasCallPickupPermission(canPickup);
+        setHasSubscriberGroupsPermission(canSubGroups);
+        setHasTrunksPermission(canTrunks);
+        setHasConferencesPermission(canConfs);
+        setHasSpeedDialPermission(canSpeedDial);
+
+        const canDashboard = hasPerm('dashboard');
+        const canWallboard = hasPerm('wallboard');
+        const canCallPanel = hasPerm('call_panel');
+        const canAiModules = hasPerm('ai_agents') || hasPerm('rag') || hasPerm('knowledge_base') || hasPerm('rules');
+        const canPbxOrSysModules =
+          canUsers ||
           hasPerm('pbx') ||
-          hasPerm('acd_queues') ||
-          hasPerm('trunks');
-        if (roleCodeLower === 'agent' || !hasAdminOrSupModules) {
+          canAnnouncements ||
+          canQueues ||
+          canAutoprov ||
+          canOutRules ||
+          canInRules ||
+          canPickup ||
+          canSubGroups ||
+          canTrunks ||
+          canConfs ||
+          canSpeedDial ||
+          hasPerm('call_flow') ||
+          hasPerm('dialer') ||
+          canContacts ||
+          canBlacklist ||
+          hasPerm('calendar') ||
+          hasPerm('roles') ||
+          hasPerm('breaks') ||
+          hasPerm('channels') ||
+          hasPerm('logs') ||
+          hasPerm('storage') ||
+          hasPerm('sip_debugger') ||
+          hasPerm('security');
+
+        // Dedicated Wallboard / Call Monitoring Only Role (no sidebar clutter)
+        if (canWallboard && !canDashboard && !canCallPanel && !canOmni && !canReports && !canAiModules && !canPbxOrSysModules) {
+          setIsWallboardOnlyUser(true);
+          setIsAgentOnlyUser(false);
+          setIsAgentFullScreenMode(false);
+          setActiveTab('wallboard');
+        } else if (userRoleLower === 'agent' || (!canDashboard && !canWallboard && !canReports && !canAiModules && !canPbxOrSysModules)) {
+          // Dedicated Call Panel / Agent Monitoring Role (full-screen Call Panel)
+          setIsWallboardOnlyUser(false);
           setIsAgentOnlyUser(true);
           setIsAgentFullScreenMode(true);
           setActiveTab('call-center');
         } else {
+          setIsWallboardOnlyUser(false);
           setIsAgentOnlyUser(false);
+          // Ensure multi-module roles without dashboard:access never start on "dashboard"
+          const isExplicitTabAllowed =
+            explicitUrlTab &&
+            ((explicitUrlTab === 'dashboard' && canDashboard) ||
+              (explicitUrlTab === 'wallboard' && canWallboard) ||
+              (explicitUrlTab === 'call-center' && canCallPanel) ||
+              (explicitUrlTab === 'omnichannel' && canOmni) ||
+              (explicitUrlTab.startsWith('reports-') && canReports) ||
+              explicitUrlTab !== 'dashboard');
+
+          if (isExplicitTabAllowed) {
+            setActiveTab(explicitUrlTab);
+          } else if (!canDashboard) {
+            if (canWallboard) setActiveTab('wallboard');
+            else if (canCallPanel) setActiveTab('call-center');
+            else if (canOmni) setActiveTab('omnichannel');
+            else if (canReports) setActiveTab('reports-pano');
+            else if (canUsers) setActiveTab('users');
+            else if (canContacts) setActiveTab('contacts');
+          }
         }
       }
+
+      // 6. Commit user & logged-in state in the exact same synchronous batch so Admin Panel never flashes
+      setCurrentUser(currentUserData);
+      setIsLoggedIn(true);
       setIsAuthChecking(false);
     } catch (e) {
       console.error("Role permission check failed:", e);
-      
-      // Even if fetch fails, if we already loaded Admin or providedUser, we are good to go!
-      if (currentUserData && currentUserData.role === 'admin') {
-        setHasOmnichannelPermission(true);
-        setHasContactsPermission(true);
-        setHasBlacklistPermission(true);
-        setHasMobileTransferPermission(true);
-        setHasReportsPermission(true);
-        setHasUsersPermission(true);
-        setHasAnnouncementsPermission(true);
-        setHasQueuesPermission(true);
-        setHasAutoprovisionPermission(true);
-        setHasOutboundRulesPermission(true);
-        setHasInboundRulesPermission(true);
-        setHasCallPickupPermission(true);
-        setHasSubscriberGroupsPermission(true);
-        setHasTrunksPermission(true);
-        setHasConferencesPermission(true);
-        setHasSpeedDialPermission(true);
+      if (currentUserData) {
+        if (currentUserData.role === 'admin') {
+          setHasOmnichannelPermission(true);
+          setHasContactsPermission(true);
+          setHasBlacklistPermission(true);
+          setHasMobileTransferPermission(true);
+          setHasReportsPermission(true);
+          setHasUsersPermission(true);
+          setHasAnnouncementsPermission(true);
+          setHasQueuesPermission(true);
+          setHasAutoprovisionPermission(true);
+          setHasOutboundRulesPermission(true);
+          setHasInboundRulesPermission(true);
+          setHasCallPickupPermission(true);
+          setHasSubscriberGroupsPermission(true);
+          setHasTrunksPermission(true);
+          setHasConferencesPermission(true);
+          setHasSpeedDialPermission(true);
+        }
+        setCurrentUser(currentUserData);
+        setIsLoggedIn(true);
       }
       setIsAuthChecking(false);
     }
@@ -1235,15 +1338,13 @@ export default function Home() {
         }
       } catch (e) {
         console.error("Agent presence sync error:", e);
-      } finally {
-        setIsAuthChecking(false);
       }
     };
 
-    // Safety fallback: unblock loading spinner within 1.5 seconds maximum
+    // Safety fallback: unblock loading spinner only if network completely stalls (5s)
     const fallbackTimer = setTimeout(() => {
       setIsAuthChecking(false);
-    }, 1500);
+    }, 5000);
 
     checkRolePermissions();
     syncAgentPresence();
@@ -1291,9 +1392,8 @@ export default function Home() {
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("current_user_id", "admin");
       }
-      setCurrentUser(activeAdminUser);
-      setIsLoggedIn(true);
-      checkRolePermissions(activeAdminUser);
+      setIsAuthChecking(true);
+      await checkRolePermissions(activeAdminUser);
       sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${activeAdminUser.full_name || "Sistem Yöneticisi"} web yönetim paneline giriş yaptı.`, activeAdminUser);
       return { success: true };
     }
@@ -1323,9 +1423,8 @@ export default function Home() {
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("current_user_id", foundUser.id.toString());
       }
-      setCurrentUser(foundUser);
-      setIsLoggedIn(true);
-      checkRolePermissions(foundUser);
+      setIsAuthChecking(true);
+      await checkRolePermissions(foundUser);
       sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi", `${foundUser.full_name || foundUser.username || "Kullanıcı"} (Dahili: ${foundUser.extension || "-"}) sisteme giriş yaptı.`, foundUser);
       return { success: true };
     } else {
@@ -1334,7 +1433,7 @@ export default function Home() {
     }
   };
 
-  const complete2FALogin = (userId, rememberMe) => {
+  const complete2FALogin = async (userId, rememberMe) => {
     let foundUser = systemUsers.find(u => String(u.id) === String(userId) || String(u.extension) === String(userId));
     if (!foundUser && (String(userId) === "admin" || String(userId) === "1")) {
       const adminDb = systemUsers.find(u => u.role === "admin" || u.username === "admin");
@@ -1349,9 +1448,8 @@ export default function Home() {
         localStorage.setItem("is_logged_in", "true");
         localStorage.setItem("current_user_id", storeId);
       }
-      setCurrentUser(updatedUser);
-      setIsLoggedIn(true);
-      checkRolePermissions(updatedUser);
+      setIsAuthChecking(true);
+      await checkRolePermissions(updatedUser);
       sendUserAuditActivity("LOGIN", "Auth", "Web Paneli Girişi (2FA)", `${updatedUser.full_name || updatedUser.username || "Kullanıcı"} 2 aşamalı doğrulama ile sisteme giriş yaptı.`, updatedUser);
     }
   };
@@ -1378,8 +1476,10 @@ export default function Home() {
 
   const toggleTheme = () => {
     const newMode = !isDarkMode;
+    const modeStr = newMode ? "dark" : "light";
     setIsDarkMode(newMode);
-    localStorage.setItem("theme", newMode ? "dark" : "light");
+    localStorage.setItem("theme", modeStr);
+    persistUserVisualPatch({ theme_mode: modeStr });
   };
 
   const sendUserAuditActivity = React.useCallback((action, module, screenName, summary, userOverride = null) => {
@@ -1659,7 +1759,7 @@ export default function Home() {
       </Head>
 
       {/* Sidebar Navigation */}
-      {!isEditingCallFlow && !(activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode)) && (
+      {!isEditingCallFlow && !isWallboardOnlyUser && !(activeTab === "call-center" && (isAgentOnlyUser || isAgentFullScreenMode)) && (
         <aside
           onMouseOver={(e) => {
             if (!isSidebarCollapsed) {
@@ -1749,50 +1849,56 @@ export default function Home() {
                 isSidebarCollapsed || openCategories.operations ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
-              <button
-                onClick={() => setActiveTab("dashboard")}
-                title="Gerçek Zamanlı AI Pano"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
-                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "dashboard"
-                    ? "bg-violet-50 dark:bg-violet-950/20 text-violet-600 dark:text-violet-400 border-violet-100/80 dark:border-violet-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Activity size={16} className={`shrink-0 ${activeTab === "dashboard" ? "text-violet-500" : ""}`} />
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Gerçek Zamanlı AI Pano</span>
-              </button>
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "dashboard" || p.startsWith("dashboard:")))) && (
+                <button
+                  onClick={() => setActiveTab("dashboard")}
+                  title="Gerçek Zamanlı AI Pano"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "dashboard"
+                      ? "bg-violet-50 dark:bg-violet-950/20 text-violet-600 dark:text-violet-400 border-violet-100/80 dark:border-violet-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Activity size={16} className={`shrink-0 ${activeTab === "dashboard" ? "text-violet-500" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Gerçek Zamanlı AI Pano</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("wallboard")}
-                title="Canlı İzleme Paneli"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
-                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "wallboard"
-                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Monitor size={16} className={`shrink-0 ${activeTab === "wallboard" ? "text-primary" : ""}`} />
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Canlı İzleme Paneli</span>
-              </button>
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "wallboard" || p.startsWith("wallboard:")))) && (
+                <button
+                  onClick={() => setActiveTab("wallboard")}
+                  title="Canlı İzleme Paneli"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "wallboard"
+                      ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Monitor size={16} className={`shrink-0 ${activeTab === "wallboard" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Canlı İzleme Paneli</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("call-center")}
-                title="Temsilci Çağrı Paneli"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
-                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "call-center"
-                    ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Phone size={16} className={`shrink-0 ${activeTab === "call-center" ? "text-primary" : ""}`} />
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Temsilci Çağrı Paneli</span>
-              </button>
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "call_panel" || p.startsWith("call_panel:")))) && (
+                <button
+                  onClick={() => setActiveTab("call-center")}
+                  title="Temsilci Çağrı Paneli"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "call-center"
+                      ? "bg-purple-50 dark:bg-purple-950/20 text-primary dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Phone size={16} className={`shrink-0 ${activeTab === "call-center" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Temsilci Çağrı Paneli</span>
+                </button>
+              )}
 
               {hasOmnichannelPermission && (
                 <button
@@ -1811,24 +1917,27 @@ export default function Home() {
                 </button>
               )}
 
-              <button
-                onClick={() => setActiveTab("api-budgets")}
-                title="API Bütçe ve Tüketim"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
-                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "api-budgets"
-                    ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Database size={16} className={`shrink-0 ${activeTab === "api-budgets" ? "text-primary" : ""}`} />
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>API Bütçe ve Tüketim</span>
-              </button>
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p === "api_budgets" || p.startsWith("api_budgets:") || p.startsWith("budget:")))) && (
+                <button
+                  onClick={() => setActiveTab("api-budgets")}
+                  title="API Bütçe ve Tüketim"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "api-budgets"
+                      ? "bg-emerald-50 dark:bg-emerald-950/20 text-primary dark:text-emerald-400 border-emerald-100/80 dark:border-emerald-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Database size={16} className={`shrink-0 ${activeTab === "api-budgets" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>API Bütçe ve Tüketim</span>
+                </button>
+              )}
             </div>
           </div>
 
           {/* Group 2: Yapay Zeka & Bilgi */}
+          {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:") || p.startsWith("rag:") || p.startsWith("knowledge_base:") || p.startsWith("rules:")))) && (
           <div className="flex flex-col gap-1">
             {!isSidebarCollapsed ? (
               <button
@@ -1852,52 +1961,59 @@ export default function Home() {
                 isSidebarCollapsed || openCategories.ai ? "max-h-[500px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
-              <button
-                onClick={() => setActiveTab("ai-agents")}
-                title="AI Temsilcileri"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
-                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "ai-agents"
-                    ? "bg-purple-50 dark:bg-purple-950/20 text-purple-655 dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Bot size={16} className={`shrink-0 ${activeTab === "ai-agents" ? "text-primary" : ""}`} />
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>AI Temsilcileri</span>
-              </button>
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("ai_agents:")))) && (
+                <button
+                  onClick={() => setActiveTab("ai-agents")}
+                  title="AI Temsilcileri"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "ai-agents"
+                      ? "bg-purple-50 dark:bg-purple-950/20 text-purple-655 dark:text-purple-400 border-purple-100/80 dark:border-purple-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Bot size={16} className={`shrink-0 ${activeTab === "ai-agents" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>AI Temsilcileri</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("rag-kb")}
-                title="Bilgi Bankası (RAG)"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
-                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "rag-kb"
-                    ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-100/80 dark:border-blue-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Database size={16} className={`shrink-0 ${activeTab === "rag-kb" ? "text-primary" : ""}`} />
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Bilgi Bankası (RAG)</span>
-              </button>
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rag:") || p.startsWith("knowledge_base:")))) && (
+                <button
+                  onClick={() => setActiveTab("rag-kb")}
+                  title="Bilgi Bankası (RAG)"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "rag-kb"
+                      ? "bg-blue-50 dark:bg-blue-950/20 text-primary dark:text-blue-400 border-blue-100/80 dark:border-blue-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Database size={16} className={`shrink-0 ${activeTab === "rag-kb" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Bilgi Bankası (RAG)</span>
+                </button>
+              )}
 
-              <button
-                onClick={() => setActiveTab("rule-editor")}
-                title="Kural & Senaryo Editörü"
-                className={`w-full flex items-center ${
-                  isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
-                } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
-                  activeTab === "rule-editor"
-                    ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
-                    : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
-                }`}
-              >
-                <Sliders size={16} className={`shrink-0 ${activeTab === "rule-editor" ? "text-primary" : ""}`} />
-                <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kural & Senaryo Editörü</span>
-              </button>
+              {(currentUser?.role === "admin" || (Array.isArray(currentRolePermissions) && currentRolePermissions.some(p => p.startsWith("rules:")))) && (
+                <button
+                  onClick={() => setActiveTab("rule-editor")}
+                  title="Kural & Senaryo Editörü"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "rule-editor"
+                      ? "bg-indigo-50 dark:bg-indigo-950/20 text-primary dark:text-indigo-400 border-indigo-100/80 dark:border-indigo-900/30 shadow-sm"
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Sliders size={16} className={`shrink-0 ${activeTab === "rule-editor" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Kural & Senaryo Editörü</span>
+                </button>
+              )}
             </div>
           </div>
+          )}
 
           {/* Group 2.5: Santral */}
           <div className="flex flex-col gap-1">
@@ -2820,6 +2936,22 @@ export default function Home() {
               </div>
             )}
 
+            {activeTab === "wallboard" && isWallboardOnlyUser && (
+              <div className="flex items-center gap-2.5 pr-2">
+                <div className="h-8 w-8 shrink-0 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 flex items-center justify-center text-white shadow-sm">
+                  <Monitor size={18} />
+                </div>
+                <div>
+                  <div className="font-extrabold text-sm tracking-tight text-slate-900 dark:text-white leading-none">
+                    <span className="text-rose-600 dark:text-rose-500">AI</span>DA
+                  </div>
+                  <div className="text-[9px] text-slate-400 font-bold uppercase tracking-wider mt-0.5">
+                    CANLI İZLEME PANELİ
+                  </div>
+                </div>
+              </div>
+            )}
+
             {activeTab === "call-center" && !isAgentOnlyUser && (
               <button
                 type="button"
@@ -2849,7 +2981,7 @@ export default function Home() {
           )}
 
           {/* Global Search & Action Center Bar */}
-          {!isAgentOnlyUser && currentUser?.role !== "agent" && !(activeTab === "call-center" && (isAgentFullScreenMode || callPanelPrefs?.navPosition === "top")) && (
+          {!isAgentOnlyUser && !isWallboardOnlyUser && currentUser?.role !== "agent" && !(activeTab === "call-center" && (isAgentFullScreenMode || callPanelPrefs?.navPosition === "top")) && (
             <GlobalSearchBar
               backendHost={backendHost}
               currentUser={currentUser}
@@ -2869,6 +3001,7 @@ export default function Home() {
                 const current = loadCallPanelPrefs(currentUser);
                 const next = saveCallPanelPrefs(currentUser, { ...current, ...patch });
                 setCallPanelPrefs(next);
+                persistUserVisualPatch({ call_panel_prefs: next });
               }}
             />
           )}
@@ -3084,6 +3217,7 @@ export default function Home() {
               currentUser={currentUser} 
               activeCallId={activeCallId} 
               isVisible={activeTab === "call-center"}
+              initialPermissions={currentRolePermissions}
             />
           </div>
 
@@ -3295,7 +3429,7 @@ export default function Home() {
           )}
 
           {activeTab === "wallboard" && (
-            <WallboardPanel backendHost={backendHost} />
+            <WallboardPanel backendHost={backendHost} currentUser={currentUser} />
           )}
 
           {activeTab === "api-budgets" && (
@@ -3412,6 +3546,7 @@ export default function Home() {
                       <WallboardStudioSettings
                         backendHost={backendHost}
                         currentUserId={currentUser?.id || currentUser?.extension || "admin"}
+                        currentUser={currentUser}
                       />
                     )}
 
@@ -3446,6 +3581,7 @@ export default function Home() {
                     };
                     setCallPanelPrefs(next);
                     saveCallPanelPrefs(currentUser, next);
+                    persistUserVisualPatch({ call_panel_prefs: next });
                   };
 
                   const moveTabItem = (index, direction) => {
@@ -3743,6 +3879,7 @@ export default function Home() {
                       <CallPanelAgentsAppearanceSettings
                         backendHost={backendHost}
                         currentUserId={currentUser?.id || currentUser?.extension || "admin"}
+                        currentUser={currentUser}
                       />
 
                       {/* 3. Temsilci Çağrı Paneli Seçeneklerinin Sıralaması */}
@@ -4223,6 +4360,8 @@ export default function Home() {
                           const safeColor = getSafeThemeColor(t.value);
                           setTempThemeColor(safeColor);
                           document.documentElement.style.setProperty("--color-primary", safeColor);
+                          localStorage.setItem("theme_primary_color", safeColor);
+                          persistUserVisualPatch({ theme_color: safeColor });
                         }}
                         className={`p-2 rounded-xl border flex flex-col items-center gap-1.5 transition-all ${
                           tempThemeColor === t.value
@@ -5005,6 +5144,7 @@ export default function Home() {
                                 avatar: agentAvatar,
                                 ...mobileTransferPayload,
                                 theme_color: tempThemeColor,
+                                theme_mode: isDarkMode ? "dark" : "light",
                                 forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
                                 forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
                                 forwarding_no_answer: { active: Boolean(fwdNoAnswerActive && fwdNoAnswerTarget), type: fwdNoAnswerType || "internal", target: fwdNoAnswerTarget || "", timeout: fwdNoAnswerTimeout || 20 },
