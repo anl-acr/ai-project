@@ -785,7 +785,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const baseCdrColumns = {
     startTime: "Tarih / Saat",
     callId: "Çağrı ID",
-    callerNumber: "Arayan Numara",
+    callerNumber: "Numara",
     direction: "Yön",
     status: "Çağrı Durumu",
     conversant: "Görüşen Kişi",
@@ -841,7 +841,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       sentiment: "Duygu Etkisi"
     },
     fcr: {
-      caller: "Arayan Numara",
+      caller: "Numara",
       callCount: "Arama Sayısı",
       fcrStatus: "FCR Durumu",
       lastAgent: "Son Temsilci",
@@ -855,7 +855,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     },
     missed: {
       startTime: "Tarih / Saat",
-      caller: "Arayan Numara",
+      caller: "Numara",
       waitTime: "Sabır Süresi",
       queue: "Kuyruk",
       cbStatus: "Geri Dönüş Durumu"
@@ -894,7 +894,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     },
     "transfer-hold": {
       startTime: "Tarih / Saat",
-      caller: "Arayan Numara",
+      caller: "Numara",
       firstAgent: "İlk Temsilci",
       hold: "Hold (Bekletme)",
       transfer: "Transfer",
@@ -907,19 +907,19 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       csat: "CSAT"
     },
     friction: {
-      caller: "Arayan Numara",
+      caller: "Numara",
       driver: "Kök Neden (Driver)",
       score: "Çile Skoru",
       sentiment: "Duygu"
     },
     compliance: {
-      caller: "Arayan Numara",
+      caller: "Numara",
       agent: "Temsilci",
       score: "Sadakat Skoru",
       missedStep: "Atlanan / İhlal Edilen Adım"
     },
     silence: {
-      caller: "Arayan Numara",
+      caller: "Numara",
       agent: "Temsilci",
       silenceRate: "Sessizlik Oranı",
       interruptionCount: "Çakışma Sayısı",
@@ -933,7 +933,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     },
     intent: {
       startTime: "Tarih / Saat",
-      caller: "Arayan Numara",
+      caller: "Numara",
       conversant: "Görüşen Kişi",
       intentBadge: "Tespit Edilen Niyet",
       category: "Kategori",
@@ -1310,7 +1310,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
     if (viewMode === "transfer-hold") {
       const thData = computeTransferHoldReportData(filteredCalls);
-      const headers = ["Tarih/Saat", "Arayan Numara", "İlk Temsilci", "Bekletme Süresi (sn)", "Bekletme Sayısı", "Aktarım Durumu", "Aktarılan Birim / Hedef"];
+      const headers = ["Tarih/Saat", "Numara", "İlk Temsilci", "Bekletme Süresi (sn)", "Bekletme Sayısı", "Aktarım Durumu", "Aktarılan Birim / Hedef"];
       csvContent += headers.join(";") + "\n";
       (thData.callsWithEvents || []).forEach((c) => {
         const row = [
@@ -1338,7 +1338,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (viewMode === "intent") {
       const headers = [
         "Tarih / Saat",
-        "Arayan Numara",
+        "Numara",
         "Görüşen Kişi",
         "Tespit Edilen Niyet",
         "Kategori",
@@ -1387,7 +1387,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const headers = [
       "Tarih/Saat",
       "Çağrı ID",
-      "Arayan Numara",
+      "Numara",
       "Yön",
       "Çağrı Durumu",
       "Görüşen Kişi",
@@ -3594,9 +3594,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               {/* Call Summary Panel */}
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
-                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                    {modalDir.includes("Giden") ? "Aranan Numara" : "Arayan Numara"}
-                  </p>
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Numara</p>
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedTimelineCall)}</p>
                 </div>
                 <div>
@@ -3685,9 +3683,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               {/* Call Summary Panel */}
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
-                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                    {getCallDirection(selectedTranscriptCall).includes("Giden") ? "Aranan Numara" : "Arayan Numara"}
-                  </p>
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Numara</p>
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedTranscriptCall)}</p>
                 </div>
                 <div>
@@ -3797,7 +3793,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               {/* Call Summary Panel */}
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
-                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan Numara</p>
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Numara</p>
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedTranscriptCall)}</p>
                 </div>
                 <div>
@@ -4095,7 +4091,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               {/* Call Summary Panel */}
               <div className="grid grid-cols-2 gap-3 p-3 bg-slate-50/50 dark:bg-slate-955/20 border border-slate-100 dark:border-slate-850 rounded-2xl">
                 <div>
-                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Arayan Numara</p>
+                  <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Numara</p>
                   <p className="text-xs font-black text-slate-800 dark:text-slate-200 mt-0.5">{getCustomerNumber(selectedNotesCall)}</p>
                 </div>
                 <div>
@@ -5705,7 +5701,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         <table className="w-full text-left border-collapse min-w-[900px]">
                           <thead>
                             <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                              {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                              {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Numara</th>}
                               {visibleColumns.callCount && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Arama Sayısı</th>}
                               {visibleColumns.fcrStatus && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>FCR Durumu</th>}
                               {visibleColumns.lastAgent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Son Temsilci</th>}
@@ -5951,7 +5947,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           <thead>
                             <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
                               {visibleColumns.startTime && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>}
-                              {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                              {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Numara</th>}
                               {visibleColumns.waitTime && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sabır Süresi</th>}
                               {visibleColumns.queue && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kuyruk</th>}
                               {visibleColumns.cbStatus && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Geri Dönüş Durumu</th>}
@@ -7685,7 +7681,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
                                   {visibleColumns.startTime && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>}
-                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Numara</th>}
                                   {visibleColumns.firstAgent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>İlk Temsilci</th>}
                                   {visibleColumns.hold && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Hold (Bekletme)</th>}
                                   {visibleColumns.transfer && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Transfer</th>}
@@ -8047,7 +8043,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Numara</th>}
                                   {visibleColumns.driver && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Kök Neden (Driver)</th>}
                                   {visibleColumns.score && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Çile Skoru</th>}
                                   {visibleColumns.sentiment && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Duygu</th>}
@@ -8197,7 +8193,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Numara</th>}
                                   {visibleColumns.agent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>}
                                   {visibleColumns.score && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sadakat Skoru</th>}
                                   {visibleColumns.missedStep && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Atlanan / İhlal Edilen Adım</th>}
@@ -8339,7 +8335,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             <table className="w-full text-left border-collapse min-w-[600px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Arayan Numara</th>}
+                                  {visibleColumns.caller && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Numara</th>}
                                   {visibleColumns.agent && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Temsilci</th>}
                                   {visibleColumns.silenceRate && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Sessizlik Oranı</th>}
                                   {visibleColumns.interruptionCount && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Çakışma Sayısı</th>}
@@ -8980,7 +8976,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               )}
                               {visibleColumns.caller && (
                                 <th className="p-3.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                                  Arayan Numara
+                                  Numara
                                 </th>
                               )}
                               {visibleColumns.conversant && (
@@ -9165,7 +9161,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-955/20 sticky top-0 backdrop-blur-sm z-10">
                       {visibleColumns.startTime && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Tarih / Saat</th>}
                       {visibleColumns.callId && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Çağrı ID</th>}
-                      {visibleColumns.callerNumber && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Arayan Numara</th>}
+                      {visibleColumns.callerNumber && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Numara</th>}
                       {visibleColumns.direction && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Yön</th>}
                       {visibleColumns.status && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Çağrı Durumu</th>}
                       {visibleColumns.conversant && <th className="p-4 text-xs font-bold uppercase tracking-wider text-slate-550 dark:text-slate-400">Görüşen Kişi</th>}
@@ -9203,7 +9199,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               {call.id}
                             </td>
                           )}
-                          {/* Arayan Numara */}
+                          {/* Numara */}
                           {visibleColumns.callerNumber && (
                             <td className="p-4 text-xs font-bold text-slate-800 dark:text-slate-200">
                               {pickupMeta ? (
