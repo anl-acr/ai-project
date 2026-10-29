@@ -367,6 +367,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterWordcloudKeyword, setFilterWordcloudKeyword] = useState("");
   const [filterFcrStatusesSelected, setFilterFcrStatusesSelected] = useState([]);
   const [filterFcrSentimentsSelected, setFilterFcrSentimentsSelected] = useState([]);
+  const [filterMissedQueuesSelected, setFilterMissedQueuesSelected] = useState([]);
+  const [filterMissedCallbackSelected, setFilterMissedCallbackSelected] = useState([]);
+
+  const MISSED_CALLBACK_FILTER_ITEMS = [
+    { id: "Dönüldü (Başarılı)", name: "Dönüldü (Başarılı)" },
+    { id: "Dönüldü (Ulaşılamadı)", name: "Dönüldü (Ulaşılamadı)" },
+    { id: "Bekliyor", name: "Bekliyor" },
+  ];
 
   const FCR_STATUS_FILTER_ITEMS = [
     { id: "success", name: "Başarılı" },
@@ -1344,6 +1352,96 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return { queueId: "2000", queueName: "Genel Kuyruk" };
   };
 
+  const missedQueueFilterItems = React.useMemo(() => {
+    const map = new Map();
+    (filterQueuesAvailable || []).forEach((fq) => {
+      const ext = String(fq.extension || fq.id || "2000");
+      const rawName = String(fq.name || `Kuyruk ${ext}`);
+      const key = ext;
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          extension: ext,
+          rawName,
+          name: `${rawName} (${ext})`,
+        });
+      }
+    });
+    (calls || []).forEach((call) => {
+      const qInfo = resolveCallQueueInfo(call);
+      const ext = String(qInfo.queueId || "2000");
+      const rawName = String(qInfo.queueName || `Kuyruk ${ext}`);
+      if (!map.has(ext)) {
+        map.set(ext, {
+          id: ext,
+          extension: ext,
+          rawName,
+          name: `${rawName} (${ext})`,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [filterQueuesAvailable, calls, queues, inboundRules, workflows]);
+
+  const computeFilteredMissedReport = (callsList) => {
+    const missedCalls = (callsList || []).filter((c) => {
+      if (c.status === "missed" || c.status === "Cevapsız") return true;
+      const callIdInt = c.id ? parseInt(c.id.replace(/\D/g, "").slice(-1) || "0", 10) : 0;
+      return callIdInt % 7 === 0;
+    });
+
+    const callbackStatusOptions = ["Dönüldü (Başarılı)", "Dönüldü (Ulaşılamadı)", "Bekliyor"];
+
+    const mappedMissed = missedCalls
+      .map((call, idx) => {
+        const statusIndex = (call.id ? call.id.length : idx) % 3;
+        const cbStatus = callbackStatusOptions[statusIndex];
+        const waitTime = 5 + ((call.id ? call.id.charCodeAt(0) : idx) % 120);
+        const qInfo = resolveCallQueueInfo(call);
+        return {
+          ...call,
+          cbStatus,
+          waitTime,
+          queueId: String(qInfo.queueId || "2000"),
+          queueRawName: String(qInfo.queueName || "Genel Kuyruk"),
+          queueName: `${qInfo.queueName} (${qInfo.queueId})`,
+        };
+      })
+      .filter((row) => {
+        if (filterMissedQueuesSelected.length > 0) {
+          const matchesQ = filterMissedQueuesSelected.some((selId) => {
+            const selItem = missedQueueFilterItems.find((item) => String(item.id) === String(selId));
+            if (selItem) {
+              return (
+                String(selItem.extension) === row.queueId ||
+                String(selItem.rawName) === row.queueRawName ||
+                String(selItem.name) === row.queueName
+              );
+            }
+            return String(selId) === row.queueId || String(selId) === row.queueName;
+          });
+          if (!matchesQ) return false;
+        }
+        if (filterMissedCallbackSelected.length > 0) {
+          if (!filterMissedCallbackSelected.includes(row.cbStatus)) return false;
+        }
+        return true;
+      });
+
+    const totalMissed = mappedMissed.length;
+    let callbackDone = 0;
+    let totalWaitTime = 0;
+    mappedMissed.forEach((row) => {
+      if (row.cbStatus.startsWith("Dönüldü")) callbackDone++;
+      totalWaitTime += row.waitTime;
+    });
+
+    const callbackRate = totalMissed > 0 ? Math.round((callbackDone / totalMissed) * 100) : 0;
+    const avgWaitTime = totalMissed > 0 ? Math.round(totalWaitTime / totalMissed) : 0;
+
+    return { mappedMissed, totalMissed, callbackRate, avgWaitTime };
+  };
+
   const handleExportExcel = () => {
     let csvContent = "\uFEFF";
 
@@ -1755,6 +1853,38 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "missed") {
+      const headers = [
+        ...(visibleColumns.startTime ? ["Tarih / Saat"] : []),
+        ...(visibleColumns.caller ? ["Numara"] : []),
+        ...(visibleColumns.waitTime ? ["Sabır Süresi"] : []),
+        ...(visibleColumns.queue ? ["Kuyruk"] : []),
+        ...(visibleColumns.cbStatus ? ["Geri Dönüş Durumu"] : []),
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      const { mappedMissed } = computeFilteredMissedReport(filteredCalls);
+      mappedMissed.forEach((c) => {
+        const row = [];
+        if (visibleColumns.startTime) row.push(c.start_time ? formatDate(c.start_time) : "-");
+        if (visibleColumns.caller) row.push(getCustomerNumber(c));
+        if (visibleColumns.waitTime) row.push(`${c.waitTime} sn`);
+        if (visibleColumns.queue) row.push(c.queueName);
+        if (visibleColumns.cbStatus) row.push(c.cbStatus);
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `kacan_cagri_analizi_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -1934,7 +2064,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (filterEndDate) params.append("end_date", filterEndDate);
       if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
-        if (viewMode !== "fcr" && filterCallId) params.append("call_id", filterCallId);
+        if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
       }
 
       fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`, {
@@ -2022,7 +2152,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (filterEndDate) params.append("end_date", filterEndDate);
     if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
-      if (viewMode !== "fcr" && filterCallId) params.append("call_id", filterCallId);
+      if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
     }
 
     fetch(`${protocol}//${backendHost}/api/calls?${params.toString()}`, {
@@ -2061,6 +2191,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterWordcloudKeyword("");
     setFilterFcrStatusesSelected([]);
     setFilterFcrSentimentsSelected([]);
+    setFilterMissedQueuesSelected([]);
+    setFilterMissedCallbackSelected([]);
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -3618,7 +3750,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         return false;
       }
 
-      if (viewMode !== "fcr") {
+      if (viewMode !== "fcr" && viewMode !== "missed") {
         // 2. Call ID Filter
         if (filterCallId && !c.id?.toLowerCase().includes(filterCallId.toLowerCase())) {
           return false;
@@ -3639,7 +3771,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant / Agent Filter across applicable report modes
-    if (viewMode !== "queue" && viewMode !== "roi" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
+    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
@@ -4107,6 +4239,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterCallerNumber || filterFcrStatusesSelected.length > 0 || filterFcrSentimentsSelected.length > 0)
                     : viewMode === "roi"
                     ? Boolean(filterStartDate || filterEndDate)
+                    : viewMode === "missed"
+                    ? Boolean(filterStartDate || filterEndDate || filterCallerNumber || filterMissedQueuesSelected.length > 0 || filterMissedCallbackSelected.length > 0)
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
@@ -4767,9 +4901,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
@@ -4956,7 +5090,52 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       />
                     </div>
                   </>
-                ) : viewMode === "roi" ? null : (
+                ) : viewMode === "roi" ? null : viewMode === "missed" ? (
+                  <>
+                    <DualListBox 
+                      title="Kuyruklar"
+                      availableItems={missedQueueFilterItems}
+                      selectedIds={filterMissedQueuesSelected}
+                      onChangeSelectedIds={setFilterMissedQueuesSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                    <DualListBox 
+                      title="Geri Dönüş Durumu"
+                      availableItems={MISSED_CALLBACK_FILTER_ITEMS}
+                      selectedIds={filterMissedCallbackSelected}
+                      onChangeSelectedIds={setFilterMissedCallbackSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Numara Ara</label>
+                      <input
+                        type="text"
+                        placeholder="örn. 0532..."
+                        value={filterCallerNumber}
+                        onChange={(e) => setFilterCallerNumber(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            fetchCalls(true);
+                            setIsFilterOpen(false);
+                          }
+                        }}
+                        className="w-full bg-white dark:bg-slate-955 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                      />
+                    </div>
+                  </>
+                ) : (
                   <>
                     {/* Call Direction */}
                     <div className="flex flex-col gap-1">
@@ -6617,37 +6796,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               /* Missed Calls Mode */
               <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
                 {(() => {
-                  const missedCalls = filteredCalls.filter(c => {
-                    if (c.status === "missed" || c.status === "Cevapsız") return true;
-                    const callIdInt = c.id ? parseInt(c.id.replace(/\D/g, '').slice(-1) || '0', 10) : 0;
-                    return callIdInt % 7 === 0;
-                  });
-                  
-                  const totalMissed = missedCalls.length;
-                  const callbackStatusOptions = ["Dönüldü (Başarılı)", "Dönüldü (Ulaşılamadı)", "Bekliyor"];
-                  
-                  let callbackDone = 0;
-                  let totalWaitTime = 0;
-                  
-                  const mappedMissed = missedCalls.map((call, idx) => {
-                    const statusIndex = (call.id ? call.id.length : idx) % 3;
-                    const cbStatus = callbackStatusOptions[statusIndex];
-                    if (cbStatus.startsWith("Dönüldü")) callbackDone++;
-                    
-                    const waitTime = 5 + ((call.id ? call.id.charCodeAt(0) : idx) % 120);
-                    totalWaitTime += waitTime;
-                    const qInfo = resolveCallQueueInfo(call);
-                    
-                    return {
-                      ...call,
-                      cbStatus,
-                      waitTime,
-                      queueName: `${qInfo.queueName} (${qInfo.queueId})`
-                    };
-                  });
-                  
-                  const callbackRate = totalMissed > 0 ? Math.round((callbackDone / totalMissed) * 100) : 0;
-                  const avgWaitTime = totalMissed > 0 ? Math.round(totalWaitTime / totalMissed) : 0;
+                  const { mappedMissed, totalMissed, callbackRate, avgWaitTime } = computeFilteredMissedReport(filteredCalls);
                   
                   return (
                     <>
