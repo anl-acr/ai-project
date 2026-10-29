@@ -363,6 +363,56 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   }, [queues]);
   const [filterQueuesSelected, setFilterQueuesSelected] = useState([]);
   const [filterAgentsSelected, setFilterAgentsSelected] = useState([]);
+  const [filterSentimentsSelected, setFilterSentimentsSelected] = useState([]);
+
+  const SENTIMENT_HEAT_FILTER_ITEMS = [
+    { id: "very_positive", name: "Çok Pozitif" },
+    { id: "positive", name: "Pozitif" },
+    { id: "neutral", name: "Nötr" },
+    { id: "negative", name: "Negatif" },
+    { id: "very_negative", name: "Çok Negatif" },
+  ];
+
+  const getSentimentHeatCallDelta = (rawSentiment) => {
+    const s = String(rawSentiment || "").trim().toLowerCase();
+    if (!s) return 0;
+    if (
+      s === "very_positive" ||
+      s === "çok pozitif" ||
+      s === "cok pozitif" ||
+      s === "positive" ||
+      s === "pozitif" ||
+      s === "memnun" ||
+      s === "mutlu" ||
+      s === "olumlu"
+    ) {
+      return 100;
+    }
+    if (
+      s === "very_negative" ||
+      s === "çok negatif" ||
+      s === "cok negatif" ||
+      s === "negative" ||
+      s === "negatif" ||
+      s === "öfkeli" ||
+      s === "ofkeli" ||
+      s === "kızgın" ||
+      s === "kizgin" ||
+      s === "olumsuz"
+    ) {
+      return -100;
+    }
+    return 0;
+  };
+
+  const getSentimentHeatBucket = (avg) => {
+    if (avg === null || avg === undefined || isNaN(avg)) return null;
+    if (avg >= 50) return "very_positive";
+    if (avg > 10) return "positive";
+    if (avg <= -50) return "very_negative";
+    if (avg < -10) return "negative";
+    return "neutral";
+  };
   const [isLoading, setIsLoading] = useState(true);
   const [reportTopic, setReportTopic] = useState("");
   const [reportNotes, setReportNotes] = useState("");
@@ -1383,6 +1433,71 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "sentiment-heat") {
+      const visibleHours = Array.from({ length: 24 })
+        .map((_, h) => h)
+        .filter((h) => (h < 6 && visibleColumns.h00_05) || (h >= 6 && h < 12 && visibleColumns.h06_11) || (h >= 12 && h < 18 && visibleColumns.h12_17) || (h >= 18 && visibleColumns.h18_23));
+      const headers = [
+        ...(visibleColumns.agent ? ["Temsilci \\ Saat"] : []),
+        ...visibleHours.map((h) => `${h.toString().padStart(2, "0")}:00`),
+      ];
+      csvContent += headers.join(";") + "\n";
+
+      const heatmapData = {};
+      filteredCalls.forEach((call) => {
+        if (!call.start_time) return;
+        const agent = getConversant(call) || "Bilinmiyor";
+        const hour = new Date(call.start_time).getHours();
+        if (!heatmapData[agent]) {
+          heatmapData[agent] = {};
+          for (let i = 0; i < 24; i++) heatmapData[agent][i] = { total: 0, score: 0 };
+        }
+        heatmapData[agent][hour].total++;
+        heatmapData[agent][hour].score += getSentimentHeatCallDelta(call.sentiment);
+      });
+
+      Object.keys(heatmapData)
+        .sort()
+        .filter((agent) => {
+          if (filterSentimentsSelected.length === 0) return true;
+          return visibleHours.some((h) => {
+            const cell = heatmapData[agent][h];
+            if (!cell || cell.total === 0) return false;
+            const avg = Math.round(cell.score / cell.total);
+            return filterSentimentsSelected.includes(getSentimentHeatBucket(avg));
+          });
+        })
+        .forEach((agent) => {
+          const row = [];
+          if (visibleColumns.agent) row.push(agent);
+          visibleHours.forEach((h) => {
+            const cell = heatmapData[agent][h];
+            if (!cell || cell.total === 0) {
+              row.push("-");
+              return;
+            }
+            const avg = Math.round(cell.score / cell.total);
+            const bucket = getSentimentHeatBucket(avg);
+            if (filterSentimentsSelected.length > 0 && !filterSentimentsSelected.includes(bucket)) {
+              row.push("-");
+              return;
+            }
+            row.push(avg > 0 ? `+${avg}` : `${avg}`);
+          });
+          csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+        });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `duygu_isi_haritasi_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -1560,7 +1675,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (filterCallId) params.append("call_id", filterCallId);
       }
@@ -1648,7 +1763,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (filterCallId) params.append("call_id", filterCallId);
     }
@@ -1685,6 +1800,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterCallId("");
     setFilterAgentsSelected([]);
     setFilterQueuesSelected([]);
+    setFilterSentimentsSelected([]);
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -3236,7 +3352,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const filteredCalls = calls.filter((c) => {
-    if (viewMode !== "perf" && viewMode !== "queue") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
         return false;
@@ -3721,6 +3837,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All")
                     : viewMode === "queue"
                     ? Boolean(filterStartDate || filterEndDate || filterQueuesSelected.length > 0)
+                    : viewMode === "sentiment-heat"
+                    ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterSentimentsSelected.length > 0)
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
@@ -4381,9 +4499,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className={viewMode === "queue" || viewMode === "perf" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
@@ -4433,6 +4551,35 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </>
                     )}
                   />
+                ) : viewMode === "sentiment-heat" ? (
+                  <>
+                    <DualListBox 
+                      title="Kullanıcılar"
+                      availableItems={uniqueConversants.map(c => ({ id: c, name: c }))}
+                      selectedIds={filterAgentsSelected}
+                      onChangeSelectedIds={setFilterAgentsSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                    <DualListBox 
+                      title="Duygu Durumu"
+                      availableItems={SENTIMENT_HEAT_FILTER_ITEMS}
+                      selectedIds={filterSentimentsSelected}
+                      onChangeSelectedIds={setFilterSentimentsSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                  </>
                 ) : (
                   <>
                     {/* Call Direction */}
@@ -5678,11 +5825,22 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         }
                         
                         heatmapData[agent][hour].total++;
-                        if (call.sentiment === "positive") heatmapData[agent][hour].score += 100;
-                        else if (call.sentiment === "negative") heatmapData[agent][hour].score -= 100;
+                        heatmapData[agent][hour].score += getSentimentHeatCallDelta(call.sentiment);
                       });
                       
-                      const agentList = Object.keys(heatmapData).sort();
+                      const agentList = Object.keys(heatmapData)
+                        .sort()
+                        .filter((agent) => {
+                          if (filterSentimentsSelected.length === 0) return true;
+                          return Array.from({ length: 24 }).some((_, h) => {
+                            const isHourVisible = (h < 6 && visibleColumns.h00_05) || (h >= 6 && h < 12 && visibleColumns.h06_11) || (h >= 12 && h < 18 && visibleColumns.h12_17) || (h >= 18 && visibleColumns.h18_23);
+                            if (!isHourVisible) return false;
+                            const cell = heatmapData[agent][h];
+                            if (!cell || cell.total === 0) return false;
+                            const avg = Math.round(cell.score / cell.total);
+                            return filterSentimentsSelected.includes(getSentimentHeatBucket(avg));
+                          });
+                        });
                       
                       if (agentList.length === 0) {
                         return (
@@ -5711,11 +5869,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             if (!isHourVisible) return null;
                             const data = heatmapData[agent][h];
                             const avg = data.total > 0 ? Math.round(data.score / data.total) : null;
+                            const bucket = getSentimentHeatBucket(avg);
+                            const matchesSentimentFilter =
+                              data.total > 0 &&
+                              (filterSentimentsSelected.length === 0 || filterSentimentsSelected.includes(bucket));
                             let bgColor = "bg-transparent";
                             let textColor = "text-transparent";
                             let textVal = "";
                             
-                            if (data.total > 0) {
+                            if (matchesSentimentFilter) {
                               if (avg >= 50) { bgColor = "bg-emerald-500/80"; textColor = "text-white"; }
                               else if (avg > 10) { bgColor = "bg-emerald-500/40"; textColor = "text-emerald-900 dark:text-emerald-100"; }
                               else if (avg <= -50) { bgColor = "bg-rose-500/80"; textColor = "text-white"; }
@@ -5726,7 +5888,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             
                             return (
                               <td key={h} className="p-1 border-r border-slate-100 dark:border-slate-800/50 relative group">
-                                {data.total > 0 ? (
+                                {matchesSentimentFilter ? (
                                   <div className={`w-full h-8 flex items-center justify-center rounded text-[10px] font-bold ${bgColor} ${textColor} transition-all duration-200 hover:scale-110 cursor-default`} title={`${agent} - Saat ${h}:00\nOrt. Duygu: ${textVal}\nToplam Çağrı: ${data.total}`}>
                                     {textVal}
                                   </div>
