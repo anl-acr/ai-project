@@ -2279,7 +2279,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
       }
@@ -2367,7 +2367,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
     }
@@ -4102,7 +4102,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const matchedKey = matchedT ? String(matchedT.id ?? matchedT.trunk_name) : "";
         if (!matchedKey || !filterTrunksSelected.includes(matchedKey)) return false;
       }
-    } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "ivr-drop") {
+    } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "ivr-drop" && viewMode !== "efficiency") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
         return false;
@@ -4129,7 +4129,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant / Agent Filter across applicable report modes
-    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
+    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
@@ -4472,7 +4472,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                viewMode === "trunk" ? "Hat (Trunk) Kullanım ve Kapasite Raporu" : 
                viewMode === "ivr-drop" ? "IVR Terk ve Menü Kullanım Raporu" : 
                viewMode === "transfer-hold" ? "Aktarma ve Bekletme Raporu" : 
-               viewMode === "efficiency" ? "A/B Testing & Verimlilik Karşılaştırması" : 
+               viewMode === "efficiency" ? "Verimlilik Karşılaştırması" : 
                viewMode === "friction" ? "Müşteri Çile Noktaları (Friction) Analizi" : 
                viewMode === "compliance" ? "Senaryo Sadakati (Script Compliance) Raporu" : 
                viewMode === "silence" ? "Sessizlik ve Söz Kesme (Interruption) Analizi" : 
@@ -4595,7 +4595,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterWordcloudKeyword.trim())
                     : viewMode === "fcr"
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterCallerNumber || filterFcrStatusesSelected.length > 0 || filterFcrSentimentsSelected.length > 0)
-                    : viewMode === "roi"
+                    : viewMode === "roi" || viewMode === "efficiency"
                     ? Boolean(filterStartDate || filterEndDate)
                     : viewMode === "missed"
                     ? Boolean(filterStartDate || filterEndDate || filterCallerNumber || filterMissedQueuesSelected.length > 0 || filterMissedCallbackSelected.length > 0)
@@ -5249,7 +5249,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         {/* Modal Popup (Popup/Modal Filter Options) */}
         {isFilterOpen && (
           <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
-            <div className={`bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full ${viewMode === "roi" ? "max-w-lg" : "max-w-2xl"} max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200`}>
+            <div className={`bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full ${viewMode === "roi" || viewMode === "efficiency" ? "max-w-lg" : "max-w-2xl"} max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200`}>
               {/* Modal Header */}
               <div className="flex items-center justify-between pb-2 border-b border-slate-150 dark:border-slate-800">
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -5265,9 +5265,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "ivr-drop" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "ivr-drop" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range (and side-by-side Hour range for trunk mode) */}
-                <div className={viewMode === "trunk" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "ivr-drop" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "trunk" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "ivr-drop" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className={viewMode === "trunk" ? "grid grid-cols-2 sm:grid-cols-4 gap-2.5" : "contents"}>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
@@ -5520,7 +5520,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       />
                     </div>
                   </>
-                ) : viewMode === "roi" ? null : viewMode === "missed" ? (
+                ) : viewMode === "roi" || viewMode === "efficiency" ? null : viewMode === "missed" ? (
                   <>
                     <DualListBox 
                       title="Kuyruklar"
@@ -6023,7 +6023,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
               </div>
-            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode && !isIvrDropMode) ? (
+            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode && !isIvrDropMode && !isEfficiencyMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
                 Kayıt bulunamadı.
               </div>
@@ -9205,8 +9205,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 })()}
               </div>
             ) : isEfficiencyMode ? (
-              /* A/B Testing & Efficiency Mode */
-              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+              /* Verimlilik Karşılaştırması Mode */
+              <div className="p-5 flex flex-col gap-6 flex-1 overflow-y-auto scrollbar-thin">
                 {(() => {
                   const totalFiltered = filteredCalls.length;
                   
@@ -9241,7 +9241,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   return (
                     <>
                       {/* KPI Header */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2 shrink-0">
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <p className={"text-xs font-bold uppercase tracking-wider " + text}>Test Edilen Çağrı Hacmi</p>
                           <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
@@ -9267,7 +9267,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         </div>
                       </div>
                       
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 shrink-0">
                         {/* Comparison Bars */}
                         <div className={"w-full rounded-2xl p-6 border flex flex-col gap-6 " + borderLight + " " + lightBg}>
                           <div className="flex items-center justify-between mb-2">
@@ -9367,7 +9367,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 </thead>
                                 <tbody>
                                   {scenarios.map((s, idx) => (
-                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
+                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}>
                                       {visibleColumns.group && (
                                         <td className="p-4">
                                           <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-black ${s.id === winner.id ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300'}`}>
@@ -9382,7 +9382,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                         </td>
                                       )}
                                       {visibleColumns.volume && (
-                                        <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">%{Math.round((s.volume / totalVolume) * 100)}</td>
+                                        <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">%{totalVolume > 0 ? Math.round((s.volume / totalVolume) * 100) : 0}</td>
                                       )}
                                       {visibleColumns.csat && (
                                         <td className="p-4 text-center font-black text-amber-500">
