@@ -1932,7 +1932,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && filterCallId) params.append("call_id", filterCallId);
       }
@@ -2020,7 +2020,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && filterCallId) params.append("call_id", filterCallId);
     }
@@ -3612,7 +3612,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const filteredCalls = calls.filter((c) => {
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
         return false;
@@ -3639,7 +3639,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant / Agent Filter across applicable report modes
-    if (viewMode !== "queue" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
+    if (viewMode !== "queue" && viewMode !== "roi" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
@@ -4105,6 +4105,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterWordcloudKeyword.trim())
                     : viewMode === "fcr"
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterCallerNumber || filterFcrStatusesSelected.length > 0 || filterFcrSentimentsSelected.length > 0)
+                    : viewMode === "roi"
+                    ? Boolean(filterStartDate || filterEndDate)
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
@@ -4749,7 +4751,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         {/* Modal Popup (Popup/Modal Filter Options) */}
         {isFilterOpen && (
           <div className="fixed inset-0 bg-slate-955/65 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
-            <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200">
+            <div className={`bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-850 rounded-3xl p-6 shadow-2xl w-full ${viewMode === "roi" ? "max-w-lg" : "max-w-2xl"} max-h-[90vh] overflow-y-auto flex flex-col gap-4 animate-in zoom-in-95 duration-200`}>
               {/* Modal Header */}
               <div className="flex items-center justify-between pb-2 border-b border-slate-150 dark:border-slate-800">
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-slate-100 flex items-center gap-2">
@@ -4765,9 +4767,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
@@ -4954,7 +4956,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       />
                     </div>
                   </>
-                ) : (
+                ) : viewMode === "roi" ? null : (
                   <>
                     {/* Call Direction */}
                     <div className="flex flex-col gap-1">
