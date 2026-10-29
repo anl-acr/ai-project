@@ -371,8 +371,30 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterMissedCallbackSelected, setFilterMissedCallbackSelected] = useState([]);
   const [filterTrafficStartHour, setFilterTrafficStartHour] = useState("");
   const [filterTrafficEndHour, setFilterTrafficEndHour] = useState("");
+  const [filterTrunkStartHour, setFilterTrunkStartHour] = useState("");
+  const [filterTrunkEndHour, setFilterTrunkEndHour] = useState("");
+  const [filterTrunksSelected, setFilterTrunksSelected] = useState([]);
 
-  const parseCallLocalHour = (dateStr) => {
+  const trunkFilterItems = React.useMemo(() => {
+    const map = new Map();
+    (Array.isArray(trunks) ? trunks : []).forEach((t, idx) => {
+      const rawName = String(t.trunk_name || `SIP Trunk ${idx + 1}`).trim();
+      const did = String(t.did_number || t.username || "").trim();
+      const key = String(t.id ?? rawName);
+      if (!map.has(key)) {
+        map.set(key, {
+          id: key,
+          trunkId: t.id,
+          rawName,
+          did,
+          name: did && did !== rawName ? `${rawName} (${did})` : rawName,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [trunks]);
+
+  const parseCallDateObj = (dateStr) => {
     if (!dateStr) return null;
     const raw = String(dateStr).trim();
     if (!raw) return null;
@@ -381,8 +403,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         ? `${raw}Z`
         : raw;
     const d = new Date(cleanStr);
-    if (isNaN(d.getTime())) return null;
-    return d.getHours();
+    return isNaN(d.getTime()) ? null : d;
+  };
+
+  const parseCallLocalHour = (dateStr) => {
+    const d = parseCallDateObj(dateStr);
+    return d ? d.getHours() : null;
   };
 
   const isHourInTrafficRange = (hr, startRaw = filterTrafficStartHour, endRaw = filterTrafficEndHour) => {
@@ -1698,20 +1724,58 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         "Sunucu / Port",
         "DID / Numara",
         "Kapasite Limiti (Kanal)",
+        "Toplam Çağrı",
+        "Pik Kullanım (Kanal)",
         "Durum"
       ];
       csvContent += headers.join(";") + "\n";
 
-      (trunks || []).forEach((t) => {
+      const allTrunks = Array.isArray(trunks) ? trunks : [];
+      const expTrunks =
+        filterTrunksSelected.length > 0
+          ? allTrunks.filter((t, idx) =>
+              filterTrunksSelected.includes(String(t.id ?? t.trunk_name ?? `SIP Trunk ${idx + 1}`))
+            )
+          : allTrunks;
+
+      expTrunks.forEach((t) => {
+        const tCalls = filteredCalls.filter((c) => {
+          const mt = matchCallToTrunkObj(c);
+          return mt && String(mt.id ?? mt.trunk_name) === String(t.id ?? t.trunk_name);
+        });
+        const events = [];
+        tCalls.forEach((c) => {
+          const dStart = parseCallDateObj(c.start_time);
+          if (!dStart) return;
+          const sMs = dStart.getTime();
+          let durSec = Number(c.duration_total) || Number(c.duration_talk) || 0;
+          if (!durSec && c.end_time) {
+            const dEnd = parseCallDateObj(c.end_time);
+            if (dEnd && dEnd.getTime() > sMs) durSec = Math.round((dEnd.getTime() - sMs) / 1000);
+          }
+          durSec = Math.min(7200, Math.max(5, durSec || 15));
+          events.push({ t: sMs, delta: 1 });
+          events.push({ t: sMs + durSec * 1000, delta: -1 });
+        });
+        events.sort((a, b) => (a.t !== b.t ? a.t - b.t : a.delta - b.delta));
+        let cur = 0;
+        let peak = 0;
+        events.forEach((ev) => {
+          cur += ev.delta;
+          if (cur > peak) peak = cur;
+        });
+
         const row = [
           t.trunk_name || "SIP Trunk",
           t.trunk_type === "peer" ? "PEER" : "REGISTER",
           t.host ? `${t.host}:${t.port || 5060}` : "-",
           t.did_number || t.username || "-",
           `${t.max_channels || 30} Kanal`,
+          tCalls.length,
+          `${peak} Kanal`,
           t.is_active !== false ? "Aktif" : "Pasif"
         ];
-        const escapedRow = row.map((val) => `"${String(val || "").replace(/"/g, '""')}"`);
+        const escapedRow = row.map((val) => `"${String(val ?? "").replace(/"/g, '""')}"`);
         csvContent += escapedRow.join(";") + "\n";
       });
 
@@ -2194,7 +2258,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
       }
@@ -2282,7 +2346,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
     }
@@ -2327,6 +2391,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterMissedCallbackSelected([]);
     setFilterTrafficStartHour("");
     setFilterTrafficEndHour("");
+    setFilterTrunkStartHour("");
+    setFilterTrunkEndHour("");
+    setFilterTrunksSelected([]);
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -3325,6 +3392,59 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     };
   };
 
+  const matchCallToTrunkObj = (call) => {
+    const realTrunks = Array.isArray(trunks) ? trunks : [];
+    if (realTrunks.length === 0 || !call) return null;
+    const activeTrunks = realTrunks.filter((t) => t.is_active !== false);
+    const cleanDigits = (str) => String(str || "").replace(/\D/g, "");
+    const last10 = (str) => {
+      const d = cleanDigits(str);
+      return d.length >= 10 ? d.slice(-10) : d;
+    };
+
+    const backendTrunkName = String(call?.resolved_trunk_name || "").trim();
+    const backendTrunkDid = String(call?.resolved_trunk_did || "").trim();
+    const rawTrunkName = String(call?.trunk || call?.trunk_name || "").trim();
+    const callerL10 = last10(call?.caller_number);
+    const calleeL10 = last10(call?.callee_number);
+    const backendDidL10 = last10(backendTrunkDid);
+
+    let matchedTrunk = realTrunks.find((t) => {
+      const tNameLower = String(t.trunk_name || "").trim().toLowerCase();
+      if (backendTrunkName && tNameLower === backendTrunkName.toLowerCase()) {
+        return true;
+      }
+      if (
+        rawTrunkName &&
+        rawTrunkName !== "Operator_Trunk" &&
+        tNameLower === rawTrunkName.toLowerCase()
+      ) {
+        return true;
+      }
+      const didL10 = last10(t.did_number);
+      const userL10 = last10(t.username);
+      if (backendDidL10 && backendDidL10.length >= 7 && (didL10 === backendDidL10 || userL10 === backendDidL10)) {
+        return true;
+      }
+      if (didL10 && didL10.length >= 7 && (callerL10 === didL10 || calleeL10 === didL10)) {
+        return true;
+      }
+      if (userL10 && userL10.length >= 7 && (callerL10 === userL10 || calleeL10 === userL10)) {
+        return true;
+      }
+      return false;
+    });
+
+    if (!matchedTrunk && realTrunks.length > 0) {
+      const dir = getCallDirection(call);
+      if (dir !== "Dahili") {
+        matchedTrunk = activeTrunks[0] || realTrunks[0] || null;
+      }
+    }
+
+    return matchedTrunk || null;
+  };
+
   const resolveCallTrunkDetail = (call) => {
     const realTrunks = Array.isArray(trunks) ? trunks : [];
     const activeTrunks = realTrunks.filter((t) => t.is_active !== false);
@@ -3887,6 +4007,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const hr = parseCallLocalHour(c.start_time);
         if (!isHourInTrafficRange(hr)) return false;
       }
+    } else if (viewMode === "trunk") {
+      if (filterTrunkStartHour !== "" || filterTrunkEndHour !== "") {
+        const hr = parseCallLocalHour(c.start_time);
+        if (!isHourInTrafficRange(hr, filterTrunkStartHour, filterTrunkEndHour)) return false;
+      }
+      if (filterTrunksSelected.length > 0) {
+        const matchedT = matchCallToTrunkObj(c);
+        const matchedKey = matchedT ? String(matchedT.id ?? matchedT.trunk_name) : "";
+        if (!matchedKey || !filterTrunksSelected.includes(matchedKey)) return false;
+      }
     } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
@@ -3914,7 +4044,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant / Agent Filter across applicable report modes
-    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
+    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
@@ -4386,6 +4516,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterCallerNumber || filterMissedQueuesSelected.length > 0 || filterMissedCallbackSelected.length > 0)
                     : viewMode === "traffic"
                     ? Boolean(filterStartDate || filterEndDate || filterDirection !== "All" || filterTrafficStartHour !== "" || filterTrafficEndHour !== "")
+                    : viewMode === "trunk"
+                    ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterTrunksSelected.length > 0)
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
@@ -5046,27 +5178,93 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
-                {/* Date range */}
-                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
-                    <input
-                      type="date"
-                      value={filterStartDate}
-                      onChange={(e) => setFilterStartDate(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
-                    />
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+                {/* Date range (and side-by-side Hour range for trunk mode) */}
+                <div className={viewMode === "trunk" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                  <div className={viewMode === "trunk" ? "grid grid-cols-2 sm:grid-cols-4 gap-2.5" : "contents"}>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
+                      <input
+                        type="date"
+                        value={filterStartDate}
+                        onChange={(e) => setFilterStartDate(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                      />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Bitiş Tarihi</label>
+                      <input
+                        type="date"
+                        value={filterEndDate}
+                        onChange={(e) => setFilterEndDate(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                      />
+                    </div>
+                    {viewMode === "trunk" && (
+                      <>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Saati</label>
+                          <select
+                            value={filterTrunkStartHour}
+                            onChange={(e) => setFilterTrunkStartHour(e.target.value)}
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                          >
+                            <option value="">00:00 (Tümü)</option>
+                            {Array.from({ length: 24 }).map((_, h) => (
+                              <option key={h} value={String(h)}>
+                                {String(h).padStart(2, "0")}:00
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Bitiş Saati</label>
+                          <select
+                            value={filterTrunkEndHour}
+                            onChange={(e) => setFilterTrunkEndHour(e.target.value)}
+                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                          >
+                            <option value="">23:59 (Tümü)</option>
+                            {Array.from({ length: 24 }).map((_, h) => (
+                              <option key={h} value={String(h)}>
+                                {String(h).padStart(2, "0")}:59
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </>
+                    )}
                   </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Bitiş Tarihi</label>
-                    <input
-                      type="date"
-                      value={filterEndDate}
-                      onChange={(e) => setFilterEndDate(e.target.value)}
-                      className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
-                    />
-                  </div>
+                  {viewMode === "trunk" && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                      {[
+                        { label: "Tüm Gün (00-23)", s: "", e: "" },
+                        { label: "Mesai (09:00-18:59)", s: "9", e: "18" },
+                        { label: "Sabah (08:00-12:59)", s: "8", e: "12" },
+                        { label: "Öğleden Sonra (13:00-17:59)", s: "13", e: "17" },
+                        { label: "Akşam (18:00-23:59)", s: "18", e: "23" },
+                      ].map((preset) => {
+                        const isActive = filterTrunkStartHour === preset.s && filterTrunkEndHour === preset.e;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              setFilterTrunkStartHour(preset.s);
+                              setFilterTrunkEndHour(preset.e);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                              isActive
+                                ? `${bg} text-white ${border} shadow-sm`
+                                : `bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-primary`
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {viewMode === "queue" ? (
@@ -5361,6 +5559,20 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </select>
                     </div>
                   </>
+                ) : viewMode === "trunk" ? (
+                  <DualListBox 
+                    title="Dış Hatlar (Trunk)"
+                    availableItems={trunkFilterItems}
+                    selectedIds={filterTrunksSelected}
+                    onChangeSelectedIds={setFilterTrunksSelected}
+                    columns={["İsim"]}
+                    bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                    renderRow={(item) => (
+                      <>
+                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                      </>
+                    )}
+                  />
                 ) : (
                   <>
                     {/* Call Direction */}
@@ -5710,7 +5922,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
               </div>
-            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode) ? (
+            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
                 Kayıt bulunamadı.
               </div>
@@ -8107,7 +8319,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
             ) : isTrunkMode ? (
               /* Trunk Utilization Mode */
-              <div className="p-4 flex flex-col gap-6 h-full overflow-y-auto">
+              <div className="p-5 flex flex-col gap-6 flex-1 overflow-y-auto scrollbar-thin">
                 {(() => {
                   // Format YYYY-MM-DD to DD.MM.YYYY
                   const fmtDateLabel = (isoDate) => {
@@ -8120,9 +8332,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   // Collect unique call dates in filteredCalls (sorted newest first)
                   const dateCountsMap = {};
                   filteredCalls.forEach((c) => {
-                    if (!c.start_time) return;
-                    const d = new Date(c.start_time);
-                    if (isNaN(d.getTime())) return;
+                    const d = parseCallDateObj(c.start_time);
+                    if (!d) return;
                     const yyyy = d.getFullYear();
                     const mm = String(d.getMonth() + 1).padStart(2, "0");
                     const dd = String(d.getDate()).padStart(2, "0");
@@ -8159,28 +8370,32 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     return fmtDateLabel(getTodayDateString());
                   })();
 
-                  // Calls used for the 24h chart (filtered by effectiveChartDate if a single day is selected)
+                  const hasTrunkHourFilter = filterTrunkStartHour !== "" || filterTrunkEndHour !== "";
+                  const trunkHourBadgeLabel = hasTrunkHourFilter
+                    ? `${String(filterTrunkStartHour === "" ? 0 : parseInt(filterTrunkStartHour, 10)).padStart(2, "0")}:00 — ${String(filterTrunkEndHour === "" ? 23 : parseInt(filterTrunkEndHour, 10)).padStart(2, "0")}:59`
+                    : null;
+
+                  // Calls used for the chart & metrics (filtered by effectiveChartDate if a single day is selected)
                   const chartCalls =
                     effectiveChartDate === "ALL"
                       ? filteredCalls
                       : filteredCalls.filter((c) => {
-                          if (!c.start_time) return false;
-                          const d = new Date(c.start_time);
-                          if (isNaN(d.getTime())) return false;
+                          const d = parseCallDateObj(c.start_time);
+                          if (!d) return false;
                           const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
                           return key === effectiveChartDate;
                         });
 
                   // Helper: convert call to [startMs, endMs] interval
                   const getCallInterval = (call) => {
-                    if (!call.start_time) return null;
-                    const startMs = new Date(call.start_time).getTime();
-                    if (isNaN(startMs)) return null;
+                    const dStart = parseCallDateObj(call.start_time);
+                    if (!dStart) return null;
+                    const startMs = dStart.getTime();
                     let durSec = Number(call.duration_total) || Number(call.duration_talk) || 0;
                     if (!durSec && call.end_time) {
-                      const endParsed = new Date(call.end_time).getTime();
-                      if (!isNaN(endParsed) && endParsed > startMs) {
-                        durSec = Math.round((endParsed - startMs) / 1000);
+                      const dEnd = parseCallDateObj(call.end_time);
+                      if (dEnd && dEnd.getTime() > startMs) {
+                        durSec = Math.round((dEnd.getTime() - startMs) / 1000);
                       }
                     }
                     // Clamp duration between 5s (ring/setup) and 7200s (2 hours) for realistic channel occupancy
@@ -8214,8 +8429,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     return { max, peakTimeMs };
                   };
 
-                  // Real SIP Trunks from system settings (/api/settings/trunks)
-                  const realTrunks = Array.isArray(trunks) ? trunks : [];
+                  // Real SIP Trunks from system settings (/api/settings/trunks), filtered by filterTrunksSelected
+                  const allRealTrunks = Array.isArray(trunks) ? trunks : [];
+                  const realTrunks =
+                    filterTrunksSelected.length > 0
+                      ? allRealTrunks.filter((t, idx) =>
+                          filterTrunksSelected.includes(String(t.id ?? t.trunk_name ?? `SIP Trunk ${idx + 1}`))
+                        )
+                      : allRealTrunks;
                   const activeTrunks = realTrunks.filter((t) => t.is_active !== false);
                   const totalConfiguredCapacity =
                     (activeTrunks.length > 0 ? activeTrunks : realTrunks).reduce(
@@ -8224,58 +8445,30 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ) || 30;
                   const trunkCapacity = Math.max(1, totalConfiguredCapacity);
 
-                  // Match calls to real trunks
-                  const cleanDigits = (str) => String(str || "").replace(/\D/g, "");
-                  const last10 = (str) => {
-                    const d = cleanDigits(str);
-                    return d.length >= 10 ? d.slice(-10) : d;
-                  };
-
-                  const primaryTrunkId =
-                    (activeTrunks[0] && activeTrunks[0].id) ||
-                    (realTrunks[0] && realTrunks[0].id) ||
-                    null;
-
                   const trunkBuckets = {};
-                  realTrunks.forEach((t) => {
-                    trunkBuckets[t.id] = [];
+                  realTrunks.forEach((t, idx) => {
+                    const tKey = String(t.id ?? t.trunk_name ?? `SIP Trunk ${idx + 1}`);
+                    trunkBuckets[tKey] = [];
                   });
 
                   const allIntervals = [];
                   chartCalls.forEach((call) => {
                     const iv = getCallInterval(call);
                     if (!iv) return;
-                    allIntervals.push(iv);
-
-                    const callerL10 = last10(call.caller_number);
-                    const calleeL10 = last10(call.callee_number);
-                    const rawTrunkName = String(call.trunk || call.trunk_name || "").toLowerCase();
-
-                    let matchedTrunk = realTrunks.find((t) => {
-                      if (rawTrunkName && String(t.trunk_name || "").toLowerCase() === rawTrunkName) {
-                        return true;
+                    const matchedTrunk = matchCallToTrunkObj(call);
+                    if (filterTrunksSelected.length > 0) {
+                      const mKey = matchedTrunk ? String(matchedTrunk.id ?? matchedTrunk.trunk_name) : "";
+                      if (!mKey || !trunkBuckets[mKey]) return;
+                      trunkBuckets[mKey].push(iv);
+                      allIntervals.push(iv);
+                    } else {
+                      allIntervals.push(iv);
+                      if (matchedTrunk) {
+                        const mKey = String(matchedTrunk.id ?? matchedTrunk.trunk_name);
+                        if (trunkBuckets[mKey]) {
+                          trunkBuckets[mKey].push(iv);
+                        }
                       }
-                      const didL10 = last10(t.did_number);
-                      const userL10 = last10(t.username);
-                      if (didL10 && didL10.length >= 7 && (callerL10 === didL10 || calleeL10 === didL10)) {
-                        return true;
-                      }
-                      if (userL10 && userL10.length >= 7 && (callerL10 === userL10 || calleeL10 === userL10)) {
-                        return true;
-                      }
-                      return false;
-                    });
-
-                    // If call is an external call and didn't explicitly include the DID in caller/callee, assign to primary active trunk
-                    if (!matchedTrunk && primaryTrunkId !== null) {
-                      const dir = getCallDirection(call);
-                      if (dir !== "Dahili") {
-                        matchedTrunk = realTrunks.find((t) => t.id === primaryTrunkId);
-                      }
-                    }
-
-                    if (matchedTrunk && trunkBuckets[matchedTrunk.id]) {
-                      trunkBuckets[matchedTrunk.id].push(iv);
                     }
                   });
 
@@ -8315,7 +8508,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     });
                   }
                   const rejectedCalls = overflowCallsCount;
-                  const totalFiltered = chartCalls.length;
+                  const totalFiltered = allIntervals.length;
                   const rejectionRate =
                     totalFiltered > 0 ? ((rejectedCalls / totalFiltered) * 100).toFixed(1) : "0.0";
 
@@ -8347,13 +8540,17 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         : null
                     };
                   });
-                  const concurrentTimeline = hourlyDetails.map((d) => d.peakChannels);
+                  const visibleHourlyDetails = hourlyDetails.filter((d) =>
+                    isHourInTrafficRange(d.hour, filterTrunkStartHour, filterTrunkEndHour)
+                  );
+                  const concurrentTimeline = visibleHourlyDetails.map((d) => d.peakChannels);
                   const chartMaxScale = Math.max(trunkCapacity, ...concurrentTimeline, 1);
 
-                  // Build real providers list from trunks state
-                  const providers = realTrunks.map((t) => {
+                  // Build real providers list from filtered trunks state
+                  const providers = realTrunks.map((t, idx) => {
                     const limit = Number(t.max_channels) || 30;
-                    const tIntervals = trunkBuckets[t.id] || [];
+                    const tKey = String(t.id ?? t.trunk_name ?? `SIP Trunk ${idx + 1}`);
+                    const tIntervals = trunkBuckets[tKey] || [];
                     const { max: used } = computeMaxConcurrent(tIntervals);
                     const totalCallsOnTrunk = tIntervals.length;
                     const satPct = Math.round((used / Math.max(1, limit)) * 100);
@@ -8397,7 +8594,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   return (
                     <>
                       {/* KPI Header */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
                         <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
                           <div className="flex items-center justify-between gap-2">
                             <p className={"text-xs font-bold uppercase tracking-wider " + text}>Maksimum Eşzamanlı Çağrı</p>
@@ -8433,17 +8630,25 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         </div>
                       </div>
                       
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* 24-Hour Concurrent Channel Usage Chart */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 shrink-0">
+                        {/* Hourly Concurrent Channel Usage Chart */}
                         <div className={"w-full rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
                           <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
                             <div>
                               <div className="flex items-center gap-2 flex-wrap">
-                                <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>24 Saatlik Eşzamanlı Kanal Kullanımı</h4>
+                                <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>
+                                  {hasTrunkHourFilter ? "Saatlik Eşzamanlı Kanal Kullanımı" : "24 Saatlik Eşzamanlı Kanal Kullanımı"}
+                                </h4>
                                 <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs">
                                   <CalendarIcon size={12} className={text} />
                                   {periodDisplayLabel}
                                 </span>
+                                {trunkHourBadgeLabel && (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg text-[11px] font-bold bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-2xs">
+                                    <Clock size={12} className={text} />
+                                    {trunkHourBadgeLabel}
+                                  </span>
+                                )}
                               </div>
                               <p className="text-xs text-slate-500 mt-1">
                                 Seçili periyottaki SIP kanallarının saat dilimlerine göre eşzamanlı kullanım tepe noktaları
@@ -8469,37 +8674,39 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                             </div>
                           </div>
                           
-                          <div className="flex items-end justify-between h-48 w-full gap-1 pt-6">
-                            {hourlyDetails.map((item, idx) => {
+                          <div className="flex items-end justify-between h-52 w-full gap-1 pt-6">
+                            {visibleHourlyDetails.map((item) => {
                               const val = item.peakChannels;
                               const saturationPct = Math.round((val / trunkCapacity) * 100);
                               const barHeightPct =
                                 val === 0
-                                  ? 3
+                                  ? 0
                                   : Math.min(100, Math.max(8, Math.round((val / chartMaxScale) * 100)));
-                              let barColor = val === 0 ? "bg-slate-200 dark:bg-slate-800" : "bg-blue-500 dark:bg-blue-500";
-                              if (saturationPct >= 85) barColor = "bg-rose-500 dark:bg-rose-500";
-                              else if (saturationPct >= 50) barColor = "bg-amber-400 dark:bg-amber-500";
+                              let barColor = val === 0 ? "bg-slate-200/80 dark:bg-slate-800/80" : "bg-blue-500 dark:bg-blue-500";
+                              if (val > 0 && saturationPct >= 85) barColor = "bg-rose-500 dark:bg-rose-500";
+                              else if (val > 0 && saturationPct >= 50) barColor = "bg-amber-400 dark:bg-amber-500";
                               
                               return (
-                                <div key={idx} className="flex flex-col items-center flex-1 h-full justify-end group cursor-pointer relative">
-                                  <div className="absolute -top-14 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] font-bold py-1.5 px-2.5 rounded-lg whitespace-nowrap z-20 pointer-events-none shadow-lg text-center leading-tight">
-                                    <div>{String(idx).padStart(2, "0")}:00 — {val} Eşzamanlı Kanal (%{saturationPct})</div>
+                                <div key={item.hour} className="flex flex-col items-center flex-1 h-full justify-end group cursor-pointer relative min-w-0">
+                                  <div className="absolute -top-12 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-900 text-white text-[10px] font-bold py-1.5 px-2.5 rounded-lg whitespace-nowrap z-20 pointer-events-none shadow-lg text-center leading-tight">
+                                    <div>{String(item.hour).padStart(2, "0")}:00 — {val} Eşzamanlı Kanal (%{saturationPct})</div>
                                     <div className="text-slate-300 font-normal">
                                       Toplam: {item.totalCalls} Çağrı{item.peakDateStr && effectiveChartDate === "ALL" ? ` • Pik: ${item.peakDateStr}` : ""}
                                     </div>
                                   </div>
-                                  {val > 0 && (
-                                    <span className="text-[9px] font-extrabold text-slate-600 dark:text-slate-300 mb-0.5">
-                                      {val}
-                                    </span>
-                                  )}
-                                  <div 
-                                    className={`w-full rounded-t transition-all duration-300 group-hover:opacity-80 ${barColor}`} 
-                                    style={{ height: `${barHeightPct}%` }}
-                                  ></div>
-                                  <div className="mt-2 text-[8px] sm:text-[10px] font-bold text-slate-400">
-                                    {String(idx).padStart(2, '0')}
+                                  <div className="flex-1 w-full flex flex-col items-center justify-end">
+                                    {val > 0 && (
+                                      <span className="text-[9px] font-extrabold text-slate-600 dark:text-slate-300 mb-0.5 leading-none">
+                                        {val}
+                                      </span>
+                                    )}
+                                    <div 
+                                      className={`w-full rounded-t transition-all duration-300 group-hover:opacity-80 ${barColor}`} 
+                                      style={{ height: val === 0 ? "4px" : `${barHeightPct}%` }}
+                                    ></div>
+                                  </div>
+                                  <div className="mt-2 text-[8px] sm:text-[10px] font-bold text-slate-400 leading-none">
+                                    {String(item.hour).padStart(2, "0")}
                                   </div>
                                 </div>
                               );
@@ -8526,10 +8733,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               Sağlayıcı (Dış Hat / SIP Trunk) Bazlı Dağılım
                             </h4>
                             <span className="text-xs font-bold text-slate-400">
-                              Sistemde Tanımlı {providers.length} Dış Hat
+                              {filterTrunksSelected.length > 0
+                                ? `Filtrelenen ${providers.length} / ${allRealTrunks.length} Dış Hat`
+                                : `Sistemde Tanımlı ${providers.length} Dış Hat`}
                             </span>
                           </div>
-                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800">
+                          <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40">
                             <table className="w-full text-left border-collapse">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
@@ -8544,7 +8753,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 {providers.length === 0 ? (
                                   <tr>
                                     <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 text-xs font-semibold">
-                                      Sistemde henüz tanımlı bir dış hat (SIP Trunk) bulunmuyor. Santral Ayarları &gt; Dış Hatlar menüsünden ekleyebilirsiniz.
+                                      {allRealTrunks.length === 0
+                                        ? "Sistemde henüz tanımlı bir dış hat (SIP Trunk) bulunmuyor. Santral Ayarları > Dış Hatlar menüsünden ekleyebilirsiniz."
+                                        : "Seçili dış hat filtresine uygun kayıt bulunamadı."}
                                     </td>
                                   </tr>
                                 ) : (
