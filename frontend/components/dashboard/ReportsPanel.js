@@ -2062,7 +2062,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
       }
@@ -2150,7 +2150,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && viewMode !== "missed" && filterCallId) params.append("call_id", filterCallId);
     }
@@ -3744,7 +3744,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   };
 
   const filteredCalls = calls.filter((c) => {
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
         return false;
@@ -4227,7 +4227,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <button 
                 onClick={() => setIsFilterOpen(true)}
                 className={`flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-xl border font-bold cursor-pointer transition-all duration-200 ${
-                  (viewMode === "perf"
+                  (viewMode === "perf" || viewMode === "timeline"
                     ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All")
                     : viewMode === "queue"
                     ? Boolean(filterStartDate || filterEndDate || filterQueuesSelected.length > 0)
@@ -4901,9 +4901,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
                 {/* Date range */}
-                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "missed" || viewMode === "timeline" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                     <input
@@ -4939,7 +4939,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </>
                     )}
                   />
-                ) : viewMode === "perf" ? (
+                ) : viewMode === "perf" || viewMode === "timeline" ? (
                   <DualListBox 
                     title="Kullanıcılar"
                     availableItems={uniqueConversants.map(c => ({ id: c, name: c }))}
