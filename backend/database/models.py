@@ -61,6 +61,8 @@ class Call(Base):
     qa_report = Column(Text, nullable=True)
     hangup_source = Column(String, nullable=True)
     agent_name = Column(String, nullable=True)
+    ended_by = Column(String, nullable=True)
+    trunk_name = Column(String, nullable=True)
 
     transcripts = relationship("Transcript", back_populates="call", cascade="all, delete-orphan")
     appointments = relationship("Appointment", back_populates="call")

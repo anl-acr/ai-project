@@ -812,6 +812,8 @@ class WebphoneManager {
       isOnHold: false,
       sipCallId,
       direction: "inbound",
+      myExtension: myExt,
+      endLogged: false,
       origMicTrack: null,
       remoteTrack: null
     };
@@ -911,14 +913,22 @@ class WebphoneManager {
           ? Math.max(0, Math.round((Date.now() - currentLine.establishedAt) / 1000))
           : currentLine.callDuration || 0;
 
-        this.logWebrtcCallToBackend("end", {
-          sip_call_id: sipCallId,
-          caller: callerNum,
-          callee: myExt,
-          destination: myExt,
-          duration: durSec,
-          status: durSec > 0 ? "completed" : "no_answer"
-        });
+        if (!currentLine.endLogged) {
+          currentLine.endLogged = true;
+          const remoteEndedBy =
+            callerNum && /^\d+$/.test(callerNum) && callerNum.length <= 6
+              ? `ext:${callerNum}`
+              : "customer";
+          this.logWebrtcCallToBackend("end", {
+            sip_call_id: sipCallId,
+            caller: callerNum,
+            callee: myExt,
+            destination: myExt,
+            duration: durSec,
+            status: durSec > 0 ? "completed" : "no_answer",
+            terminated_by: remoteEndedBy
+          });
+        }
 
         this.removeLineAudioElement(lineId);
         this.linesMap.delete(lineId);
@@ -1390,6 +1400,9 @@ class WebphoneManager {
       lineNumber: this.getNextLineNumber(),
       session: inviter,
       remoteNumber: uiRemoteNum,
+      rawTarget: cleanTarget,
+      myExtension: myExt,
+      endLogged: false,
       remoteDisplayName: String(options.displayName || "").trim(),
       callStatus: "Calling",
       callDuration: 0,
@@ -1475,13 +1488,23 @@ class WebphoneManager {
           else if (rejectStatusCode === 403 || rejectStatusCode === 603) finalStatus = "blocked";
           else if (rejectStatusCode === 487) finalStatus = "cancelled";
         }
-        this.logWebrtcCallToBackend("end", {
-          caller: myExt,
-          callee: cleanTarget,
-          sip_call_id: sipCallId,
-          status: finalStatus,
-          duration: finalDuration
-        });
+        if (!currentLine.endLogged) {
+          currentLine.endLogged = true;
+          const remoteEndedBy =
+            !wasEstablished && (rejectStatusCode === 403 || rejectStatusCode === 603)
+              ? "system"
+              : cleanTarget && /^\d+$/.test(cleanTarget) && cleanTarget.length <= 6
+              ? `ext:${cleanTarget}`
+              : "customer";
+          this.logWebrtcCallToBackend("end", {
+            caller: myExt,
+            callee: cleanTarget,
+            sip_call_id: sipCallId,
+            status: finalStatus,
+            duration: finalDuration,
+            terminated_by: remoteEndedBy
+          });
+        }
 
         this.removeLineAudioElement(lineId);
         this.linesMap.delete(lineId);
@@ -1586,6 +1609,32 @@ class WebphoneManager {
     }
 
     const remoteNum = line.remoteNumber || "Bilinmeyen";
+    const myExt = String(line.myExtension || this.state.currentUser?.extension || "").trim();
+    const durSec = line.establishedAt
+      ? Math.max(0, Math.round((Date.now() - line.establishedAt) / 1000))
+      : line.callDuration || 0;
+
+    if (!line.endLogged) {
+      line.endLogged = true;
+      const isInbound = line.direction === "inbound";
+      const callerVal = isInbound ? remoteNum : myExt;
+      const calleeVal = isInbound ? myExt : (line.rawTarget || remoteNum);
+      const finalStatus =
+        durSec > 0 || line.callStatus === "InCall"
+          ? "completed"
+          : isInbound
+          ? "no_answer"
+          : "cancelled";
+      this.logWebrtcCallToBackend("end", {
+        sip_call_id: line.sipCallId,
+        caller: callerVal,
+        callee: calleeVal,
+        duration: durSec,
+        status: finalStatus,
+        terminated_by: myExt ? `ext:${myExt}` : "agent"
+      });
+    }
+
     try {
       if (line.callStatus === "Calling") {
         line.session.cancel();

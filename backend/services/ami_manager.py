@@ -13,6 +13,82 @@ active_channels = {}
 channel_states = {}
 # Registry to map Call UUID (call_id) -> Asterisk's internal Uniqueid (asterisk_id)
 call_id_to_asterisk_id = {}
+# Registry to map child Uniqueid -> master Linkedid for multi-leg bridged calls
+uniqueid_to_linkedid = {}
+# Registry to record the FIRST leg that initiated hangup per Linkedid / Uniqueid
+first_hangup_by_id = {}
+
+
+def _record_first_hangup(uniqueid: str, linkedid: str, channel: str, caller: str = "", cause: str = ""):
+    ch = str(channel or "").strip()
+    if not ch:
+        return
+    # Skip internal Local/ helper legs if not informative
+    if ch.lower().startswith("local/"):
+        return
+    uid_s = str(uniqueid or "").strip()
+    lid_s = str(linkedid or "").strip() or uniqueid_to_linkedid.get(uid_s, "") or uid_s
+    info = {
+        "channel": ch,
+        "caller": str(caller or "").strip(),
+        "cause": str(cause or "").strip(),
+    }
+    if len(first_hangup_by_id) > 800:
+        # Evict oldest ~200 entries to bound memory
+        for old_k in list(first_hangup_by_id.keys())[:200]:
+            first_hangup_by_id.pop(old_k, None)
+    if lid_s and lid_s not in first_hangup_by_id:
+        first_hangup_by_id[lid_s] = info
+    if uid_s and uid_s not in first_hangup_by_id:
+        first_hangup_by_id[uid_s] = info
+
+
+def classify_hangup_channel(chan_name: str, caller_num: str = "", callee_num: str = "") -> str:
+    """
+    Classifies an Asterisk channel string (e.g. 'PJSIP/1000-0000001a' or 'PJSIP/Operator_Trunk-0000001b')
+    into an ended_by identifier:
+      - 'ext:<ext>' for internal SIP/PJSIP subscriber extensions (e.g. 'ext:1000')
+      - 'ai' for AudioSocket / AI channels
+      - 'customer' for external SIP trunk legs
+      - '' if unknown
+    """
+    import re
+    ch = str(chan_name or "").strip()
+    if not ch:
+        return ""
+    if ch.lower().startswith("audiosocket/"):
+        return "ai"
+    m = re.match(r"^(?:PJSIP|SIP|IAX2)/([^-\;@/]+)", ch, re.IGNORECASE)
+    if not m:
+        return ""
+    peer = m.group(1).strip()
+    if not peer:
+        return ""
+    if peer.lower() == "ai":
+        return "ai"
+    # Short numeric peer (e.g. 100, 1000, 1001) is an internal extension
+    if peer.isdigit() and len(peer) <= 6:
+        return f"ext:{peer}"
+    # Otherwise peer is a SIP Trunk name or DID (e.g. Operator_Trunk, 908503607390, Ikon_Trunk) -> remote/customer side hung up
+    return "customer"
+
+
+def resolve_hangup_initiator(call_id: str, caller_num: str = "", callee_num: str = "", hangupsource_chan: str = "") -> str:
+    """Resolves who terminated the call using dialplan CHANNEL(hangupsource) or AMI first-hangup tracking."""
+    if hangupsource_chan:
+        classified = classify_hangup_channel(hangupsource_chan, caller_num, callee_num)
+        if classified:
+            return classified
+    ast_id = str(call_id_to_asterisk_id.get(str(call_id or "").strip()) or "").strip()
+    for lookup_key in (ast_id, str(call_id or "").strip()):
+        if lookup_key and lookup_key in first_hangup_by_id:
+            ch = first_hangup_by_id[lookup_key].get("channel") or ""
+            classified = classify_hangup_channel(ch, caller_num, callee_num)
+            if classified:
+                return classified
+    return ""
+
+
 class RegisteredEndpointsDict(dict):
     def add(self, key, ip=""):
         k = str(key)
@@ -160,11 +236,17 @@ def register_event_handlers(manager: Manager):
     @manager.register_event('Newchannel')
     def handle_new_channel(m, event):
         uniqueid = event.get('Uniqueid')
+        linkedid = event.get('Linkedid')
         channel = event.get('Channel')
         caller_num = str(event.get('CallerIDNum') or "").strip()
         exten = str(event.get('Exten') or "").strip()
         state_desc = str(event.get('ChannelStateDesc') or "").strip().lower()
         init_state = "busy" if state_desc == "up" else "ringing"
+        if uniqueid and linkedid:
+            if len(uniqueid_to_linkedid) > 1000:
+                for old_k in list(uniqueid_to_linkedid.keys())[:250]:
+                    uniqueid_to_linkedid.pop(old_k, None)
+            uniqueid_to_linkedid[str(uniqueid)] = str(linkedid)
         if uniqueid and channel:
             active_channels[uniqueid] = channel
             channel_states[uniqueid] = {
@@ -176,6 +258,26 @@ def register_event_handlers(manager: Manager):
             print(f"[AMI] Yeni Kanal Kaydedildi: {uniqueid} -> {channel} (Caller: {caller_num}, Exten: {exten}, State: {init_state})")
             if caller_num or exten:
                 asyncio.create_task(_check_and_hangup_blacklisted_channel(m, channel, uniqueid, caller_num, exten))
+
+    @manager.register_event('HangupRequest')
+    def handle_hangup_request(m, event):
+        _record_first_hangup(
+            uniqueid=event.get('Uniqueid'),
+            linkedid=event.get('Linkedid'),
+            channel=event.get('Channel'),
+            caller=event.get('CallerIDNum'),
+            cause=event.get('Cause')
+        )
+
+    @manager.register_event('SoftHangupRequest')
+    def handle_soft_hangup_request(m, event):
+        _record_first_hangup(
+            uniqueid=event.get('Uniqueid'),
+            linkedid=event.get('Linkedid'),
+            channel=event.get('Channel'),
+            caller=event.get('CallerIDNum'),
+            cause=event.get('Cause')
+        )
 
     @manager.register_event('Newstate')
     def handle_new_state(m, event):
@@ -221,8 +323,16 @@ def register_event_handlers(manager: Manager):
     @manager.register_event('Hangup')
     def handle_hangup(m, event):
         uniqueid = event.get('Uniqueid')
+        linkedid = event.get('Linkedid')
         old_info = channel_states.pop(uniqueid, None) or {}
         old_ch = active_channels.pop(uniqueid, None) or old_info.get("channel") or event.get('Channel') or ""
+        _record_first_hangup(
+            uniqueid=uniqueid,
+            linkedid=linkedid,
+            channel=old_ch,
+            caller=event.get('CallerIDNum') or old_info.get("caller") or "",
+            cause=event.get('Cause') or ""
+        )
         if old_ch:
             print(f"[AMI] Kanal Silindi (Hangup): {uniqueid} ({old_ch})")
         try:

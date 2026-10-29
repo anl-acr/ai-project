@@ -3332,7 +3332,7 @@ exten => h,1,NoOp(Cagri sonlandi: ${{EXTEN}}, Call ID: ${{CALL_UUID}}, Status: $
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_def_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}})}})
 same => n(done_def_h),Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
@@ -3412,7 +3412,7 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
-same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
+same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
 same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?apply_out_cfg:fallback_out_dial)
 same => n(apply_out_cfg),Set(__OUT_TRUNK_NAME=${{CUT(OUT_CFG,|,2)}})
 same => n,Set(OUT_LIMIT_EN=${{CUT(OUT_CFG,|,3)}})
@@ -3444,7 +3444,7 @@ exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}})}})
+same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/end?call_id=${{CALL_UUID}}&dialstatus=${{DIALSTATUS}}&hangupcause=${{HANGUPCAUSE}}&queuestatus=${{QUEUESTATUS}}&memberinterface=${{URIENCODE(${{MEMBERINTERFACE}})}}&hangupsource=${{URIENCODE(${{CHANNEL(hangupsource)}})}}&trunk=${{URIENCODE(${{OUT_TRUNK_NAME}})}})}})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer: 100-999999) ve Prefix'li Dış Aramalar (99805..., 905..., 507... vb. >= 7 hane)
@@ -3478,7 +3478,7 @@ same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out_ext)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
-same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
+same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
 same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?apply_out_cfg_ext:fallback_out_dial_ext)
 same => n(apply_out_cfg_ext),Set(__OUT_TRUNK_NAME=${{CUT(OUT_CFG,|,2)}})
 same => n,Set(OUT_LIMIT_EN=${{CUT(OUT_CFG,|,3)}})
@@ -3871,6 +3871,7 @@ def _match_and_transform_outbound_number(callee_raw: str, caller_ext: str = "", 
 
 @app.get("/api/trunks/resolve_outbound_dial", response_class=PlainTextResponse)
 async def resolve_outbound_dial_endpoint(
+    call_id: str = "",
     caller: str = "",
     caller_name: str = "",
     callee: str = "",
@@ -3948,6 +3949,30 @@ async def resolve_outbound_dial_endpoint(
 
         raw_t_name = selected_trunk.get("trunk_name") or "Operator_Trunk"
         safe_t_name = _sanitize_trunk_name(raw_t_name)
+
+        # Persist selected outbound trunk name onto active Call record
+        try:
+            target_call_row = None
+            if call_id:
+                target_call_row = await db.get(Call, str(call_id).strip())
+            if not target_call_row and caller and callee:
+                stmt_c = (
+                    select(Call)
+                    .where(
+                        Call.caller_number == str(caller).strip(),
+                        Call.callee_number == str(callee).strip(),
+                        Call.start_time >= datetime.datetime.utcnow() - datetime.timedelta(minutes=2)
+                    )
+                    .order_by(Call.start_time.desc())
+                )
+                res_c = await db.execute(stmt_c)
+                target_call_row = res_c.scalars().first()
+            if target_call_row and raw_t_name:
+                target_call_row.trunk_name = str(raw_t_name)
+                await db.commit()
+        except Exception:
+            pass
+
         t_type = str(selected_trunk.get("trunk_type") or "register").lower()
         t_host = str(selected_trunk.get("host") or "").strip() or "ikonsip.com"
         t_port = int(selected_trunk.get("port") or 5060)
@@ -12237,6 +12262,7 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
         async with AsyncSessionLocal() as session:
             call_tenant = "tenant-default"
             resolved_agent_name = resolve_call_agent_name_snapshot(caller, did)
+            matched_trunk_name = None
             try:
                 if caller:
                     res_u = await session.execute(select(SystemUser).where(or_(SystemUser.extension == str(caller), SystemUser.email == str(caller))))
@@ -12246,11 +12272,14 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                             call_tenant = user_found.tenant_id
                         if getattr(user_found, "full_name", None):
                             resolved_agent_name = user_found.full_name
-                if call_tenant == "tenant-default" and did and did != "s":
-                    res_t = await session.execute(select(Trunk).where(Trunk.did_number == str(did)))
+                if did and did != "s":
+                    res_t = await session.execute(select(Trunk).where(or_(Trunk.did_number == str(did), Trunk.username == str(did))))
                     trunk_found = res_t.scalars().first()
-                    if trunk_found and getattr(trunk_found, "tenant_id", None):
-                        call_tenant = trunk_found.tenant_id
+                    if trunk_found:
+                        if getattr(trunk_found, "trunk_name", None):
+                            matched_trunk_name = trunk_found.trunk_name
+                        if call_tenant == "tenant-default" and getattr(trunk_found, "tenant_id", None):
+                            call_tenant = trunk_found.tenant_id
             except Exception as e_tenant:
                 print(f"[Call Register Tenant Error]: {e_tenant}")
 
@@ -12271,6 +12300,9 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                         existing_bl_call.tenant_id = call_tenant
                         existing_bl_call.end_time = datetime.datetime.utcnow()
                         existing_bl_call.hangup_source = f"blacklist:{bl_reason}"
+                        existing_bl_call.ended_by = "system"
+                        if matched_trunk_name and not existing_bl_call.trunk_name:
+                            existing_bl_call.trunk_name = matched_trunk_name
                         if resolved_agent_name and not existing_bl_call.agent_name:
                             existing_bl_call.agent_name = resolved_agent_name
                     else:
@@ -12283,6 +12315,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                             start_time=datetime.datetime.utcnow(),
                             end_time=datetime.datetime.utcnow(),
                             hangup_source=f"blacklist:{bl_reason}",
+                            ended_by="system",
+                            trunk_name=matched_trunk_name,
                             agent_name=resolved_agent_name or None
                         )
                         session.add(new_call)
@@ -12323,6 +12357,9 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     if existing_lim_call:
                         existing_lim_call.status = "rejected_limit"
                         existing_lim_call.end_time = datetime.datetime.utcnow()
+                        existing_lim_call.ended_by = "system"
+                        if matched_trunk_name and not existing_lim_call.trunk_name:
+                            existing_lim_call.trunk_name = matched_trunk_name
                         if resolved_agent_name and not existing_lim_call.agent_name:
                             existing_lim_call.agent_name = resolved_agent_name
                     else:
@@ -12334,6 +12371,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                             tenant_id=call_tenant,
                             start_time=datetime.datetime.utcnow(),
                             end_time=datetime.datetime.utcnow(),
+                            ended_by="system",
+                            trunk_name=matched_trunk_name,
                             agent_name=resolved_agent_name or None
                         )
                         session.add(new_call)
@@ -12383,6 +12422,7 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     status="in_progress",
                     tenant_id=call_tenant,
                     start_time=datetime.datetime.utcnow(),
+                    trunk_name=matched_trunk_name,
                     agent_name=resolved_agent_name or None
                 )
                 session.add(new_call)
@@ -12394,6 +12434,8 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
                     db_call.callee_number = did
                 if call_tenant and call_tenant != "tenant-default":
                     db_call.tenant_id = call_tenant
+                if matched_trunk_name and not db_call.trunk_name:
+                    db_call.trunk_name = matched_trunk_name
                 if resolved_agent_name and not db_call.agent_name:
                     db_call.agent_name = resolved_agent_name
                 await session.commit()
@@ -12550,6 +12592,8 @@ async def handle_ami_queue_call_event(
                     db_call.callee_number = q_clean
                     db_call.hangup_source = f"queue:{q_clean}:abandoned"
                     db_call.status = "no_answer"
+                    if not db_call.ended_by:
+                        db_call.ended_by = "customer"
                     if not db_call.end_time:
                         db_call.end_time = now_utc
 
@@ -12565,7 +12609,9 @@ async def end_call_endpoint(
     hangupcause: Optional[str] = None,
     status: Optional[str] = None,
     queuestatus: Optional[str] = None,
-    memberinterface: Optional[str] = None
+    memberinterface: Optional[str] = None,
+    hangupsource: Optional[str] = None,
+    trunk: Optional[str] = None
 ):
     async with AsyncSessionLocal() as session:
         db_call = await session.get(Call, call_id)
@@ -12579,6 +12625,8 @@ async def end_call_endpoint(
 
             db_call.end_time = datetime.datetime.utcnow()
             db_call.recording_path = f"/api/recordings/{call_id}.wav"
+            if trunk and str(trunk).strip() and not db_call.trunk_name:
+                db_call.trunk_name = str(trunk).strip()
 
             dur_sec = 0
             if db_call.start_time:
@@ -12658,8 +12706,33 @@ async def end_call_endpoint(
             elif db_call.status == "transferred" and resolved_status == "completed":
                 resolved_status = "transferred"
             db_call.status = resolved_status
+
+            # Resolve who terminated the call (ended_by) if not already set by WebRTC or AudioSocket
+            if not db_call.ended_by:
+                try:
+                    from backend.services.ami_manager import resolve_hangup_initiator
+                    caller_num_s = str(db_call.caller_number or "").strip()
+                    initiator = resolve_hangup_initiator(
+                        call_id=call_id,
+                        caller_num=caller_num_s,
+                        callee_num=callee_s,
+                        hangupsource_chan=str(hangupsource or "").strip()
+                    )
+                    if initiator:
+                        db_call.ended_by = initiator
+                    elif resolved_status in ("blocked", "rejected_limit") or hangup_src_val.startswith("blacklist:"):
+                        db_call.ended_by = "system"
+                    elif is_queue_call and resolved_status == "no_answer":
+                        db_call.ended_by = "customer"
+                    elif resolved_status == "cancelled":
+                        db_call.ended_by = f"ext:{caller_num_s}" if (caller_num_s.isdigit() and len(caller_num_s) <= 6) else "customer"
+                    elif resolved_status == "busy":
+                        db_call.ended_by = f"ext:{callee_s}" if (callee_s.isdigit() and len(callee_s) <= 6) else "customer"
+                except Exception as e_endby:
+                    print(f"[End Call Initiator Resolve Warning]: {e_endby}")
+
             await session.commit()
-            print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus}, QueueCall: {is_queue_call})")
+            print(f"[Asterisk Dialplan] Call ended: {call_id} (Status: {resolved_status}, DialStatus: {dialstatus}, EndedBy: {db_call.ended_by}, QueueCall: {is_queue_call})")
             add_system_log("ASTERISK", "INFO", f"Arama Sonlandı: ID={call_id}, Durum={resolved_status}")
 
             # Trigger Post-Call Recording & Dynamic Retention Evaluator (also handles auto-transcription & AI Call Analyzer)
@@ -12689,6 +12762,7 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
         status = str(payload.get("status") or "in_progress").strip().lower()
         event_type = str(payload.get("event") or payload.get("action") or "start").strip().lower()
         duration = int(payload.get("duration") or 0)
+        terminated_by = str(payload.get("terminated_by") or "").strip()
 
         if not caller or not callee:
             return {"status": "ignored", "reason": "missing_numbers"}
@@ -12719,6 +12793,8 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     if pk_call:
                         pk_call.end_time = now_utc
                         pk_call.status = "completed"
+                        if terminated_by and not pk_call.ended_by:
+                            pk_call.ended_by = terminated_by
                         await session.commit()
             return {"status": "pickup_handled"}
 
@@ -12772,6 +12848,8 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                         active_queue_call.status = "in_progress"
                     else:
                         active_queue_call.status = "completed"
+                        if terminated_by and not active_queue_call.ended_by:
+                            active_queue_call.ended_by = terminated_by
                         if not active_queue_call.end_time:
                             active_queue_call.end_time = now_utc
                     await session.commit()
@@ -12836,6 +12914,7 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     callee_number=callee,
                     status=resolved_init_status,
                     hangup_source=init_hsrc,
+                    ended_by=terminated_by if (event_type == "end" and terminated_by) else None,
                     tenant_id=call_tenant,
                     start_time=now_utc - datetime.timedelta(seconds=max(0, duration)) if event_type == "end" else now_utc,
                     end_time=now_utc if event_type == "end" else None,
@@ -12852,6 +12931,8 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
                         db_call.hangup_source = "webrtc:answered"
                 elif event_type == "end":
+                    if terminated_by and not db_call.ended_by:
+                        db_call.ended_by = terminated_by
                     if not db_call.end_time:
                         db_call.end_time = now_utc
                     if cur_hsrc.startswith("pickup:"):
@@ -13489,7 +13570,98 @@ async def list_calls(
                 except Exception:
                     pass
 
+            # Resolve accurate Trunk details per call from configured Trunks & Outbound Rules
+            trunks_cfg = []
+            try:
+                res_tr = await db.execute(select(Trunk).order_by(Trunk.id))
+                for trow in res_tr.scalars().all():
+                    trunks_cfg.append({col.name: getattr(trow, col.name) for col in trow.__table__.columns})
+            except Exception:
+                pass
+            if not trunks_cfg:
+                trunks_cfg = list(settings_db.get("trunks", []) or [])
+            active_trunks_cfg = [t for t in trunks_cfg if t.get("is_active", True) is not False]
+
+            def _last10_digits(v: str) -> str:
+                d = re.sub(r"\D", "", str(v or ""))
+                return d[-10:] if len(d) >= 10 else d
+
             for c in calls_list:
+                c_caller = str(c.caller_number or "").strip()
+                c_callee = str(c.callee_number or "").strip()
+                raw_t = str(getattr(c, "trunk_name", "") or "").strip()
+                matched_t = None
+
+                if raw_t and trunks_cfg:
+                    raw_t_low = raw_t.lower()
+                    raw_t_san = _sanitize_trunk_name(raw_t).lower()
+                    matched_t = next(
+                        (
+                            t for t in trunks_cfg
+                            if str(t.get("trunk_name") or "").strip().lower() == raw_t_low
+                            or _sanitize_trunk_name(str(t.get("trunk_name") or "")).lower() == raw_t_san
+                            or str(t.get("id") or "").strip() == raw_t
+                        ),
+                        None,
+                    )
+
+                # Outbound call rule matching
+                if not matched_t and active_trunks_cfg and len(c_caller) <= 6 and len(c_callee) >= 7:
+                    try:
+                        t_info = _match_and_transform_outbound_number(c_callee, caller_ext=c_caller)
+                        m_rule = t_info.get("matched_rule")
+                        if m_rule:
+                            r_trunks = (
+                                m_rule.get("trunk_ids")
+                                or m_rule.get("trunks")
+                                or ([m_rule.get("trunk_id")] if m_rule.get("trunk_id") else [])
+                            )
+                            for tref in r_trunks:
+                                tref_s = str(tref).strip()
+                                cand_t = next(
+                                    (
+                                        t for t in active_trunks_cfg
+                                        if str(t.get("id")) == tref_s or str(t.get("trunk_name")) == tref_s
+                                    ),
+                                    None,
+                                )
+                                if cand_t:
+                                    matched_t = cand_t
+                                    break
+                    except Exception:
+                        pass
+
+                # Inbound/Outbound DID or username matching
+                if not matched_t and trunks_cfg:
+                    caller_l10 = _last10_digits(c_caller)
+                    callee_l10 = _last10_digits(c_callee)
+                    matched_t = next(
+                        (
+                            t for t in trunks_cfg
+                            if (
+                                len(_last10_digits(t.get("did_number"))) >= 7
+                                and _last10_digits(t.get("did_number")) in (caller_l10, callee_l10)
+                            )
+                            or (
+                                len(_last10_digits(t.get("username"))) >= 7
+                                and _last10_digits(t.get("username")) in (caller_l10, callee_l10)
+                            )
+                        ),
+                        None,
+                    )
+
+                if not matched_t and trunks_cfg:
+                    matched_t = active_trunks_cfg[0] if active_trunks_cfg else trunks_cfg[0]
+
+                if matched_t:
+                    c.resolved_trunk_name = str(matched_t.get("trunk_name") or "").strip()
+                    c.resolved_trunk_did = str(matched_t.get("did_number") or matched_t.get("username") or "").strip()
+                    c.has_configured_trunk = True
+                else:
+                    c.resolved_trunk_name = raw_t if (raw_t and raw_t != "Operator_Trunk") else ""
+                    c.resolved_trunk_did = ""
+                    c.has_configured_trunk = bool(c.resolved_trunk_name)
+
                 rec_val = str(getattr(c, "recording_path", "") or "").strip()
                 if rec_val in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
                     try:
@@ -20251,11 +20423,14 @@ async def startup_event():
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS sip_headers JSON DEFAULT '{}';",
                 "ALTER TABLE trunks ALTER COLUMN host DROP NOT NULL;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS ended_by VARCHAR;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS trunk_name VARCHAR;",
                 "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;"
             ]
             for stmt_sql in ddl_statements:
                 try:
                     async with engine.begin() as conn_ddl:
+                        await conn_ddl.execute(text("SET LOCAL lock_timeout = '1s'"))
                         await conn_ddl.execute(text(stmt_sql))
                 except Exception:
                     pass

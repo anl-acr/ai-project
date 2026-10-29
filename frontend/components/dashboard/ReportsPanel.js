@@ -2641,6 +2641,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return d.length >= 10 ? d.slice(-10) : d;
     };
 
+    const backendTrunkName = String(call?.resolved_trunk_name || "").trim();
+    const backendTrunkDid = String(call?.resolved_trunk_did || "").trim();
+    if (backendTrunkName) {
+      return {
+        trunkName: backendTrunkName,
+        didNumber: backendTrunkDid,
+        hasTrunk: true
+      };
+    }
+
     const caller = String(call?.caller_number || "").trim();
     const callee = String(call?.callee_number || "").trim();
     const callerL10 = last10(caller);
@@ -2648,7 +2658,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const rawTrunkName = String(call?.trunk || call?.trunk_name || "").trim();
 
     let matchedTrunk = realTrunks.find((t) => {
-      if (rawTrunkName && String(t.trunk_name || "").toLowerCase() === rawTrunkName.toLowerCase()) {
+      if (
+        rawTrunkName &&
+        rawTrunkName !== "Operator_Trunk" &&
+        String(t.trunk_name || "").toLowerCase() === rawTrunkName.toLowerCase()
+      ) {
         return true;
       }
       const didL10 = last10(t.did_number);
@@ -2662,13 +2676,102 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return false;
     });
 
-    if (!matchedTrunk) {
+    if (!matchedTrunk && realTrunks.length > 0) {
       matchedTrunk = activeTrunks[0] || realTrunks[0] || null;
     }
 
-    const trunkName = matchedTrunk?.trunk_name || rawTrunkName || "Ana SIP Trunk";
-    const didNumber = String(matchedTrunk?.did_number || matchedTrunk?.username || "").trim();
-    return { trunkName, didNumber };
+    if (matchedTrunk) {
+      const trunkName = String(matchedTrunk.trunk_name || "").trim();
+      const didNumber = String(matchedTrunk.did_number || matchedTrunk.username || "").trim();
+      return { trunkName, didNumber, hasTrunk: Boolean(trunkName) };
+    }
+
+    if (rawTrunkName && rawTrunkName !== "Operator_Trunk" && call?.has_configured_trunk !== false) {
+      return { trunkName: rawTrunkName, didNumber: "", hasTrunk: true };
+    }
+
+    return { trunkName: "", didNumber: "", hasTrunk: false };
+  };
+
+  const resolveCallEndedByDetail = (call) => {
+    if (!call) return { label: "Belirtilmedi", isKnown: false };
+
+    const direction = getCallDirection(call);
+    const agentDetail = resolveCallAgentDetail(call);
+    const custNum = getCustomerNumber(call);
+    const rawEndedBy = String(call.ended_by || "").trim();
+    const rawHs = String(call.hangup_source || "").trim();
+    const stLower = String(call.status || "").trim().toLowerCase();
+
+    if (rawEndedBy.startsWith("ext:")) {
+      const ext = rawEndedBy.slice(4).trim();
+      const u = resolveUserByExtOrName(ext, "");
+      if (u) {
+        const uName = u.full_name || u.name || u.username || ext;
+        return { label: `${uName} (Dahili: ${ext})`, isKnown: true };
+      }
+      if (ext && agentDetail.extension === ext && agentDetail.name) {
+        return { label: agentDetail.display, isKnown: true };
+      }
+      return { label: `Dahili: ${ext}`, isKnown: true };
+    }
+
+    if (rawEndedBy === "agent" || rawHs === "agent") {
+      return { label: agentDetail.display || "Müşteri Temsilcisi", isKnown: true };
+    }
+
+    if (rawEndedBy === "customer" || rawHs === "customer" || rawHs.includes(":abandoned")) {
+      if (direction.includes("Giden")) {
+        return { label: custNum ? `Karşı Taraf (${custNum})` : "Karşı Taraf", isKnown: true };
+      }
+      return { label: custNum ? `Arayan Müşteri (${custNum})` : "Müşteri", isKnown: true };
+    }
+
+    if (rawEndedBy === "ai" || rawHs === "ai") {
+      return { label: agentDetail.isAi ? agentDetail.display : "AI Asistan", isKnown: true };
+    }
+
+    if (
+      rawEndedBy === "system" ||
+      rawHs === "system" ||
+      rawHs.startsWith("blacklist:") ||
+      stLower === "blocked" ||
+      stLower === "rejected_limit"
+    ) {
+      return { label: "Sistem (Otomatik)", isKnown: true };
+    }
+
+    if (stLower === "cancelled") {
+      return {
+        label: direction.includes("Giden")
+          ? agentDetail.display
+          : custNum
+          ? `Arayan Müşteri (${custNum})`
+          : "Arayan Taraf",
+        isKnown: true
+      };
+    }
+
+    if (stLower === "busy") {
+      return {
+        label: direction.includes("Giden")
+          ? custNum
+            ? `Karşı Taraf (${custNum} - Meşgul)`
+            : "Karşı Taraf (Meşgul)"
+          : agentDetail.display,
+        isKnown: true
+      };
+    }
+
+    if (stLower === "no_answer") {
+      return { label: "Zaman Aşımı (Cevapsız)", isKnown: false };
+    }
+
+    if (stLower === "in_progress" || !call.end_time) {
+      return { label: "Görüşme Devam Ediyor", isKnown: false };
+    }
+
+    return { label: "Kayıt Öncesi (Belirtilmedi)", isKnown: false };
   };
 
   const parseUtcSafeDate = (dateVal) => {
@@ -2698,6 +2801,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const pickupMeta = getPickupMetadata(call);
     const agentDetail = resolveCallAgentDetail(call);
     const trunkDetail = resolveCallTrunkDetail(call);
+    const endedByDetail = resolveCallEndedByDetail(call);
     const caller = String(call.caller_number || "").trim();
     const callee = String(call.callee_number || "").trim();
     const hs = String(call.hangup_source || "").trim();
@@ -2760,7 +2864,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         timeline.push({
           time: formatOffsetTime(realTotalSecs),
           title: "Çağrı Kapatıldı",
-          description: `Görüşme tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
+          description: endedByDetail.isKnown
+            ? `Görüşme ${endedByDetail.label} tarafından sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`
+            : `Görüşme tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
           status: "success"
         });
       }
@@ -2811,14 +2917,18 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         timeline.push({
           time: formatOffsetTime(realTotalSecs),
           title: "Çağrı Kapatıldı",
-          description: `Dahili görüşme tamamlandı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
+          description: endedByDetail.isKnown
+            ? `Dahili görüşme ${endedByDetail.label} tarafından sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`
+            : `Dahili görüşme tamamlandı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
           status: "success"
         });
       } else {
         timeline.push({
           time: formatOffsetTime(realTotalSecs),
           title: "Çağrı Yanıtlanmadı",
-          description: `${calleeLabel} aramaya yanıt vermedi veya meşgul. Arama durumu: Başarısız.`,
+          description: endedByDetail.isKnown
+            ? `${calleeLabel} araması yanıtlanmadan ${endedByDetail.label} tarafından sonlandırıldı.`
+            : `${calleeLabel} aramaya yanıt vermedi veya meşgul. Arama durumu: Başarısız.`,
           status: "error"
         });
       }
@@ -2826,9 +2936,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     if (direction === "Gelen") {
-      const inboundDidDesc = trunkDetail.didNumber
-        ? `${trunkDetail.didNumber} numaralı dış hat (${trunkDetail.trunkName})`
-        : `${trunkDetail.trunkName} dış hattı`;
+      const inboundDidDesc = trunkDetail.hasTrunk
+        ? trunkDetail.didNumber
+          ? `${trunkDetail.didNumber} numaralı dış hat (${trunkDetail.trunkName})`
+          : `${trunkDetail.trunkName} dış hattı`
+        : "gelen dış hat";
 
       timeline.push({
         time: formatOffsetTime(0),
@@ -2911,8 +3023,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
         timeline.push({
           time: formatOffsetTime(realTotalSecs),
-          title: "Çağrı Kapatıldı (Normal)",
-          description: `Görüşme tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
+          title: "Çağrı Kapatıldı",
+          description: endedByDetail.isKnown
+            ? `Görüşme ${endedByDetail.label} tarafından sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`
+            : `Görüşme tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Çağrı durumu: Başarılı.`,
           status: "success"
         });
       } else {
@@ -2935,7 +3049,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           timeline.push({
             time: formatOffsetTime(realTotalSecs),
             title: "Çağrı Sonlandırıldı (Cevapsız / Başarısız)",
-            description: `${agentDetail.display} çağrıya yanıt vermedi veya ulaşılamadı. Çağrı durumu: Başarısız.`,
+            description: endedByDetail.isKnown
+              ? `Çağrı yanıtlanmadan ${endedByDetail.label} tarafından sonlandırıldı.`
+              : `${agentDetail.display} çağrıya yanıt vermedi veya ulaşılamadı. Çağrı durumu: Başarısız.`,
             status: "error"
           });
         }
@@ -2952,9 +3068,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       }
 
       const targetNumber = getCustomerNumber(call);
-      const selectedTrunkLabel = trunkDetail.didNumber
-        ? `${trunkDetail.trunkName} (${trunkDetail.didNumber})`
-        : trunkDetail.trunkName;
+      const selectedTrunkLabel = trunkDetail.hasTrunk
+        ? trunkDetail.didNumber && trunkDetail.didNumber !== trunkDetail.trunkName
+          ? `${trunkDetail.trunkName} (${trunkDetail.didNumber})`
+          : trunkDetail.trunkName
+        : "";
 
       timeline.push({
         time: formatOffsetTime(0),
@@ -2966,7 +3084,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       timeline.push({
         time: formatOffsetTime(1),
         title: "Dış Hat (Trunk) Seçimi",
-        description: `Dış hat çıkış kuralı eşleşti. Seçilen Hat: ${selectedTrunkLabel}.`,
+        description: trunkDetail.hasTrunk
+          ? `Dış hat çıkış kuralı eşleşti. Seçilen Hat: ${selectedTrunkLabel}.`
+          : "Sistemde tanımlı dış hat bulunmadığından varsayılan SIP çıkış rotası kullanıldı.",
         status: "success"
       });
 
@@ -2991,7 +3111,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         timeline.push({
           time: formatOffsetTime(realTotalSecs),
           title: "Çağrı Kapatıldı",
-          description: `Arama tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Arama durumu: Başarılı.`,
+          description: endedByDetail.isKnown
+            ? `Arama ${endedByDetail.label} tarafından sonlandırıldı (${durations.talk} görüşme süresi). Arama durumu: Başarılı.`
+            : `Arama tamamlanarak sonlandırıldı (${durations.talk} görüşme süresi). Arama durumu: Başarılı.`,
           status: "success"
         });
       } else {
@@ -3004,7 +3126,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         timeline.push({
           time: formatOffsetTime(realTotalSecs),
           title: "Çağrı Kapatıldı",
-          description: "Arama sonlandırıldı. Arama durumu: Başarısız (Cevapsız).",
+          description: endedByDetail.isKnown
+            ? `Arama yanıtlanmadan ${endedByDetail.label} tarafından sonlandırıldı. Arama durumu: Başarısız.`
+            : "Arama sonlandırıldı. Arama durumu: Başarısız (Cevapsız).",
           status: "error"
         });
       }
@@ -3548,23 +3672,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           const modalStatus = getCallStatus(selectedTimelineCall);
           const modalAgent = resolveCallAgentDetail(selectedTimelineCall);
           const timelineSteps = getCallFlowTimeline(selectedTimelineCall);
-          const rawHs = String(selectedTimelineCall.hangup_source || "").trim();
-          const hangupLabel =
-            rawHs === "ai"
-              ? "AI Asistan"
-              : rawHs === "customer" || rawHs.includes(":abandoned")
-              ? "Müşteri"
-              : rawHs === "agent"
-              ? modalAgent.name || "Müşteri Temsilcisi"
-              : rawHs === "system"
-              ? "Sistem"
-              : rawHs.startsWith("transfer:")
-              ? "Transfer Aktarımı"
-              : rawHs.startsWith("pickup:")
-              ? "Pickup ile Yanıtlandı"
-              : rawHs.includes(":answered:") || (modalStatus === "Başarılı" && selectedTimelineCall.end_time)
-              ? "Normal Sonlandırma"
-              : "Belirtilmedi";
+          const endedByInfo = resolveCallEndedByDetail(selectedTimelineCall);
+          const hangupLabel = endedByInfo.label;
 
           return (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">

@@ -616,6 +616,8 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
                 db_call.summary = summary
             if hangup_source:
                 db_call.hangup_source = hangup_source
+                if hangup_source in ("ai", "customer", "agent", "system") and not getattr(db_call, "ended_by", None):
+                    db_call.ended_by = hangup_source
             db_call.recording_path = f"/api/recordings/{call_id}.wav"
             await session.commit()
             

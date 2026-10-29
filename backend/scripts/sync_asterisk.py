@@ -894,8 +894,12 @@ same => n(hangup_blocked_s),NoOp(KARA LISTE / GUVENLIK ENGELI: Arayan reddedildi
 same => n,Hangup(21)
 
 ; Hangup handler (h uzantısı)
-exten => h,1,NoOp(Cagri sonlandi: ${EXTEN})
-same => n,Hangup()
+exten => h,1,NoOp(Cagri sonlandi: ${EXTEN}, Call ID: ${CALL_UUID}, Status: ${DIALSTATUS}, QueueStatus: ${QUEUESTATUS}, Member: ${MEMBERINTERFACE}, Cause: ${HANGUPCAUSE})
+same => n,GotoIf($["${CALL_UUID}" = ""]?done_def_h)
+same => n,Set(CURLOPT(conntimeout)=1)
+same => n,Set(CURLOPT(httptimeout)=2)
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&trunk=${URIENCODE(${OUT_TRUNK_NAME})})})
+same => n(done_def_h),Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
 exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${UNIQUEID})
@@ -958,7 +962,7 @@ same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_i
 same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?deny_out)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
 same => n,Set(DIAL_NUM=${IF($["${EXTEN:0:1}"="0"]?90${EXTEN:1}:${EXTEN})})
-same => n,Set(OUT_CFG=${CURL(http://127.0.0.1:8000/api/trunks/resolve_outbound_dial?caller=${URIENCODE(${CALLERID(num)})}&caller_name=${URIENCODE(${CALLERID(name)})}&callee=${URIENCODE(${EXTEN})}&dial_num=${URIENCODE(${DIAL_NUM})}&orig_caller=${URIENCODE(${ORIG_CALLER_NUM})}&orig_name=${URIENCODE(${ORIG_CALLER_NAME})})})
+same => n,Set(OUT_CFG=${CURL(http://127.0.0.1:8000/api/trunks/resolve_outbound_dial?call_id=${URIENCODE(${CALL_UUID})}&caller=${URIENCODE(${CALLERID(num)})}&caller_name=${URIENCODE(${CALLERID(name)})}&callee=${URIENCODE(${EXTEN})}&dial_num=${URIENCODE(${DIAL_NUM})}&orig_caller=${URIENCODE(${ORIG_CALLER_NUM})}&orig_name=${URIENCODE(${ORIG_CALLER_NAME})})})
 same => n,GotoIf($["${CUT(OUT_CFG,|,1)}" = "ALLOW"]?apply_out_cfg:fallback_out_dial)
 same => n(apply_out_cfg),Set(__OUT_TRUNK_NAME=${CUT(OUT_CFG,|,2)})
 same => n,Set(OUT_LIMIT_EN=${CUT(OUT_CFG,|,3)})
@@ -990,7 +994,7 @@ exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${CALL_UUID}, Status: ${DI
 same => n,GotoIf($["${CALL_UUID}" = ""]?done_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
-same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})})})
+same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/end?call_id=${CALL_UUID}&dialstatus=${DIALSTATUS}&hangupcause=${HANGUPCAUSE}&queuestatus=${QUEUESTATUS}&memberinterface=${URIENCODE(${MEMBERINTERFACE})}&hangupsource=${URIENCODE(${CHANNEL(hangupsource)})}&trunk=${URIENCODE(${OUT_TRUNK_NAME})})})
 same => n(done_h),NoOp(Hangup tamamlandi)
 
 ; İç hat (Diğer temsilciler & Dahililer: 100-999999) ve Prefix'li Dış Aramalar (99805..., 905..., 507... vb. >= 7 hane)
@@ -1024,7 +1028,7 @@ same => n,Set(CURL_RESULT=${CURL(http://127.0.0.1:8000/api/calls/register?call_i
 same => n,GotoIf($["${CURL_RESULT}" = "BLOCKED"]?deny_out_ext)
 same => n,MixMonitor(/var/spool/asterisk/monitor/${CALL_UUID}.wav)
 same => n,Set(DIAL_NUM=${IF($["${EXTEN:0:1}"="0"]?90${EXTEN:1}:${EXTEN})})
-same => n,Set(OUT_CFG=${CURL(http://127.0.0.1:8000/api/trunks/resolve_outbound_dial?caller=${URIENCODE(${CALLERID(num)})}&caller_name=${URIENCODE(${CALLERID(name)})}&callee=${URIENCODE(${EXTEN})}&dial_num=${URIENCODE(${DIAL_NUM})}&orig_caller=${URIENCODE(${ORIG_CALLER_NUM})}&orig_name=${URIENCODE(${ORIG_CALLER_NAME})})})
+same => n,Set(OUT_CFG=${CURL(http://127.0.0.1:8000/api/trunks/resolve_outbound_dial?call_id=${URIENCODE(${CALL_UUID})}&caller=${URIENCODE(${CALLERID(num)})}&caller_name=${URIENCODE(${CALLERID(name)})}&callee=${URIENCODE(${EXTEN})}&dial_num=${URIENCODE(${DIAL_NUM})}&orig_caller=${URIENCODE(${ORIG_CALLER_NUM})}&orig_name=${URIENCODE(${ORIG_CALLER_NAME})})})
 same => n,GotoIf($["${CUT(OUT_CFG,|,1)}" = "ALLOW"]?apply_out_cfg_ext:fallback_out_dial_ext)
 same => n(apply_out_cfg_ext),Set(__OUT_TRUNK_NAME=${CUT(OUT_CFG,|,2)})
 same => n,Set(OUT_LIMIT_EN=${CUT(OUT_CFG,|,3)})
