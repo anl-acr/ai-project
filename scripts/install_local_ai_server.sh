@@ -55,11 +55,13 @@ ollama pull qwen2.5:1.5b
 ollama pull nomic-embed-text
 
 # 4. Çağrı Ses Kaydı Transkripti için Faster-Whisper (CPU int8 destekli)
+if [ -d "/opt/ai-project/backend/venv" ]; then
+  echo "[4/4] /opt/ai-project/backend/venv içerisine faster-whisper kuruluyor..."
+  /opt/ai-project/backend/venv/bin/pip install --upgrade faster-whisper
+fi
 if [ -d "/opt/ai-project/venv" ]; then
   echo "[4/4] /opt/ai-project/venv içerisine faster-whisper kuruluyor..."
   /opt/ai-project/venv/bin/pip install --upgrade faster-whisper
-else
-  echo "[4/4] Not: /opt/ai-project/venv bulunamadı (Harici sunucudaysanız normaldir)."
 fi
 
 echo "=========================================================="
