@@ -6527,14 +6527,20 @@ async def update_agent_profile_endpoint(user_id: Union[int, str], payload: Profi
     has_write_perm = "mobile_transfer:write" in role_perms or role_code == "admin"
     
     if payload.gsm_number is not None:
-        if not has_write_perm and payload.gsm_number != user.get("gsm_number"):
-            raise HTTPException(status_code=403, detail="Mobil transfer ayarlarını düzenlemek için yetkiniz bulunmamaktadır.")
-        user["gsm_number"] = payload.gsm_number
+        incoming_gsm = str(payload.gsm_number or "").strip()
+        existing_gsm = str(user.get("gsm_number") or "").strip()
+        if incoming_gsm != existing_gsm:
+            if not has_write_perm:
+                raise HTTPException(status_code=403, detail="Mobil transfer ayarlarını düzenlemek için yetkiniz bulunmamaktadır.")
+            user["gsm_number"] = incoming_gsm
         
     if payload.mobile_transfer_enabled is not None:
-        if not has_write_perm and payload.mobile_transfer_enabled != user.get("mobile_transfer_enabled"):
-            raise HTTPException(status_code=403, detail="Mobil transfer özelliğini açıp/kapatmak için yetkiniz bulunmamaktadır.")
-        user["mobile_transfer_enabled"] = payload.mobile_transfer_enabled
+        incoming_mt = bool(payload.mobile_transfer_enabled)
+        existing_mt = bool(user.get("mobile_transfer_enabled"))
+        if incoming_mt != existing_mt:
+            if not has_write_perm:
+                raise HTTPException(status_code=403, detail="Mobil transfer özelliğini açıp/kapatmak için yetkiniz bulunmamaktadır.")
+            user["mobile_transfer_enabled"] = incoming_mt
         
     if payload.theme_color is not None:
         user["theme_color"] = payload.theme_color

@@ -4879,13 +4879,18 @@ export default function Home() {
                         if (currentUser) {
                           try {
                             const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+                            const mobileTransferPayload = hasMobileTransferPermission
+                              ? {
+                                  gsm_number: gsmNumber,
+                                  mobile_transfer_enabled: mobileTransferEnabled
+                                }
+                              : {};
                             const res = await fetch(`${protocol}//${backendHost}/api/agent/profile/${currentUser.id}`, {
                               method: "POST",
                               headers: { "Content-Type": "application/json" },
                               body: JSON.stringify({
                                 avatar: agentAvatar,
-                                gsm_number: gsmNumber,
-                                mobile_transfer_enabled: mobileTransferEnabled,
+                                ...mobileTransferPayload,
                                 theme_color: tempThemeColor,
                                 forwarding_always: { active: Boolean(fwdAlwaysActive && fwdAlwaysTarget), type: fwdAlwaysType || "internal", target: fwdAlwaysTarget || "" },
                                 forwarding_busy: { active: Boolean(fwdBusyActive && fwdBusyTarget), type: fwdBusyType || "internal", target: fwdBusyTarget || "" },
@@ -4924,9 +4929,16 @@ export default function Home() {
                             } else {
                               const errData = await res.json();
                               if (errData.detail) {
-                                showNotification(errData.detail, "error", "Şifre Güncellenemedi");
-                                setPasswordStatusMsg({ type: "error", text: errData.detail });
-                                setActiveModalTab("security");
+                                const isPassAttempt = Boolean(newPassword || confirmPassword);
+                                showNotification(
+                                  errData.detail,
+                                  "error",
+                                  isPassAttempt ? "Şifre Güncellenemedi" : "Ayarlar Kaydedilemedi"
+                                );
+                                if (isPassAttempt) {
+                                  setPasswordStatusMsg({ type: "error", text: errData.detail });
+                                  setActiveModalTab("security");
+                                }
                                 return;
                               }
                             }
