@@ -137,6 +137,9 @@ async def analyze_chat_session(session_id: str):
         qa_score = 100
         qa_report_str = "Kalite değerlendirmesi için aktif kural bulunamadı."
         
+        db_session = await session.get(ChatSession, session_id)
+        target_tenant = (getattr(db_session, "tenant_id", None) or "tenant-default") if db_session else "tenant-default"
+
         if qa_rules:
             rules_list_str = "\n".join([f"- Kural ID {r.id}: {r.question} (Maksimum Ceza Puanı: {r.max_score})" for r in qa_rules])
             qa_prompt = f"""
@@ -168,15 +171,20 @@ Yanıtını kesinlikle şu JSON formatında ver:
 }}
 """
             try:
-                client = get_genai_client()
-                qa_text = await _generate_with_gemini_fallback(client, qa_prompt)
+                from backend.services.ai_task_router import generate_routed_text
+                routed_res = await generate_routed_text(
+                    task_id="chat_qa_scoring",
+                    prompt=qa_prompt,
+                    json_mode=True,
+                    tenant_id=target_tenant,
+                )
+                qa_text = routed_res.get("text", "")
                 qa_data = _extract_json_dict(qa_text)
                 qa_score = max(0, min(100, qa_data.get("total_score", 100)))
                 qa_report_str = json.dumps(qa_data, ensure_ascii=False)
             except Exception as e:
                 print(f"[QA Analyzer] Chat QA evaluation failed: {e}")
                 
-        db_session = await session.get(ChatSession, session_id)
         if db_session:
             db_session.qa_score = qa_score
             db_session.qa_report = qa_report_str
@@ -225,9 +233,12 @@ async def analyze_call(call_id: str) -> dict:
         transcript_text = "\n".join(chat_history)
         fallback_summary, fallback_sentiment = build_fallback_summary_from_turns(turns)
         
-        # 3. Call Gemini API
+        db_call = await session.get(Call, call_id)
+        target_tenant = (getattr(db_call, "tenant_id", None) or "tenant-default") if db_call else "tenant-default"
+
+        # 3. Call Routed AI Provider (Local Ollama / Cloud AI)
         try:
-            client = get_genai_client()
+            from backend.services.ai_task_router import generate_routed_text
             prompt = f"""
 Aşağıdaki telefon görüşmesi transkriptini analiz et:
 
@@ -244,7 +255,13 @@ Yanıtını kesinlikle şu JSON formatında ver:
   "sentiment": "kategori"
 }}
 """
-            resp_text = await _generate_with_gemini_fallback(client, prompt)
+            routed_sum = await generate_routed_text(
+                task_id="call_summary_sentiment",
+                prompt=prompt,
+                json_mode=True,
+                tenant_id=target_tenant,
+            )
+            resp_text = routed_sum.get("text", "")
             data = _extract_json_dict(resp_text)
             summary_val = (data.get("summary") or "").strip() or fallback_summary
             sentiment_val = (data.get("sentiment") or "").strip() or fallback_sentiment
@@ -289,7 +306,13 @@ Yanıtını kesinlikle şu JSON formatında ver:
 }}
 """
                 try:
-                    qa_text = await _generate_with_gemini_fallback(client, qa_prompt)
+                    routed_qa = await generate_routed_text(
+                        task_id="call_qa_scoring",
+                        prompt=qa_prompt,
+                        json_mode=True,
+                        tenant_id=target_tenant,
+                    )
+                    qa_text = routed_qa.get("text", "")
                     qa_data = _extract_json_dict(qa_text)
                     qa_score = max(0, min(100, qa_data.get("total_score", 100)))
                     qa_report_str = json.dumps(qa_data, ensure_ascii=False)
@@ -297,7 +320,6 @@ Yanıtını kesinlikle şu JSON formatında ver:
                     print(f"[Call Analyzer] QA Evaluation failed: {ex_qa}")
             
             # 4. Save to db
-            db_call = await session.get(Call, call_id)
             if db_call:
                 db_call.summary = summary_val
                 db_call.sentiment = sentiment_val

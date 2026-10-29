@@ -51,15 +51,10 @@ def get_rag_settings() -> dict:
         print(f"[RAG] Error reading settings: {e}")
     return fallback
 
-async def generate_embedding(text: str) -> list:
-    """Generates a 768-dimensional text embedding using Gemini API."""
-    client = get_genai_client()
-    response = client.models.embed_content(
-        model="models/gemini-embedding-001",
-        contents=text,
-        config={"output_dimensionality": 768}
-    )
-    return response.embeddings[0].values
+async def generate_embedding(text: str, tenant_id: str = "tenant-default") -> list:
+    """Generates a 768-dimensional text embedding via configured AI Task Router (Ollama nomic-embed-text, OpenAI, or Gemini)."""
+    from backend.services.ai_task_router import generate_routed_embedding
+    return await generate_routed_embedding(text, tenant_id=tenant_id)
 
 def split_text_into_chunks(text: str, chunk_size: int = 800, overlap: int = 100) -> list:
     """Splits text into chunks of chunk_size characters with overlap."""
@@ -98,7 +93,7 @@ async def index_pdf_file(file_path: str, filename: str, tenant_id: str = "tenant
             chunk = chunk.strip()
             if not chunk:
                 continue
-            embedding = await generate_embedding(chunk)
+            embedding = await generate_embedding(chunk, tenant_id=tenant_id)
             chunk_record = DocumentChunk(
                 filename=filename,
                 content=chunk,
@@ -142,7 +137,7 @@ async def index_website_url(url: str, tenant_id: str = "tenant-default"):
             chunk = chunk.strip()
             if not chunk:
                 continue
-            embedding = await generate_embedding(chunk)
+            embedding = await generate_embedding(chunk, tenant_id=tenant_id)
             chunk_record = DocumentChunk(
                 filename=url,
                 content=chunk,
@@ -168,7 +163,7 @@ async def index_manual_text(title: str, text: str, tenant_id: str = "tenant-defa
             chunk = chunk.strip()
             if not chunk:
                 continue
-            embedding = await generate_embedding(chunk)
+            embedding = await generate_embedding(chunk, tenant_id=tenant_id)
             chunk_record = DocumentChunk(
                 filename=f"Manuel: {title}",
                 content=chunk,

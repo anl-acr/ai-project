@@ -198,6 +198,7 @@ const SYSTEM_FEATURES = [
   { id: "backup_restore", name: "Sistem Yedekleme", icon: HardDrive, type: "crud_partial", color: "rose" },
   { id: "recording_retention", name: "Kayıt & Saklama Sistemi", icon: HardDrive, type: "crud", color: "rose" },
   { id: "ai_providers", name: "Yapay Zeka API Ayarları", icon: Bot, type: "crud_partial", color: "purple" },
+  { id: "ai_task_routing", name: "AI Görev & Model Yönlendirme (Yerel LLM & Token Tasarrufu)", icon: Sliders, type: "crud_partial", color: "indigo" },
   { id: "tenants", name: "Müşteri (Tenant) Yönetimi", icon: Users, type: "crud", color: "rose" },
   { id: "tenant_license", name: "Lisans & Key Yönetimi", icon: Lock, type: "crud", color: "rose" },
   { id: "email_notifications", name: "E-Mail Bildirimleri", icon: Mail, type: "crud", color: "blue" },
@@ -420,7 +421,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
       id: "ai",
       name: "Yapay Zeka & Bilgi",
       icon: Bot,
-      items: ["ai_agents", "rag_kb", "rule_editor"]
+      items: ["ai_agents", "rag_kb", "rule_editor", "ai_task_routing"]
     },
     {
       id: "pbx_menu",
@@ -486,6 +487,7 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         "backup_restore",
         "recording_retention",
         "ai_providers",
+        "ai_task_routing",
         "tenants",
         "tenant_license",
         "email_notifications",

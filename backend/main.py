@@ -1280,6 +1280,7 @@ DEFAULT_SETTINGS = {
                 "recording_retention:read", "recording_retention:write", "recording_retention:delete",
                 "storage:access",
                 "api_budgets:read", "api_budgets:write",
+                "ai_task_routing:read", "ai_task_routing:write",
                 "tenants:read", "tenants:write", "tenants:delete",
                 "tenant_license:read", "tenant_license:write", "tenant_license:delete",
                 "email_notifications:read", "email_notifications:write", "email_notifications:delete",
@@ -1343,6 +1344,7 @@ DEFAULT_SETTINGS = {
                 "security:read", "security:write", "security:delete",
                 "email_notifications:read", "email_notifications:write",
                 "restore_points:read", "restore_points:write",
+                "ai_task_routing:read",
                 "system_version:access"
             ],
             "allowed_breaks": [1, 2, 3, 4]
@@ -1479,6 +1481,34 @@ DEFAULT_SETTINGS = {
         "enabled": False,
         "extern_ip": "",
         "local_nets": ["192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12", "127.0.0.1/32"]
+    },
+    "ai_task_routing": {
+        "ollama_base_url": "http://127.0.0.1:11434",
+        "ollama_api_key": "",
+        "whisper_mode": "local_python",
+        "whisper_remote_url": "http://127.0.0.1:8090",
+        "whisper_remote_api_key": "",
+        "whisper_model_size": "base",
+        "max_cpu_threads": 2,
+        "sequential_queue_enabled": True,
+        "auto_unload_ram": True,
+        "pause_during_active_calls": True,
+        "max_call_wait_seconds": 180,
+        "cloud_fallback_enabled": True,
+        "fallback_provider": "gemini",
+        "fallback_model": "gemini-2.5-flash",
+        "request_timeout_seconds": 90,
+        "tasks": {
+            "call_transcription": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "call_summary_sentiment": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "call_qa_scoring": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "chat_qa_scoring": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "rag_embeddings": {"provider": "gemini", "model": "models/gemini-embedding-001", "enabled": True},
+            "rag_knowledge_synthesis": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "scenario_generator": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "api_wizard_assistant": {"provider": "gemini", "model": "gemini-2.5-flash", "enabled": True},
+            "announcement_tts": {"provider": "edge_tts", "model": "tr-TR-EmelNeural", "enabled": True}
+        }
     }
 }
 
@@ -1639,6 +1669,10 @@ def load_settings():
                 for cti_perm in ["cti_integration:read", "cti_integration:write", "call_panel:cti_screen_pop"]:
                     if cti_perm not in new_perms:
                         new_perms.append(cti_perm)
+                if "ai_task_routing:read" not in new_perms:
+                    new_perms.append("ai_task_routing:read")
+                if r.get("role_code") == "admin" and "ai_task_routing:write" not in new_perms:
+                    new_perms.append("ai_task_routing:write")
             
             # Auto assign omnichannel to admin, supervisor, and agent if missing
             if r.get("role_code") in ["admin", "supervisor", "agent"]:
@@ -4137,11 +4171,11 @@ async def test_custom_api_endpoint(payload: CustomAPITestPayload):
         }
 
 @app.post("/api/settings/custom-apis/assistant")
-async def custom_api_assistant_endpoint(payload: CustomAPIAssistantPayload):
+async def custom_api_assistant_endpoint(payload: CustomAPIAssistantPayload, user_info: dict = Depends(get_user_info)):
     try:
         import json
-        from google.genai import types as genai_types
-        client = get_genai_client()
+        from backend.services.ai_task_router import generate_routed_text
+        target_tenant = user_info.get("tenant_id") or "tenant-default"
         
         current_apis = settings_db.get("custom_apis", [])
         current_apis_context = json.dumps(current_apis, indent=2, ensure_ascii=False)
@@ -4163,29 +4197,16 @@ Mevcut sistemde kayıtlı API tanımları aşağıdadır (Eğer kullanıcı bunl
 
 Gerektiğinde örnek JSON formatları veya cURL istekleri paylaş. Türkçe cevap ver.
 """
-        
-        # Build contents from history
-        contents = []
-        for msg in payload.history:
-            role = "user" if msg.get("sender") == "user" else "model"
-            contents.append(genai_types.Content(role=role, parts=[genai_types.Part.from_text(text=msg.get("text", ""))]))
-            
-        contents.append(genai_types.Content(role="user", parts=[genai_types.Part.from_text(text=payload.message)]))
-        
-        config = genai_types.GenerateContentConfig(
+        routed = await generate_routed_text(
+            task_id="api_wizard_assistant",
+            prompt=payload.message,
             system_instruction=system_instruction,
-            temperature=0.3
+            history=payload.history,
+            tenant_id=target_tenant,
         )
-        
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contents,
-            config=config
-        )
-        
-        return {"text": response.text.strip()}
+        return {"text": (routed.get("text") or "").strip(), "provider_used": routed.get("provider_used")}
     except Exception as e:
-        print(f"[Assistant] Error calling Gemini: {e}")
+        print(f"[Assistant] Error calling routed AI: {e}")
         return {"text": f"Asistan şu an yanıt veremiyor. Hata: {str(e)}"}
 
 class VoiceBiometricsSettingsSchema(BaseModel):
@@ -7772,12 +7793,31 @@ async def _synthesize_announcement_tts_async(
 @app.post("/api/settings/announcements/tts")
 async def create_tts_announcement(payload: dict, user_info: dict = Depends(get_user_info)):
     import os
+    from backend.services.ai_task_router import get_ai_task_routing_config
     target_tenant = user_info.get("tenant_id") or "tenant-default"
+    routed_tts_cfg = (get_ai_task_routing_config(target_tenant).get("tasks") or {}).get("announcement_tts") or {}
+    default_tts_prov = str(routed_tts_cfg.get("provider") or "edge_tts").lower()
+    default_tts_model = str(routed_tts_cfg.get("model") or "tr-TR-EmelNeural").strip()
+
     text = str(payload.get("text") or "").strip()
     name = str(payload.get("name") or "TTS Anons").strip() or "TTS Anons"
     ann_type = payload.get("type") if payload.get("type") in ["announcement", "moh"] else "announcement"
-    voice = str(payload.get("voice") or "Aoede (Dişi - Türkçe / İngilizce)").strip()
-    tts_provider = str(payload.get("tts_provider") or "google").strip().lower()
+    raw_prov = str(payload.get("tts_provider") or "").strip().lower()
+    if not raw_prov or raw_prov == "auto":
+        if default_tts_prov == "edge_tts":
+            tts_provider = "edge_tts"
+            voice = str(payload.get("voice") or default_tts_model or "tr-TR-EmelNeural").strip()
+        elif default_tts_prov == "elevenlabs":
+            tts_provider = "elevenlabs"
+            voice = str(payload.get("voice") or default_tts_model or "Aoede (Dişi - Türkçe / İngilizce)").strip()
+        else:
+            tts_provider = "google"
+            voice = str(payload.get("voice") or default_tts_model or "Aoede (Dişi - Türkçe / İngilizce)").strip()
+    else:
+        tts_provider = raw_prov
+        voice = str(payload.get("voice") or "Aoede (Dişi - Türkçe / İngilizce)").strip()
+    if tts_provider == "edge_tts" and not any(k in voice.lower() for k in ["emelneural", "ahmetneural", "arianeural", "guyneural"]):
+        voice = default_tts_model if "neural" in default_tts_model.lower() else "tr-TR-EmelNeural"
     tone = str(payload.get("tone") or "normal").strip()
     speaking_rate = float(payload.get("speaking_rate") or 1.0)
     agent_id = str(payload.get("agent_id") or "").strip()
@@ -9774,6 +9814,210 @@ async def save_ai_providers(payload: AIProvidersSchema, user_info: dict = Depend
     save_settings(settings_db)
     return {"status": "success", "message": "AI ve TTS API anahtarları kaydedildi."}
 
+
+@app.get("/api/settings/ai-task-routing")
+async def get_ai_task_routing_endpoint(user_info: dict = Depends(get_user_info)):
+    from backend.services.ai_task_router import get_ai_task_routing_config
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    return get_ai_task_routing_config(target_tenant)
+
+
+@app.post("/api/settings/ai-task-routing")
+async def save_ai_task_routing_endpoint(payload: dict, request: Request, user_info: dict = Depends(get_user_info)):
+    from backend.services.ai_task_router import DEFAULT_AI_TASK_ROUTING
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+
+    cleaned = json.loads(json.dumps(DEFAULT_AI_TASK_ROUTING))
+    for k, v in (payload or {}).items():
+        if k == "tasks" and isinstance(v, dict):
+            for tk, tv in v.items():
+                if tk in cleaned["tasks"] and isinstance(tv, dict):
+                    cleaned["tasks"][tk].update({
+                        "provider": str(tv.get("provider") or cleaned["tasks"][tk]["provider"]),
+                        "model": str(tv.get("model") or cleaned["tasks"][tk]["model"]),
+                        "enabled": bool(tv.get("enabled", True)),
+                    })
+        elif k in cleaned and v is not None:
+            cleaned[k] = v
+
+    cleaned["max_cpu_threads"] = max(1, min(16, int(cleaned.get("max_cpu_threads") or 2)))
+    cleaned["request_timeout_seconds"] = max(15, min(600, int(cleaned.get("request_timeout_seconds") or 90)))
+    cleaned["max_call_wait_seconds"] = max(0, min(900, int(cleaned.get("max_call_wait_seconds") or 180)))
+
+    if "tenant_ai_task_routing" not in settings_db or not isinstance(settings_db.get("tenant_ai_task_routing"), dict):
+        settings_db["tenant_ai_task_routing"] = {}
+    settings_db["tenant_ai_task_routing"][target_tenant] = cleaned
+    if is_default_tenant(target_tenant) or is_global_tenant(target_tenant):
+        settings_db["ai_task_routing"] = cleaned
+
+    save_settings(settings_db)
+    add_system_log("AI_ROUTER", "INFO", f"AI Görev & Model Yönlendirme ayarları güncellendi (Max CPU: {cleaned['max_cpu_threads']} çekirdek, Ollama: {cleaned['ollama_base_url']})")
+    try:
+        from backend.services.audit_logger import log_event
+        await log_event(
+            event_type="SETTINGS_CHANGED",
+            user=user_info.get("username") or "admin",
+            ip_address=resolve_real_client_ip(request),
+            action="AI Görev & Model Yönlendirme Ayarları Kaydedildi",
+            target=cleaned.get("ollama_base_url", "local"),
+            status="success",
+            details={"max_cpu_threads": cleaned["max_cpu_threads"], "auto_unload_ram": cleaned["auto_unload_ram"]},
+        )
+    except Exception:
+        pass
+    return {"status": "success", "message": "AI Görev & Model Yönlendirme ayarları başarıyla kaydedildi.", "config": cleaned}
+
+
+@app.get("/api/settings/ai-task-routing/status")
+async def get_ai_task_routing_status_endpoint(user_info: dict = Depends(get_user_info)):
+    from backend.services.ai_task_router import probe_ai_router_status
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    return await probe_ai_router_status(target_tenant)
+
+
+@app.post("/api/settings/ai-task-routing/test")
+async def test_ai_task_routing_endpoint(payload: dict, user_info: dict = Depends(get_user_info)):
+    import time
+    from backend.services.ai_task_router import (
+        get_ai_task_routing_config,
+        generate_routed_text,
+        generate_routed_embedding,
+        _call_ollama_chat,
+    )
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    mode = str(payload.get("mode") or "task").lower()
+    task_id = str(payload.get("task_id") or "call_summary_sentiment")
+    override_cfg = payload.get("config") if isinstance(payload.get("config"), dict) else None
+    t0 = time.time()
+
+    try:
+        if mode == "ollama_ping":
+            cfg = override_cfg or get_ai_task_routing_config(target_tenant)
+            test_model = str(payload.get("model") or "qwen2.5:1.5b").strip()
+            out = await _call_ollama_chat(
+                cfg=cfg,
+                model_name=test_model,
+                prompt="Merhaba! Tek cümle ile Türkçe olarak hazır olduğunu söyle.",
+                json_mode=False,
+            )
+            ms = int((time.time() - t0) * 1000)
+            return {
+                "status": "success",
+                "latency_ms": ms,
+                "provider_used": "ollama",
+                "model_used": test_model,
+                "preview": out[:280],
+            }
+
+        if task_id == "rag_embeddings":
+            vec = await generate_routed_embedding("AIDA Santral bilgi bankası vektör testi.", tenant_id=target_tenant)
+            ms = int((time.time() - t0) * 1000)
+            return {
+                "status": "success",
+                "latency_ms": ms,
+                "provider_used": (get_ai_task_routing_config(target_tenant)["tasks"]["rag_embeddings"]["provider"]),
+                "model_used": (get_ai_task_routing_config(target_tenant)["tasks"]["rag_embeddings"]["model"]),
+                "preview": f"768 boyutlu vektör başarıyla üretildi (boyut={len(vec)}, ilk 3 değer={vec[:3]})",
+            }
+
+        if task_id == "call_transcription":
+            from backend.services.ai_task_router import probe_ai_router_status
+            st = await probe_ai_router_status(target_tenant)
+            prov = (get_ai_task_routing_config(target_tenant)["tasks"]["call_transcription"]["provider"])
+            ms = int((time.time() - t0) * 1000)
+            if prov == "local_whisper":
+                w_info = st.get("whisper") or {}
+                if w_info.get("mode") == "local_python" and not w_info.get("faster_whisper_installed"):
+                    return {
+                        "status": "error",
+                        "latency_ms": ms,
+                        "message": "Bu sunucuda henüz 'faster-whisper' kurulu değil. Sunucunuzda kurulum scriptini çalıştırdığınızda aktif olacaktır.",
+                    }
+                if w_info.get("mode") == "remote_http" and not w_info.get("remote_whisper_online"):
+                    return {
+                        "status": "error",
+                        "latency_ms": ms,
+                        "message": f"Harici Whisper sunucusuna ({w_info.get('remote_url')}) ulaşılamadı.",
+                    }
+            return {
+                "status": "success",
+                "latency_ms": ms,
+                "provider_used": prov,
+                "model_used": (get_ai_task_routing_config(target_tenant)["tasks"]["call_transcription"]["model"]),
+                "preview": f"Transkript motoru ({prov}) ses kayıtlarını işlemek için hazır.",
+            }
+
+        if task_id == "announcement_tts":
+            prov = (get_ai_task_routing_config(target_tenant)["tasks"]["announcement_tts"]["provider"])
+            mod = (get_ai_task_routing_config(target_tenant)["tasks"]["announcement_tts"]["model"])
+            wav_b = await _synthesize_announcement_tts_async(
+                text="Merhaba, santral seslendirme testi başarılı.",
+                voice=mod,
+                tts_provider="google" if prov == "gemini" else prov,
+                target_tenant=target_tenant,
+            )
+            ms = int((time.time() - t0) * 1000)
+            if wav_b and len(wav_b) > 200:
+                return {
+                    "status": "success",
+                    "latency_ms": ms,
+                    "provider_used": prov,
+                    "model_used": mod,
+                    "preview": f"Ses dosyası başarıyla sentezlendi ({round(len(wav_b)/1024, 1)} KB).",
+                }
+            return {"status": "error", "latency_ms": ms, "message": "Ses sentezlenemedi."}
+
+        # Standard LLM text/JSON task test
+        res = await generate_routed_text(
+            task_id=task_id,
+            prompt="Müşteri: Faturamı ödemek istiyorum. Temsilci: Hemen yardımcı oluyorum, işleminiz tamamlandı. Müşteri: Çok teşekkürler!\nKısa özet ve duygu analizi JSON üret: {\"summary\": \"...\", \"sentiment\": \"Memnun\"}",
+            json_mode=(task_id in ("call_summary_sentiment", "call_qa_scoring", "chat_qa_scoring", "scenario_generator")),
+            tenant_id=target_tenant,
+        )
+        ms = int((time.time() - t0) * 1000)
+        return {
+            "status": "success",
+            "latency_ms": ms,
+            "provider_used": res.get("provider_used"),
+            "model_used": res.get("model_used"),
+            "fallback_used": res.get("fallback_used", False),
+            "preview": str(res.get("text") or "")[:320],
+        }
+    except Exception as e:
+        ms = int((time.time() - t0) * 1000)
+        return {"status": "error", "latency_ms": ms, "message": str(e)}
+
+
+@app.post("/api/settings/ai-task-routing/pull-model")
+async def pull_ollama_model_endpoint(payload: dict, user_info: dict = Depends(get_user_info)):
+    from backend.services.ai_task_router import get_ai_task_routing_config
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
+    cfg = get_ai_task_routing_config(target_tenant)
+    base_url = str(payload.get("ollama_base_url") or cfg.get("ollama_base_url") or "http://127.0.0.1:11434").rstrip("/")
+    api_key = str(payload.get("ollama_api_key") or cfg.get("ollama_api_key") or "").strip()
+    model_name = str(payload.get("model") or "qwen2.5:1.5b").strip()
+    if not model_name:
+        raise HTTPException(status_code=400, detail="Model adı belirtilmedi.")
+
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            r = await client.post(
+                f"{base_url}/api/pull",
+                headers=headers,
+                json={"name": model_name, "stream": False},
+            )
+            if r.status_code == 200:
+                add_system_log("AI_ROUTER", "INFO", f"Ollama modeli indirildi/güncellendi: {model_name} ({base_url})")
+                return {"status": "success", "message": f"'{model_name}' modeli Ollama sunucusuna başarıyla indirildi."}
+            return {"status": "error", "message": f"Ollama HTTP {r.status_code}: {r.text[:200]}"}
+    except Exception as e:
+        return {"status": "error", "message": f"Ollama sunucusuna bağlanılamadı ({base_url}): {e}"}
+
+
 _ELEVENLABS_QUOTA_CACHE = {"ts": 0.0, "key": "", "data": None}
 
 async def fetch_elevenlabs_live_subscription(api_key: str) -> Optional[dict]:
@@ -10847,12 +11091,12 @@ def parse_scenario_semantically(user_prompt: str) -> dict:
     return { "nodes": nodes, "connections": connections }
 
 @app.post("/api/settings/ai-agents/generate-scenario")
-async def generate_scenario_from_prompt(payload: dict):
+async def generate_scenario_from_prompt(payload: dict, user_info: dict = Depends(get_user_info)):
     user_prompt = payload.get("prompt", "").strip()
     if not user_prompt:
         raise HTTPException(status_code=400, detail="Senaryo metni boş olamaz.")
 
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
+    target_tenant = user_info.get("tenant_id") or "tenant-default"
     system_inst = """Sen bir AI Çağrı Merkezi ve IVR Senaryo Mimarısın. Kullanıcının Türkçe olarak tanımladığı telefon görüşmesi akışını analiz edip aşağıdaki JSON yapısında düğümler (nodes) ve bağlantılar (connections) oluşturacaksın.
 
 Düğüm Türleri (type):
@@ -10875,26 +11119,21 @@ Lütfen YALNIZCA geçerli bir JSON objesi döndür:
   ]
 }
 """
-    if gemini_key:
-        try:
-            import urllib.request
-            import json
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={gemini_key}"
-            req_data = {
-                "contents": [
-                    {"role": "user", "parts": [{"text": system_inst + "\n\nKullanıcı İsteği:\n" + user_prompt}]}
-                ],
-                "generationConfig": { "response_mime_type": "application/json" }
-            }
-            req = urllib.request.Request(url, data=json.dumps(req_data).encode("utf-8"), headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-                text_content = result["candidates"][0]["content"]["parts"][0]["text"]
-                parsed_json = json.loads(text_content)
-                if isinstance(parsed_json, dict) and "nodes" in parsed_json and len(parsed_json["nodes"]) > 0:
-                    return parsed_json
-        except Exception as e_gemini:
-            print(f"[Gemini Scenario Gen Error]: {e_gemini}")
+    try:
+        from backend.services.ai_task_router import generate_routed_text
+        from backend.services.call_analyzer import _extract_json_dict
+        routed = await generate_routed_text(
+            task_id="scenario_generator",
+            prompt="Kullanıcı İsteği:\n" + user_prompt,
+            system_instruction=system_inst,
+            json_mode=True,
+            tenant_id=target_tenant,
+        )
+        parsed_json = _extract_json_dict(routed.get("text", ""))
+        if isinstance(parsed_json, dict) and "nodes" in parsed_json and len(parsed_json["nodes"]) > 0:
+            return parsed_json
+    except Exception as e_routed:
+        print(f"[Scenario Gen Router Fallback]: {e_routed}")
 
     return parse_scenario_semantically(user_prompt)
 
@@ -13330,17 +13569,33 @@ async def _auto_transcribe_call_recording(call_id: str, db: AsyncSession) -> lis
 
         db_call = await db.get(Call, call_id)
         base_time = (db_call.start_time if db_call and db_call.start_time else datetime.datetime.utcnow())
+        target_tenant = (getattr(db_call, "tenant_id", None) or "tenant-default") if db_call else "tenant-default"
 
         extracted_turns = []
 
-        # 1. Primary: Gemini Multimodal Audio Diarization + Bilingual Translation
+        # 0. AI Task Router Check (Local Faster-Whisper / Remote Whisper Server / Groq Whisper / OpenAI Whisper)
+        should_run_gemini = True
+        try:
+            from backend.services.ai_task_router import transcribe_routed_audio
+            prov_used, routed_turns = await transcribe_routed_audio(
+                wav_path=wav_path,
+                audio_bytes=audio_bytes,
+                tenant_id=target_tenant,
+            )
+            if prov_used != "gemini_delegate":
+                extracted_turns = list(routed_turns or [])
+                should_run_gemini = False
+        except Exception as r_tr_err:
+            print(f"[AutoTranscribe Router Error]: {r_tr_err}")
+
+        # 1. Primary Cloud: Gemini Multimodal Audio Diarization + Bilingual Translation
         try:
             keys = _resolve_translator_ai_keys({})
             gemini_key = keys.get("gemini_key") or os.getenv("GEMINI_API_KEY", "")
         except Exception:
             gemini_key = os.getenv("GEMINI_API_KEY", "")
 
-        if gemini_key and len(audio_bytes) <= 18 * 1024 * 1024:
+        if should_run_gemini and not extracted_turns and gemini_key and len(audio_bytes) <= 18 * 1024 * 1024:
             raw_b64 = base64.b64encode(audio_bytes).decode("ascii")
             prompt_text = (
                 "You are an expert call center transcription and translation engine. "

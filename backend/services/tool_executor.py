@@ -55,7 +55,11 @@ def is_business_hours() -> bool:
     return start <= current_time <= end
 
 async def generate_call_summary(call_id: str) -> str:
+    target_tenant = "tenant-default"
     async with AsyncSessionLocal() as session:
+        db_call = await session.get(Call, call_id)
+        if db_call and getattr(db_call, "tenant_id", None):
+            target_tenant = db_call.tenant_id
         stmt = select(Transcript).where(Transcript.call_id == call_id).order_by(Transcript.timestamp.asc())
         res = await session.execute(stmt)
         lines = res.scalars().all()
@@ -74,12 +78,13 @@ Aşağıdaki telefon konuşması geçmişini inceleyerek temsilciye fısıldanac
 {history_str}
 """
     try:
-        client = get_genai_client()
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=prompt
+        from backend.services.ai_task_router import generate_routed_text
+        res_routed = await generate_routed_text(
+            task_id="rag_knowledge_synthesis",
+            prompt=prompt,
+            tenant_id=target_tenant,
         )
-        return response.text.strip()
+        return (res_routed.get("text") or "Aktarılan Arama").strip()
     except Exception as e:
         print(f"Summary generation error: {e}")
         return "Aktarılan Arama"

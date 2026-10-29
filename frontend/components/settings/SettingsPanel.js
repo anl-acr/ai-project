@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network, GitCommit, Mail, RotateCcw } from "lucide-react";
+import { Server, Smartphone, Settings, Coffee, User, Shield, Cable, Shuffle, PhoneCall, Languages, Heart, Bot, FileText, ShieldAlert, Fingerprint, Palette, Hash, ArrowUpRight, MapPin, Lock, HardDrive, Database, Building2, Network, GitCommit, Mail, RotateCcw, Cpu } from "lucide-react";
 import PBXSettings from "./PBXSettings";
 import NATSettings from "./NATSettings";
 import NumberingPlanPanel from "./NumberingPlanPanel";
@@ -22,6 +22,7 @@ import SSLSettings from "./SSLSettings";
 import BackupRestorePanel from "./BackupRestorePanel";
 import RecordingRetentionSettings from "./RecordingRetentionSettings";
 import AIProvidersSettings from "./AIProvidersSettings";
+import AITaskRoutingSettings from "./AITaskRoutingSettings";
 import TenantManagementPanel from "./TenantManagementPanel";
 import LicenseSettingsPanel from "./LicenseSettingsPanel";
 import ChangelogPanel from "./ChangelogPanel";
@@ -78,6 +79,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
   const [hasBackupPermission, setHasBackupPermission] = useState(false);
   const [hasRecordingRetentionPermission, setHasRecordingRetentionPermission] = useState(false);
   const [hasApiBudgetsPermission, setHasApiBudgetsPermission] = useState(true);
+  const [hasAiTaskRoutingPermission, setHasAiTaskRoutingPermission] = useState(true);
   const [debugPerms, setDebugPerms] = useState("");
 
   useEffect(() => {
@@ -98,13 +100,14 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasBackupPermission(true);
           setHasRecordingRetentionPermission(true);
           setHasApiBudgetsPermission(true);
+          setHasAiTaskRoutingPermission(true);
           return;
         }
 
         const protocol = window.location.protocol === "https:" ? "https:" : "http:";
         const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?t=${Date.now()}`);
         const usersData = await resUsers.json();
-        const currentUser = usersData.find(u => str(u.id) === str(savedUserId) || u.extension === savedUserId);
+        const currentUser = usersData.find(u => String(u.id) === String(savedUserId) || u.extension === savedUserId);
         
         if (!currentUser || currentUser.role === "admin" || currentUser.id === "admin") {
           setHasCannedPermission(true);
@@ -118,6 +121,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasBackupPermission(true);
           setHasRecordingRetentionPermission(true);
           setHasApiBudgetsPermission(true);
+          setHasAiTaskRoutingPermission(true);
           return;
         }
 
@@ -137,6 +141,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           setHasBackupPermission(true);
           setHasRecordingRetentionPermission(true);
           setHasApiBudgetsPermission(true);
+          setHasAiTaskRoutingPermission(true);
           return;
         }
 
@@ -151,6 +156,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasBackupPermission(currentRole.permissions.includes("backup_restore:read"));
         setHasRecordingRetentionPermission(currentRole.permissions.includes("recording_retention:read"));
         setHasApiBudgetsPermission(currentRole.permissions.includes("api_budgets:read") || currentRole.permissions.includes("api_budgets:write"));
+        setHasAiTaskRoutingPermission(currentRole.permissions.includes("ai_task_routing:read") || currentRole.permissions.includes("ai_task_routing:write"));
         setDebugPerms(JSON.stringify(currentRole.permissions));
       } catch (err) {
         console.error("Canned/Blacklist permission check error:", err);
@@ -165,6 +171,7 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
         setHasBackupPermission(true);
         setHasRecordingRetentionPermission(true);
         setHasApiBudgetsPermission(true);
+        setHasAiTaskRoutingPermission(true);
       }
     };
     checkPermissions();
@@ -440,6 +447,20 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
             <span>Yapay Zeka API Ayarları</span>
           </button>
 
+          {hasAiTaskRoutingPermission && (
+            <button
+              onClick={() => setActiveSubTab("ai-task-routing")}
+              className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
+                activeSubTab === "ai-task-routing"
+                  ? "bg-primary/5 dark:bg-primary/10 text-primary border-primary/20 shadow-sm"
+                  : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800/40"
+              }`}
+            >
+              <Cpu size={14} className={activeSubTab === "ai-task-routing" ? "text-primary" : ""} />
+              <span>AI Görev & Model Yönlendirme</span>
+            </button>
+          )}
+
           <button
             onClick={() => setActiveSubTab("tenants")}
             className={`w-full flex items-center gap-2.5 px-4 py-3 rounded-xl text-xs font-bold transition-all duration-200 border text-left ${
@@ -526,6 +547,9 @@ export default function SettingsPanel({ backendHost = "localhost:8000" }) {
           )}
           {activeSubTab === "ai-providers" && (
             <AIProvidersSettings backendHost={backendHost} />
+          )}
+          {activeSubTab === "ai-task-routing" && (
+            <AITaskRoutingSettings backendHost={backendHost} />
           )}
           {activeSubTab === "tenants" && (
             <TenantManagementPanel backendHost={backendHost} />

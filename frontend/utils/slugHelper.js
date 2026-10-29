@@ -58,6 +58,8 @@ export const SUBTAB_TURKISH_SLUGS = {
   "roles": "rol-ve-yetkiler",
   "tenants": "musteri-lisanslari",
   "ai_providers": "yapay-zeka-saglayicilari",
+  "ai-providers": "yapay-zeka-saglayicilari",
+  "ai-task-routing": "ai-gorev-yonlendirme",
   "api_budgets": "api-butceleri",
   "nat": "nat-ayarlari",
   "email-notifications": "email-bildirimleri",
