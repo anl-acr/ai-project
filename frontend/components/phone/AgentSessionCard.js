@@ -430,14 +430,20 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
   if (headerBar) {
     return (
       <div className="flex items-center gap-2 shrink-0">
-        {/* Status Indicator Badge */}
-        <span className={`hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-extrabold uppercase border ${statusDisplay.badgeClass}`}>
-          <span
-            className={`h-2 w-2 rounded-full shrink-0 ${statusDisplay.customColor ? "" : statusDisplay.indicatorClass}`}
-            style={statusDisplay.customColor ? { backgroundColor: statusDisplay.customColor } : {}}
-          />
-          <span className="truncate max-w-[160px]">{statusDisplay.text}</span>
-        </span>
+        {/* Status Indicator Badge (Only shown when logged in) */}
+        {agentState.is_logged_in && (
+          <span className={`hidden xl:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-extrabold uppercase border ${statusDisplay.badgeClass}`}>
+            <span
+              className={`h-2 w-2 rounded-full shrink-0 ${statusDisplay.customColor ? "" : statusDisplay.indicatorClass}`}
+              style={statusDisplay.customColor ? { backgroundColor: statusDisplay.customColor } : {}}
+            />
+            <span className="truncate max-w-[140px]">
+              {agentState.status === "online"
+                ? `Müsait • ${formatTimer(liveBreakSeconds)}`
+                : statusDisplay.text}
+            </span>
+          </span>
+        )}
 
         {!agentState.is_logged_in ? (
           <button
@@ -692,14 +698,16 @@ export default function AgentSessionCard({ backendHost = "localhost:8000", curre
             Temsilci Oturumu
           </h4>
           
-          {/* Status Indicator Badge */}
-          <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${statusDisplay.badgeClass}`}>
-            <span 
-              className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusDisplay.customColor ? "" : statusDisplay.indicatorClass}`} 
-              style={statusDisplay.customColor ? { backgroundColor: statusDisplay.customColor } : {}}
-            />
-            <span className="truncate">{statusDisplay.text}</span>
-          </span>
+          {/* Status Indicator Badge (Only shown when logged in) */}
+          {agentState.is_logged_in && (
+            <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-extrabold uppercase border ${statusDisplay.badgeClass}`}>
+              <span 
+                className={`h-1.5 w-1.5 rounded-full shrink-0 ${statusDisplay.customColor ? "" : statusDisplay.indicatorClass}`} 
+                style={statusDisplay.customColor ? { backgroundColor: statusDisplay.customColor } : {}}
+              />
+              <span className="truncate">{statusDisplay.text}</span>
+            </span>
+          )}
         </div>
 
         {/* Logged In User Profile Summary */}

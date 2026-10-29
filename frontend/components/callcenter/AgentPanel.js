@@ -453,8 +453,8 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   }, [isTopNav, isVisible, activeTab]);
 
   const renderHorizontalNavContent = () => (
-    <div className="flex items-center justify-between gap-3 w-full min-w-0">
-      <div className="flex items-center gap-1 overflow-x-auto py-1 no-scrollbar min-w-0">
+    <div className="flex items-center justify-between gap-2 w-full min-w-0">
+      <div className="flex items-center gap-0.5 overflow-x-auto py-1 no-scrollbar min-w-0">
         {tabs.map((tab) => {
           const isSelected = activeTab === tab.id;
           const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
@@ -465,13 +465,13 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
               key={tab.id}
               type="button"
               onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold transition-all whitespace-nowrap shrink-0 cursor-pointer ${
                 isSelected
                   ? `${bg} text-white shadow-sm`
                   : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800/80"
               }`}
             >
-              <tab.icon size={15} className="shrink-0" />
+              <tab.icon size={14} className="shrink-0" />
               <span>{tab.name}</span>
               {showMissedBadge && (
                 <span
