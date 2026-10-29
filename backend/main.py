@@ -18316,6 +18316,25 @@ async def _resolve_user_chat_identities(raw_keys: list[str], db: AsyncSession) -
 
     return identities, name_map
 
+def _parse_internal_chat_deleted_by(raw_val) -> set[str]:
+    if not raw_val:
+        return set()
+    if isinstance(raw_val, (list, set, tuple)):
+        return {str(x).strip() for x in raw_val if str(x).strip()}
+    try:
+        parsed = json.loads(str(raw_val))
+        if isinstance(parsed, list):
+            return {str(x).strip() for x in parsed if str(x).strip()}
+    except Exception:
+        pass
+    return {s.strip() for s in str(raw_val).split(",") if s.strip()}
+
+def _is_internal_msg_deleted_for(msg_obj, user_identities: set[str]) -> bool:
+    if not user_identities:
+        return False
+    deleted_set = _parse_internal_chat_deleted_by(getattr(msg_obj, "deleted_by", None))
+    return bool(deleted_set & user_identities)
+
 @app.get("/api/agent/chat")
 async def get_internal_chat(
     extension: str = None,
@@ -18337,7 +18356,8 @@ async def get_internal_chat(
 
     stmt = select(InternalChatMessage).where(or_(*conds)).order_by(InternalChatMessage.timestamp.asc())
     res = await db.execute(stmt)
-    messages = res.scalars().all()
+    all_messages = res.scalars().all()
+    messages = [m for m in all_messages if not _is_internal_msg_deleted_for(m, identities)]
 
     newly_delivered_ids: set[int] = set()
     if deliver and identities:
@@ -18388,7 +18408,8 @@ async def post_internal_chat(payload: dict, db: AsyncSession = Depends(get_db)):
         text=text_val,
         timestamp=datetime.datetime.utcnow(),
         delivered_at=None,
-        read_at=None
+        read_at=None,
+        deleted_by="[]"
     )
     db.add(msg)
     await db.commit()
@@ -18444,6 +18465,79 @@ async def mark_internal_chat_read(payload: dict, db: AsyncSession = Depends(get_
 
     await db.commit()
     return {"status": "success", "updated_count": len(unread_msgs)}
+
+@app.post("/api/agent/chat/delete")
+async def delete_internal_chat_for_user(payload: dict, db: AsyncSession = Depends(get_db)):
+    """
+    Marks internal chat message(s) as deleted ONLY for the requesting user's identities.
+    Does NOT delete database rows or modify the peer's conversation history.
+    """
+    from backend.database.models import InternalChatMessage
+    from sqlalchemy import select, or_, and_
+
+    user_keys = [
+        payload.get("user_extension"),
+        payload.get("user_id"),
+    ]
+    user_identities, _ = await _resolve_user_chat_identities(user_keys, db)
+    if not user_identities:
+        raise HTTPException(status_code=400, detail="Kullanıcı kimliği doğrulanamadı.")
+
+    raw_message_id = payload.get("message_id")
+    target_msgs = []
+
+    if raw_message_id is not None and str(raw_message_id).strip() != "":
+        try:
+            msg_id_int = int(raw_message_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Geçersiz mesaj kimliği.")
+        stmt = select(InternalChatMessage).where(
+            InternalChatMessage.id == msg_id_int,
+            or_(
+                InternalChatMessage.sender_id.in_(list(user_identities)),
+                InternalChatMessage.receiver_id.in_(list(user_identities)),
+                InternalChatMessage.receiver_id == "broadcast"
+            )
+        )
+        res = await db.execute(stmt)
+        target_msgs = list(res.scalars().all())
+    else:
+        peer_keys = [
+            payload.get("peer_id"),
+            payload.get("peer_user_id"),
+            payload.get("peer_extension"),
+        ]
+        peer_identities, _ = await _resolve_user_chat_identities(peer_keys, db)
+        if not peer_identities:
+            raise HTTPException(status_code=400, detail="Silinecek sohbetin karşı taraf bilgisi eksik.")
+
+        stmt = select(InternalChatMessage).where(
+            or_(
+                and_(
+                    InternalChatMessage.sender_id.in_(list(user_identities)),
+                    InternalChatMessage.receiver_id.in_(list(peer_identities))
+                ),
+                and_(
+                    InternalChatMessage.sender_id.in_(list(peer_identities)),
+                    InternalChatMessage.receiver_id.in_(list(user_identities))
+                )
+            )
+        )
+        res = await db.execute(stmt)
+        target_msgs = list(res.scalars().all())
+
+    updated_count = 0
+    for m in target_msgs:
+        existing_deleted = _parse_internal_chat_deleted_by(getattr(m, "deleted_by", None))
+        merged_deleted = sorted(existing_deleted | user_identities)
+        if len(merged_deleted) != len(existing_deleted):
+            m.deleted_by = json.dumps(merged_deleted)
+            updated_count += 1
+
+    if updated_count > 0:
+        await db.commit()
+
+    return {"status": "success", "deleted_count": updated_count}
 
 
 @app.get("/api/agent/queue-peers")
@@ -20833,7 +20927,8 @@ async def startup_event():
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS talk_duration INTEGER;",
                 "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
                 "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP;",
-                "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP;"
+                "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP;",
+                "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS deleted_by TEXT DEFAULT '[]';"
             ]
             for stmt_sql in ddl_statements:
                 try:

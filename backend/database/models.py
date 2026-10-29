@@ -160,6 +160,7 @@ class InternalChatMessage(Base):
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     delivered_at = Column(DateTime, nullable=True)
     read_at = Column(DateTime, nullable=True)
+    deleted_by = Column(Text, nullable=True)
 class Contact(Base):
     __tablename__ = "contacts"
 

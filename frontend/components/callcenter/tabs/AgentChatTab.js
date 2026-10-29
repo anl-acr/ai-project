@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
-import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X, Check, CheckCheck } from "lucide-react";
+import { MessageSquare, Send, Bot, RefreshCw, Search, User, ArrowLeft, Plus, AlertCircle, X, Check, CheckCheck, Trash2 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import DictationButton from "../../common/DictationButton";
+import ConfirmDeleteModal from "../../dashboard/ConfirmDeleteModal";
 
 export default function AgentChatTab({ backendHost, currentUser, isVisible = true, openPeerRequest = null, onPeerOpened }) {
   const { bg, hover, text, border, ring, lightBg, lightText, borderLight } = useTheme();
@@ -28,6 +29,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
   const [systemUsers, setSystemUsers] = useState([]);
   const [internalRawMessages, setInternalRawMessages] = useState([]);
   const [startedInternalPeers, setStartedInternalPeers] = useState([]);
+  const [deleteModal, setDeleteModal] = useState({ isOpen: false, mode: null, peerSession: null, messageObj: null });
 
   const messagesEndRef = useRef(null);
   const activeChatIdRef = useRef(activeChatId);
@@ -344,12 +346,114 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
     return true;
   });
 
-  // Filter Internal Sessions by Search Query
+  // Filter Internal Sessions: show active/started conversations, or matching peers when searching
   const filteredInternalSessions = internalChatSessions.filter(session => {
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase().trim();
-    return session.customerName.toLowerCase().includes(q);
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      return session.customerName.toLowerCase().includes(q) || (session.extension || "").toLowerCase().includes(q);
+    }
+    return session.isStarted;
   });
+
+  const requestDeleteInternalConversation = (session, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!session) return;
+    setDeleteModal({
+      isOpen: true,
+      mode: "conversation",
+      peerSession: session,
+      messageObj: null
+    });
+  };
+
+  const requestDeleteInternalMessage = (msgObj, session, e) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!msgObj || String(msgObj.id).startsWith("opt-")) return;
+    setDeleteModal({
+      isOpen: true,
+      mode: "message",
+      peerSession: session || null,
+      messageObj: msgObj
+    });
+  };
+
+  const handleConfirmDeleteInternal = async () => {
+    const { mode, peerSession, messageObj } = deleteModal;
+    setDeleteModal({ isOpen: false, mode: null, peerSession: null, messageObj: null });
+
+    if (mode === "message" && messageObj) {
+      const targetMsgId = messageObj.id;
+      setInternalRawMessages(prev => prev.filter(m => String(m.id) !== String(targetMsgId)));
+      try {
+        await fetch(`${API_BASE}/api/agent/chat/delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_extension: myExt,
+            user_id: myId,
+            message_id: targetMsgId
+          })
+        });
+        fetchInternalChatData();
+      } catch (err) {
+        console.error("[AgentChatTab] Error deleting internal message:", err);
+        setSendError("Mesaj silinemedi, lütfen tekrar deneyin.");
+        fetchInternalChatData();
+      }
+      return;
+    }
+
+    if (mode === "conversation" && peerSession) {
+      const myKeys = new Set([myExt, myId].filter(Boolean));
+      const peerKeys = new Set([peerSession.peerKey, peerSession.userId, peerSession.extension].filter(Boolean));
+
+      // Optimistically remove conversation & its messages ONLY from current user's local view
+      setInternalRawMessages(prev =>
+        prev.filter(m => {
+          const s = String(m.sender_id || "");
+          const r = String(m.receiver_id || "");
+          const isBetween = (myKeys.has(s) && peerKeys.has(r)) || (peerKeys.has(s) && myKeys.has(r));
+          return !isBetween;
+        })
+      );
+      setStartedInternalPeers(prev => prev.filter(k => !peerKeys.has(String(k))));
+      if (String(activeChatId) === String(peerSession.id)) {
+        setActiveChatId(null);
+      }
+
+      try {
+        await fetch(`${API_BASE}/api/agent/chat/delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_extension: myExt,
+            user_id: myId,
+            peer_id: peerSession.peerKey,
+            peer_user_id: peerSession.userId,
+            peer_extension: peerSession.extension
+          })
+        });
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(
+            new CustomEvent("INTERNAL_CHAT_READ_SYNC", {
+              detail: { peerKeys: Array.from(peerKeys) }
+            })
+          );
+        }
+        fetchInternalChatData();
+      } catch (err) {
+        console.error("[AgentChatTab] Error deleting internal conversation:", err);
+        setSendError("Sohbet silinemedi, lütfen tekrar deneyin.");
+        fetchInternalChatData();
+      }
+    }
+  };
 
   // Handle Select Session
   const handleSelectCustomerChat = (session) => {
@@ -788,16 +892,28 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                 </div>
               )}
 
-              {/* Search Field */}
-              <div className="relative pt-0.5">
-                <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder={chatTab === "customer" ? "İsim veya tel no ara..." : "Personel ara..."}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full text-xs pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-950/80 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-rose-500/50"
-                />
+              {/* Search Field + Unified Add Button for Internal Chat */}
+              <div className="flex items-center gap-2 pt-0.5">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder={chatTab === "customer" ? "İsim veya tel no ara..." : "Personel ara..."}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full text-xs pl-9 pr-3.5 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700/80 bg-white dark:bg-slate-950/80 text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                  />
+                </div>
+                {chatTab === "internal" && (
+                  <button
+                    type="button"
+                    onClick={() => setIsNewChatModalOpen((prev) => !prev)}
+                    className="bg-rose-600 hover:bg-rose-500 text-white rounded-xl h-8 w-8 flex items-center justify-center shrink-0 transition-colors shadow-sm"
+                    title="Yeni İç Yazışma Başlat"
+                  >
+                    <Plus size={16} />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -886,60 +1002,79 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                     )
                   ) : (
                     /* Internal Chat List */
-                    filteredInternalSessions.map((session) => {
-                      const isSelected = String(activeChatId) === String(session.id);
-                      const lastMsgObj = session.messages.length > 0 ? session.messages[session.messages.length - 1] : null;
-                      return (
-                        <button
-                          key={session.id}
-                          onClick={() => {
-                            markConvSeen(session.id);
-                            setActiveChatId(session.id);
-                          }}
-                          className={`w-full p-3 hover:bg-white dark:hover:bg-slate-800 border rounded-xl flex items-center justify-between gap-3 transition-colors text-left ${
-                            isSelected 
-                              ? "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm" 
-                              : "bg-transparent border-transparent"
-                          }`}
-                        >
-                          <div className="flex items-center gap-3 truncate min-w-0 flex-1">
-                            <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 relative ${
-                               isSelected ? `${bg} text-white` : "bg-primary/10 text-primary dark:bg-primary/20"
-                            }`}>
-                              {session.customerName.charAt(0)}
-                              <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${session.online ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
-                            </div>
-                            <div className="truncate min-w-0 flex-1">
-                              <div className="flex items-center justify-between gap-2">
-                                <p className={`text-xs font-bold truncate ${isSelected ? "text-primary" : "text-slate-800 dark:text-white"}`}>
-                                  {session.customerName}
-                                </p>
-                                {session.unread > 0 && (
-                                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse">
-                                    {session.unread}
-                                  </span>
-                                )}
+                    filteredInternalSessions.length === 0 ? (
+                      <div className="py-12 text-center text-xs font-medium text-slate-400 dark:text-slate-500 space-y-1">
+                        <MessageSquare size={32} className="mx-auto text-slate-300 dark:text-slate-700 mb-2" />
+                        <p className="font-bold text-slate-600 dark:text-slate-400">
+                          {searchQuery.trim() ? "Eşleşen personel bulunamadı" : "Aktif iç yazışma bulunmuyor"}
+                        </p>
+                        <p className="text-[11px]">
+                          {searchQuery.trim()
+                            ? "Farklı bir isim veya dahili numarası deneyin."
+                            : "Yeni bir görüşme başlatmak için üstteki (+) butonunu kullanabilirsiniz."}
+                        </p>
+                      </div>
+                    ) : (
+                      filteredInternalSessions.map((session) => {
+                        const isSelected = String(activeChatId) === String(session.id);
+                        const lastMsgObj = session.messages.length > 0 ? session.messages[session.messages.length - 1] : null;
+                        return (
+                          <div
+                            key={session.id}
+                            className={`group w-full p-2.5 hover:bg-white dark:hover:bg-slate-800 border rounded-xl flex items-center justify-between gap-2 transition-colors ${
+                              isSelected 
+                                ? "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm" 
+                                : "bg-transparent border-transparent"
+                            }`}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                markConvSeen(session.id);
+                                setStartedInternalPeers(prev => (prev.includes(session.peerKey) ? prev : [session.peerKey, ...prev]));
+                                setActiveChatId(session.id);
+                              }}
+                              className="flex items-center gap-3 truncate min-w-0 flex-1 text-left"
+                            >
+                              <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 relative ${
+                                 isSelected ? `${bg} text-white` : "bg-primary/10 text-primary dark:bg-primary/20"
+                              }`}>
+                                {session.customerName.charAt(0)}
+                                <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${session.online ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
                               </div>
-                              <div className="flex items-center gap-1 mt-0.5 min-w-0">
-                                {lastMsgObj && lastMsgObj.sender === "agent" && renderMessageTick(lastMsgObj.status, 12)}
-                                <p className="text-xs text-slate-450 dark:text-slate-500 truncate font-medium">
-                                  {lastMsgObj ? lastMsgObj.text : "Mesaj yok..."}
-                                </p>
+                              <div className="truncate min-w-0 flex-1">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className={`text-xs font-bold truncate ${isSelected ? "text-primary" : "text-slate-800 dark:text-white"}`}>
+                                    {session.customerName}
+                                  </p>
+                                  {session.unread > 0 && (
+                                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse">
+                                      {session.unread}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 mt-0.5 min-w-0">
+                                  {lastMsgObj && lastMsgObj.sender === "agent" && renderMessageTick(lastMsgObj.status, 12)}
+                                  <p className="text-xs text-slate-450 dark:text-slate-500 truncate font-medium">
+                                    {lastMsgObj ? lastMsgObj.text : "Mesaj yok..."}
+                                  </p>
+                                </div>
                               </div>
-                            </div>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => requestDeleteInternalConversation(session, e)}
+                              className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all ${
+                                isSelected ? "opacity-80 hover:opacity-100" : "opacity-0 group-hover:opacity-100 focus:opacity-100"
+                              }`}
+                              title="Sohbeti Benden Sil"
+                            >
+                              <Trash2 size={14} />
+                            </button>
                           </div>
-                        </button>
-                      );
-                    })
-                  )}
-                  
-                  {chatTab === "internal" && (
-                    <button 
-                      onClick={() => setIsNewChatModalOpen(true)}
-                      className={`w-full mt-4 p-3 border-2 border-dashed ${borderLight} rounded-xl text-xs font-bold text-slate-500 hover:text-primary hover:border-primary/50 transition-all flex items-center justify-center gap-2`}
-                    >
-                      <span className="text-base leading-none">+</span> Yeni İç Yazışma
-                    </button>
+                        );
+                      })
+                    )
                   )}
                 </div>
               ) : (
@@ -1025,7 +1160,7 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                   </div>
 
                   {/* Header Actions */}
-                  {chatTab === "customer" && (
+                  {chatTab === "customer" ? (
                     <div className="flex items-center gap-2">
                       {selectedCustomerChat?.assigned_agent === "human" ? (
                         <button
@@ -1047,7 +1182,19 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                         </button>
                       )}
                     </div>
-                  )}
+                  ) : selectedInternalChat ? (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => requestDeleteInternalConversation(selectedInternalChat, e)}
+                        className="px-3 py-1.5 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-200/60 dark:border-rose-800/50 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm"
+                        title="Bu sohbeti yalnızca kendi ekranımdan sil (karşı taraf etkilenmez)"
+                      >
+                        <Trash2 size={14} />
+                        Sohbeti Sil
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
 
                 {/* Messages Area */}
@@ -1114,33 +1261,52 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
                     )
                   ) : (
                     /* Internal Chat Messages */
-                    selectedInternalChat.messages.map((m, idx) => {
-                      const isAgent = m.sender === "agent";
-                      return (
-                        <div
-                          key={m.id || idx}
-                          className={`flex flex-col max-w-[75%] ${
-                            isAgent ? "ml-auto items-end" : "mr-auto items-start"
-                          }`}
-                        >
+                    selectedInternalChat.messages.length === 0 ? (
+                      <div className="py-12 text-center text-xs font-medium text-slate-400">
+                        Bu sohbet için henüz mesaj bulunmuyor. İlk mesajı aşağıdan gönderebilirsiniz.
+                      </div>
+                    ) : (
+                      selectedInternalChat.messages.map((m, idx) => {
+                        const isAgent = m.sender === "agent";
+                        const canDeleteSingleMsg = !String(m.id || "").startsWith("opt-");
+                        return (
                           <div
-                            className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm ${
-                              isAgent
-                                ? `${bg} text-white rounded-tr-none`
-                                : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none"
+                            key={m.id || idx}
+                            className={`group flex flex-col max-w-[75%] ${
+                              isAgent ? "ml-auto items-end" : "mr-auto items-start"
                             }`}
                           >
-                            {m.text}
+                            <div className={`flex items-center gap-1.5 ${isAgent ? "flex-row" : "flex-row-reverse"}`}>
+                              {canDeleteSingleMsg && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => requestDeleteInternalMessage(m, selectedInternalChat, e)}
+                                  className="h-6 w-6 rounded-lg flex items-center justify-center shrink-0 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-all"
+                                  title="Bu mesajı benden sil"
+                                >
+                                  <Trash2 size={12} />
+                                </button>
+                              )}
+                              <div
+                                className={`p-3.5 rounded-2xl text-xs leading-relaxed shadow-sm ${
+                                  isAgent
+                                    ? `${bg} text-white rounded-tr-none`
+                                    : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 rounded-tl-none"
+                                }`}
+                              >
+                                {m.text}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1 mt-1 px-1">
+                              <span className="text-[10px] font-bold text-slate-450 dark:text-slate-500 tracking-wider">
+                                {m.time}
+                              </span>
+                              {isAgent && renderMessageTick(m.status, 14)}
+                            </div>
                           </div>
-                          <div className="flex items-center gap-1 mt-1 px-1">
-                            <span className="text-[10px] font-bold text-slate-450 dark:text-slate-500 tracking-wider">
-                              {m.time}
-                            </span>
-                            {isAgent && renderMessageTick(m.status, 14)}
-                          </div>
-                        </div>
-                      );
-                    })
+                        );
+                      })
+                    )
                   )}
                   <div ref={messagesEndRef} />
                 </div>
@@ -1195,6 +1361,19 @@ export default function AgentChatTab({ backendHost, currentUser, isVisible = tru
           </div>
         </div>
       </div>
+
+      {/* Per-User Internal Chat / Message Delete Confirmation Modal */}
+      <ConfirmDeleteModal
+        isOpen={deleteModal.isOpen}
+        onClose={() => setDeleteModal({ isOpen: false, mode: null, peerSession: null, messageObj: null })}
+        onConfirm={handleConfirmDeleteInternal}
+        title={deleteModal.mode === "message" ? "Mesajı Benden Sil" : "İç Yazışmayı Sil"}
+        message={
+          deleteModal.mode === "message"
+            ? "Bu mesajı silmek istediğinize emin misiniz? Mesaj yalnızca sizin ekranınızdan kaldırılacak, karşı tarafta görünmeye devam edecektir."
+            : `${deleteModal.peerSession?.customerName || "Bu kişi"} ile olan sohbet geçmişini silmek istediğinize emin misiniz? Sohbet yalnızca sizin ekranınızdan silinecek, karşı tarafın sohbet geçmişine müdahale edilmeyecektir.`
+        }
+      />
     </div>
   );
 }
