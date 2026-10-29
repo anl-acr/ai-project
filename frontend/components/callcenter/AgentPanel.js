@@ -297,6 +297,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
   const isWebphoneScreenActive = Boolean(isVisible && activeTab === "webphone");
   const [missedQueueCount, setMissedQueueCount] = useState(0);
   const [unseenDirectMissedCount, setUnseenDirectMissedCount] = useState(0);
+  const [unseenChatCount, setUnseenChatCount] = useState(0);
   const myExt = String(currentUser?.extension || "1000").trim();
   const myUid = String(currentUser?.id || "").trim();
 
@@ -309,6 +310,10 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
       localStorage.setItem(`seen_direct_missed_ts_${myExt}`, String(Date.now()));
       setUnseenDirectMissedCount(0);
     }
+    if (activeTab === "chat" && typeof window !== "undefined") {
+      localStorage.setItem(`seen_chat_ts_${myExt}`, String(Date.now()));
+      setUnseenChatCount(0);
+    }
   }, [activeTab, myExt]);
 
   useEffect(() => {
@@ -316,22 +321,25 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     const pollBadges = async () => {
       try {
         const protocol = typeof window !== "undefined" ? window.location.protocol : "http:";
-        const [mqRes, callsRes] = await Promise.all([
+        const [mqRes, callsRes, intChatRes, omniChatRes] = await Promise.all([
           fetch(`${protocol}//${host}/api/agent/missed_queue_calls?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&t=${Date.now()}`),
-          fetch(`${protocol}//${host}/api/calls?extension=${encodeURIComponent(myExt)}&t=${Date.now()}`)
+          fetch(`${protocol}//${host}/api/calls?extension=${encodeURIComponent(myExt)}&t=${Date.now()}`),
+          fetch(`${protocol}//${host}/api/agent/chat?extension=${encodeURIComponent(myExt)}&user_id=${encodeURIComponent(myUid)}&t=${Date.now()}`),
+          fetch(`${protocol}//${host}/api/omnichannel/chats?t=${Date.now()}`)
         ]);
         if (mounted && mqRes.ok) {
           const mqData = await mqRes.json();
           setMissedQueueCount(Array.isArray(mqData) ? mqData.length : 0);
         }
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+
         if (mounted && callsRes.ok) {
           const cData = await callsRes.json();
           if (Array.isArray(cData)) {
             const seenTs = Number(
               (typeof window !== "undefined" && localStorage.getItem(`seen_direct_missed_ts_${myExt}`)) || 0
             );
-            const todayStart = new Date();
-            todayStart.setHours(0, 0, 0, 0);
             const minTs = Math.max(seenTs, todayStart.getTime());
 
             const directMissed = cData.filter((c) => {
@@ -351,6 +359,66 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             setUnseenDirectMissedCount(activeTab === "history" ? 0 : directMissed.length);
           }
         }
+
+        if (mounted) {
+          if (activeTab === "chat") {
+            if (typeof window !== "undefined") {
+              localStorage.setItem(`seen_chat_ts_${myExt}`, String(Date.now()));
+            }
+            setUnseenChatCount(0);
+          } else {
+            const seenChatTs = Number(
+              (typeof window !== "undefined" && localStorage.getItem(`seen_chat_ts_${myExt}`)) || 0
+            );
+            const minChatTs = Math.max(seenChatTs, todayStart.getTime());
+            const myKeys = new Set([myExt, myUid].filter(Boolean));
+            let totalUnseenChats = 0;
+
+            if (intChatRes.ok) {
+              const intData = await intChatRes.json();
+              if (Array.isArray(intData)) {
+                const unseenInternal = intData.filter((m) => {
+                  const s = String(m.sender_id || "");
+                  const r = String(m.receiver_id || "");
+                  if (myKeys.has(s) || !myKeys.has(r)) return false;
+                  if (!m.timestamp) return false;
+                  let iso = String(m.timestamp);
+                  if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
+                  const dt = new Date(iso).getTime();
+                  return !isNaN(dt) && dt > minChatTs;
+                });
+                totalUnseenChats += unseenInternal.length;
+              }
+            }
+
+            if (omniChatRes.ok) {
+              const omniData = await omniChatRes.json();
+              if (Array.isArray(omniData)) {
+                const currentUserFullName = String(currentUser?.full_name || "").toLowerCase().trim();
+                const currentUsername = String(currentUser?.username || "").toLowerCase().trim();
+                const isAdmin = currentUser?.role === "admin" || currentUsername === "admin";
+                const unseenCustomer = omniData.filter((s) => {
+                  if (s.assigned_agent !== "human") return false;
+                  const assignedUser = String(s.assigned_user || "").toLowerCase().trim();
+                  const isAssignedToMe =
+                    !assignedUser ||
+                    assignedUser === currentUserFullName ||
+                    assignedUser === currentUsername ||
+                    isAdmin;
+                  if (!isAssignedToMe) return false;
+                  if (!s.last_message_time) return false;
+                  let iso = String(s.last_message_time);
+                  if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
+                  const dt = new Date(iso).getTime();
+                  return !isNaN(dt) && dt > minChatTs;
+                });
+                totalUnseenChats += unseenCustomer.length;
+              }
+            }
+
+            setUnseenChatCount(totalUnseenChats);
+          }
+        }
       } catch (e) {}
     };
 
@@ -361,13 +429,13 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
     };
     window.addEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
     pollBadges();
-    const timer = setInterval(pollBadges, 6000);
+    const timer = setInterval(pollBadges, 5000);
     return () => {
       mounted = false;
       window.removeEventListener("MISSED_QUEUE_CALLS_UPDATED", handleMqUpdate);
       clearInterval(timer);
     };
-  }, [host, myExt, myUid, activeTab]);
+  }, [host, myExt, myUid, activeTab, currentUser?.full_name, currentUser?.username, currentUser?.role]);
 
   return (
     <div className="flex h-full w-full gap-4 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
@@ -380,6 +448,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             const isSelected = activeTab === tab.id;
             const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
             const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
+            const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
             return (
               <button
                 key={tab.id}
@@ -414,6 +483,14 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
                     {unseenDirectMissedCount}
                   </span>
                 )}
+                {showChatBadge && (
+                  <span
+                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse"
+                    title={`${unseenChatCount} yeni sohbet mesajı`}
+                  >
+                    {unseenChatCount}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -437,6 +514,7 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
             const isSelected = activeTab === tab.id;
             const showMissedBadge = tab.id === "missed" && missedQueueCount > 0;
             const showHistoryDot = tab.id === "history" && unseenDirectMissedCount > 0;
+            const showChatBadge = tab.id === "chat" && unseenChatCount > 0;
             return (
               <button
                 key={tab.id}
@@ -456,6 +534,11 @@ export default function AgentPanel({ backendHost, currentUser, activeCallId, isV
                 )}
                 {showHistoryDot && (
                   <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                )}
+                {showChatBadge && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white animate-pulse">
+                    {unseenChatCount}
+                  </span>
                 )}
               </button>
             );

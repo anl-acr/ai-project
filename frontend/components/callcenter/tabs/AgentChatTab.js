@@ -44,6 +44,38 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   const myId = String(currentUser?.id || "").trim();
   const mySenderKey = myExt || myId || "agent";
 
+  const [seenConvMap, setSeenConvMap] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem(`seen_chat_conv_${myExt || myId || "default"}`);
+        if (raw) return JSON.parse(raw);
+      } catch (e) {}
+    }
+    return {};
+  });
+
+  const markConvSeen = (convId) => {
+    if (!convId) return;
+    const key = String(convId);
+    const now = Date.now();
+    setSeenConvMap((prev) => {
+      const next = { ...prev, [key]: now };
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(`seen_chat_conv_${myExt || myId || "default"}`, JSON.stringify(next));
+          localStorage.setItem(`seen_chat_ts_${myExt || "1000"}`, String(now));
+        } catch (e) {}
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (activeChatId) {
+      markConvSeen(activeChatId);
+    }
+  }, [activeChatId, customerMessages.length, internalRawMessages.length]);
+
   // Fetch Real System Users & Internal Chat Messages
   const fetchInternalChatData = async () => {
     try {
@@ -93,9 +125,16 @@ export default function AgentChatTab({ backendHost, currentUser }) {
   // Build Internal Chat Sessions dynamically from real system users & messages
   const internalChatSessions = React.useMemo(() => {
     const myKeys = new Set([myExt, myId].filter(Boolean));
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayStartMs = todayStart.getTime();
+
     return systemUsers
       .map(u => {
         const peerKeys = new Set([u.id, u.userId, u.extension].filter(Boolean));
+        const convId = `internal-${u.id}`;
+        const minSeenMs = Math.max(Number(seenConvMap[convId] || 0), todayStartMs);
+
         const convMsgs = internalRawMessages
           .filter(m => {
             const s = String(m.sender_id || "");
@@ -105,11 +144,14 @@ export default function AgentChatTab({ backendHost, currentUser }) {
           .map(m => {
             const isAgent = myKeys.has(String(m.sender_id || ""));
             let timeStr = "";
+            let msgMs = 0;
             if (m.timestamp) {
               try {
                 let iso = String(m.timestamp);
                 if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
-                timeStr = new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+                const dt = new Date(iso);
+                msgMs = dt.getTime();
+                timeStr = dt.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
               } catch (e) {}
             }
             return {
@@ -118,20 +160,26 @@ export default function AgentChatTab({ backendHost, currentUser }) {
               text: m.text,
               time: timeStr,
               timestamp: m.timestamp,
+              msgMs,
               status: "seen"
             };
           });
 
+        const unreadCount =
+          String(activeChatId) === convId
+            ? 0
+            : convMsgs.filter(m => m.sender === "customer" && m.msgMs > minSeenMs).length;
+
         const lastMsg = convMsgs.length > 0 ? convMsgs[convMsgs.length - 1] : null;
         return {
-          id: `internal-${u.id}`,
+          id: convId,
           peerKey: u.id,
           userId: u.userId,
           extension: u.extension,
           customerName: u.name,
           role: u.role,
           platform: "İç Yazışma",
-          unread: 0,
+          unread: unreadCount,
           online: u.online,
           messages: convMsgs,
           lastTimestamp: lastMsg?.timestamp || null,
@@ -147,7 +195,7 @@ export default function AgentChatTab({ backendHost, currentUser }) {
         if (a.online !== b.online) return a.online ? -1 : 1;
         return a.customerName.localeCompare(b.customerName, "tr");
       });
-  }, [systemUsers, internalRawMessages, myExt, myId, startedInternalPeers]);
+  }, [systemUsers, internalRawMessages, myExt, myId, startedInternalPeers, seenConvMap, activeChatId]);
 
   // Fetch Omnichannel Customer Sessions from Backend
   const fetchCustomerSessions = async (showSpinner = false) => {
@@ -463,6 +511,22 @@ export default function AgentChatTab({ backendHost, currentUser }) {
     }
   };
 
+  const isCustomerSessionUnread = (session) => {
+    if (!session || !session.last_message_time) return false;
+    if (String(activeChatId) === String(session.id)) return false;
+    if (session.assigned_agent !== "human") return false;
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const minSeenMs = Math.max(Number(seenConvMap[String(session.id)] || 0), todayStart.getTime());
+    let iso = String(session.last_message_time);
+    if (!iso.endsWith("Z") && !iso.includes("+") && !iso.includes("-", 10)) iso += "Z";
+    const dt = new Date(iso).getTime();
+    return !isNaN(dt) && dt > minSeenMs;
+  };
+
+  const totalUnreadCustomerCount = filteredCustomerSessions.filter(isCustomerSessionUnread).length;
+  const totalUnreadInternalCount = internalChatSessions.reduce((acc, s) => acc + (Number(s.unread) || 0), 0);
+
   return (
     <div className="w-full h-full bg-slate-50 dark:bg-slate-900/50 p-6 flex flex-col items-center">
       <div className="max-w-6xl w-full h-full flex flex-col space-y-4">
@@ -500,21 +564,30 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                   }`}
                 >
                   <span>Müşteri Sohbetleri</span>
-                  {filteredCustomerSessions.length > 0 && (
+                  {totalUnreadCustomerCount > 0 ? (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white animate-pulse">
+                      {totalUnreadCustomerCount}
+                    </span>
+                  ) : filteredCustomerSessions.length > 0 ? (
                     <span className={`px-1.5 py-0.5 rounded-full text-[10px] ${chatTab === "customer" ? "bg-white/20 text-white" : "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300"}`}>
                       {filteredCustomerSessions.length}
                     </span>
-                  )}
+                  ) : null}
                 </button>
                 <button
                   onClick={() => { setChatTab("internal"); setIsNewChatModalOpen(false); setActiveChatId(null); }}
-                  className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-colors ${
+                  className={`flex-1 py-2 text-xs font-bold uppercase tracking-wider rounded-lg transition-colors flex items-center justify-center gap-1.5 ${
                     chatTab === "internal" 
                       ? `${bg} text-white shadow-sm` 
                       : "text-slate-500 hover:text-slate-700 dark:hover:text-slate-300"
                   }`}
                 >
-                  İç Yazışma
+                  <span>İç Yazışma</span>
+                  {totalUnreadInternalCount > 0 && (
+                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white animate-pulse">
+                      {totalUnreadInternalCount}
+                    </span>
+                  )}
                 </button>
               </div>
 
@@ -585,18 +658,22 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                         const isSelected = String(activeChatId) === String(session.id);
                         const displayName = session.sender_name || session.sender_info || "Müşteri";
                         const isAi = session.assigned_agent === "ai";
+                        const isUnread = isCustomerSessionUnread(session);
 
                         return (
                           <button
                             key={session.id}
-                            onClick={() => handleSelectCustomerChat(session)}
+                            onClick={() => {
+                              markConvSeen(session.id);
+                              handleSelectCustomerChat(session);
+                            }}
                             className={`w-full p-3 hover:bg-white dark:hover:bg-slate-800 border rounded-xl flex items-center justify-between gap-3 transition-colors text-left ${
                               isSelected 
                                 ? "bg-white dark:bg-slate-800 border-rose-200 dark:border-rose-900/50 shadow-sm" 
                                 : "bg-transparent border-transparent"
                             }`}
                           >
-                            <div className="flex items-center gap-3 truncate min-w-0">
+                            <div className="flex items-center gap-3 truncate min-w-0 flex-1">
                               <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 relative ${
                                 isSelected ? `${bg} text-white` : isAi ? "bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20" : "bg-rose-500/10 text-rose-600 dark:bg-rose-500/20"
                               }`}>
@@ -607,9 +684,16 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                                   <p className={`text-xs font-bold truncate ${isSelected ? "text-rose-600 dark:text-rose-400" : "text-slate-800 dark:text-white"}`}>
                                     {displayName}
                                   </p>
-                                  <span className="text-[10px] text-slate-400 shrink-0 font-medium">
-                                    {formatTime(session.last_message_time)}
-                                  </span>
+                                  <div className="flex items-center gap-1.5 shrink-0">
+                                    {isUnread && (
+                                      <span className="px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-rose-500 text-white animate-pulse">
+                                        Yeni
+                                      </span>
+                                    )}
+                                    <span className="text-[10px] text-slate-400 font-medium">
+                                      {formatTime(session.last_message_time)}
+                                    </span>
+                                  </div>
                                 </div>
                                 <div className="flex items-center gap-1.5 mt-0.5">
                                   <span className={`px-1.5 py-0.2 rounded text-[9px] font-extrabold uppercase border ${
@@ -636,24 +720,34 @@ export default function AgentChatTab({ backendHost, currentUser }) {
                       return (
                         <button
                           key={session.id}
-                          onClick={() => setActiveChatId(session.id)}
+                          onClick={() => {
+                            markConvSeen(session.id);
+                            setActiveChatId(session.id);
+                          }}
                           className={`w-full p-3 hover:bg-white dark:hover:bg-slate-800 border rounded-xl flex items-center justify-between gap-3 transition-colors text-left ${
                             isSelected 
                               ? "bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm" 
                               : "bg-transparent border-transparent"
                           }`}
                         >
-                          <div className="flex items-center gap-3 truncate">
+                          <div className="flex items-center gap-3 truncate min-w-0 flex-1">
                             <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm shrink-0 relative ${
                                isSelected ? `${bg} text-white` : "bg-primary/10 text-primary dark:bg-primary/20"
                             }`}>
                               {session.customerName.charAt(0)}
                               <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white dark:border-slate-900 ${session.online ? 'bg-emerald-500' : 'bg-slate-400'}`}></div>
                             </div>
-                            <div className="truncate">
-                              <p className={`text-xs font-bold flex items-center gap-2 ${isSelected ? "text-primary" : "text-slate-800 dark:text-white"}`}>
-                                {session.customerName}
-                              </p>
+                            <div className="truncate min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <p className={`text-xs font-bold truncate ${isSelected ? "text-primary" : "text-slate-800 dark:text-white"}`}>
+                                  {session.customerName}
+                                </p>
+                                {session.unread > 0 && (
+                                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-rose-500 text-white shrink-0 animate-pulse">
+                                    {session.unread}
+                                  </span>
+                                )}
+                              </div>
                               <p className="text-xs text-slate-450 dark:text-slate-500 truncate mt-0.5 font-medium">
                                 {session.messages.length > 0 ? session.messages[session.messages.length - 1].text : "Mesaj yok..."}
                               </p>
