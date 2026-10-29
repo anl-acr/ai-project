@@ -1533,12 +1533,24 @@ def load_settings():
         
         session = SyncSessionLocal()
         try:
-            for sync_ddl in (
-                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';",
-                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';",
-                "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';",
+            existing_cols = set()
+            try:
+                col_rows = session.execute(
+                    text("SELECT column_name FROM information_schema.columns WHERE table_name = 'system_users'")
+                ).fetchall()
+                existing_cols = {str(r[0]) for r in col_rows}
+            except Exception:
+                session.rollback()
+
+            for col_name, sync_ddl in (
+                ("theme_mode", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS theme_mode VARCHAR DEFAULT 'light';"),
+                ("call_panel_prefs", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS call_panel_prefs JSON DEFAULT '{}';"),
+                ("wallboard_layout", "ALTER TABLE system_users ADD COLUMN IF NOT EXISTS wallboard_layout JSON DEFAULT '{}';"),
             ):
+                if existing_cols and col_name in existing_cols:
+                    continue
                 try:
+                    session.execute(text("SET LOCAL lock_timeout = '2s'"))
                     session.execute(text(sync_ddl))
                     session.commit()
                 except Exception:
@@ -20659,7 +20671,11 @@ async def clear_notification_history_endpoint(user_info: dict = Depends(get_user
 @app.get("/api/settings/users")
 @app.get("/settings/users")
 async def new_get_users_endpoint(request: Request, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
-    target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
+    explicit_q_tenant = request.query_params.get("tenant_id")
+    if explicit_q_tenant in ("all", "global"):
+        target_tenant = explicit_q_tenant
+    else:
+        target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or explicit_q_tenant or "tenant-default"
     
     from backend.services.ami_manager import registered_endpoints
 

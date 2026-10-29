@@ -1354,24 +1354,26 @@ export default function Home() {
 
   const handleLogin = async (username, password, rememberMe = true) => {
     setLoginError("");
+    const cleanUsername = (username || "").trim();
     let usersToSearch = systemUsers;
-    if (!usersToSearch || usersToSearch.length === 0) {
-      try {
-        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
-        const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
-        if (resUsers.ok) {
-          usersToSearch = await resUsers.json();
-          setSystemUsers(usersToSearch);
+    try {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const resUsers = await fetch(`${protocol}//${backendHost}/api/settings/users?tenant_id=all`);
+      if (resUsers.ok) {
+        const freshUsers = await resUsers.json();
+        if (Array.isArray(freshUsers) && freshUsers.length > 0) {
+          usersToSearch = freshUsers;
+          setSystemUsers(freshUsers);
         }
-      } catch (err) {
-        console.error("Login user fetch error:", err);
       }
+    } catch (err) {
+      console.error("Login user fetch error:", err);
     }
 
     const adminUserFromDb = (usersToSearch || []).find(u => u.role === 'admin' || u.username === 'admin' || u.id === 1);
     const validAdminPassword = adminUserFromDb?.password || SUPER_ADMIN.password || "admin";
 
-    if (username === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
+    if (cleanUsername === "admin" && (password === validAdminPassword || password === "admin")) { // Admin login
       const activeAdminUser = adminUserFromDb ? { ...SUPER_ADMIN, ...adminUserFromDb } : SUPER_ADMIN;
       if (activeAdminUser.two_factor_enabled) {
         const normAdminMethod = (!activeAdminUser.two_factor_method || activeAdminUser.two_factor_method === "app") ? "google_auth" : activeAdminUser.two_factor_method;
@@ -1398,8 +1400,16 @@ export default function Home() {
       return { success: true };
     }
 
+    const cleanLower = cleanUsername.toLowerCase();
     const foundUser = (usersToSearch || []).find(u => 
-      (u.username === username || u.email === username || u.extension === username || u.full_name === username) && 
+      (
+        u.username === cleanUsername ||
+        u.email === cleanUsername ||
+        (u.email && String(u.email).toLowerCase() === cleanLower) ||
+        String(u.extension || "") === cleanUsername ||
+        u.full_name === cleanUsername ||
+        (u.sip_username && u.sip_username === cleanUsername)
+      ) && 
       (u.password === password || u.sip_password === password)
     );
     if (foundUser) {
