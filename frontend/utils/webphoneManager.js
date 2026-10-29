@@ -287,7 +287,8 @@ class WebphoneManager {
           callee: payload.callee || payload.destination || this.state.remoteNumber || this.state.dialNumber || "",
           sip_call_id: payload.sip_call_id || this.state.activeSipCallId || "",
           status: payload.status || "",
-          duration: payload.duration ?? this.state.callDuration ?? 0
+          duration: payload.duration ?? this.state.callDuration ?? 0,
+          terminated_by: payload.terminated_by || ""
         })
       }).catch(() => {});
     } catch (e) {}
@@ -910,7 +911,10 @@ class WebphoneManager {
         stopRingtoneSound();
         this.closeLineDesktopNotification(currentLine);
         const durSec = currentLine.establishedAt
-          ? Math.max(0, Math.round((Date.now() - currentLine.establishedAt) / 1000))
+          ? (() => {
+              const elapsedMs = Date.now() - currentLine.establishedAt;
+              return elapsedMs >= 250 ? Math.max(1, Math.floor(elapsedMs / 1000)) : 0;
+            })()
           : currentLine.callDuration || 0;
 
         if (!currentLine.endLogged) {
@@ -1479,7 +1483,10 @@ class WebphoneManager {
       } else if (state === SIP.SessionState.Terminated) {
         stopRingbackTone();
         const finalDuration = currentLine.establishedAt
-          ? Math.max(0, Math.round((Date.now() - currentLine.establishedAt) / 1000))
+          ? (() => {
+              const elapsedMs = Date.now() - currentLine.establishedAt;
+              return elapsedMs >= 250 ? Math.max(1, Math.floor(elapsedMs / 1000)) : 0;
+            })()
           : currentLine.callDuration || 0;
 
         let finalStatus = wasEstablished ? "completed" : "no_answer";
@@ -1611,7 +1618,10 @@ class WebphoneManager {
     const remoteNum = line.remoteNumber || "Bilinmeyen";
     const myExt = String(line.myExtension || this.state.currentUser?.extension || "").trim();
     const durSec = line.establishedAt
-      ? Math.max(0, Math.round((Date.now() - line.establishedAt) / 1000))
+      ? (() => {
+          const elapsedMs = Date.now() - line.establishedAt;
+          return elapsedMs >= 250 ? Math.max(1, Math.floor(elapsedMs / 1000)) : 0;
+        })()
       : line.callDuration || 0;
 
     if (!line.endLogged) {

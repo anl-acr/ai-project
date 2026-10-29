@@ -2212,7 +2212,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const totalSeconds = Math.max(
       0,
       call.duration_total != null && call.end_time
-        ? Math.round(Number(call.duration_total))
+        ? Math.floor(Number(call.duration_total))
         : Math.floor((endDt.getTime() - startDt.getTime()) / 1000)
     );
 
@@ -2221,14 +2221,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     const formatSecs = (secs) => {
-      const safe = Math.max(0, Math.round(secs));
+      const safe = Math.max(0, Math.floor(secs));
       const mins = Math.floor(safe / 60);
       const remainingSecs = safe % 60;
       return `${mins}:${remainingSecs.toString().padStart(2, "0")}`;
     };
 
-    const ivrSeconds = Math.max(0, Math.round(Number(call.duration_ivr || 0)));
-    const queueSeconds = Math.max(0, Math.round(Number(call.duration_queue || 0)));
+    const ivrSeconds = Math.max(0, Math.floor(Number(call.duration_ivr || 0)));
+    const queueSeconds = Math.max(0, Math.floor(Number(call.duration_queue || 0)));
 
     const status = getCallStatus(call);
     if (status === "Başarısız") {
@@ -2246,9 +2246,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
     let talkSeconds = 0;
     if (call.talk_duration != null) {
-      talkSeconds = Math.max(0, Math.round(Number(call.talk_duration)));
+      talkSeconds = Math.max(0, Math.floor(Number(call.talk_duration)));
     } else if (call.duration_talk != null) {
-      talkSeconds = Math.max(0, Math.round(Number(call.duration_talk)));
+      talkSeconds = Math.max(0, Math.floor(Number(call.duration_talk)));
     } else if (call.answered_at) {
       const ansDt = parseUtcSafeDate(call.answered_at);
       talkSeconds = Math.max(0, Math.floor((endDt.getTime() - ansDt.getTime()) / 1000));
@@ -2256,11 +2256,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       talkSeconds = Math.max(0, totalSeconds - ivrSeconds - queueSeconds);
     }
 
-    if (totalSeconds > 0 && talkSeconds > totalSeconds) {
+    if (totalSeconds > 0 && talkSeconds > totalSeconds && call.talk_duration == null && call.duration_talk == null) {
       talkSeconds = totalSeconds;
     }
 
-    const effectiveTotal = Math.max(totalSeconds, talkSeconds);
+    const effectiveTotal = talkSeconds + queueSeconds + ivrSeconds;
 
     return {
       talk: formatSecs(talkSeconds),
@@ -2503,7 +2503,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const start = new Date(call.start_time);
     const totalSeconds = Math.max(0, Math.floor((end - start) / 1000));
     
-    if (!isInternalCall && totalSeconds <= 5 && !call.recording_path && !call.recording_deleted_reason && (st === "completed" || st === "in_progress")) {
+    if (!isInternalCall && totalSeconds <= 5 && !call.recording_path && !call.recording_deleted_reason && call.talk_duration == null && (st === "completed" || st === "in_progress")) {
       return "Başarısız";
     }
 
@@ -9674,7 +9674,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </span>
                       <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold flex items-center gap-1">
                         <Clock size={10} />
-                        {formatDuration(call.start_time, call.end_time)}
+                        {getCallDurations(call).talk}
                       </span>
                     </div>
                   </button>
@@ -9720,7 +9720,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-800"></div>
                     <div className="text-right">
                       <p className="text-[10px] text-slate-400 dark:text-slate-500 font-bold uppercase tracking-wider">Süre</p>
-                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-0.5">{formatDuration(selectedCall.start_time, selectedCall.end_time)}</p>
+                      <p className="text-xs font-bold text-slate-700 dark:text-slate-300 mt-0.5">{getCallDurations(selectedCall).talk}</p>
                     </div>
                   </div>
                 </div>

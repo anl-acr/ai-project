@@ -21,7 +21,7 @@ first_hangup_by_id = {}
 answered_at_by_id = {}
 
 
-def _record_call_answered(uniqueid: str, linkedid: str):
+def _record_call_answered(uniqueid: str, linkedid: str, overwrite: bool = False):
     import datetime
     uid_s = str(uniqueid or "").strip()
     lid_s = str(linkedid or "").strip() or uniqueid_to_linkedid.get(uid_s, "") or uid_s
@@ -29,9 +29,9 @@ def _record_call_answered(uniqueid: str, linkedid: str):
     if len(answered_at_by_id) > 800:
         for old_k in list(answered_at_by_id.keys())[:200]:
             answered_at_by_id.pop(old_k, None)
-    if lid_s and lid_s not in answered_at_by_id:
+    if lid_s and (overwrite or lid_s not in answered_at_by_id):
         answered_at_by_id[lid_s] = now_utc
-    if uid_s and uid_s not in answered_at_by_id:
+    if uid_s and (overwrite or uid_s not in answered_at_by_id):
         answered_at_by_id[uid_s] = now_utc
 
 
@@ -308,7 +308,12 @@ def register_event_handlers(manager: Manager):
     @manager.register_event('BridgeEnter')
     def handle_bridge_enter(m, event):
         ch_s = str(event.get('Channel') or "").strip()
-        if ch_s and not ch_s.lower().startswith("local/"):
+        b_type = str(event.get('BridgeType') or "").strip().lower()
+        try:
+            num_ch = int(event.get('BridgeNumChannels') or 0)
+        except Exception:
+            num_ch = 0
+        if ch_s and not ch_s.lower().startswith("local/") and b_type != "holding" and num_ch >= 2:
             _record_call_answered(
                 uniqueid=event.get('Uniqueid'),
                 linkedid=event.get('Linkedid')
@@ -475,6 +480,8 @@ def register_event_handlers(manager: Manager):
         q_name = str(event.get('Queue') or "").strip()
         caller_num = str(event.get('CallerIDNum') or "").strip()
         uniqueid = str(event.get('Uniqueid') or "").strip()
+        linkedid = str(event.get('Linkedid') or "").strip()
+        _record_call_answered(uniqueid=uniqueid, linkedid=linkedid, overwrite=True)
         m_ext = re.search(r"(?:PJSIP|SIP)/(\d+)", iface, re.IGNORECASE)
         ext_val = m_ext.group(1) if m_ext else iface
         if ext_val:
@@ -650,7 +657,7 @@ async def get_ami_manager() -> Manager:
         manager_instance = None
     return manager_instance
 
-async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_human", context: str = "default") -> bool:
+async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_human", context: str = "default", is_direct_route: bool = False) -> bool:
     """
     AMI command to redirect the Asterisk call to the human agent queue/extension.
     Uses the uniqueid (call_id) to look up the active channel name.
@@ -691,7 +698,23 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
         print(f"[AMI] Hata: UniqueID {call_id} (Asterisk ID: {ast_id}) için aktif kanal adi bulunamadi.")
         return False
 
-    print(f"[AMI] Kanal {channel_name} transfer ediliyor -> Exten: {extension}, Context: {context}")
+    print(f"[AMI] Kanal {channel_name} transfer ediliyor -> Exten: {extension}, Context: {context} (DirectRoute: {is_direct_route})")
+
+    try:
+        await manager.send_action({
+            'Action': 'Setvar',
+            'Channel': channel_name,
+            'Variable': '__CALL_UUID',
+            'Value': str(call_id)
+        })
+        await manager.send_action({
+            'Action': 'Setvar',
+            'Channel': channel_name,
+            'Variable': '__APPEND_REC',
+            'Value': '0' if is_direct_route else '1'
+        })
+    except Exception:
+        pass
     
     # Send Redirect action
     action = {
@@ -715,10 +738,11 @@ async def redirect_call_to_human(call_id: str, extension: str = "transfer_to_hum
                 async with AsyncSessionLocal() as session:
                     db_call = await session.get(Call, call_id)
                     if db_call:
-                        db_call.status = "transferred"
-                        db_call.hangup_source = f"transfer:{extension}"
+                        if not is_direct_route:
+                            db_call.status = "transferred"
+                            db_call.hangup_source = f"transfer:{extension}"
                         resolved_u_name = resolve_user_name_by_ext_or_id(extension)
-                        if resolved_u_name:
+                        if resolved_u_name and (not is_direct_route or not db_call.agent_name):
                             db_call.agent_name = resolved_u_name
                         await session.commit()
             except Exception as db_err:

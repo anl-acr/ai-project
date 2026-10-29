@@ -3275,7 +3275,7 @@ same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num
 same => n,Set(CALLERID(name)=${{IF($["${{CALLERID(name)}}" = "908503607390"]?${{CALLERID(num)}}:${{CALLERID(name)}})}})
 same => n,Set(UUID_VAL=${{UUID()}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
-same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
+same => n,Set(__CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?hangup_blocked_x)
 same => n,Progress()
@@ -3294,7 +3294,7 @@ same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num
 same => n,Set(CALLERID(name)=${{IF($["${{CALLERID(name)}}" = "908503607390"]?${{CALLERID(num)}}:${{CALLERID(name)}})}})
 same => n,Set(UUID_VAL=${{UUID()}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
-same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
+same => n,Set(__CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?hangup_blocked_plus)
 same => n,Progress()
@@ -3313,7 +3313,7 @@ same => n,Set(CALLERID(num)=${{IF($["${{CALLERID(num)}}" = "" | "${{CALLERID(num
 same => n,Set(CALLERID(name)=${{IF($["${{CALLERID(name)}}" = "908503607390"]?${{CALLERID(num)}}:${{CALLERID(name)}})}})
 same => n,Set(UUID_VAL=${{UUID()}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}})}})
-same => n,Set(CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
+same => n,Set(__CALL_UUID=${{IF($[${{ISNULL(${{UUID_VAL}})}}]?${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}}:${{UUID_VAL}})}})
 same => n,Set(HEADER_TO=${{PJSIP_HEADER(read,To)}})
 same => n,Set(EXTEN_FROM_HEADER=${{CUT(CUT(HEADER_TO,@,1),:,2)}})
 same => n,Set(TRUNK_EXTEN=${{CUT(CUT(CHANNEL(name),/,2),-,1)}})
@@ -3330,6 +3330,7 @@ same => n,Hangup(21)
 
 ; Hangup handler (h uzantısı)
 exten => h,1,NoOp(Cagri sonlandi: ${{EXTEN}}, Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, QueueStatus: ${{QUEUESTATUS}}, Member: ${{MEMBERINTERFACE}}, Cause: ${{HANGUPCAUSE}})
+same => n,StopMixMonitor()
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_def_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -3338,6 +3339,8 @@ same => n(done_def_h),Hangup()
 
 ; Yapay zeka aramayı insana aktarmak istediğinde AMI üzerinden bu dahili extension'a yönlendirir
 exten => transfer_to_human,1,NoOp(Yapay zeka cagriyi temsilciye aktariyor: ${{UNIQUEID}})
+same => n,StopMixMonitor()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,ab)
 same => n,Playback(/var/spool/asterisk/monitor/tr_aktariliyor)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -3411,7 +3414,7 @@ same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out)
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
 same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
 same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?apply_out_cfg:fallback_out_dial)
@@ -3442,6 +3445,7 @@ same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 
 exten => h,1,NoOp(Temsilci aramasi sonlandi. Call ID: ${{CALL_UUID}}, Status: ${{DIALSTATUS}}, QueueStatus: ${{QUEUESTATUS}}, Member: ${{MEMBERINTERFACE}}, Cause: ${{HANGUPCAUSE}})
+same => n,StopMixMonitor()
 same => n,GotoIf($["${{CALL_UUID}}" = ""]?done_h)
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
@@ -3453,11 +3457,12 @@ exten => _[1-9]X.,1,GotoIf($[${{LEN(${{EXTEN}})}} >= 7]?outbound_route_ext)
 same => n,NoOp(Dahili arama basladi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
+same => n,GotoIf($["${{CALL_UUID}}" != ""]?already_registered_int)
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny)
-same => n,Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
+same => n(already_registered_int),Set(ACL_RESULT=${{CURL(http://{backend_host}/api/acl/check_subscriber_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}})}})
 same => n,GotoIf($["${{ACL_RESULT}}" = "DENY"]?deny:allow)
 same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Set(DIALSTATUS=FAILED)
@@ -3477,7 +3482,7 @@ same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
 same => n,Set(__CALL_UUID=${{MD5_VAL:0:8}}-${{MD5_VAL:8:4}}-4${{MD5_VAL:13:3}}-a${{MD5_VAL:17:3}}-${{MD5_VAL:20:12}})
 same => n,Set(CURL_RESULT=${{CURL(http://{backend_host}/api/calls/register?call_id=${{CALL_UUID}}&did=${{EXTEN}}&caller=${{CALLERID(num)}}&asterisk_id=${{UNIQUEID}})}})
 same => n,GotoIf($["${{CURL_RESULT}}" = "BLOCKED"]?deny_out_ext)
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,b)
 same => n,Set(DIAL_NUM=${{IF($["${{EXTEN:0:1}}"="0"]?90${{EXTEN:1}}:${{EXTEN}})}})
 same => n,Set(OUT_CFG=${{CURL(http://{backend_host}/api/trunks/resolve_outbound_dial?call_id=${{URIENCODE(${{CALL_UUID}})}}&caller=${{URIENCODE(${{CALLERID(num)}})}}&caller_name=${{URIENCODE(${{CALLERID(name)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&dial_num=${{URIENCODE(${{DIAL_NUM}})}}&orig_caller=${{URIENCODE(${{ORIG_CALLER_NUM}})}}&orig_name=${{URIENCODE(${{ORIG_CALLER_NAME}})}})}})
 same => n,GotoIf($["${{CUT(OUT_CFG,|,1)}}" = "ALLOW"]?apply_out_cfg_ext:fallback_out_dial_ext)
@@ -3507,7 +3512,8 @@ same => n,Set(CALLERID(name)=908503607390)
 same => n,Dial(PJSIP/Operator_Trunk/sip:${{DIAL_NUM}}@ikonsip.com:5060,60,r)
 same => n,Hangup()
 same => n(allow),NoOp(ACL ONAYLANDI: On Yonlendirme Kontrol Ediliyor)
-same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav)
+same => n,StopMixMonitor()
+same => n,MixMonitor(/var/spool/asterisk/monitor/${{CALL_UUID}}.wav,${{IF($["${{APPEND_REC}}"="1"]?ab:b)}})
 
 ; 1. Ön Yönlendirme ve Aktif Profil Kontrolü (Offline / Koşulsuz Yönlendirme / Cihaz Seçimi)
 same => n,Set(FWD_PRE=${{CURL(http://{backend_host}/api/subscriber/resolve_forwarding?extension=${{EXTEN}}&dialstatus=BEFORE_DIAL)}})
@@ -5050,6 +5056,108 @@ def _sync_spool_recording_to_project_sync(call_id: str) -> Optional[str]:
     return None
 
 
+_WAV_DURATION_CACHE: dict[str, tuple[float, int, int]] = {}
+
+
+def _get_call_wav_duration_seconds(call_id: str) -> Optional[int]:
+    """
+    Reads the exact PCM audio duration (floored whole seconds matching HTML5 <audio> controls)
+    from the call's .wav recording header on disk, with O(1) stat-validated caching.
+    """
+    if not call_id:
+        return None
+    clean_cid = os.path.basename(str(call_id).strip())
+    if not clean_cid:
+        return None
+
+    candidates = (
+        os.path.join(RECORDINGS_DIR, f"{clean_cid}.wav"),
+        f"/var/spool/asterisk/monitor/{clean_cid}.wav",
+        f"/mnt/nas/ai-recordings/{clean_cid}.wav",
+    )
+    for fp in candidates:
+        try:
+            st = os.stat(fp)
+        except OSError:
+            continue
+        fsize = st.st_size
+        if fsize <= 44:
+            continue
+
+        cached = _WAV_DURATION_CACHE.get(fp)
+        if cached and cached[0] == st.st_mtime and cached[1] == fsize:
+            return cached[2]
+
+        dur_int: Optional[int] = None
+        try:
+            import wave
+            with wave.open(fp, "rb") as wf:
+                frames = wf.getnframes()
+                rate = wf.getframerate()
+                if rate > 0 and frames > 0:
+                    sec_f = frames / float(rate)
+                    dur_int = int(sec_f) if sec_f >= 1.0 else (1 if sec_f >= 0.25 else 0)
+        except Exception:
+            dur_int = None
+
+        if dur_int is None or dur_int == 0:
+            # Fallback if RIFF frame count wasn't finalized yet (8kHz 16-bit mono = 16000 bytes/sec)
+            sec_fb = (fsize - 44) / 16000.0
+            if sec_fb >= 0.25:
+                dur_int = int(sec_fb) if sec_fb >= 1.0 else 1
+
+        if dur_int is not None and dur_int > 0:
+            if len(_WAV_DURATION_CACHE) > 5000:
+                for old_k in list(_WAV_DURATION_CACHE.keys())[:1000]:
+                    _WAV_DURATION_CACHE.pop(old_k, None)
+            _WAV_DURATION_CACHE[fp] = (st.st_mtime, fsize, dur_int)
+            return dur_int
+    return None
+
+
+def _resolve_authoritative_talk_seconds(call_obj) -> int:
+    """
+    Returns exact talk/recording duration in seconds for a Call record:
+    1. 0 for unanswered / missed / blocked / abandoned calls.
+    2. Exact .wav file duration on disk if a valid recording exists (matching HTML5 <audio> 100%).
+    3. Explicit talk_duration / (end_time - answered_at) excluding dialing/ringing/queue hold time.
+    """
+    st_norm = str(getattr(call_obj, "status", "") or "").strip().lower()
+    hsrc = str(getattr(call_obj, "hangup_source", "") or "").strip()
+    is_unanswered = (
+        st_norm in ("no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "blocked", "rejected_limit", "missed", "abandoned")
+        or ":abandoned" in hsrc
+    )
+    if is_unanswered:
+        return 0
+
+    c_start = getattr(call_obj, "start_time", None)
+    c_end = getattr(call_obj, "end_time", None)
+    total_wall_sec = max(0, int(((c_end or c_start) - c_start).total_seconds())) if c_start else 0
+
+    rec_val = str(getattr(call_obj, "recording_path", "") or "").strip()
+    if c_end is not None and rec_val not in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+        wav_sec = _get_call_wav_duration_seconds(getattr(call_obj, "id", ""))
+        if wav_sec is not None and wav_sec > 0:
+            return wav_sec
+
+    talk_col = getattr(call_obj, "talk_duration", None)
+    if talk_col is not None and c_end is not None:
+        t_val = max(0, int(talk_col))
+        return min(total_wall_sec, t_val) if total_wall_sec > 0 else t_val
+
+    ans_dt = getattr(call_obj, "answered_at", None)
+    if ans_dt is not None:
+        ref_end = c_end or datetime.datetime.utcnow()
+        ans_sec = max(0, int((ref_end - ans_dt).total_seconds()))
+        return min(total_wall_sec, ans_sec) if (c_end is not None and total_wall_sec > 0) else ans_sec
+
+    if st_norm in ("in_progress", "ongoing", "ringing") and c_end is None:
+        return 0
+
+    return total_wall_sec
+
+
 def _wav_has_speech_energy(wav_path: Optional[str]) -> bool:
     """Checks whether a 16-bit PCM WAV file contains actual voice energy (>= 1.5s of speech above noise floor)."""
     if not wav_path or not os.path.exists(wav_path):
@@ -5213,6 +5321,11 @@ async def process_call_recording_and_retention(call_id: str):
 
             # 2. Sync recording from /var/spool/asterisk/monitor to project recordings/ directory
             wav_path = await asyncio.to_thread(_sync_spool_recording_to_project_sync, call_id)
+            if wav_path:
+                wav_sec = await asyncio.to_thread(_get_call_wav_duration_seconds, call_id)
+                if wav_sec is not None and wav_sec > 0 and db_call.talk_duration != wav_sec:
+                    db_call.talk_duration = wav_sec
+                    await session.commit()
 
             # 3. Check Dynamic Voice Recording setting
             retention = get_effective_recording_retention_settings()
@@ -12586,8 +12699,7 @@ async def handle_ami_queue_call_event(
                 db_call.callee_number = q_clean
                 db_call.hangup_source = f"queue:{q_clean}:answered:{agent_ext}"
                 db_call.status = "in_progress"
-                if not db_call.answered_at:
-                    db_call.answered_at = now_utc
+                db_call.answered_at = now_utc
                 ag_nm = resolve_user_name_by_ext_or_id(agent_ext)
                 if ag_nm:
                     db_call.agent_name = ag_nm
@@ -12714,7 +12826,7 @@ async def end_call_endpoint(
                 resolved_status = "transferred"
             db_call.status = resolved_status
 
-            # Resolve exact talk_duration (excluding dialing/ringing time) and answered_at
+            # Resolve exact talk_duration (matching .wav recording duration and excluding dialing/ringing time)
             try:
                 from backend.services.ami_manager import resolve_call_answered_at
                 ami_ans_dt = resolve_call_answered_at(call_id)
@@ -12723,23 +12835,26 @@ async def end_call_endpoint(
             except Exception:
                 pass
 
-            wall_sec = max(0, round(dur_sec))
+            wall_sec = max(0, int(dur_sec))
             ast_ans_str = str(answeredtime or "").strip()
             ast_ans_sec = int(ast_ans_str) if ast_ans_str.isdigit() else None
 
             if resolved_status in ("no_answer", "busy", "cancelled", "failed", "blocked", "rejected_limit", "missed"):
                 db_call.talk_duration = 0
             else:
+                wav_sec = _get_call_wav_duration_seconds(call_id)
                 computed_talk = None
-                if ast_ans_sec is not None and ast_ans_sec > 0:
+                if wav_sec is not None and wav_sec > 0:
+                    computed_talk = wav_sec
+                elif ast_ans_sec is not None and ast_ans_sec > 0:
                     computed_talk = ast_ans_sec
                 elif db_call.talk_duration is not None and db_call.talk_duration > 0:
                     computed_talk = db_call.talk_duration
                 elif db_call.answered_at and db_call.end_time:
-                    computed_talk = max(0, round((db_call.end_time - db_call.answered_at).total_seconds()))
+                    computed_talk = max(0, int((db_call.end_time - db_call.answered_at).total_seconds()))
 
                 if computed_talk is not None:
-                    if wall_sec > 0:
+                    if wall_sec > 0 and wav_sec is None:
                         computed_talk = min(computed_talk, wall_sec)
                     db_call.talk_duration = max(0, int(computed_talk))
                     if not db_call.answered_at and db_call.end_time:
@@ -12848,8 +12963,12 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                         pk_call.end_time = now_utc
                         pk_call.status = "completed"
                         if duration > 0:
-                            wall_pk = max(1, round((now_utc - pk_call.start_time).total_seconds())) if pk_call.start_time else duration
-                            pk_call.talk_duration = max(0, min(duration, wall_pk))
+                            wav_pk = _get_call_wav_duration_seconds(pk_call.id)
+                            if wav_pk is not None and wav_pk > 0:
+                                pk_call.talk_duration = wav_pk
+                            else:
+                                wall_pk = max(1, int((now_utc - pk_call.start_time).total_seconds())) if pk_call.start_time else duration
+                                pk_call.talk_duration = max(0, min(duration, wall_pk))
                             if not pk_call.answered_at:
                                 inf_pk_ans = now_utc - datetime.timedelta(seconds=pk_call.talk_duration)
                                 pk_call.answered_at = max(pk_call.start_time, inf_pk_ans) if pk_call.start_time else inf_pk_ans
@@ -12906,8 +13025,7 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                         active_queue_call.agent_name = ag_nm
                     if event_type == "answer":
                         active_queue_call.status = "in_progress"
-                        if not active_queue_call.answered_at:
-                            active_queue_call.answered_at = now_utc
+                        active_queue_call.answered_at = now_utc
                     else:
                         active_queue_call.status = "completed"
                         if terminated_by and not active_queue_call.ended_by:
@@ -12916,10 +13034,14 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                             active_queue_call.end_time = now_utc
                         if duration > 0:
                             end_q_ref = active_queue_call.end_time or now_utc
-                            wall_q = max(1, round((end_q_ref - active_queue_call.start_time).total_seconds())) if active_queue_call.start_time else duration
-                            capped_q_dur = max(0, min(duration, wall_q))
-                            if active_queue_call.talk_duration is None or active_queue_call.talk_duration == 0 or active_queue_call.talk_duration > capped_q_dur:
-                                active_queue_call.talk_duration = capped_q_dur
+                            wav_q = _get_call_wav_duration_seconds(active_queue_call.id)
+                            if wav_q is not None and wav_q > 0:
+                                active_queue_call.talk_duration = wav_q
+                            else:
+                                wall_q = max(1, int((end_q_ref - active_queue_call.start_time).total_seconds())) if active_queue_call.start_time else duration
+                                capped_q_dur = max(0, min(duration, wall_q))
+                                if active_queue_call.talk_duration is None or active_queue_call.talk_duration == 0 or active_queue_call.talk_duration > capped_q_dur:
+                                    active_queue_call.talk_duration = capped_q_dur
                             if not active_queue_call.answered_at:
                                 inf_q_ans = end_q_ref - datetime.timedelta(seconds=active_queue_call.talk_duration)
                                 active_queue_call.answered_at = max(active_queue_call.start_time, inf_q_ans) if active_queue_call.start_time else inf_q_ans
@@ -13026,10 +13148,14 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
 
                     if duration > 0:
                         end_ref = db_call.end_time or now_utc
-                        wall_c = max(1, round((end_ref - db_call.start_time).total_seconds())) if db_call.start_time else duration
-                        capped_dur = max(0, min(duration, wall_c))
-                        if db_call.talk_duration is None or db_call.talk_duration == 0 or db_call.talk_duration > capped_dur:
-                            db_call.talk_duration = capped_dur
+                        wav_c = _get_call_wav_duration_seconds(db_call.id)
+                        if wav_c is not None and wav_c > 0:
+                            db_call.talk_duration = wav_c
+                        else:
+                            wall_c = max(1, int((end_ref - db_call.start_time).total_seconds())) if db_call.start_time else duration
+                            capped_dur = max(0, min(duration, wall_c))
+                            if db_call.talk_duration is None or db_call.talk_duration == 0 or db_call.talk_duration > capped_dur:
+                                db_call.talk_duration = capped_dur
                         if not db_call.answered_at:
                             inf_ans = end_ref - datetime.timedelta(seconds=db_call.talk_duration)
                             db_call.answered_at = max(db_call.start_time, inf_ans) if db_call.start_time else inf_ans
@@ -13752,35 +13878,28 @@ async def list_calls(
                     c.resolved_trunk_did = ""
                     c.has_configured_trunk = bool(c.resolved_trunk_name)
 
-                # Expose exact talk, queue, and total durations (in seconds) so CDR & KPIs never include ringing time in talk time
+                # Expose exact talk, queue, and total durations (in seconds) matching .wav audio recording duration
                 total_wall_sec = max(0, int((c_end - c_start).total_seconds()))
                 st_norm = str(c.status or "").strip().lower()
                 is_unanswered_st = st_norm in ("no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "blocked", "rejected_limit", "missed", "abandoned") or ":abandoned" in hangup_src
 
-                if is_unanswered_st:
-                    resolved_talk_sec = 0
-                elif getattr(c, "talk_duration", None) is not None and c.end_time is not None:
-                    resolved_talk_sec = min(total_wall_sec, max(0, int(c.talk_duration)))
-                elif getattr(c, "answered_at", None) is not None:
-                    resolved_talk_sec = min(total_wall_sec, max(0, int((c_end - c.answered_at).total_seconds())))
-                elif st_norm in ("in_progress", "ongoing", "ringing") and c.end_time is None:
-                    resolved_talk_sec = 0
-                else:
-                    resolved_talk_sec = total_wall_sec
+                resolved_talk_sec = _resolve_authoritative_talk_seconds(c)
 
-                c.duration_total = total_wall_sec
+                try:
+                    db.expunge(c)
+                except Exception:
+                    pass
+
+                c.talk_duration = resolved_talk_sec
                 c.duration_talk = resolved_talk_sec
                 if is_queue_call:
                     c.duration_queue = total_wall_sec if is_unanswered_st else max(0, total_wall_sec - resolved_talk_sec)
                 else:
                     c.duration_queue = 0
+                c.duration_total = total_wall_sec if is_unanswered_st else (resolved_talk_sec + c.duration_queue)
 
                 rec_val = str(getattr(c, "recording_path", "") or "").strip()
                 if rec_val in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
-                    try:
-                        db.expunge(c)
-                    except Exception:
-                        pass
                     c.recording_deleted_reason = rec_val
                     c.recording_path = None
                 else:
@@ -13860,6 +13979,13 @@ async def get_call_details(call_id: str, db: AsyncSession = Depends(get_db)):
     call = result.scalar_one_or_none()
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
+    try:
+        resolved_talk_sec = _resolve_authoritative_talk_seconds(call)
+        db.expunge(call)
+        call.talk_duration = resolved_talk_sec
+        call.duration_talk = resolved_talk_sec
+    except Exception:
+        pass
     return call
 
 import re
@@ -14862,15 +14988,7 @@ async def get_wallboard_stats():
 
         if completed_calls:
             durations = [
-                (
-                    max(0, int(c.talk_duration))
-                    if getattr(c, "talk_duration", None) is not None
-                    else (
-                        max(0, (c.end_time - c.answered_at).total_seconds())
-                        if getattr(c, "answered_at", None) is not None
-                        else max(0, (c.end_time - c.start_time).total_seconds())
-                    )
-                )
+                _resolve_authoritative_talk_seconds(c)
                 for c in completed_calls if c.end_time and c.start_time
             ]
             avg_hold_time = round(sum(durations) / len(durations)) if durations else 0
@@ -17708,13 +17826,8 @@ async def get_agent_timeline_report(
             c_start = call.start_time
             c_end = call.end_time or c_start
             c_wall_dur = max(0, int((c_end - c_start).total_seconds()))
-            has_explicit_talk = getattr(call, "talk_duration", None) is not None and int(call.talk_duration or 0) > 0
-            if getattr(call, "talk_duration", None) is not None and call.end_time is not None:
-                c_dur = min(c_wall_dur, max(0, int(call.talk_duration)))
-            elif getattr(call, "answered_at", None) is not None:
-                c_dur = min(c_wall_dur, max(0, int((c_end - call.answered_at).total_seconds())))
-            else:
-                c_dur = c_wall_dur
+            c_dur = _resolve_authoritative_talk_seconds(call)
+            has_explicit_talk = c_dur > 0
 
             # Detect Call Pickup dial codes (*8 or **ext)
             if is_caller and (callee.startswith("*8") or callee.startswith("**")):
@@ -18637,8 +18750,7 @@ async def get_agent_queue_peers(
             if st == "in_progress" and call.end_time is None and (now_utc - call.start_time).total_seconds() < 7200:
                 active_call_obj = call
 
-            c_end = call.end_time or (now_utc if st == "in_progress" else call.start_time)
-            c_dur = max(0, int((c_end - call.start_time).total_seconds()))
+            c_dur = _resolve_authoritative_talk_seconds(call)
 
             if st in ("completed", "in_progress", "transferred", "answered"):
                 if is_callee:

@@ -291,9 +291,18 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
     return searchFilteredCalls;
   }, [searchFilteredCalls, directionFilter]);
 
-  const formatDuration = (secs, startTime, endTime) => {
-    let totalSecs = secs;
-    if (!totalSecs && startTime && endTime) {
+  const formatDuration = (secs, startTime, endTime, status) => {
+    const st = String(status || "").toLowerCase();
+    if (
+      ["no_answer", "no answer", "noanswer", "unanswered", "busy", "cancelled", "cancel", "failed", "blocked", "missed", "abandoned"].includes(st)
+    ) {
+      return "0sn";
+    }
+
+    let totalSecs = null;
+    if (secs != null && secs !== "" && Number.isFinite(Number(secs))) {
+      totalSecs = Math.max(0, Math.floor(Number(secs)));
+    } else if (startTime && endTime) {
       totalSecs = Math.max(0, Math.floor((new Date(endTime) - new Date(startTime)) / 1000));
     }
 
@@ -699,7 +708,7 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                         </td>
                         <td className="p-4 text-sm font-semibold text-slate-600 dark:text-slate-400">
                           <div className="flex items-center gap-1.5 w-max">
-                            <Clock size={14} /> {formatDuration(call.duration, call.start_time, call.end_time)}
+                            <Clock size={14} /> {formatDuration(call.talk_duration ?? call.duration_talk ?? call.duration, call.start_time, call.end_time, call.status)}
                           </div>
                         </td>
                         <td className="p-4">
@@ -785,9 +794,10 @@ export default function AgentHistoryTab({ backendHost, currentUser, callPanelPer
                         : ""}{" "}
                       • Süre:{" "}
                       {formatDuration(
-                        activeTranscriptCall.duration,
+                        activeTranscriptCall.talk_duration ?? activeTranscriptCall.duration_talk ?? activeTranscriptCall.duration,
                         activeTranscriptCall.start_time,
-                        activeTranscriptCall.end_time
+                        activeTranscriptCall.end_time,
+                        activeTranscriptCall.status
                       )}
                     </p>
                   </div>

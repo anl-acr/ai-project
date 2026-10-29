@@ -615,7 +615,7 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
             db_call.end_time = datetime.datetime.utcnow()
             ans_ref = getattr(db_call, "answered_at", None) or db_call.start_time
             if ans_ref and db_call.status in ("completed", "transferred"):
-                db_call.talk_duration = max(0, round((db_call.end_time - ans_ref).total_seconds()))
+                db_call.talk_duration = max(0, int((db_call.end_time - ans_ref).total_seconds()))
             elif db_call.status in ("blocked", "no_answer", "busy", "cancelled", "failed"):
                 db_call.talk_duration = 0
             if summary:
@@ -638,6 +638,12 @@ async def end_call_db(call_id: str, summary: str = None, hangup_source: str = No
                     import shutil
                     shutil.copy2(spool_file, dest_file)
                     print(f"[Recording Synced]: {spool_file} -> {dest_file}")
+                if db_call.status in ("completed", "transferred"):
+                    from backend.main import _get_call_wav_duration_seconds
+                    wav_sec = _get_call_wav_duration_seconds(call_id)
+                    if wav_sec is not None and wav_sec > 0:
+                        db_call.talk_duration = wav_sec
+                        await session.commit()
             except Exception as e:
                 print(f"[Recording Sync Error]: {e}")
             
@@ -1113,9 +1119,6 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                         db_call.end_time = datetime.datetime.utcnow()
                         db_call.talk_duration = 0
                         await session.commit()
-                    elif db_call and not getattr(db_call, "answered_at", None):
-                        db_call.answered_at = datetime.datetime.utcnow()
-                        await session.commit()
 
                 if is_blocked_call:
                     print(f"[Abuse Shield / AudioSocket] Blocked call {call_id} from blacklisted caller '{caller_num}'. Terminating immediately.")
@@ -1147,16 +1150,17 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
                     db_call = await session.get(Call, call_id)
                     if db_call:
                         db_call.callee_number = target_ext
+                        db_call.answered_at = None
                         db_call.hangup_source = f"queue:{target_ext}" if is_queue_route else f"direct:{target_ext}"
                         await session.commit()
             except Exception as e_upd:
                 print(f"[Call Flow Route DB Update Warning]: {e_upd}")
             from backend.services.ami_manager import redirect_call_to_human
             await asyncio.sleep(0.3)
-            success = await redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents")
+            success = await redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents", is_direct_route=True)
             if not success:
                 await asyncio.sleep(0.5)
-                await redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents")
+                await redirect_call_to_human(call_id, extension=target_ext, context="webrtc_agents", is_direct_route=True)
             writer.close()
             await writer.wait_closed()
             return
@@ -1170,16 +1174,20 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
             return
 
         ai_agent = call_eval.get("agent")
+        try:
+            async with AsyncSessionLocal() as session:
+                db_call = await session.get(Call, call_id)
+                if db_call:
+                    if not getattr(db_call, "answered_at", None):
+                        db_call.answered_at = datetime.datetime.utcnow()
+                    if ai_agent and not db_call.agent_name:
+                        db_call.agent_name = ai_agent.get("name") or ai_agent.get("id")
+                    await session.commit()
+        except Exception as ag_err:
+            print(f"[AudioSocket Agent Name / AnsweredAt Save Warning]: {ag_err}")
+
         if ai_agent:
             print(f"Arama DID: {did} -> Secilen AI Agent: {ai_agent.get('name')} ({ai_agent.get('id')})")
-            try:
-                async with AsyncSessionLocal() as session:
-                    db_call = await session.get(Call, call_id)
-                    if db_call and not db_call.agent_name:
-                        db_call.agent_name = ai_agent.get("name") or ai_agent.get("id")
-                        await session.commit()
-            except Exception as ag_err:
-                print(f"[AudioSocket Agent Name Save Warning]: {ag_err}")
         else:
             print(f"Arama DID: {did} -> Uygun AI Agent bulunamadi. Varsayilan ayarlar kullanilacak.")
 
