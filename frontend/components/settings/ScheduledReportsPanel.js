@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   Calendar,
   Plus,
@@ -285,7 +286,7 @@ function DualListBox({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-1.5 pb-1.5">
+          <div className="flex-1 overflow-y-auto overscroll-contain px-1.5 pb-1.5">
             {filteredAvailable.length === 0 ? (
               <div className="h-full flex items-center justify-center text-[11px] text-slate-400 p-3 text-center">
                 {emptyAvailableText}
@@ -400,7 +401,7 @@ function DualListBox({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-1.5 pb-1.5 bg-white/40 dark:bg-slate-950/30">
+          <div className="flex-1 overflow-y-auto overscroll-contain px-1.5 pb-1.5 bg-white/40 dark:bg-slate-950/30">
             {filteredSelected.length === 0 ? (
               <div className="h-full flex items-center justify-center text-[11px] text-slate-400 p-3 text-center">
                 {emptySelectedText}
@@ -569,6 +570,15 @@ export default function ScheduledReportsPanel({
   useEffect(() => {
     fetchSchedules();
   }, []);
+
+  useEffect(() => {
+    if (!isModalOpen || typeof document === "undefined") return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isModalOpen]);
 
   const reportModuleItems = useMemo(
     () =>
@@ -1035,23 +1045,33 @@ export default function ScheduledReportsPanel({
       )}
 
       {/* Create / Edit Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-[9990] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
-              <h3 className="text-sm font-bold text-slate-800 dark:text-white">
-                {formData.id ? "Zamanlanmış Raporu Düzenle" : "Yeni Zamanlanmış Rapor Ekle"}
-              </h3>
-              <button
-                type="button"
-                onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-              >
-                <X size={16} />
-              </button>
-            </div>
+      {isModalOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[9990] flex items-center justify-center p-4 overscroll-contain">
+            <div
+              className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm pointer-events-auto"
+              style={{ transform: "translateZ(0)", backfaceVisibility: "hidden" }}
+              aria-hidden="true"
+            />
+            <div
+              className="relative z-10 w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col transform-gpu"
+              style={{ backfaceVisibility: "hidden" }}
+            >
+              <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
+                <h3 className="text-sm font-bold text-slate-800 dark:text-white">
+                  {formData.id ? "Zamanlanmış Raporu Düzenle" : "Yeni Zamanlanmış Rapor Ekle"}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
 
-            <form onSubmit={handleSave} className="p-5 space-y-5 overflow-y-auto text-xs">
+              <form onSubmit={handleSave} className="p-5 space-y-5 overflow-y-auto overscroll-contain text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
@@ -1333,10 +1353,11 @@ export default function ScheduledReportsPanel({
                   {saving ? "Kaydediliyor..." : "Kaydet"}
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
+              </form>
+            </div>
+          </div>,
+          document.body
+        )}
 
       {/* Custom Native Delete Confirmation Modal */}
       <ConfirmDeleteModal
