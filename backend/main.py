@@ -13647,6 +13647,8 @@ async def webrtc_attended_transfer_endpoint(payload: dict = Body(...)):
 async def list_calls(
     start_date: str = None,
     end_date: str = None,
+    start_time: str = None,
+    end_time: str = None,
     caller_number: str = None,
     call_id: str = None,
     extension: str = None,
@@ -13665,7 +13667,15 @@ async def list_calls(
     
     if start_date:
         try:
-            start_dt = datetime.combine(datetime.strptime(start_date, "%Y-%m-%d").date(), time.min)
+            s_raw = start_date.strip()
+            if "T" in s_raw:
+                start_dt = datetime.strptime(s_raw[:16], "%Y-%m-%dT%H:%M")
+            else:
+                s_time = time.min
+                if start_time and ":" in start_time:
+                    sh, sm = [int(x) for x in start_time.strip().split(":")[:2]]
+                    s_time = time(max(0, min(23, sh)), max(0, min(59, sm)), 0)
+                start_dt = datetime.combine(datetime.strptime(s_raw[:10], "%Y-%m-%d").date(), s_time)
             start_dt -= timedelta(hours=3)  # Adjust TR local time to UTC
             stmt = stmt.where(Call.start_time >= start_dt)
         except ValueError:
@@ -13673,7 +13683,15 @@ async def list_calls(
             
     if end_date:
         try:
-            end_dt = datetime.combine(datetime.strptime(end_date, "%Y-%m-%d").date(), time.max)
+            e_raw = end_date.strip()
+            if "T" in e_raw:
+                end_dt = datetime.strptime(e_raw[:16], "%Y-%m-%dT%H:%M").replace(second=59, microsecond=999999)
+            else:
+                e_time = time.max
+                if end_time and ":" in end_time:
+                    eh, em = [int(x) for x in end_time.strip().split(":")[:2]]
+                    e_time = time(max(0, min(23, eh)), max(0, min(59, em)), 59, 999999)
+                end_dt = datetime.combine(datetime.strptime(e_raw[:10], "%Y-%m-%d").date(), e_time)
             end_dt -= timedelta(hours=3)  # Adjust TR local time to UTC
             stmt = stmt.where(Call.start_time <= end_dt)
         except ValueError:
