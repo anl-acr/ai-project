@@ -5,6 +5,15 @@ import {
   stopRingbackTone,
   resolveAudioDeviceId
 } from "./audioHelper";
+import {
+  getSavedNoiseSuppressionMode,
+  saveNoiseSuppressionMode,
+  getNoiseModeLabel,
+  buildMicConstraintsForMode,
+  processMicrophoneStream,
+  disposeAudioTrackAndPipeline,
+  VALID_NOISE_MODES
+} from "./noiseSuppressionEngine";
 
 let SIP = null;
 async function ensureSipLoaded() {
@@ -43,6 +52,7 @@ class WebphoneManager {
       callDuration: 0,
       isMuted: false,
       isOnHold: false,
+      noiseSuppressionMode: getSavedNoiseSuppressionMode(), // "ai" | "standard" | "off"
       callNotification: null,
       error: "",
       activeSipCallId: null,
@@ -67,12 +77,21 @@ class WebphoneManager {
   initAudioDeviceHotSwapListeners() {
     if (typeof window === "undefined") return;
     const handleUpdate = () => {
+      const savedMode = getSavedNoiseSuppressionMode();
+      if (savedMode !== this.state.noiseSuppressionMode) {
+        this.setState({ noiseSuppressionMode: savedMode });
+      }
       if (this._deviceSwapDebounce) clearTimeout(this._deviceSwapDebounce);
       this._deviceSwapDebounce = setTimeout(() => {
         this.applyAudioDevicePreferences();
       }, 300);
     };
+    const handleNoiseModeEvent = (e) => {
+      const requested = e?.detail?.mode || getSavedNoiseSuppressionMode();
+      this.setNoiseSuppressionMode(requested, { silent: Boolean(e?.detail?.silent), fromEvent: true });
+    };
     window.addEventListener("AUDIO_DEVICES_UPDATED", handleUpdate);
+    window.addEventListener("NOISE_MODE_UPDATED", handleNoiseModeEvent);
     if (navigator.mediaDevices && typeof navigator.mediaDevices.addEventListener === "function") {
       navigator.mediaDevices.addEventListener("devicechange", handleUpdate);
     }
@@ -652,15 +671,68 @@ class WebphoneManager {
     }
   }
 
-  async applyAudioDevicePreferences() {
+  cleanupLineMicPipeline(line) {
+    if (!line) return;
+    try {
+      const pc = line.session?.sessionDescriptionHandler?.peerConnection;
+      if (pc) {
+        pc.getSenders().forEach((s) => {
+          if (s.track && s.track.kind === "audio") {
+            disposeAudioTrackAndPipeline(s.track);
+          }
+        });
+      }
+      if (line.origMicTrack) {
+        disposeAudioTrackAndPipeline(line.origMicTrack);
+        line.origMicTrack = null;
+      }
+    } catch (e) {}
+  }
+
+  async setNoiseSuppressionMode(nextMode, opts = {}) {
+    const safeMode = saveNoiseSuppressionMode(
+      VALID_NOISE_MODES.includes(nextMode) ? nextMode : "ai"
+    );
+    const prevMode = this.state.noiseSuppressionMode;
+    this.setState({ noiseSuppressionMode: safeMode });
+
+    if (!opts.fromEvent && typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("NOISE_MODE_SYNC_UI", { detail: { mode: safeMode } })
+      );
+    }
+
+    // Hot-swap active calls' outgoing RTP track immediately without interrupting the call
+    await this.applyAudioDevicePreferences({ forceReplaceMic: prevMode !== safeMode || Boolean(opts.force) });
+
+    if (!opts.silent) {
+      this.showNotification(
+        `Gürültü Engelleme: ${getNoiseModeLabel(safeMode)}`,
+        "info"
+      );
+    }
+    return safeMode;
+  }
+
+  async cycleNoiseSuppressionMode() {
+    const cur = this.state.noiseSuppressionMode || getSavedNoiseSuppressionMode();
+    const order = ["ai", "standard", "off"];
+    const nextIdx = (order.indexOf(cur) + 1) % order.length;
+    return this.setNoiseSuppressionMode(order[nextIdx]);
+  }
+
+  async applyAudioDevicePreferences(opts = {}) {
     if (typeof window === "undefined") return;
+    const forceReplaceMic = Boolean(opts.forceReplaceMic);
+    const activeMode = this.state.noiseSuppressionMode || getSavedNoiseSuppressionMode();
+
     for (const line of this.linesMap.values()) {
       const audioEl = this.ensureAudioElement(line.id);
       if (audioEl) {
         await this.applySpeakerSinkToElement(audioEl);
       }
 
-      // Live replace microphone track on active calls if headset/mic changed or reconnected
+      // Live replace microphone track on active calls if headset/mic OR noise suppression mode changed
       if ((line.callStatus === "InCall" || line.callStatus === "Calling") && !this.state.isConferenceActive) {
         const pc = line.session?.sessionDescriptionHandler?.peerConnection;
         if (pc) {
@@ -669,27 +741,25 @@ class WebphoneManager {
             const savedMicLabel = localStorage.getItem("selected_mic_label") || "";
             const resolvedMicId = await resolveAudioDeviceId("audioinput", savedMic, savedMicLabel);
             const audioSender = pc.getSenders().find((s) => s.track && s.track.kind === "audio");
-            if (audioSender && resolvedMicId && resolvedMicId !== "default") {
-              const currentSettings = typeof audioSender.track.getSettings === "function" ? audioSender.track.getSettings() : {};
-              if (currentSettings.deviceId !== resolvedMicId) {
-                const newStream = await navigator.mediaDevices.getUserMedia({
-                  audio: {
-                    deviceId: { exact: resolvedMicId },
-                    echoCancellation: true,
-                    noiseSuppression: true
-                  },
-                  video: false
-                });
-                const newTrack = newStream.getAudioTracks()[0];
+            if (audioSender) {
+              const currentSettings =
+                audioSender.track && typeof audioSender.track.getSettings === "function"
+                  ? audioSender.track.getSettings()
+                  : {};
+              const deviceChanged =
+                Boolean(resolvedMicId && resolvedMicId !== "default") &&
+                currentSettings.deviceId !== resolvedMicId;
+
+              if (forceReplaceMic || deviceChanged) {
+                const newStream = await this.acquireAudioStreamWithFallback();
+                const newTrack = newStream ? newStream.getAudioTracks()[0] : null;
                 if (newTrack) {
                   newTrack.enabled = !line.isMuted && !line.isOnHold && this.state.activeLineId === line.id;
                   const oldTrack = audioSender.track;
                   await audioSender.replaceTrack(newTrack);
                   line.origMicTrack = newTrack;
-                  if (oldTrack) {
-                    try {
-                      oldTrack.stop();
-                    } catch (e) {}
+                  if (oldTrack && oldTrack !== newTrack) {
+                    disposeAudioTrackAndPipeline(oldTrack);
                   }
                 }
               }
@@ -699,6 +769,14 @@ class WebphoneManager {
           }
         }
       }
+    }
+
+    // If a conference bridge is active and noise mode changed, refresh confMicStream cleanly
+    if (forceReplaceMic && this.state.isConferenceActive && this.confAudioCtx) {
+      try {
+        this.teardownConferenceAudioBridge();
+        await this.startConference();
+      } catch (e) {}
     }
   }
 
@@ -934,6 +1012,7 @@ class WebphoneManager {
           });
         }
 
+        this.cleanupLineMicPipeline(currentLine);
         this.removeLineAudioElement(lineId);
         this.linesMap.delete(lineId);
         const remainingLines = Array.from(this.linesMap.values());
@@ -1203,6 +1282,7 @@ class WebphoneManager {
       throw new Error("Tarayıcı mikrofon API erişimi için HTTPS bağlantısı gereklidir.");
     }
 
+    const activeMode = this.state.noiseSuppressionMode || getSavedNoiseSuppressionMode();
     const selectedMic = localStorage.getItem("selected_mic") || "";
     const selectedMicLabel = localStorage.getItem("selected_mic_label") || "";
     const resolvedMicId = await resolveAudioDeviceId("audioinput", selectedMic, selectedMicLabel);
@@ -1218,42 +1298,32 @@ class WebphoneManager {
     // 1. Try with exact resolved microphone first so Chrome strictly uses the selected headset mic
     if (hasCustomMic) {
       try {
-        return await navigator.mediaDevices.getUserMedia({
-          audio: {
-            deviceId: { exact: resolvedMicId },
-            echoCancellation: true,
-            noiseSuppression: true
-          },
-          video: false
-        });
+        const rawExact = await navigator.mediaDevices.getUserMedia(
+          buildMicConstraintsForMode(activeMode, { exact: resolvedMicId })
+        );
+        return await processMicrophoneStream(rawExact, activeMode);
       } catch (errExact) {
         try {
-          return await navigator.mediaDevices.getUserMedia({
-            audio: {
-              deviceId: { ideal: resolvedMicId },
-              echoCancellation: true,
-              noiseSuppression: true
-            },
-            video: false
-          });
+          const rawIdeal = await navigator.mediaDevices.getUserMedia(
+            buildMicConstraintsForMode(activeMode, { ideal: resolvedMicId })
+          );
+          return await processMicrophoneStream(rawIdeal, activeMode);
         } catch (errIdeal) {
           console.warn("[WebphoneManager] Preferred mic temporarily unavailable, falling back to system default mic:", errIdeal);
         }
       }
     }
 
-    // 2. Try default system microphone ({ audio: true })
+    // 2. Try default system microphone
     try {
-      return await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true
-        },
-        video: false
-      });
+      const rawDefault = await navigator.mediaDevices.getUserMedia(
+        buildMicConstraintsForMode(activeMode, null)
+      );
+      return await processMicrophoneStream(rawDefault, activeMode);
     } catch (err2) {
       try {
-        return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        const rawBasic = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+        return await processMicrophoneStream(rawBasic, activeMode);
       } catch (err3) {
         console.warn("[WebphoneManager] Default getUserMedia failed, using silent fallback stream:", err3);
         const errName = String(err3?.name || "");
@@ -1283,14 +1353,10 @@ class WebphoneManager {
   }
 
   buildSafeSessionConstraints() {
+    const activeMode = this.state.noiseSuppressionMode || getSavedNoiseSuppressionMode();
     const selectedMic = typeof window !== "undefined" ? localStorage.getItem("selected_mic") : null;
     const hasValidMic = Boolean(selectedMic && selectedMic !== "default");
-    return {
-      audio: hasValidMic
-        ? { deviceId: { ideal: selectedMic }, echoCancellation: true, noiseSuppression: true }
-        : true,
-      video: false
-    };
+    return buildMicConstraintsForMode(activeMode, hasValidMic ? { ideal: selectedMic } : null);
   }
 
   getUnlockedAudioContext() {
@@ -1513,6 +1579,7 @@ class WebphoneManager {
           });
         }
 
+        this.cleanupLineMicPipeline(currentLine);
         this.removeLineAudioElement(lineId);
         this.linesMap.delete(lineId);
         // If another line remains on hold and no other line is active, keep it selected so user can resume or auto-resume
@@ -1554,6 +1621,7 @@ class WebphoneManager {
     } catch (err) {
       stopRingbackTone();
       console.error("[WebphoneManager] Invite error:", err);
+      this.cleanupLineMicPipeline(lineObj);
       this.removeLineAudioElement(lineId);
       this.linesMap.delete(lineId);
       this.syncLinesToState();
@@ -1656,6 +1724,7 @@ class WebphoneManager {
       }
     } catch (e) {}
 
+    this.cleanupLineMicPipeline(line);
     this.removeLineAudioElement(line.id);
     this.linesMap.delete(line.id);
     this.syncLinesToState();

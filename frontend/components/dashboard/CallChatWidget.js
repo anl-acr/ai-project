@@ -25,7 +25,8 @@ import {
   Search,
   Users,
   Delete,
-  PhoneIncoming
+  PhoneIncoming,
+  Sparkles
 } from "lucide-react";
 import { findContactByPhone, maskPhoneLast4 } from "../../utils/contactUtils";
 import { webphoneManager } from "../../utils/webphoneManager";
@@ -115,6 +116,7 @@ export default function CallChatWidget({
     activeLineId,
     isConferenceActive,
     attendedTransferPending,
+    noiseSuppressionMode = "ai",
     groupRingingCalls = []
   } = wpState;
 
@@ -508,6 +510,7 @@ export default function CallChatWidget({
   };
   const toggleMute = () => webphoneManager.toggleMute();
   const toggleHold = () => webphoneManager.toggleHold();
+  const cycleNoiseMode = () => webphoneManager.cycleNoiseSuppressionMode();
 
   const handleOpenFullScreenWebphone = () => {
     window.dispatchEvent(new CustomEvent("OPEN_FULL_WEBPHONE"));
@@ -729,6 +732,26 @@ export default function CallChatWidget({
                         >
                           {isOnHold ? <Play size={14} /> : <Pause size={14} />}
                         </button>
+                        <button
+                          type="button"
+                          onClick={cycleNoiseMode}
+                          className={`p-1.5 rounded-xl transition-colors cursor-pointer ${
+                            noiseSuppressionMode === "ai"
+                              ? "bg-white text-slate-900 shadow-sm"
+                              : noiseSuppressionMode === "standard"
+                              ? "bg-white/25 text-white"
+                              : "bg-white/10 hover:bg-white/20 text-white/60"
+                          }`}
+                          title={
+                            noiseSuppressionMode === "ai"
+                              ? "Gürültü Engelleme: Yapay Zeka Aktif (Değiştirmek için tıklayın)"
+                              : noiseSuppressionMode === "standard"
+                              ? "Gürültü Engelleme: Standart Filtre (Değiştirmek için tıklayın)"
+                              : "Gürültü Engelleme: Kapalı (Açmak için tıklayın)"
+                          }
+                        >
+                          <Sparkles size={14} />
+                        </button>
                       </>
                     )}
                     <button
@@ -832,6 +855,33 @@ export default function CallChatWidget({
             </div>
 
             <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={cycleNoiseMode}
+                className={`px-2 py-1 text-[10px] font-extrabold rounded-xl flex items-center gap-1 transition-all cursor-pointer ${
+                  noiseSuppressionMode === "ai"
+                    ? "bg-white text-slate-900 shadow-sm"
+                    : noiseSuppressionMode === "standard"
+                    ? "bg-white/25 hover:bg-white/30 text-white"
+                    : "bg-white/10 hover:bg-white/20 text-white/75"
+                }`}
+                title={
+                  noiseSuppressionMode === "ai"
+                    ? "Gürültü Engelleme: Yapay Zeka (RNNoise Kristal Ses) — Değiştirmek için tıklayın"
+                    : noiseSuppressionMode === "standard"
+                    ? "Gürültü Engelleme: Standart Tarayıcı Filtresi — Değiştirmek için tıklayın"
+                    : "Gürültü Engelleme: Kapalı (Ham Mikrofon) — Açmak için tıklayın"
+                }
+              >
+                <Sparkles size={11} />
+                <span>
+                  {noiseSuppressionMode === "ai"
+                    ? "AI Ses"
+                    : noiseSuppressionMode === "standard"
+                    ? "Standart"
+                    : "Ham Ses"}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={handleOpenFullScreenWebphone}

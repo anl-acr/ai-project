@@ -47,6 +47,7 @@ import {
   ShieldCheck,
   AlertTriangle,
   Eye,
+  Mic,
   MicOff,
   Crown,
   ToggleRight,
@@ -69,6 +70,11 @@ import {
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
 import { playRingtoneSound, stopRingtoneSound, resolveAudioDeviceId } from "../utils/audioHelper";
+import {
+  getSavedNoiseSuppressionMode,
+  saveNoiseSuppressionMode,
+  createMicLoopbackTester
+} from "../utils/noiseSuppressionEngine";
 import { useTheme, setThemeColor } from "../utils/theme";
 import { getBackendHost } from "../utils/apiHost";
 import { getTurkishSlugForTab, getTabFromTurkishSlug } from "../utils/slugHelper";
@@ -596,6 +602,53 @@ export default function Home() {
   const [selectedRingtoneSpeaker, setSelectedRingtoneSpeaker] = useState("");
   const [isPreviewingRingtone, setIsPreviewingRingtone] = useState(false);
 
+  // AI Noise Suppression & Live Mic Loopback Tester states
+  const [noiseSuppressionMode, setNoiseSuppressionMode] = useState("ai");
+  const [isTestingMic, setIsTestingMic] = useState(false);
+  const [micTestLevels, setMicTestLevels] = useState({ inputLevel: 0, outputLevel: 0 });
+  const [micTestError, setMicTestError] = useState("");
+  const micTesterRef = React.useRef(null);
+
+  const stopMicLoopbackTest = () => {
+    if (micTesterRef.current) {
+      try {
+        micTesterRef.current.stop();
+      } catch (e) {}
+      micTesterRef.current = null;
+    }
+    setIsTestingMic(false);
+    setMicTestLevels({ inputLevel: 0, outputLevel: 0 });
+  };
+
+  const startMicLoopbackTest = async (overrideMode = null, overrideMic = null, overrideSpk = null) => {
+    stopMicLoopbackTest();
+    setMicTestError("");
+    try {
+      const tester = await createMicLoopbackTester({
+        micDeviceId: overrideMic !== null ? overrideMic : selectedMic,
+        speakerDeviceId: overrideSpk !== null ? overrideSpk : selectedSpeaker,
+        mode: overrideMode !== null ? overrideMode : noiseSuppressionMode,
+        onLevels: (levels) => setMicTestLevels(levels)
+      });
+      micTesterRef.current = tester;
+      setIsTestingMic(true);
+    } catch (err) {
+      setMicTestError(err?.message || "Mikrofon testi başlatılamadı.");
+      setIsTestingMic(false);
+    }
+  };
+
+  const handleSelectNoiseMode = (nextMode) => {
+    const saved = saveNoiseSuppressionMode(nextMode);
+    setNoiseSuppressionMode(saved);
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("NOISE_MODE_UPDATED", { detail: { mode: saved, silent: true } }));
+    }
+    if (isTestingMic) {
+      startMicLoopbackTest(saved, selectedMic, selectedSpeaker);
+    }
+  };
+
   // Security settings states
   const [autoLogoutEnabled, setAutoLogoutEnabled] = useState(false);
   const [autoLogoutDuration, setAutoLogoutDuration] = useState(1); // 1, 2, 3 (Hours)
@@ -955,6 +1008,7 @@ export default function Home() {
   // Load audio device settings from localStorage on mount and sync labels if permission is already granted
   useEffect(() => {
     if (typeof window !== "undefined") {
+      setNoiseSuppressionMode(getSavedNoiseSuppressionMode());
       const savedRingtone = localStorage.getItem("ringtone");
       if (savedRingtone) setAgentRingtone(savedRingtone);
       const savedMic = localStorage.getItem("selected_mic") || "";
@@ -963,6 +1017,12 @@ export default function Home() {
       if (savedSpeaker) setSelectedSpeaker(savedSpeaker);
       const savedRingtoneSpeaker = localStorage.getItem("selected_ringtone_speaker") || "";
       if (savedRingtoneSpeaker) setSelectedRingtoneSpeaker(savedRingtoneSpeaker);
+
+      const handleNoiseSyncUi = (e) => {
+        const nextM = e?.detail?.mode || getSavedNoiseSuppressionMode();
+        setNoiseSuppressionMode(nextM);
+      };
+      window.addEventListener("NOISE_MODE_SYNC_UI", handleNoiseSyncUi);
 
       if (navigator.mediaDevices && typeof navigator.mediaDevices.enumerateDevices === "function") {
         navigator.mediaDevices
@@ -1001,16 +1061,30 @@ export default function Home() {
           })
           .catch(() => {});
       }
+
+      return () => {
+        window.removeEventListener("NOISE_MODE_SYNC_UI", handleNoiseSyncUi);
+        stopMicLoopbackTest();
+      };
     }
   }, []);
+
+  useEffect(() => {
+    if (!settingsModalOpen || activeModalTab !== "hardware") {
+      stopMicLoopbackTest();
+      setMicTestError("");
+    }
+  }, [settingsModalOpen, activeModalTab]);
 
   // Sync available media devices on modal load (stopping any temporary permission stream immediately!)
   useEffect(() => {
     if (!settingsModalOpen) {
       stopRingtoneSound();
       setIsPreviewingRingtone(false);
+      stopMicLoopbackTest();
       return;
     }
+    setNoiseSuppressionMode(getSavedNoiseSuppressionMode());
     const loadDevices = async () => {
       if (typeof window === "undefined" || !navigator.mediaDevices) return;
       try {
@@ -4652,8 +4726,11 @@ export default function Home() {
                         localStorage.setItem("selected_mic_label", devObj.label);
                       }
                       window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
+                      if (isTestingMic) {
+                        startMicLoopbackTest(noiseSuppressionMode, nextId, selectedSpeaker);
+                      }
                     }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
                   >
                     {audioDevices.inputs.length === 0 ? (
                       <option value="">Aygıt bulunamadı veya izin verilmedi</option>
@@ -4665,6 +4742,146 @@ export default function Home() {
                       ))
                     )}
                   </select>
+                </div>
+
+                {/* AI Noise Suppression & Live Microphone Loopback Tester */}
+                <div className={`p-4 bg-slate-50/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl space-y-3 ${activeModalTab === "hardware" ? "block" : "hidden"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={15} className={text} />
+                      <div>
+                        <span className="text-[10px] font-extrabold text-slate-800 dark:text-slate-100 uppercase tracking-wide block">
+                          Yapay Zeka (AI) Gürültü Engelleme
+                        </span>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400">
+                          Klavye, ofis uğultusu ve yan masa konuşmalarını filtreler
+                        </span>
+                      </div>
+                    </div>
+                    <span className={`px-2 py-0.5 rounded-lg border text-[9px] font-extrabold uppercase tracking-wider ${
+                      noiseSuppressionMode === "ai"
+                        ? `${lightBg} ${text} ${borderLight}`
+                        : "bg-slate-100 border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                    }`}>
+                      {noiseSuppressionMode === "ai"
+                        ? "AI Kristal Ses"
+                        : noiseSuppressionMode === "standard"
+                        ? "Standart"
+                        : "Kapalı"}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      {
+                        id: "ai",
+                        title: "Yapay Zeka (AI)",
+                        desc: "RNNoise + Yan Ses Kesici (Önerilen)"
+                      },
+                      {
+                        id: "standard",
+                        title: "Standart",
+                        desc: "Tarayıcı Gürültü Filtresi"
+                      },
+                      {
+                        id: "off",
+                        title: "Kapalı",
+                        desc: "Ham Mikrofon Sesi"
+                      }
+                    ].map((opt) => {
+                      const active = noiseSuppressionMode === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => handleSelectNoiseMode(opt.id)}
+                          className={`p-2.5 rounded-xl border text-left transition-all flex flex-col justify-between gap-1 ${
+                            active
+                              ? `${lightBg} ${border} ring-1 ring-primary/30`
+                              : "bg-white dark:bg-slate-950/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-1">
+                            <span className={`text-[10px] font-extrabold ${active ? text : "text-slate-700 dark:text-slate-200"}`}>
+                              {opt.title}
+                            </span>
+                            {active && <Check size={12} className={text} />}
+                          </div>
+                          <span className="text-[9px] leading-tight text-slate-500 dark:text-slate-400">
+                            {opt.desc}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Interactive Loopback Microphone Test */}
+                  <div className="pt-2 border-t border-slate-200/70 dark:border-slate-800 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                        Canlı Mikrofon Testi (Kendini Dinle)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => (isTestingMic ? stopMicLoopbackTest() : startMicLoopbackTest())}
+                        className={`px-3 py-1.5 rounded-xl text-[10px] font-extrabold flex items-center gap-1.5 transition-all ${
+                          isTestingMic
+                            ? `${bg} ${hover} text-white shadow-sm`
+                            : "bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+                        }`}
+                      >
+                        {isTestingMic ? (
+                          <>
+                            <Square size={11} className="fill-current animate-pulse" />
+                            <span>Testi Durdur</span>
+                          </>
+                        ) : (
+                          <>
+                            <Mic size={12} className={text} />
+                            <span>Mikrofonu Test Et</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {isTestingMic && (
+                      <div className="space-y-2 p-2.5 rounded-xl bg-white/80 dark:bg-slate-950/60 border border-slate-200/70 dark:border-slate-800">
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[9px] font-bold text-slate-500 dark:text-slate-400">
+                            <span>Ham Mikrofon Girişi (Ortam + Ses)</span>
+                            <span>%{micTestLevels.inputLevel}</span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                            <div
+                              className="h-full bg-slate-400 dark:bg-slate-500 transition-all duration-75 rounded-full"
+                              style={{ width: `${micTestLevels.inputLevel}%` }}
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between text-[9px] font-extrabold">
+                            <span className={text}>Karşıya Giden Temiz Ses ({noiseSuppressionMode === "ai" ? "AI Filtreli" : noiseSuppressionMode === "standard" ? "Standart" : "Ham"})</span>
+                            <span className={text}>%{micTestLevels.outputLevel}</span>
+                          </div>
+                          <div className="h-1.5 w-full rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
+                            <div
+                              className={`h-full ${bg} transition-all duration-75 rounded-full`}
+                              style={{ width: `${micTestLevels.outputLevel}%` }}
+                            />
+                          </div>
+                        </div>
+                        <p className="text-[9px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                          Klavyeye tıklayın veya konuşun; sesiniz yankıyı önlemek için 0.3 sn gecikmeli olarak kulaklığınıza iletilir. Modlar arasında geçiş yaparak farkı canlı duyabilirsiniz.
+                        </p>
+                      </div>
+                    )}
+
+                    {micTestError && (
+                      <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">
+                        {micTestError}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {/* Speaker Selection (Call output) */}
@@ -4681,8 +4898,11 @@ export default function Home() {
                         localStorage.setItem("selected_speaker_label", devObj.label);
                       }
                       window.dispatchEvent(new CustomEvent("AUDIO_DEVICES_UPDATED"));
+                      if (isTestingMic) {
+                        startMicLoopbackTest(noiseSuppressionMode, selectedMic, nextId);
+                      }
                     }}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-violet-500"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/60 text-xs font-semibold text-slate-800 dark:text-white focus:outline-none focus:border-primary"
                   >
                     {audioDevices.outputs.length === 0 ? (
                       <option value="">Aygıt bulunamadı / Desteklenmiyor</option>

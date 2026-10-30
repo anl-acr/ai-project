@@ -30,11 +30,13 @@ import {
   ExternalLink,
   Building2,
   Calendar,
-  Database
+  Database,
+  Sparkles
 } from "lucide-react";
 import { useTheme } from "../../../utils/theme";
 import { findContactByPhone, maskPhoneLast4 } from "../../../utils/contactUtils";
 import { webphoneManager } from "../../../utils/webphoneManager";
+import { getNoiseModeLabel } from "../../../utils/noiseSuppressionEngine";
 
 const DEFAULT_DISPOSITIONS = [
   "Satış Yapıldı",
@@ -201,8 +203,13 @@ export default function AgentWebphoneTab({
     lines = [],
     activeLineId,
     isConferenceActive,
-    attendedTransferPending
+    attendedTransferPending,
+    noiseSuppressionMode = "ai"
   } = wpState;
+
+  const cycleNoiseMode = () => {
+    webphoneManager.cycleNoiseSuppressionMode();
+  };
 
   useEffect(() => {
     if (callStatus === "Idle" && lines.length === 0) {
@@ -481,15 +488,38 @@ export default function AgentWebphoneTab({
                     ? `Web Telefon Hazır (${currentUser?.extension || "1000"})`
                     : "Bağlantı Bekleniyor"}
                 </span>
-                {dialNumber && (
+                <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    onClick={() => setDialNumber("")}
-                    className="text-[10px] font-bold text-slate-400 hover:text-rose-500 transition-colors"
+                    onClick={cycleNoiseMode}
+                    title={`Gürültü Engelleme: ${getNoiseModeLabel(noiseSuppressionMode)} (Değiştirmek için tıklayın)`}
+                    className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[9px] font-extrabold uppercase tracking-wide transition-all ${
+                      noiseSuppressionMode === "ai"
+                        ? `${lightBg} ${text} ${borderLight}`
+                        : noiseSuppressionMode === "standard"
+                        ? "bg-slate-100 border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-300"
+                        : "bg-slate-50 border-slate-200/70 text-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-500"
+                    }`}
                   >
-                    Temizle
+                    <Sparkles size={10} />
+                    <span>
+                      {noiseSuppressionMode === "ai"
+                        ? "AI Ses"
+                        : noiseSuppressionMode === "standard"
+                        ? "Standart"
+                        : "Ham Ses"}
+                    </span>
                   </button>
-                )}
+                  {dialNumber && (
+                    <button
+                      type="button"
+                      onClick={() => setDialNumber("")}
+                      className="text-[10px] font-bold text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                    >
+                      Temizle
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="relative flex items-center bg-slate-50 dark:bg-slate-800/70 border border-slate-200/80 dark:border-slate-700/80 rounded-2xl px-3.5 py-2.5">
@@ -1172,6 +1202,28 @@ export default function AgentWebphoneTab({
                           }`}
                         >
                           {isOnHold ? <Play size={18} /> : <Pause size={18} />}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={cycleNoiseMode}
+                          title={`Gürültü Engelleme: ${getNoiseModeLabel(noiseSuppressionMode)} (Çağrıda Canlı Değiştir)`}
+                          className={`h-11 px-3 rounded-2xl border flex items-center gap-1.5 justify-center text-[10px] font-extrabold uppercase tracking-wide transition-all ${
+                            noiseSuppressionMode === "ai"
+                              ? `${lightBg} ${text} ${borderLight}`
+                              : noiseSuppressionMode === "standard"
+                              ? "bg-slate-100 border-slate-200 text-slate-600 dark:bg-slate-800 dark:border-slate-700 dark:text-slate-200"
+                              : "bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-500"
+                          }`}
+                        >
+                          <Sparkles size={16} />
+                          <span className="hidden sm:inline">
+                            {noiseSuppressionMode === "ai"
+                              ? "AI Ses"
+                              : noiseSuppressionMode === "standard"
+                              ? "Standart"
+                              : "Ham"}
+                          </span>
                         </button>
 
                         {/* Transfer Button */}
