@@ -730,6 +730,9 @@ class TrunkSettingsSchema(BaseModel):
     call_limit_enabled: Optional[bool] = False
     call_limit_direction: Optional[str] = "both" # both, outbound, inbound
     max_channels: Optional[int] = 30
+    monthly_package_minutes: Optional[int] = 0
+    package_reset_day: Optional[int] = 1
+    billing_period_seconds: Optional[int] = 60
     sip_headers: Optional[Dict[str, Any]] = {}
     is_active: bool = True
 
@@ -1266,6 +1269,7 @@ DEFAULT_SETTINGS = {
                 "reports_sentiment:access", "reports_qa:access", "reports_notes:access", "reports_perf:access",
                 "reports_queue:access", "reports_survey:access", "reports_sentiment_heat:access", "reports_wordcloud:access", "reports_fcr:access",
                 "reports_roi:access", "reports_missed:access", "reports_traffic_load:access", "reports_trunk:access",
+                "reports_did:access", "reports_trunk_minutes:access",
                 "reports_ivr_drop:access", "reports_transfer_hold:access", "reports_ab_testing:access",
                 "reports_friction:access", "reports_compliance:access", "reports_silence:access", "reports_ceo_summary:access",
                 "reports_intent:access",
@@ -1336,6 +1340,7 @@ DEFAULT_SETTINGS = {
                 "reports_sentiment:access", "reports_qa:access", "reports_notes:access", "reports_perf:access",
                 "reports_queue:access", "reports_survey:access", "reports_sentiment_heat:access", "reports_wordcloud:access", "reports_fcr:access",
                 "reports_roi:access", "reports_missed:access", "reports_traffic_load:access", "reports_trunk:access",
+                "reports_did:access", "reports_trunk_minutes:access",
                 "reports_ivr_drop:access", "reports_transfer_hold:access", "reports_ab_testing:access",
                 "reports_friction:access", "reports_compliance:access", "reports_silence:access", "reports_ceo_summary:access",
                 "reports_intent:access",
@@ -1729,6 +1734,13 @@ def load_settings():
                     new_perms.append("ai_task_routing:read")
                 if r.get("role_code") == "admin" and "ai_task_routing:write" not in new_perms:
                     new_perms.append("ai_task_routing:write")
+                for rep_perm in ["reports_did:access", "reports_trunk_minutes:access"]:
+                    if rep_perm not in new_perms:
+                        new_perms.append(rep_perm)
+            elif "reports_trunk:access" in new_perms or "reports:access" in new_perms:
+                for rep_perm in ["reports_did:access", "reports_trunk_minutes:access"]:
+                    if rep_perm not in new_perms:
+                        new_perms.append(rep_perm)
             
             # Auto assign omnichannel to admin, supervisor, and agent if missing
             if r.get("role_code") in ["admin", "supervisor", "agent"]:
@@ -20918,6 +20930,9 @@ async def startup_event():
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS codecs JSON DEFAULT '[\"alaw\", \"ulaw\", \"g722\", \"g729\"]';",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_enabled BOOLEAN DEFAULT FALSE;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS call_limit_direction VARCHAR DEFAULT 'both';",
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS monthly_package_minutes INTEGER DEFAULT 0;",
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS package_reset_day INTEGER DEFAULT 1;",
+                "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS billing_period_seconds INTEGER DEFAULT 60;",
                 "ALTER TABLE trunks ADD COLUMN IF NOT EXISTS sip_headers JSON DEFAULT '{}';",
                 "ALTER TABLE trunks ALTER COLUMN host DROP NOT NULL;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
@@ -23277,9 +23292,12 @@ async def new_list_trunks(request: Request, user_info: dict = Depends(get_user_i
             tk = str(row_d.get("trunk_name") or row_d.get("id") or "")
             dt = disk_trunks_map.get(tk)
             if dt:
-                for extra_k in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "sip_headers"):
+                for extra_k in ("codecs", "call_limit_enabled", "call_limit_direction", "max_channels", "monthly_package_minutes", "package_reset_day", "billing_period_seconds", "sip_headers"):
                     if row_d.get(extra_k) in (None, {}, []) and dt.get(extra_k) not in (None, {}, []):
                         row_d[extra_k] = dt.get(extra_k)
+            row_d["monthly_package_minutes"] = max(0, int(row_d.get("monthly_package_minutes") or 0))
+            row_d["package_reset_day"] = min(31, max(1, int(row_d.get("package_reset_day") or 1)))
+            row_d["billing_period_seconds"] = max(1, int(row_d.get("billing_period_seconds") or 60))
             out_rows.append(row_d)
         return out_rows
     except Exception as e:
@@ -23290,7 +23308,11 @@ async def new_list_trunks(request: Request, user_info: dict = Depends(get_user_i
     for t in all_disk_trunks:
         t_tenant = t.get("tenant_id") or "tenant-default"
         if t_tenant == target_tenant:
-            out.append(t)
+            tc = dict(t)
+            tc["monthly_package_minutes"] = max(0, int(tc.get("monthly_package_minutes") or 0))
+            tc["package_reset_day"] = min(31, max(1, int(tc.get("package_reset_day") or 1)))
+            tc["billing_period_seconds"] = max(1, int(tc.get("billing_period_seconds") or 60))
+            out.append(tc)
     return out
 
 @app.post("/api/settings/trunks")
@@ -23331,6 +23353,24 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
                     filtered_data["max_channels"] = max(1, int(filtered_data["max_channels"]))
                 except (ValueError, TypeError):
                     filtered_data["max_channels"] = 30
+
+            if "monthly_package_minutes" in filtered_data:
+                try:
+                    filtered_data["monthly_package_minutes"] = max(0, int(filtered_data["monthly_package_minutes"] or 0))
+                except (ValueError, TypeError):
+                    filtered_data["monthly_package_minutes"] = 0
+
+            if "package_reset_day" in filtered_data:
+                try:
+                    filtered_data["package_reset_day"] = min(31, max(1, int(filtered_data["package_reset_day"] or 1)))
+                except (ValueError, TypeError):
+                    filtered_data["package_reset_day"] = 1
+
+            if "billing_period_seconds" in filtered_data:
+                try:
+                    filtered_data["billing_period_seconds"] = max(1, int(filtered_data["billing_period_seconds"] or 60))
+                except (ValueError, TypeError):
+                    filtered_data["billing_period_seconds"] = 60
 
             target_trunk = None
             if data.get("id") and data.get("id") in existing_by_id:
@@ -23382,6 +23422,18 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
             data = item.model_dump() if hasattr(item, "model_dump") else (item.copy() if isinstance(item, dict) else {})
             if isinstance(data.get("codecs"), list) and data.get("codecs"):
                 data["codec"] = ",".join([str(c).strip() for c in data["codecs"] if str(c).strip()])
+            try:
+                data["monthly_package_minutes"] = max(0, int(data.get("monthly_package_minutes") or 0))
+            except (ValueError, TypeError):
+                data["monthly_package_minutes"] = 0
+            try:
+                data["package_reset_day"] = min(31, max(1, int(data.get("package_reset_day") or 1)))
+            except (ValueError, TypeError):
+                data["package_reset_day"] = 1
+            try:
+                data["billing_period_seconds"] = max(1, int(data.get("billing_period_seconds") or 60))
+            except (ValueError, TypeError):
+                data["billing_period_seconds"] = 60
             if not data.get("id"):
                 data["id"] = (max([t.get("id", 0) for t in current_trunks] or [0])) + 1
             existing_idx = next((i for i, t in enumerate(current_trunks) if t.get("id") == data.get("id") or t.get("trunk_name") == data.get("trunk_name")), None)
@@ -23417,6 +23469,261 @@ async def new_add_or_update_trunk(payload: Union[List[Dict[str, Any]], Dict[str,
         ))
 
     return {"status": "success", "trunks": out}
+
+
+@app.get("/api/reports/trunk-package-usage")
+@app.get("/reports/trunk-package-usage")
+async def get_trunk_package_usage_report(request: Request, user_info: dict = Depends(get_user_info), db: AsyncSession = Depends(get_db)):
+    import calendar
+    import math
+
+    target_tenant = user_info.get("tenant_id") or request.headers.get("X-Tenant-ID") or request.headers.get("Tenant-ID") or request.query_params.get("tenant_id") or "tenant-default"
+    disk_trunks_map = {str(dt.get("trunk_name") or dt.get("id") or ""): dt for dt in settings_db.get("trunks", [])}
+
+    trunks_cfg: List[Dict[str, Any]] = []
+    try:
+        if target_tenant in ["all", "global"]:
+            t_stmt = select(Trunk).order_by(Trunk.id)
+        elif is_default_tenant(target_tenant):
+            t_stmt = select(Trunk).where(or_(Trunk.tenant_id == "tenant-default", Trunk.tenant_id == "default", Trunk.tenant_id.is_(None))).order_by(Trunk.id)
+        else:
+            t_stmt = select(Trunk).where(Trunk.tenant_id == target_tenant).order_by(Trunk.id)
+        res_tr = await db.execute(t_stmt)
+        for trow in res_tr.scalars().all():
+            row_d = {col.name: getattr(trow, col.name) for col in trow.__table__.columns}
+            tk = str(row_d.get("trunk_name") or row_d.get("id") or "")
+            dt = disk_trunks_map.get(tk)
+            if dt:
+                for extra_k in ("monthly_package_minutes", "package_reset_day", "billing_period_seconds", "max_channels", "call_limit_enabled", "call_limit_direction"):
+                    if row_d.get(extra_k) is None and dt.get(extra_k) is not None:
+                        row_d[extra_k] = dt.get(extra_k)
+            trunks_cfg.append(row_d)
+    except Exception as e_tr:
+        print(f"[Trunk Package Usage Trunks DB Warning]: {e_tr}")
+
+    if not trunks_cfg:
+        for dt in settings_db.get("trunks", []) or []:
+            t_ten = dt.get("tenant_id") or "tenant-default"
+            if target_tenant in ["all", "global"] or t_ten == target_tenant or (is_default_tenant(target_tenant) and is_default_tenant(t_ten)):
+                trunks_cfg.append(dict(dt))
+
+    # Turkey local time (UTC+3) for deterministic monthly package renewal at 00:00:00
+    now_utc_naive = datetime.utcnow()
+    now_local = now_utc_naive + timedelta(hours=3)
+
+    def _compute_cycle_window_local(reset_day_raw: int):
+        r_day = min(31, max(1, int(reset_day_raw or 1)))
+        curr_max_day = calendar.monthrange(now_local.year, now_local.month)[1]
+        eff_curr_day = min(r_day, curr_max_day)
+
+        if now_local.day >= eff_curr_day:
+            cycle_start_loc = datetime(now_local.year, now_local.month, eff_curr_day, 0, 0, 0)
+            ny = now_local.year + (1 if now_local.month == 12 else 0)
+            nm = 1 if now_local.month == 12 else (now_local.month + 1)
+            next_max_day = calendar.monthrange(ny, nm)[1]
+            next_cycle_loc = datetime(ny, nm, min(r_day, next_max_day), 0, 0, 0)
+        else:
+            py = now_local.year - (1 if now_local.month == 1 else 0)
+            pm = 12 if now_local.month == 1 else (now_local.month - 1)
+            prev_max_day = calendar.monthrange(py, pm)[1]
+            cycle_start_loc = datetime(py, pm, min(r_day, prev_max_day), 0, 0, 0)
+            next_cycle_loc = datetime(now_local.year, now_local.month, eff_curr_day, 0, 0, 0)
+
+        return cycle_start_loc, next_cycle_loc
+
+    trunk_windows: Dict[str, Any] = {}
+    earliest_utc = now_utc_naive - timedelta(days=35)
+    for idx, t in enumerate(trunks_cfg):
+        t_key = str(t.get("id") or t.get("trunk_name") or f"trunk_{idx}")
+        c_start_loc, n_start_loc = _compute_cycle_window_local(t.get("package_reset_day") or 1)
+        c_start_utc = c_start_loc - timedelta(hours=3)
+        if c_start_utc < earliest_utc:
+            earliest_utc = c_start_utc
+        trunk_windows[t_key] = {
+            "trunk": t,
+            "cycle_start_local": c_start_loc,
+            "next_cycle_local": n_start_loc,
+            "cycle_start_utc": c_start_utc,
+            "outbound_calls": 0,
+            "outbound_answered_calls": 0,
+            "outbound_net_seconds": 0,
+            "outbound_billed_seconds": 0,
+            "inbound_calls": 0,
+            "inbound_answered_calls": 0,
+            "inbound_net_seconds": 0,
+        }
+
+    if trunk_windows:
+        try:
+            c_stmt = select(Call).where(Call.start_time >= earliest_utc)
+            if target_tenant not in ["all", "global"]:
+                if is_default_tenant(target_tenant):
+                    c_stmt = c_stmt.where(or_(Call.tenant_id == "tenant-default", Call.tenant_id == "default", Call.tenant_id.is_(None)))
+                else:
+                    c_stmt = c_stmt.where(Call.tenant_id == target_tenant)
+            res_calls = await db.execute(c_stmt)
+            cycle_calls = res_calls.scalars().all()
+        except Exception as e_c:
+            print(f"[Trunk Package Usage Calls DB Warning]: {e_c}")
+            cycle_calls = []
+
+        active_trunks_cfg = [t for t in trunks_cfg if t.get("is_active", True) is not False]
+
+        def _l10(v: str) -> str:
+            d = re.sub(r"\D", "", str(v or ""))
+            return d[-10:] if len(d) >= 10 else d
+
+        for c in cycle_calls:
+            c_start = getattr(c, "start_time", None)
+            if not c_start:
+                continue
+            c_start_naive = c_start.replace(tzinfo=None) if getattr(c_start, "tzinfo", None) else c_start
+
+            c_caller = str(c.caller_number or "").strip()
+            c_callee = str(c.callee_number or "").strip()
+            caller_digits = re.sub(r"\D", "", c_caller)
+            callee_digits = re.sub(r"\D", "", c_callee)
+
+            # Skip pure internal extension-to-extension calls
+            is_caller_int = c_caller.lower() == "ai" or (0 < len(caller_digits) <= 6)
+            is_callee_int = c_callee.lower() == "ai" or (0 < len(callee_digits) <= 6)
+            if is_caller_int and is_callee_int:
+                continue
+
+            is_outbound = is_caller_int and len(callee_digits) >= 7
+
+            raw_t = str(getattr(c, "trunk_name", "") or "").strip()
+            matched_t = None
+            if raw_t and trunks_cfg:
+                raw_t_low = raw_t.lower()
+                raw_t_san = _sanitize_trunk_name(raw_t).lower()
+                matched_t = next(
+                    (
+                        t for t in trunks_cfg
+                        if str(t.get("trunk_name") or "").strip().lower() == raw_t_low
+                        or _sanitize_trunk_name(str(t.get("trunk_name") or "")).lower() == raw_t_san
+                        or str(t.get("id") or "").strip() == raw_t
+                    ),
+                    None,
+                )
+
+            if not matched_t and is_outbound and active_trunks_cfg:
+                try:
+                    t_info = _match_and_transform_outbound_number(c_callee, caller_ext=c_caller)
+                    m_rule = t_info.get("matched_rule")
+                    if m_rule:
+                        r_trunks = (
+                            m_rule.get("trunk_ids")
+                            or m_rule.get("trunks")
+                            or ([m_rule.get("trunk_id")] if m_rule.get("trunk_id") else [])
+                        )
+                        for tref in r_trunks:
+                            tref_s = str(tref).strip()
+                            cand_t = next(
+                                (
+                                    t for t in trunks_cfg
+                                    if str(t.get("id") or "") == tref_s
+                                    or str(t.get("trunk_name") or "").lower() == tref_s.lower()
+                                ),
+                                None,
+                            )
+                            if cand_t:
+                                matched_t = cand_t
+                                break
+                except Exception:
+                    pass
+
+            if not matched_t and trunks_cfg:
+                caller_l10 = _l10(c_caller)
+                callee_l10 = _l10(c_callee)
+                matched_t = next(
+                    (
+                        t for t in trunks_cfg
+                        if (len(_l10(t.get("did_number"))) >= 7 and _l10(t.get("did_number")) in (caller_l10, callee_l10))
+                        or (len(_l10(t.get("username"))) >= 7 and _l10(t.get("username")) in (caller_l10, callee_l10))
+                    ),
+                    None,
+                )
+
+            if not matched_t and trunks_cfg:
+                matched_t = active_trunks_cfg[0] if active_trunks_cfg else trunks_cfg[0]
+
+            if not matched_t:
+                continue
+
+            t_key = str(matched_t.get("id") or matched_t.get("trunk_name") or "")
+            win = trunk_windows.get(t_key)
+            if not win or c_start_naive < win["cycle_start_utc"]:
+                continue
+
+            talk_sec = max(0, int(_resolve_authoritative_talk_seconds(c) or 0))
+            st_norm = str(getattr(c, "status", "") or "").strip().lower()
+            hangup_src = str(getattr(c, "ended_by", "") or "").strip().lower()
+            is_unanswered = st_norm in ("no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "blocked", "rejected_limit", "missed", "abandoned") or ":abandoned" in hangup_src
+            if is_unanswered:
+                talk_sec = 0
+
+            b_period = max(1, int(win["trunk"].get("billing_period_seconds") or 60))
+            if is_outbound:
+                win["outbound_calls"] += 1
+                if talk_sec > 0 or not is_unanswered:
+                    win["outbound_answered_calls"] += 1
+                win["outbound_net_seconds"] += talk_sec
+                if talk_sec > 0:
+                    billed_sec = (math.ceil(talk_sec / float(b_period)) * b_period) if b_period > 1 else talk_sec
+                    win["outbound_billed_seconds"] += int(billed_sec)
+            else:
+                win["inbound_calls"] += 1
+                if talk_sec > 0 or not is_unanswered:
+                    win["inbound_answered_calls"] += 1
+                win["inbound_net_seconds"] += talk_sec
+
+    items_out = []
+    for t_key, win in trunk_windows.items():
+        t = win["trunk"]
+        pkg_mins = max(0, int(t.get("monthly_package_minutes") or 0))
+        r_day = min(31, max(1, int(t.get("package_reset_day") or 1)))
+        b_period = max(1, int(t.get("billing_period_seconds") or 60))
+        used_billed_mins = round(win["outbound_billed_seconds"] / 60.0, 2)
+        used_net_mins = round(win["outbound_net_seconds"] / 60.0, 2)
+        inbound_mins = round(win["inbound_net_seconds"] / 60.0, 2)
+        remaining_mins = max(0.0, round(pkg_mins - used_billed_mins, 2)) if pkg_mins > 0 else None
+        overage_mins = max(0.0, round(used_billed_mins - pkg_mins, 2)) if pkg_mins > 0 else 0.0
+        usage_pct = round((used_billed_mins / float(pkg_mins)) * 100.0, 1) if pkg_mins > 0 else 0.0
+        days_left = max(0, (win["next_cycle_local"].date() - now_local.date()).days)
+
+        items_out.append({
+            "trunk_id": t.get("id"),
+            "trunk_name": t.get("trunk_name") or "",
+            "did_number": t.get("did_number") or t.get("username") or "",
+            "is_active": t.get("is_active", True) is not False,
+            "monthly_package_minutes": pkg_mins,
+            "package_reset_day": r_day,
+            "billing_period_seconds": b_period,
+            "cycle_start_date": win["cycle_start_local"].strftime("%Y-%m-%d"),
+            "next_reset_date": win["next_cycle_local"].strftime("%Y-%m-%d"),
+            "days_until_reset": days_left,
+            "cycle_outbound_calls": win["outbound_calls"],
+            "cycle_outbound_answered_calls": win["outbound_answered_calls"],
+            "cycle_outbound_net_seconds": win["outbound_net_seconds"],
+            "cycle_outbound_billed_seconds": win["outbound_billed_seconds"],
+            "cycle_used_net_minutes": used_net_mins,
+            "cycle_used_minutes": used_billed_mins,
+            "cycle_remaining_minutes": remaining_mins,
+            "cycle_overage_minutes": overage_mins,
+            "cycle_usage_pct": usage_pct,
+            "cycle_inbound_calls": win["inbound_calls"],
+            "cycle_inbound_answered_calls": win["inbound_answered_calls"],
+            "cycle_inbound_net_seconds": win["inbound_net_seconds"],
+            "cycle_inbound_minutes": inbound_mins,
+        })
+
+    return {
+        "status": "success",
+        "evaluated_at_local": now_local.strftime("%Y-%m-%d %H:%M:%S"),
+        "items": items_out,
+    }
+
 
 @app.delete("/api/settings/trunks/{trunk_id}")
 @app.delete("/settings/trunks/{trunk_id}")

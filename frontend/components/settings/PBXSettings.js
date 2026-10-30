@@ -33,7 +33,9 @@ import {
   ChevronUp,
   ChevronDown,
   ToggleLeft,
-  ToggleRight
+  ToggleRight,
+  Clock,
+  Calendar
 } from "lucide-react";
 import * as XLSX from "xlsx";
 
@@ -346,6 +348,9 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
     call_limit_enabled: false,
     call_limit_direction: "both", // both, outbound, inbound
     max_channels: 30,
+    monthly_package_minutes: 0,
+    package_reset_day: 1,
+    billing_period_seconds: 60,
     is_active: true,
     sip_headers: { ...DEFAULT_SIP_HEADERS }
   });
@@ -572,6 +577,9 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
       call_limit_enabled: Boolean(newTrunk.call_limit_enabled),
       call_limit_direction: newTrunk.call_limit_direction || "both",
       max_channels: Number(newTrunk.max_channels) || 30,
+      monthly_package_minutes: Math.max(0, parseInt(newTrunk.monthly_package_minutes, 10) || 0),
+      package_reset_day: Math.min(31, Math.max(1, parseInt(newTrunk.package_reset_day, 10) || 1)),
+      billing_period_seconds: Math.max(1, parseInt(newTrunk.billing_period_seconds, 10) || 60),
       sip_headers: {
         ...DEFAULT_SIP_HEADERS,
         ...(newTrunk.sip_headers || {}),
@@ -653,6 +661,9 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
       call_limit_enabled: Boolean(t.call_limit_enabled),
       call_limit_direction: t.call_limit_direction || "both",
       max_channels: t.max_channels || 30,
+      monthly_package_minutes: Math.max(0, parseInt(t.monthly_package_minutes, 10) || 0),
+      package_reset_day: Math.min(31, Math.max(1, parseInt(t.package_reset_day, 10) || 1)),
+      billing_period_seconds: Math.max(1, parseInt(t.billing_period_seconds, 10) || 60),
       is_active: t.is_active !== false,
       sip_headers: parsedHeaders
     });
@@ -699,6 +710,9 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
       "Kullanıcı Adı": t.username || "",
       "Şifre": t.password || "",
       "Caller ID (DID)": t.did_number || "",
+      "Aylık Paket (dk)": Number(t.monthly_package_minutes) || 0,
+      "Yenilenme Günü": Number(t.package_reset_day) || 1,
+      "Ücretlendirme Periyodu (sn)": Number(t.billing_period_seconds) || 60,
       "Codec": Array.isArray(t.codecs) ? t.codecs.join(",") : (t.codec || "alaw,ulaw,g722,g729"),
       "Aktif": t.is_active !== false ? "Evet" : "Hayır"
     }));
@@ -737,8 +751,19 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
           const did_number = String(row["Caller ID (DID)"] || row["DID"] || "").trim();
           const codec = String(row["Codec"] || "alaw,ulaw,g722,g729").trim();
           const is_active = String(row["Aktif"] || "Evet").trim().toLowerCase() !== "hayır";
-
           const existing = trunks.find(t => t.trunk_name && t.trunk_name.toLowerCase() === trunk_name.toLowerCase());
+          const monthly_package_minutes =
+            row["Aylık Paket (dk)"] !== undefined
+              ? Math.max(0, parseInt(row["Aylık Paket (dk)"], 10) || 0)
+              : (existing ? Number(existing.monthly_package_minutes) || 0 : 0);
+          const package_reset_day =
+            row["Yenilenme Günü"] !== undefined
+              ? Math.min(31, Math.max(1, parseInt(row["Yenilenme Günü"], 10) || 1))
+              : (existing ? Number(existing.package_reset_day) || 1 : 1);
+          const billing_period_seconds =
+            row["Ücretlendirme Periyodu (sn)"] !== undefined
+              ? Math.max(1, parseInt(row["Ücretlendirme Periyodu (sn)"], 10) || 60)
+              : (existing ? Number(existing.billing_period_seconds) || 60 : 60);
 
           await fetch(`${API_BASE}/api/settings/trunks`, {
             method: "POST",
@@ -758,6 +783,9 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
               did_number,
               codec,
               is_active,
+              monthly_package_minutes,
+              package_reset_day,
+              billing_period_seconds,
               transfer_target_type: existing ? (existing.transfer_target_type || "extension") : "extension",
               transfer_target: existing ? (existing.transfer_target || "200") : "200"
             })
@@ -1059,6 +1087,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                         <th className="py-2.5">Taşıma</th>
                         <th className="py-2.5">Host / Kullanıcı</th>
                         <th className="py-2.5">Görünür Numara</th>
+                        <th className="py-2.5 text-center">Aylık Paket</th>
                         <th className="py-2.5 text-center">Çağrı Kısıtlama</th>
                         <th className="py-2.5">Kodekler</th>
                         <th className="py-2.5 text-right">İşlem</th>
@@ -1070,6 +1099,8 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                         const status = isActive ? (trunkStatuses[t.id] || "inactive") : "passive";
                         const tType = (t.trunk_type || "register").toLowerCase();
                         const codecList = parseCodecsArray(t);
+                        const pkgMins = Math.max(0, parseInt(t.monthly_package_minutes, 10) || 0);
+                        const pkgResetDay = Math.min(31, Math.max(1, parseInt(t.package_reset_day, 10) || 1));
                         return (
                           <tr key={t.id} className="border-b border-slate-100 dark:border-slate-850 hover:bg-slate-50/40 dark:hover:bg-slate-950/20 transition-colors">
                             <td className="py-3 text-center">
@@ -1119,6 +1150,34 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                               )}
                             </td>
                             <td className="py-3 font-mono text-slate-800 dark:text-slate-200">{t.did_number || "-"}</td>
+                            <td className="py-3 text-center">
+                              {pkgMins > 0 ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleEditTrunk(t);
+                                    setActiveModalTab("package");
+                                  }}
+                                  title="Dakika Paketi Ayarlarını Düzenle"
+                                  className={`inline-flex flex-col items-center px-2.5 py-1 rounded-lg border ${lightBg} ${text} ${borderLight} text-[10px] font-bold transition cursor-pointer hover:opacity-85`}
+                                >
+                                  <span>{pkgMins.toLocaleString("tr-TR")} dk / Ay</span>
+                                  <span className="text-[9px] opacity-75 font-medium">Her ayın {pkgResetDay}. günü sıfırlanır</span>
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleEditTrunk(t);
+                                    setActiveModalTab("package");
+                                  }}
+                                  title="Bu dış hata aylık dakika paketi tanımlamak için tıklayın"
+                                  className="text-[10px] text-slate-400 dark:text-slate-500 hover:text-primary font-medium transition cursor-pointer"
+                                >
+                                  Tanımsız / Sınırsız
+                                </button>
+                              )}
+                            </td>
                             <td className="py-3 text-center">
                               {t.call_limit_enabled ? (
                                 <span className="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 border border-amber-200/60 dark:border-amber-800/50 text-[10px] font-bold">
@@ -1214,6 +1273,7 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
               <div className="w-56 border-r border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/40 p-3 flex flex-col gap-1.5 shrink-0 overflow-y-auto">
                 {[
                   { id: "general", label: "Genel", desc: "Tip, Host, Kimlik & Taşıma", icon: Settings },
+                  { id: "package", label: "Dakika Paketi", desc: "Aylık Paket & Sıfırlama Günü", icon: Clock },
                   { id: "advanced", label: "Gelişmiş", desc: "Kodek & Çağrı Kısıtlama", icon: Sliders },
                   { id: "sip_headers", label: "SIP Başlıkları", desc: "Gelen/Giden PJSIP Başlıkları", icon: FileCode2 }
                 ].map((tab) => {
@@ -1601,6 +1661,153 @@ export default function PBXSettings({ viewMode = "pbx", backendHost = "localhost
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+
+                {/* TAB: DAKİKA PAKETİ */}
+                {activeModalTab === "package" && (
+                  <div className="space-y-6">
+                    <div className="border-b border-slate-100 dark:border-slate-800 pb-2">
+                      <h5 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-white flex items-center gap-2">
+                        <Clock size={14} className={theme.text} />
+                        <span>Operatör Aylık Dakika Paketi & Otomatik Sıfırlama</span>
+                      </h5>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Operatörünüzün bu dış hat için tanımladığı aylık dış arama (yöne doğru) dakika paketini ve fatura kesim / yenilenme gününü belirleyin.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                          Aylık Paket Dakikası (dk)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={newTrunk.monthly_package_minutes ?? 0}
+                          onChange={(e) =>
+                            setNewTrunk((prev) => ({
+                              ...prev,
+                              monthly_package_minutes: Math.max(0, parseInt(e.target.value || "0", 10) || 0)
+                            }))
+                          }
+                          placeholder="Örn: 5000 (0 = Paket Yok)"
+                          className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                        />
+                        <span className="text-[10px] text-slate-400 mt-1 block">
+                          0 girilirse sınırsız / paketsiz hat olarak izlenir.
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                          Paket Yenilenme / Sıfırlama Günü
+                        </label>
+                        <select
+                          value={newTrunk.package_reset_day ?? 1}
+                          onChange={(e) =>
+                            setNewTrunk((prev) => ({
+                              ...prev,
+                              package_reset_day: Math.min(31, Math.max(1, parseInt(e.target.value || "1", 10) || 1))
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                        >
+                          {Array.from({ length: 31 }).map((_, idx) => {
+                            const dayNum = idx + 1;
+                            return (
+                              <option key={dayNum} value={dayNum}>
+                                Her Ayın {dayNum}. Günü (00:00)
+                              </option>
+                            );
+                          })}
+                        </select>
+                        <span className="text-[10px] text-slate-400 mt-1 block">
+                          Seçilen gün geldiğinde harcanan paket dakikası otomatik sıfırlanır.
+                        </span>
+                      </div>
+
+                      <div>
+                        <label className="text-[11px] font-bold text-slate-500 uppercase block mb-1">
+                          Ücretlendirme Periyodu
+                        </label>
+                        <select
+                          value={newTrunk.billing_period_seconds ?? 60}
+                          onChange={(e) =>
+                            setNewTrunk((prev) => ({
+                              ...prev,
+                              billing_period_seconds: Math.max(1, parseInt(e.target.value || "60", 10) || 60)
+                            }))
+                          }
+                          className="w-full px-3 py-2 text-xs font-bold rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-800 dark:text-white focus:outline-none focus:border-primary"
+                        >
+                          <option value={60}>60 Saniye (Operatör Dakika Periyodu)</option>
+                          <option value={1}>1 Saniye (Gerçek Net Görüşme Süresi)</option>
+                          <option value={30}>30 Saniye Periyodu</option>
+                        </select>
+                        <span className="text-[10px] text-slate-400 mt-1 block">
+                          60 sn seçildiğinde her başlayan dakika operatör faturası gibi tam dakikaya yuvarlanır.
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Quick Package Presets */}
+                    <div className="space-y-2">
+                      <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 block">
+                        Hızlı Paket Seçimi
+                      </span>
+                      <div className="flex flex-wrap gap-2">
+                        {[
+                          { label: "Paket Yok (0)", val: 0 },
+                          { label: "1.000 dk", val: 1000 },
+                          { label: "2.500 dk", val: 2500 },
+                          { label: "5.000 dk", val: 5000 },
+                          { label: "10.000 dk", val: 10000 },
+                          { label: "25.000 dk", val: 25000 },
+                          { label: "50.000 dk", val: 50000 }
+                        ].map((preset) => {
+                          const isSelected = Number(newTrunk.monthly_package_minutes || 0) === preset.val;
+                          return (
+                            <button
+                              key={preset.val}
+                              type="button"
+                              onClick={() =>
+                                setNewTrunk((prev) => ({
+                                  ...prev,
+                                  monthly_package_minutes: preset.val
+                                }))
+                              }
+                              className={`px-3 py-1.5 rounded-xl text-xs font-bold border transition cursor-pointer ${
+                                isSelected
+                                  ? `${theme.bg} text-white ${theme.border} shadow-sm`
+                                  : "bg-slate-50 dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-primary"
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Summary Banner */}
+                    <div className={`p-4 rounded-2xl border flex items-start gap-3 ${theme.lightBg} ${theme.borderLight}`}>
+                      <Calendar size={18} className={`${theme.text} shrink-0 mt-0.5`} />
+                      <div className="space-y-1 text-xs">
+                        <div className="font-extrabold text-slate-800 dark:text-white">
+                          {Number(newTrunk.monthly_package_minutes || 0) > 0
+                            ? `Aylık ${Number(newTrunk.monthly_package_minutes).toLocaleString("tr-TR")} Dakika Paketi Tanımlı`
+                            : "Aylık Paket Kotası Tanımlanmadı (Yalnızca Süre Takibi Yapılır)"}
+                        </div>
+                        <p className="text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
+                          {Number(newTrunk.monthly_package_minutes || 0) > 0
+                            ? `Bu hat üzerinden yapılan dış aramalar her ayın ${newTrunk.package_reset_day || 1}. günü saat 00:00'da otomatik olarak sıfırlanır ve yeni dönem kotasından (${newTrunk.billing_period_seconds || 60} sn periyotla) düşülmeye başlar. Geçmiş çağrı kayıtları korunur.`
+                            : "Dış arama ve gelen çağrı süreleri Operatör Dakika & Paket Kullanım Raporu ekranında anlık izlenmeye devam eder; istediğiniz zaman aylık paket limiti girebilirsiniz."}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 )}
 

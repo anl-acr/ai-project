@@ -57,7 +57,8 @@ import {
   Save,
   Sparkles,
   Tag,
-  Check
+  Check,
+  Hash
 } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
@@ -396,6 +397,121 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
   const [filterIvrWorkflowsSelected, setFilterIvrWorkflowsSelected] = useState([]);
   const [filterFrictionSentimentsSelected, setFilterFrictionSentimentsSelected] = useState([]);
+  const [outboundRules, setOutboundRules] = useState([]);
+  const [trunkPackageUsage, setTrunkPackageUsage] = useState(null);
+
+  // DID Raporu Filter & Sort States
+  const [filterDidNumbersSelected, setFilterDidNumbersSelected] = useState([]);
+  const [filterDidTrafficStatus, setFilterDidTrafficStatus] = useState("all");
+  const [filterDidMinInbound, setFilterDidMinInbound] = useState("");
+  const [filterDidMaxInbound, setFilterDidMaxInbound] = useState("");
+  const [filterDidMinOutbound, setFilterDidMinOutbound] = useState("");
+  const [filterDidMaxOutbound, setFilterDidMaxOutbound] = useState("");
+  const [filterDidMinInDur, setFilterDidMinInDur] = useState("");
+  const [filterDidMaxInDur, setFilterDidMaxInDur] = useState("");
+  const [filterDidMinOutDur, setFilterDidMinOutDur] = useState("");
+  const [filterDidMaxOutDur, setFilterDidMaxOutDur] = useState("");
+  const [didSortConfig, setDidSortConfig] = useState({ key: "inboundCount", dir: "desc" });
+
+  // Operatör Dakika & Paket Raporu Filter & Sort States
+  const [filterTrunkPackageStatus, setFilterTrunkPackageStatus] = useState("all");
+  const [trunkMinutesSortConfig, setTrunkMinutesSortConfig] = useState({ key: "periodOutboundBilledSec", dir: "desc" });
+
+  // Aggregate & deduplicate ALL defined DID numbers across Trunks, Inbound Rules, Call Flows, Outbound Rules, and Users
+  const definedDidInventory = React.useMemo(() => {
+    const map = new Map();
+    const parseValidDid = (rawVal) => {
+      const s = String(rawVal || "").trim();
+      if (!s) return null;
+      // Ignore dialplan wildcards / alphabetic SIP usernames
+      if (/[a-zA-Z*_\[\].?]/.test(s)) return null;
+      const digits = s.replace(/\D/g, "");
+      if (digits.length < 7 || digits.length > 15) return null;
+      const key = digits.length >= 10 ? digits.slice(-10) : digits;
+      let display = s;
+      if (/^90\d{10}$/.test(digits)) {
+        display = `+90 ${digits.slice(2, 5)} ${digits.slice(5, 8)} ${digits.slice(8, 10)} ${digits.slice(10, 12)}`;
+      } else if (/^0\d{10}$/.test(digits)) {
+        display = `0${digits.slice(1, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 9)} ${digits.slice(9, 11)}`;
+      } else if (/^\d{10}$/.test(digits)) {
+        display = `0${digits.slice(0, 3)} ${digits.slice(3, 6)} ${digits.slice(6, 8)} ${digits.slice(8, 10)}`;
+      }
+      return { key, digits, display };
+    };
+
+    const upsertDid = (rawVal, sourceBadge, trunkName = "") => {
+      const parsed = parseValidDid(rawVal);
+      if (!parsed) return;
+      if (!map.has(parsed.key)) {
+        map.set(parsed.key, {
+          id: parsed.key,
+          key: parsed.key,
+          digits: parsed.digits,
+          displayNumber: parsed.display,
+          rawNumber: String(rawVal || "").trim(),
+          trunkNames: trunkName ? [trunkName] : [],
+          sources: sourceBadge ? [sourceBadge] : [],
+        });
+      } else {
+        const entry = map.get(parsed.key);
+        if (trunkName && !entry.trunkNames.includes(trunkName)) {
+          entry.trunkNames.push(trunkName);
+        }
+        if (sourceBadge && !entry.sources.includes(sourceBadge)) {
+          entry.sources.push(sourceBadge);
+        }
+      }
+    };
+
+    (Array.isArray(trunks) ? trunks : []).forEach((t, idx) => {
+      const tName = String(t.trunk_name || `SIP Trunk ${idx + 1}`).trim();
+      if (t.did_number) upsertDid(t.did_number, `Trunk: ${tName}`, tName);
+      if (t.username) upsertDid(t.username, `Trunk: ${tName}`, tName);
+    });
+
+    (Array.isArray(inboundRules) ? inboundRules : []).forEach((r) => {
+      const rDid = r.did_number || r.did || "";
+      const rLabel = r.name || r.description ? `Gelen Kural (${r.name || r.description})` : "Gelen Kural";
+      if (rDid) upsertDid(rDid, rLabel);
+    });
+
+    (Array.isArray(workflows) ? workflows : []).forEach((wf) => {
+      const wfName = String(wf.name || "Arama Akışı").trim();
+      const nodes = Array.isArray(wf.nodes) ? wf.nodes : [];
+      nodes.forEach((n) => {
+        if (String(n?.type || "").toLowerCase() === "did") {
+          const ef = n.extra_fields || {};
+          const rawList = [];
+          if (Array.isArray(ef.did_numbers)) rawList.push(...ef.did_numbers);
+          else if (typeof ef.did_numbers === "string") rawList.push(...ef.did_numbers.split(/[,;\n]+/));
+          if (ef.did) rawList.push(ef.did);
+          if (n.value) rawList.push(...String(n.value).split(/[,;\n]+/));
+          rawList.forEach((d) => upsertDid(d, `Akış: ${wfName}`));
+        }
+      });
+    });
+
+    (Array.isArray(outboundRules) ? outboundRules : []).forEach((r) => {
+      const cid = r.caller_id || r.did_number || "";
+      if (cid) upsertDid(cid, r.name ? `Giden Kural (${r.name})` : "Giden Kural");
+    });
+
+    (Array.isArray(users) ? users : []).forEach((u) => {
+      const uCid = u.outbound_caller_id || u.did_number || "";
+      if (uCid) upsertDid(uCid, `Abone CID (${u.full_name || u.name || u.extension || ""})`);
+    });
+
+    return Array.from(map.values());
+  }, [trunks, inboundRules, workflows, outboundRules, users]);
+
+  const didFilterItems = React.useMemo(() => {
+    return definedDidInventory.map((d) => ({
+      id: d.key,
+      didNumber: d.displayNumber,
+      source: d.trunkNames.length > 0 ? d.trunkNames.join(", ") : d.sources.join(", "),
+      name: d.trunkNames.length > 0 ? `${d.displayNumber} (${d.trunkNames.join(", ")})` : d.displayNumber,
+    }));
+  }, [definedDidInventory]);
 
   const ivrWorkflowFilterItems = React.useMemo(() => {
     const map = new Map();
@@ -1312,6 +1428,25 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       evidence: "Müşteri İfadesi (Kanıt Cümlesi)",
       durationTalk: "Görüşme Süresi",
       detail: "Transkript"
+    },
+    did: {
+      didNumber: "DID Numarası",
+      trafficStatus: "Trafik Durumu",
+      inboundCount: "Gelen Çağrı Adedi",
+      outboundCount: "Giden Çağrı Adedi",
+      inboundDuration: "Gelen Çağrı Süresi",
+      outboundDuration: "Giden Çağrı Süresi",
+      lastCallAt: "Son Çağrı Zamanı"
+    },
+    "trunk-minutes": {
+      trunkName: "Dış Hat (SIP Trunk)",
+      periodOutboundMin: "Seçili Aralık Giden Süre",
+      periodInboundMin: "Seçili Aralık Gelen Süre",
+      monthlyPackage: "Tanımlı Aylık Paket",
+      cycleUsedMin: "Bu Dönem Harcanan",
+      cycleRemainingMin: "Kalan / Aşım Dakikası",
+      packageProgress: "Paket Doluluk Oranı",
+      resetInfo: "Yenilenme Günü"
     }
   };
 
@@ -2219,6 +2354,118 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       return;
     }
 
+    if (viewMode === "did") {
+      const headers = [];
+      if (visibleColumns.didNumber) {
+        headers.push("DID Numarası");
+        headers.push("Tanımlı Hat / Akış");
+      }
+      if (visibleColumns.trafficStatus) headers.push("Trafik Durumu");
+      if (visibleColumns.inboundCount) headers.push("Gelen Çağrı Adedi");
+      if (visibleColumns.outboundCount) headers.push("Giden Çağrı Adedi");
+      if (visibleColumns.inboundDuration) headers.push("Gelen Çağrı Süresi");
+      if (visibleColumns.outboundDuration) headers.push("Giden Çağrı Süresi");
+      if (visibleColumns.lastCallAt) headers.push("Son Çağrı Zamanı");
+      csvContent += headers.join(";") + "\n";
+
+      (didReportData?.rows || []).forEach((r) => {
+        const row = [];
+        if (visibleColumns.didNumber) {
+          row.push(r.displayNumber);
+          row.push(r.sourceLabel);
+        }
+        if (visibleColumns.trafficStatus) row.push(r.trafficStatusLabel);
+        if (visibleColumns.inboundCount) row.push(r.inboundCount);
+        if (visibleColumns.outboundCount) row.push(r.outboundCount);
+        if (visibleColumns.inboundDuration) row.push(r.inboundDurationText);
+        if (visibleColumns.outboundDuration) row.push(r.outboundDurationText);
+        if (visibleColumns.lastCallAt) row.push(r.lastCallFormatted);
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `did_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
+    if (viewMode === "trunk-minutes") {
+      const headers = [];
+      if (visibleColumns.trunkName) {
+        headers.push("Dış Hat (SIP Trunk)");
+        headers.push("DID Numarası");
+      }
+      if (visibleColumns.periodOutboundMin) {
+        headers.push("Seçili Aralık Giden Çağrı Adedi");
+        headers.push("Seçili Aralık Giden Süre (Fatura dk)");
+        headers.push("Seçili Aralık Giden Net Süre");
+      }
+      if (visibleColumns.periodInboundMin) {
+        headers.push("Seçili Aralık Gelen Çağrı Adedi");
+        headers.push("Seçili Aralık Gelen Süre");
+      }
+      if (visibleColumns.monthlyPackage) headers.push("Tanımlı Aylık Paket (dk)");
+      if (visibleColumns.cycleUsedMin) headers.push("Bu Dönem Harcanan (dk)");
+      if (visibleColumns.cycleRemainingMin) headers.push("Kalan / Aşım Dakikası");
+      if (visibleColumns.packageProgress) headers.push("Paket Doluluk (%)");
+      if (visibleColumns.resetInfo) headers.push("Yenilenme Günü");
+      csvContent += headers.join(";") + "\n";
+
+      (trunkMinutesReportData?.rows || []).forEach((r) => {
+        const row = [];
+        if (visibleColumns.trunkName) {
+          row.push(r.trunkName);
+          row.push(r.didNumber || "-");
+        }
+        if (visibleColumns.periodOutboundMin) {
+          row.push(r.periodOutboundCalls);
+          row.push(`${r.periodOutboundBilledMin.toFixed(1)} dk`);
+          row.push(r.periodOutboundNetText);
+        }
+        if (visibleColumns.periodInboundMin) {
+          row.push(r.periodInboundCalls);
+          row.push(r.periodInboundNetText);
+        }
+        if (visibleColumns.monthlyPackage) {
+          row.push(r.monthlyPackageMinutes > 0 ? `${r.monthlyPackageMinutes} dk` : "Tanımsız / Sınırsız");
+        }
+        if (visibleColumns.cycleUsedMin) {
+          row.push(`${r.cycleUsedMinutes.toFixed(1)} dk`);
+        }
+        if (visibleColumns.cycleRemainingMin) {
+          row.push(
+            r.monthlyPackageMinutes > 0
+              ? r.cycleOverageMinutes > 0
+                ? `+${r.cycleOverageMinutes.toFixed(1)} dk Aşım`
+                : `${r.cycleRemainingMinutes.toFixed(1)} dk Kalan`
+              : "-"
+          );
+        }
+        if (visibleColumns.packageProgress) {
+          row.push(r.monthlyPackageMinutes > 0 ? `%${r.cycleUsagePct.toFixed(1)}` : "-");
+        }
+        if (visibleColumns.resetInfo) {
+          row.push(`Ayın ${r.packageResetDay}. Günü (${r.daysUntilReset} gün kaldı)`);
+        }
+        csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+      });
+
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute("download", `operator_dakika_paket_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      return;
+    }
+
     // Header row
     const headers = [
       "Tarih/Saat",
@@ -2281,14 +2528,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       const protocol = window.location.protocol;
       const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
       const storedUid = typeof window !== "undefined" ? String(localStorage.getItem("current_user_id") || "admin") : "admin";
-      const [uRes, aiRes, tRes, tsRes, qRes, irRes, wfRes] = await Promise.all([
+      const [uRes, aiRes, tRes, tsRes, qRes, irRes, wfRes, orRes] = await Promise.all([
         fetch(`${protocol}//${backendHost}/api/settings/users`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/ai-agents`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/trunks`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/trunks/status`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/queues`, { headers: { "X-Tenant-ID": activeTenantId } }),
         fetch(`${protocol}//${backendHost}/api/settings/inbound_rules`, { headers: { "X-Tenant-ID": activeTenantId } }),
-        fetch(`${protocol}//${backendHost}/api/settings/call-flow/workflows`, { headers: { "X-Tenant-ID": activeTenantId } })
+        fetch(`${protocol}//${backendHost}/api/settings/call-flow/workflows`, { headers: { "X-Tenant-ID": activeTenantId } }),
+        fetch(`${protocol}//${backendHost}/api/settings/outbound_rules`, { headers: { "X-Tenant-ID": activeTenantId } })
       ]);
 
       let allUsers = [];
@@ -2357,6 +2605,24 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const wfData = await wfRes.json();
         setWorkflows(Array.isArray(wfData) ? wfData : (wfData?.workflows || []));
       }
+      if (orRes && orRes.ok) {
+        const orData = await orRes.json();
+        setOutboundRules(Array.isArray(orData) ? orData : (orData?.outbound_rules || []));
+      }
+    } catch (err) {}
+  };
+
+  const fetchTrunkPackageUsage = async () => {
+    try {
+      const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+      const activeTenantId = typeof window !== "undefined" ? (localStorage.getItem("active_tenant_id") || "tenant-default") : "tenant-default";
+      const res = await fetch(`${protocol}//${backendHost}/api/reports/trunk-package-usage?tenant_id=${encodeURIComponent(activeTenantId)}`, {
+        headers: { "X-Tenant-ID": activeTenantId }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTrunkPackageUsage(data);
+      }
     } catch (err) {}
   };
 
@@ -2365,6 +2631,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     fetchCalls(true);
     fetchRoiSettings();
     fetchUsersAndAiAgents();
+    fetchTrunkPackageUsage();
   }, []);
 
   const fetchRoiSettings = async () => {
@@ -2383,6 +2650,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const handleTenantChange = () => {
       fetchCalls(true);
       fetchUsersAndAiAgents();
+      fetchTrunkPackageUsage();
     };
 
     if (typeof window !== "undefined") {
@@ -2396,7 +2664,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary") {
+      if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary" && viewMode !== "did" && viewMode !== "trunk-minutes") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && viewMode !== "missed" && viewMode !== "friction" && filterCallId) params.append("call_id", filterCallId);
       }
@@ -2411,6 +2679,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           }
         })
         .catch((err) => console.error("Silently polling calls failed:", err));
+
+      if (viewMode === "trunk-minutes") {
+        fetchTrunkPackageUsage();
+      }
     }, 3000);
     return () => {
       clearInterval(interval);
@@ -2423,6 +2695,12 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   useEffect(() => {
     if (filterCallerNumber || filterCallId) {
       fetchCalls(false);
+    }
+    if (viewMode === "trunk-minutes") {
+      fetchTrunkPackageUsage();
+      fetchUsersAndAiAgents();
+    } else if (viewMode === "did") {
+      fetchUsersAndAiAgents();
     }
   }, [viewMode]);
 
@@ -2484,7 +2762,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary") {
+    if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary" && viewMode !== "did" && viewMode !== "trunk-minutes") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && viewMode !== "missed" && viewMode !== "friction" && filterCallId) params.append("call_id", filterCallId);
     }
@@ -2534,6 +2812,17 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterTrunksSelected([]);
     setFilterIvrWorkflowsSelected([]);
     setFilterFrictionSentimentsSelected([]);
+    setFilterDidNumbersSelected([]);
+    setFilterDidTrafficStatus("all");
+    setFilterDidMinInbound("");
+    setFilterDidMaxInbound("");
+    setFilterDidMinOutbound("");
+    setFilterDidMaxOutbound("");
+    setFilterDidMinInDur("");
+    setFilterDidMaxInDur("");
+    setFilterDidMinOutDur("");
+    setFilterDidMaxOutDur("");
+    setFilterTrunkPackageStatus("all");
     setSelectedTimelineAgent("All");
 
     if (typeof window !== "undefined") {
@@ -2543,6 +2832,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
     if (viewMode === "timeline") {
       fetchAgentTimeline(todayStr, true);
+    }
+    if (viewMode === "trunk-minutes") {
+      fetchTrunkPackageUsage();
     }
 
     setIsLoading(true);
@@ -4210,7 +4502,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const hr = parseCallLocalHour(c.start_time);
         if (!isHourInTrafficRange(hr)) return false;
       }
-    } else if (viewMode === "trunk") {
+    } else if (viewMode === "trunk" || viewMode === "trunk-minutes") {
       if (filterTrunkStartHour !== "" || filterTrunkEndHour !== "") {
         const hr = parseCallLocalHour(c.start_time);
         if (!isHourInTrafficRange(hr, filterTrunkStartHour, filterTrunkEndHour)) return false;
@@ -4219,6 +4511,11 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const matchedT = matchCallToTrunkObj(c);
         const matchedKey = matchedT ? String(matchedT.id ?? matchedT.trunk_name) : "";
         if (!matchedKey || !filterTrunksSelected.includes(matchedKey)) return false;
+      }
+    } else if (viewMode === "did") {
+      if (filterTrunkStartHour !== "" || filterTrunkEndHour !== "") {
+        const hr = parseCallLocalHour(c.start_time);
+        if (!isHourInTrafficRange(hr, filterTrunkStartHour, filterTrunkEndHour)) return false;
       }
     } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary") {
       // 1. Caller Number Filter
@@ -4254,7 +4551,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
 
     // 5. Conversant / Agent Filter across applicable report modes
-    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "friction" && viewMode !== "ceo-summary" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
+    if (viewMode !== "queue" && viewMode !== "roi" && viewMode !== "missed" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "trunk-minutes" && viewMode !== "did" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "friction" && viewMode !== "ceo-summary" && (filterAgentsSelected.length > 0 || filterConversant !== "All")) {
       const conversant = getConversant(c);
       if (!matchesSelectedAgent(conversant)) return false;
     }
@@ -4566,9 +4863,495 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const isFrictionMode = viewMode === "friction";
   const isComplianceMode = viewMode === "compliance";
   const isSilenceMode = viewMode === "silence";
+  const formatMinutesVerbose = (secs) => {
+    const s = Math.max(0, Math.round(Number(secs || 0)));
+    if (s === 0) return "0 sn";
+    const hrs = Math.floor(s / 3600);
+    const mins = Math.floor((s % 3600) / 60);
+    const remSecs = s % 60;
+    if (hrs > 0) {
+      return `${hrs} sa ${mins} dk${remSecs > 0 ? ` ${remSecs} sn` : ""}`;
+    }
+    if (mins > 0) {
+      return remSecs > 0 ? `${mins} dk ${remSecs} sn` : `${mins} dk`;
+    }
+    return `${remSecs} sn`;
+  };
+
+  // Strict DID Raporu computation (zero blind fallback so idle DIDs accurately show 0 calls)
+  const didReportData = React.useMemo(() => {
+    const cleanDigits = (str) => String(str || "").replace(/\D/g, "");
+    const extractDidKey = (str) => {
+      const raw = String(str || "").trim();
+      if (!raw || /[a-zA-Z*_\[\].?]/.test(raw)) return "";
+      const d = cleanDigits(raw);
+      if (d.length < 7 || d.length > 15) return "";
+      return d.length >= 10 ? d.slice(-10) : d;
+    };
+
+    const statsMap = new Map();
+    definedDidInventory.forEach((d) => {
+      statsMap.set(d.key, {
+        ...d,
+        inboundCount: 0,
+        inboundAnsweredCount: 0,
+        outboundCount: 0,
+        outboundAnsweredCount: 0,
+        inboundSeconds: 0,
+        outboundSeconds: 0,
+        lastCallTs: 0,
+        lastCallAt: "",
+      });
+    });
+
+    const activeTrunks = (Array.isArray(trunks) ? trunks : []).filter((t) => t.is_active !== false);
+
+    const resolveStrictInboundDidKey = (call) => {
+      const calleeKey = extractDidKey(call.callee_number);
+      if (calleeKey && statsMap.has(calleeKey)) return calleeKey;
+      const origCalleeKey = extractDidKey(call.original_callee);
+      if (origCalleeKey && statsMap.has(origCalleeKey)) return origCalleeKey;
+
+      const rawTrunk = String(call.trunk || call.trunk_name || "").trim();
+      if (rawTrunk && rawTrunk !== "Operator_Trunk") {
+        const matchedT = (Array.isArray(trunks) ? trunks : []).find(
+          (t) => String(t.trunk_name || "").trim().toLowerCase() === rawTrunk.toLowerCase()
+        );
+        if (matchedT) {
+          const tKey = extractDidKey(matchedT.did_number) || extractDidKey(matchedT.username);
+          if (tKey && statsMap.has(tKey)) return tKey;
+        }
+      }
+
+      // Only if the entire system has literally 1 defined DID, external inbound calls on "s"/queue belong to it
+      if (definedDidInventory.length === 1) {
+        const callerDigits = cleanDigits(call.caller_number);
+        if (callerDigits.length >= 7) {
+          return definedDidInventory[0].key;
+        }
+      }
+      return calleeKey && statsMap.has(calleeKey) ? calleeKey : "";
+    };
+
+    const resolveStrictOutboundDidKey = (call) => {
+      const callerKey = extractDidKey(call.caller_number);
+      if (callerKey && statsMap.has(callerKey)) return callerKey;
+
+      const callerExt = String(call.caller_number || "").trim();
+      if (callerExt && callerExt.length <= 6 && Array.isArray(users)) {
+        const u = users.find((usr) => String(usr.extension || "").trim() === callerExt);
+        if (u) {
+          const uKey = extractDidKey(u.outbound_caller_id || u.did_number);
+          if (uKey && statsMap.has(uKey)) return uKey;
+        }
+      }
+
+      const rawTrunk = String(call.trunk || call.trunk_name || "").trim();
+      if (rawTrunk && rawTrunk !== "Operator_Trunk") {
+        const matchedT = (Array.isArray(trunks) ? trunks : []).find(
+          (t) => String(t.trunk_name || "").trim().toLowerCase() === rawTrunk.toLowerCase()
+        );
+        if (matchedT) {
+          const tKey = extractDidKey(matchedT.did_number) || extractDidKey(matchedT.username);
+          if (tKey && statsMap.has(tKey)) return tKey;
+        }
+      }
+
+      // Check explicit outbound rule match
+      const calleeStr = String(call.callee_number || "").trim();
+      if (Array.isArray(outboundRules) && outboundRules.length > 0 && calleeStr) {
+        for (const r of outboundRules) {
+          if (r.is_active === false) continue;
+          const pfx = String(r.prefix || "").trim();
+          if (pfx && !calleeStr.startsWith(pfx)) continue;
+          const rCidKey = extractDidKey(r.caller_id || r.did_number);
+          if (rCidKey && statsMap.has(rCidKey)) return rCidKey;
+          const rTrunks = r.trunks || r.trunk_ids || (r.trunk_id ? [r.trunk_id] : []);
+          if (Array.isArray(rTrunks) && rTrunks.length > 0) {
+            const firstRef = String(rTrunks[0]).trim();
+            const candT = activeTrunks.find(
+              (t) => String(t.id) === firstRef || String(t.trunk_name) === firstRef
+            );
+            if (candT) {
+              const tKey = extractDidKey(candT.did_number) || extractDidKey(candT.username);
+              if (tKey && statsMap.has(tKey)) return tKey;
+            }
+          }
+          break;
+        }
+      }
+
+      // WebRTC Operator_Trunk single-trunk outbound CallerID resolution
+      if (rawTrunk === "Operator_Trunk" || activeTrunks.length === 1) {
+        const opTrunk =
+          activeTrunks.find((t) => String(t.trunk_name || "").toLowerCase() === "operator_trunk") ||
+          (activeTrunks.length === 1 ? activeTrunks[0] : null);
+        if (opTrunk) {
+          const tKey = extractDidKey(opTrunk.did_number) || extractDidKey(opTrunk.username);
+          if (tKey && statsMap.has(tKey)) return tKey;
+        }
+      }
+
+      return "";
+    };
+
+    filteredCalls.forEach((call) => {
+      const dir = getCallDirection(call);
+      if (dir === "Dahili") return;
+      const durs = getCallDurations(call);
+      const talkSecs = Math.max(0, Number(durs.talkSecs || 0));
+      const statusLbl = getCallStatus(call);
+      const isAnswered = statusLbl === "Başarılı" || statusLbl === "Aktarıldı" || talkSecs > 0;
+      const ts = call.start_time ? new Date(call.start_time.endsWith("Z") ? call.start_time : call.start_time + "Z").getTime() : 0;
+
+      if (dir === "Gelen") {
+        const key = resolveStrictInboundDidKey(call);
+        if (key && statsMap.has(key)) {
+          const item = statsMap.get(key);
+          item.inboundCount += 1;
+          if (isAnswered) item.inboundAnsweredCount += 1;
+          item.inboundSeconds += talkSecs;
+          if (ts > item.lastCallTs) {
+            item.lastCallTs = ts;
+            item.lastCallAt = call.start_time;
+          }
+        }
+      } else if (dir.includes("Giden")) {
+        const key = resolveStrictOutboundDidKey(call);
+        if (key && statsMap.has(key)) {
+          const item = statsMap.get(key);
+          item.outboundCount += 1;
+          if (isAnswered) item.outboundAnsweredCount += 1;
+          item.outboundSeconds += talkSecs;
+          if (ts > item.lastCallTs) {
+            item.lastCallTs = ts;
+            item.lastCallAt = call.start_time;
+          }
+        }
+      }
+    });
+
+    const allRows = Array.from(statsMap.values()).map((item) => {
+      const totalCalls = item.inboundCount + item.outboundCount;
+      const totalSeconds = item.inboundSeconds + item.outboundSeconds;
+      let trafficStatus = "idle";
+      let trafficStatusLabel = "Pasif / Trafik Yok";
+      if (item.inboundCount > 0) {
+        trafficStatus = "active";
+        trafficStatusLabel = "Aktif (Çağrı Alıyor)";
+      } else if (item.outboundCount > 0) {
+        trafficStatus = "no_inbound";
+        trafficStatusLabel = "Gelen Çağrı Yok (Sadece Giden)";
+      }
+
+      return {
+        ...item,
+        totalCalls,
+        totalSeconds,
+        trafficStatus,
+        trafficStatusLabel,
+        sourceLabel:
+          item.trunkNames.length > 0
+            ? item.trunkNames.join(", ")
+            : item.sources.length > 0
+            ? item.sources.join(" • ")
+            : "Tanımlı DID",
+        inboundDurationMin: item.inboundSeconds / 60,
+        outboundDurationMin: item.outboundSeconds / 60,
+        inboundDurationText: formatMinutesVerbose(item.inboundSeconds),
+        outboundDurationText: formatMinutesVerbose(item.outboundSeconds),
+        lastCallFormatted: item.lastCallAt ? formatDate(item.lastCallAt) : "Hiç Çağrı Yok",
+      };
+    });
+
+    const kpis = {
+      totalDefined: allRows.length,
+      activeCount: allRows.filter((r) => r.inboundCount > 0).length,
+      zeroInboundCount: allRows.filter((r) => r.inboundCount === 0).length,
+      zeroTrafficCount: allRows.filter((r) => r.totalCalls === 0).length,
+      totalInboundCalls: allRows.reduce((acc, r) => acc + r.inboundCount, 0),
+      totalOutboundCalls: allRows.reduce((acc, r) => acc + r.outboundCount, 0),
+      totalInboundSec: allRows.reduce((acc, r) => acc + r.inboundSeconds, 0),
+      totalOutboundSec: allRows.reduce((acc, r) => acc + r.outboundSeconds, 0),
+    };
+
+    const filteredRows = allRows.filter((r) => {
+      if (filterDidNumbersSelected.length > 0 && !filterDidNumbersSelected.includes(r.key)) {
+        return false;
+      }
+      if (filterDidTrafficStatus === "active" && r.inboundCount === 0) return false;
+      if (filterDidTrafficStatus === "no_inbound" && r.inboundCount > 0) return false;
+      if (filterDidTrafficStatus === "idle" && r.totalCalls > 0) return false;
+
+      if (filterDidMinInbound !== "" && r.inboundCount < Number(filterDidMinInbound)) return false;
+      if (filterDidMaxInbound !== "" && r.inboundCount > Number(filterDidMaxInbound)) return false;
+      if (filterDidMinOutbound !== "" && r.outboundCount < Number(filterDidMinOutbound)) return false;
+      if (filterDidMaxOutbound !== "" && r.outboundCount > Number(filterDidMaxOutbound)) return false;
+
+      if (filterDidMinInDur !== "" && r.inboundDurationMin < Number(filterDidMinInDur)) return false;
+      if (filterDidMaxInDur !== "" && r.inboundDurationMin > Number(filterDidMaxInDur)) return false;
+      if (filterDidMinOutDur !== "" && r.outboundDurationMin < Number(filterDidMinOutDur)) return false;
+      if (filterDidMaxOutDur !== "" && r.outboundDurationMin > Number(filterDidMaxOutDur)) return false;
+
+      return true;
+    });
+
+    filteredRows.sort((a, b) => {
+      const { key, dir } = didSortConfig;
+      const mult = dir === "asc" ? 1 : -1;
+      if (key === "didNumber") return a.displayNumber.localeCompare(b.displayNumber) * mult;
+      if (key === "trafficStatus") return a.trafficStatusLabel.localeCompare(b.trafficStatusLabel) * mult;
+      if (key === "inboundCount") return (a.inboundCount - b.inboundCount) * mult;
+      if (key === "outboundCount") return (a.outboundCount - b.outboundCount) * mult;
+      if (key === "inboundDuration") return (a.inboundSeconds - b.inboundSeconds) * mult;
+      if (key === "outboundDuration") return (a.outboundSeconds - b.outboundSeconds) * mult;
+      if (key === "lastCallAt") return (a.lastCallTs - b.lastCallTs) * mult;
+      return (b.inboundCount - a.inboundCount);
+    });
+
+    return { rows: filteredRows, allRows, kpis };
+  }, [
+    definedDidInventory,
+    filteredCalls,
+    trunks,
+    users,
+    outboundRules,
+    filterDidNumbersSelected,
+    filterDidTrafficStatus,
+    filterDidMinInbound,
+    filterDidMaxInbound,
+    filterDidMinOutbound,
+    filterDidMaxOutbound,
+    filterDidMinInDur,
+    filterDidMaxInDur,
+    filterDidMinOutDur,
+    filterDidMaxOutDur,
+    didSortConfig,
+  ]);
+
+  // Operatör Dakika & Paket Kullanım Raporu computation
+  const trunkMinutesReportData = React.useMemo(() => {
+    const trunkList = Array.isArray(trunks) ? trunks : [];
+    const apiTrunks = Array.isArray(trunkPackageUsage?.trunks) ? trunkPackageUsage.trunks : [];
+
+    // Compute selected-period inbound & outbound usage per trunk from filteredCalls
+    const periodMap = new Map();
+    trunkList.forEach((t, idx) => {
+      const key = String(t.id ?? t.trunk_name ?? idx);
+      periodMap.set(key, {
+        trunk: t,
+        key,
+        periodOutboundCalls: 0,
+        periodOutboundAnsweredCalls: 0,
+        periodOutboundNetSec: 0,
+        periodOutboundBilledSec: 0,
+        periodInboundCalls: 0,
+        periodInboundAnsweredCalls: 0,
+        periodInboundNetSec: 0,
+      });
+    });
+
+    filteredCalls.forEach((c) => {
+      const dir = getCallDirection(c);
+      if (dir === "Dahili") return;
+      const matchedT = matchCallToTrunkObj(c);
+      if (!matchedT) return;
+      const key = String(matchedT.id ?? matchedT.trunk_name);
+      const entry = periodMap.get(key);
+      if (!entry) return;
+
+      const durs = getCallDurations(c);
+      const talkSecs = Math.max(0, Number(durs.talkSecs || 0));
+      const billingPeriod = Math.max(1, parseInt(matchedT.billing_period_seconds ?? 60, 10) || 60);
+
+      if (dir.includes("Giden")) {
+        entry.periodOutboundCalls += 1;
+        if (talkSecs > 0) {
+          entry.periodOutboundAnsweredCalls += 1;
+          entry.periodOutboundNetSec += talkSecs;
+          const billedSec =
+            billingPeriod > 1 ? Math.ceil(talkSecs / billingPeriod) * billingPeriod : talkSecs;
+          entry.periodOutboundBilledSec += billedSec;
+        }
+      } else if (dir === "Gelen") {
+        entry.periodInboundCalls += 1;
+        if (talkSecs > 0) {
+          entry.periodInboundAnsweredCalls += 1;
+          entry.periodInboundNetSec += talkSecs;
+        }
+      }
+    });
+
+    const computeFallbackResetMeta = (resetDay) => {
+      const now = new Date();
+      const y = now.getFullYear();
+      const m = now.getMonth();
+      const d = now.getDate();
+      const clamp = (yr, mo, day) => new Date(yr, mo, Math.min(day, new Date(yr, mo + 1, 0).getDate()));
+      let start = clamp(y, m, resetDay);
+      let next = clamp(y, m + 1, resetDay);
+      if (d < resetDay) {
+        next = start;
+        start = clamp(y, m - 1, resetDay);
+      }
+      const daysUntilReset = Math.max(1, Math.ceil((next.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+      const fmtIso = (dt) =>
+        `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+      return { cycleStartDate: fmtIso(start), nextResetDate: fmtIso(next), daysUntilReset };
+    };
+
+    const allRows = trunkList.map((t, idx) => {
+      const trunkKey = String(t.id ?? t.trunk_name ?? idx);
+      const trunkName = String(t.trunk_name || `SIP Trunk ${idx + 1}`).trim();
+      const didNumber = String(t.did_number || "").trim();
+      const pStats = periodMap.get(trunkKey) || {
+        periodOutboundCalls: 0,
+        periodOutboundAnsweredCalls: 0,
+        periodOutboundNetSec: 0,
+        periodOutboundBilledSec: 0,
+        periodInboundCalls: 0,
+        periodInboundAnsweredCalls: 0,
+        periodInboundNetSec: 0,
+      };
+
+      const apiMatch = apiTrunks.find(
+        (at) =>
+          (t.id != null && String(at.id) === String(t.id)) ||
+          String(at.trunk_name || "").toLowerCase() === trunkName.toLowerCase()
+      );
+
+      const monthlyPackageMinutes = Math.max(
+        0,
+        parseInt(apiMatch?.monthly_package_minutes ?? t.monthly_package_minutes ?? 0, 10) || 0
+      );
+      const packageResetDay = Math.min(
+        31,
+        Math.max(1, parseInt(apiMatch?.package_reset_day ?? t.package_reset_day ?? 1, 10) || 1)
+      );
+      const billingPeriodSeconds = Math.max(
+        1,
+        parseInt(apiMatch?.billing_period_seconds ?? t.billing_period_seconds ?? 60, 10) || 60
+      );
+
+      const fallbackMeta = computeFallbackResetMeta(packageResetDay);
+      const cycleUsedMinutes =
+        apiMatch != null
+          ? Number(apiMatch.cycle_used_minutes || 0)
+          : Number((pStats.periodOutboundBilledSec / 60).toFixed(2));
+      const cycleUsedNetMinutes =
+        apiMatch != null
+          ? Number(apiMatch.cycle_used_net_minutes || 0)
+          : Number((pStats.periodOutboundNetSec / 60).toFixed(2));
+
+      const cycleRemainingMinutes =
+        monthlyPackageMinutes > 0 ? Math.max(0, monthlyPackageMinutes - cycleUsedMinutes) : 0;
+      const cycleOverageMinutes =
+        monthlyPackageMinutes > 0 ? Math.max(0, cycleUsedMinutes - monthlyPackageMinutes) : 0;
+      const cycleUsagePct =
+        monthlyPackageMinutes > 0 ? (cycleUsedMinutes / monthlyPackageMinutes) * 100 : 0;
+
+      return {
+        trunkKey,
+        trunkId: t.id,
+        trunkName,
+        didNumber,
+        isActive: t.is_active !== false,
+        periodOutboundCalls: pStats.periodOutboundCalls,
+        periodOutboundAnsweredCalls: pStats.periodOutboundAnsweredCalls,
+        periodOutboundNetSec: pStats.periodOutboundNetSec,
+        periodOutboundBilledSec: pStats.periodOutboundBilledSec,
+        periodOutboundBilledMin: pStats.periodOutboundBilledSec / 60,
+        periodOutboundNetMin: pStats.periodOutboundNetSec / 60,
+        periodOutboundNetText: formatMinutesVerbose(pStats.periodOutboundNetSec),
+        periodOutboundBilledText: formatMinutesVerbose(pStats.periodOutboundBilledSec),
+        periodInboundCalls: pStats.periodInboundCalls,
+        periodInboundAnsweredCalls: pStats.periodInboundAnsweredCalls,
+        periodInboundNetSec: pStats.periodInboundNetSec,
+        periodInboundNetMin: pStats.periodInboundNetSec / 60,
+        periodInboundNetText: formatMinutesVerbose(pStats.periodInboundNetSec),
+        monthlyPackageMinutes,
+        packageResetDay,
+        billingPeriodSeconds,
+        cycleUsedMinutes,
+        cycleUsedNetMinutes,
+        cycleRemainingMinutes,
+        cycleOverageMinutes,
+        cycleUsagePct,
+        daysUntilReset: apiMatch?.days_until_reset ?? fallbackMeta.daysUntilReset,
+        nextResetDate: apiMatch?.next_reset_date || fallbackMeta.nextResetDate,
+        cycleStartDate: apiMatch?.cycle_start_date || fallbackMeta.cycleStartDate,
+      };
+    });
+
+    const filteredRows = allRows.filter((r) => {
+      if (filterTrunksSelected.length > 0 && !filterTrunksSelected.includes(r.trunkKey)) {
+        return false;
+      }
+      if (filterTrunkPackageStatus === "defined" && r.monthlyPackageMinutes <= 0) return false;
+      if (filterTrunkPackageStatus === "warning" && !(r.monthlyPackageMinutes > 0 && r.cycleUsagePct >= 80)) {
+        return false;
+      }
+      if (filterTrunkPackageStatus === "exceeded" && !(r.monthlyPackageMinutes > 0 && r.cycleUsagePct >= 100)) {
+        return false;
+      }
+      return true;
+    });
+
+    filteredRows.sort((a, b) => {
+      const { key, dir } = trunkMinutesSortConfig;
+      const mult = dir === "asc" ? 1 : -1;
+      if (key === "trunkName") return a.trunkName.localeCompare(b.trunkName) * mult;
+      if (key === "periodOutboundBilledSec") return (a.periodOutboundBilledSec - b.periodOutboundBilledSec) * mult;
+      if (key === "periodInboundNetSec") return (a.periodInboundNetSec - b.periodInboundNetSec) * mult;
+      if (key === "monthlyPackageMinutes") return (a.monthlyPackageMinutes - b.monthlyPackageMinutes) * mult;
+      if (key === "cycleUsedMinutes") return (a.cycleUsedMinutes - b.cycleUsedMinutes) * mult;
+      if (key === "cycleRemainingMinutes") return (a.cycleRemainingMinutes - b.cycleRemainingMinutes) * mult;
+      if (key === "cycleUsagePct") return (a.cycleUsagePct - b.cycleUsagePct) * mult;
+      if (key === "daysUntilReset") return (a.daysUntilReset - b.daysUntilReset) * mult;
+      return b.periodOutboundBilledSec - a.periodOutboundBilledSec;
+    });
+
+    const periodOutBilledSec = filteredRows.reduce((s, r) => s + r.periodOutboundBilledSec, 0);
+    const periodOutNetSec = filteredRows.reduce((s, r) => s + r.periodOutboundNetSec, 0);
+    const periodInNetSec = filteredRows.reduce((s, r) => s + r.periodInboundNetSec, 0);
+    const definedPackageRows = filteredRows.filter((r) => r.monthlyPackageMinutes > 0);
+    const totalMonthlyPackageMin = definedPackageRows.reduce((s, r) => s + r.monthlyPackageMinutes, 0);
+    const totalCycleUsedMin = definedPackageRows.reduce((s, r) => s + r.cycleUsedMinutes, 0);
+    const totalCycleRemainingMin = definedPackageRows.reduce((s, r) => s + r.cycleRemainingMinutes, 0);
+    const totalCycleOverageMin = definedPackageRows.reduce((s, r) => s + r.cycleOverageMinutes, 0);
+
+    const kpis = {
+      periodOutboundBilledMin: periodOutBilledSec / 60,
+      periodOutboundNetMin: periodOutNetSec / 60,
+      periodOutboundCalls: filteredRows.reduce((s, r) => s + r.periodOutboundCalls, 0),
+      periodOutboundText: formatMinutesVerbose(periodOutBilledSec),
+      periodOutboundNetText: formatMinutesVerbose(periodOutNetSec),
+      periodInboundNetMin: periodInNetSec / 60,
+      periodInboundCalls: filteredRows.reduce((s, r) => s + r.periodInboundCalls, 0),
+      periodInboundText: formatMinutesVerbose(periodInNetSec),
+      totalMonthlyPackageMin,
+      totalCycleUsedMin,
+      totalCycleRemainingMin,
+      totalCycleOverageMin,
+      definedPackageTrunkCount: definedPackageRows.length,
+      overallPackagePct: totalMonthlyPackageMin > 0 ? (totalCycleUsedMin / totalMonthlyPackageMin) * 100 : 0,
+    };
+
+    return { rows: filteredRows, allRows, kpis };
+  }, [
+    trunks,
+    trunkPackageUsage,
+    filteredCalls,
+    filterTrunksSelected,
+    filterTrunkPackageStatus,
+    trunkMinutesSortConfig,
+  ]);
+
   const isCeoSummaryMode = viewMode === "ceo-summary";
   const isIntentMode = viewMode === "intent";
-  const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode || isIntentMode;
+  const isDidMode = viewMode === "did";
+  const isTrunkMinutesMode = viewMode === "trunk-minutes";
+  const isFullWidthMode = isCdrMode || isNotesMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isPanoMode || isPerfMode || isQueueMode || isSentimentHeatMode || isWordcloudMode || isFcrMode || isRoiMode || isMissedMode || isTimelineMode || isTrafficMode || isTrunkMode || isIvrDropMode || isTransferHoldMode || isEfficiencyMode || isFrictionMode || isComplianceMode || isSilenceMode || isCeoSummaryMode || isIntentMode || isDidMode || isTrunkMinutesMode;
 
   return (
     <div className="w-full h-[calc(100vh-12rem)] flex gap-6 text-slate-800 dark:text-slate-100">
@@ -4602,7 +5385,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                viewMode === "compliance" ? "Senaryo Sadakati (Script Compliance) Raporu" : 
                viewMode === "silence" ? "Sessizlik ve Söz Kesme (Interruption) Analizi" : 
                viewMode === "ceo-summary" ? "Yönetim (CEO) Özet Raporu" :
-               viewMode === "intent" ? "Müşteri Niyet Analizi Raporu" : "Çağrı Raporları"}
+               viewMode === "intent" ? "Müşteri Niyet Analizi Raporu" :
+               viewMode === "did" ? "DID Raporu" :
+               viewMode === "trunk-minutes" ? "Operatör Dakika & Paket Kullanım Raporu" : "Çağrı Raporları"}
             </h3>
             <div className="flex items-center gap-2 relative">
               {/* Charts Toggle Button (Only for CDR table view) */}
@@ -4728,6 +5513,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     ? Boolean(filterStartDate || filterEndDate || filterDirection !== "All" || filterTrafficStartHour !== "" || filterTrafficEndHour !== "")
                     : viewMode === "trunk"
                     ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterTrunksSelected.length > 0)
+                    : viewMode === "trunk-minutes"
+                    ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterTrunksSelected.length > 0 || filterTrunkPackageStatus !== "all")
+                    : viewMode === "did"
+                    ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterDidNumbersSelected.length > 0 || filterDidTrafficStatus !== "all" || filterDidMinInbound !== "" || filterDidMaxInbound !== "" || filterDidMinOutbound !== "" || filterDidMaxOutbound !== "" || filterDidMinInDur !== "" || filterDidMaxInDur !== "" || filterDidMinOutDur !== "" || filterDidMaxOutDur !== "")
                     : viewMode === "ivr-drop"
                     ? Boolean(filterStartDate || filterEndDate || filterIvrWorkflowsSelected.length > 0)
                     : viewMode === "friction"
@@ -5392,10 +6181,10 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               </div>
 
               {/* Modal Body */}
-              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "ivr-drop" || viewMode === "friction" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
-                {/* Date range (and side-by-side Hour range for trunk mode) */}
-                <div className={viewMode === "trunk" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "ivr-drop" || viewMode === "friction" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
-                  <div className={viewMode === "trunk" ? "grid grid-cols-2 sm:grid-cols-4 gap-2.5" : "contents"}>
+              <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop" || viewMode === "friction" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
+                {/* Date range (and side-by-side Hour range for trunk / did / trunk-minutes modes) */}
+                <div className={viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "ivr-drop" || viewMode === "friction" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                  <div className={viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" ? "grid grid-cols-2 sm:grid-cols-4 gap-2.5" : "contents"}>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                       <input
@@ -5414,7 +6203,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
                       />
                     </div>
-                    {viewMode === "trunk" && (
+                    {(viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes") && (
                       <>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Saati</label>
@@ -5449,7 +6238,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </>
                     )}
                   </div>
-                  {viewMode === "trunk" && (
+                  {(viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes") && (
                     <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                       {[
                         { label: "Tüm Gün (00-23)", s: "", e: "" },
@@ -5833,6 +6622,159 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       />
                     </div>
                   </>
+                ) : viewMode === "did" ? (
+                  <>
+                    <DualListBox
+                      title="DID Numaraları"
+                      availableItems={didFilterItems}
+                      selectedIds={filterDidNumbersSelected}
+                      onChangeSelectedIds={setFilterDidNumbersSelected}
+                      columns={["DID Numarası", "Hat / Kaynak"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-mono font-bold text-xs">{item.didNumber}</td>
+                          <td className="p-2 text-slate-500 dark:text-slate-400 text-[11px] truncate max-w-[160px]">{item.source || "-"}</td>
+                        </>
+                      )}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Trafik Durumu</label>
+                      <select
+                        value={filterDidTrafficStatus}
+                        onChange={(e) => setFilterDidTrafficStatus(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-bold"
+                      >
+                        <option value="all">Tümü (Tüm Tanımlı Numaralar)</option>
+                        <option value="active">Aktif Numaralar (Gelen Çağrı Alanlar)</option>
+                        <option value="no_inbound">Gelen Çağrı Almayanlar (0 Gelen Çağrı)</option>
+                        <option value="idle">Hiç Trafik Olmayanlar (0 Gelen &amp; 0 Giden)</option>
+                      </select>
+                    </div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50">
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Min Gelen Adet</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="0"
+                          value={filterDidMinInbound}
+                          onChange={(e) => setFilterDidMinInbound(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Max Gelen Adet</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Sınırsız"
+                          value={filterDidMaxInbound}
+                          onChange={(e) => setFilterDidMaxInbound(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Min Giden Adet</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="0"
+                          value={filterDidMinOutbound}
+                          onChange={(e) => setFilterDidMinOutbound(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Max Giden Adet</label>
+                        <input
+                          type="number"
+                          min="0"
+                          placeholder="Sınırsız"
+                          value={filterDidMaxOutbound}
+                          onChange={(e) => setFilterDidMaxOutbound(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Min Gelen Süre (dk)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          placeholder="0 dk"
+                          value={filterDidMinInDur}
+                          onChange={(e) => setFilterDidMinInDur(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Max Gelen Süre (dk)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          placeholder="Sınırsız"
+                          value={filterDidMaxInDur}
+                          onChange={(e) => setFilterDidMaxInDur(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Min Giden Süre (dk)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          placeholder="0 dk"
+                          value={filterDidMinOutDur}
+                          onChange={(e) => setFilterDidMinOutDur(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1">
+                        <label className="text-[9px] font-bold text-slate-500 uppercase">Max Giden Süre (dk)</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.5"
+                          placeholder="Sınırsız"
+                          value={filterDidMaxOutDur}
+                          onChange={(e) => setFilterDidMaxOutDur(e.target.value)}
+                          className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-2 py-1.5 text-xs font-semibold text-slate-800 dark:text-slate-100 focus:outline-none focus:border-primary"
+                        />
+                      </div>
+                    </div>
+                  </>
+                ) : viewMode === "trunk-minutes" ? (
+                  <>
+                    <DualListBox
+                      title="Dış Hatlar (SIP Trunk)"
+                      availableItems={trunkFilterItems}
+                      selectedIds={filterTrunksSelected}
+                      onChangeSelectedIds={setFilterTrunksSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Paket Kullanım Durumu</label>
+                      <select
+                        value={filterTrunkPackageStatus}
+                        onChange={(e) => setFilterTrunkPackageStatus(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-bold"
+                      >
+                        <option value="all">Tümü (Tüm Dış Hatlar)</option>
+                        <option value="defined">Aylık Dakika Paketi Tanımlı Hatlar</option>
+                        <option value="warning">Kritik Doluluk / Aşım Riski (%80 ve üzeri)</option>
+                        <option value="exceeded">Paketi Aşan Hatlar (%100 ve üzeri)</option>
+                      </select>
+                    </div>
+                  </>
                 ) : (
                   <>
                     {/* Call Direction */}
@@ -6164,6 +7106,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     if (viewMode === "intent") {
                       fetchIntentAnalysisData(true);
                     }
+                    if (viewMode === "trunk-minutes") {
+                      fetchTrunkPackageUsage();
+                    }
                     setIsFilterOpen(false);
                   }}
                   className="flex-1 py-2 bg-primary hover:bg-primary/90 text-white font-bold text-xs rounded-xl shadow-md transition cursor-pointer"
@@ -6182,7 +7127,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-500 animate-pulse font-semibold">
                 Arama kayıtları yükleniyor...
               </div>
-            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode && !isIvrDropMode && !isEfficiencyMode && !isFrictionMode && !isCeoSummaryMode) ? (
+            ) : (filteredCalls.length === 0 && !isPanoMode && !isTimelineMode && !isIntentMode && !isTrafficMode && !isTrunkMode && !isIvrDropMode && !isEfficiencyMode && !isFrictionMode && !isCeoSummaryMode && !isDidMode && !isTrunkMinutesMode) ? (
               <div className="text-center py-12 text-xs text-slate-400 dark:text-slate-550 font-semibold">
                 Kayıt bulunamadı.
               </div>
@@ -10808,6 +11753,694 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     </>
                   );
                 })()}
+              </div>
+            ) : isDidMode ? (
+              <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6 scrollbar-thin bg-slate-50/30 dark:bg-slate-900/10 animate-in fade-in duration-200">
+                {/* KPI Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div
+                    onClick={() => setFilterDidTrafficStatus("all")}
+                    className={`bg-white dark:bg-slate-900 p-4 rounded-3xl border shadow-sm flex flex-col gap-1.5 cursor-pointer transition hover:scale-[1.01] ${
+                      filterDidTrafficStatus === "all"
+                        ? `${border} ring-1 ${ring}`
+                        : "border-slate-200/70 dark:border-slate-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Tanımlı DID Sayısı
+                      </span>
+                      <span className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
+                        <Hash size={14} />
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-2xl font-black text-slate-900 dark:text-slate-100">
+                        {didReportData.kpis.totalDefined}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-bold">Numara</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      Sistemde kayıtlı tüm dış hat numaraları
+                    </span>
+                  </div>
+
+                  <div
+                    onClick={() =>
+                      setFilterDidTrafficStatus((prev) => (prev === "active" ? "all" : "active"))
+                    }
+                    className={`bg-white dark:bg-slate-900 p-4 rounded-3xl border shadow-sm flex flex-col gap-1.5 cursor-pointer transition hover:scale-[1.01] ${
+                      filterDidTrafficStatus === "active"
+                        ? `${border} ring-1 ${ring}`
+                        : "border-slate-200/70 dark:border-slate-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Çağrı Alan (Aktif) DID
+                      </span>
+                      <span className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
+                        <CheckCircle size={14} />
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-2xl font-black text-slate-900 dark:text-slate-100">
+                        {didReportData.kpis.activeCount}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-bold">
+                        / {didReportData.kpis.totalDefined}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      Toplam {didReportData.kpis.totalInboundCalls} gelen • {didReportData.kpis.totalOutboundCalls} giden çağrı
+                    </span>
+                  </div>
+
+                  <div
+                    onClick={() =>
+                      setFilterDidTrafficStatus((prev) => (prev === "no_inbound" ? "all" : "no_inbound"))
+                    }
+                    className={`bg-white dark:bg-slate-900 p-4 rounded-3xl border shadow-sm flex flex-col gap-1.5 cursor-pointer transition hover:scale-[1.01] ${
+                      filterDidTrafficStatus === "no_inbound"
+                        ? `${border} ring-1 ${ring}`
+                        : "border-slate-200/70 dark:border-slate-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Çağrı Almayan (0 Gelen) DID
+                      </span>
+                      <span className="p-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400">
+                        <AlertTriangle size={14} />
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-2xl font-black text-amber-600 dark:text-amber-400">
+                        {didReportData.kpis.zeroInboundCount}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-bold">Numara</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      {didReportData.kpis.zeroTrafficCount} numarada hiç trafik (0 gelen / 0 giden) yok
+                    </span>
+                  </div>
+
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/70 dark:border-slate-800 shadow-sm flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Toplam Görüşme Süresi
+                      </span>
+                      <span className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
+                        <Clock size={14} />
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-xl font-black text-slate-900 dark:text-slate-100">
+                        {formatMinutesVerbose(didReportData.kpis.totalInboundSec + didReportData.kpis.totalOutboundSec)}
+                      </span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      Gelen: {formatMinutesVerbose(didReportData.kpis.totalInboundSec)} • Giden: {formatMinutesVerbose(didReportData.kpis.totalOutboundSec)}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Quick Filter Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { id: "all", label: `Tüm Numaralar (${didReportData.kpis.totalDefined})` },
+                      { id: "active", label: `Çağrı Alanlar (${didReportData.kpis.activeCount})` },
+                      { id: "no_inbound", label: `Çağrı Almayanlar - 0 Gelen (${didReportData.kpis.zeroInboundCount})` },
+                      { id: "idle", label: `Sıfır Trafik (${didReportData.kpis.zeroTrafficCount})` },
+                    ].map((chip) => {
+                      const active = filterDidTrafficStatus === chip.id;
+                      return (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => setFilterDidTrafficStatus(chip.id)}
+                          className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                            active
+                              ? `${bg} text-white ${border} shadow-sm`
+                              : "bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-primary"
+                          }`}
+                        >
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    Tarih: <span className="font-bold text-slate-700 dark:text-slate-200">{filterStartDate || "-"}</span> —{" "}
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{filterEndDate || "-"}</span>
+                    {(filterTrunkStartHour !== "" || filterTrunkEndHour !== "") && (
+                      <span className="ml-2">
+                        ({String(filterTrunkStartHour || "0").padStart(2, "0")}:00 -{" "}
+                        {String(filterTrunkEndHour || "23").padStart(2, "0")}:59)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* DID Table */}
+                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[860px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/30">
+                        {[
+                          { key: "didNumber", label: "DID Numarası" },
+                          { key: "trafficStatus", label: "Trafik Durumu" },
+                          { key: "inboundCount", label: "Gelen Çağrı Adedi" },
+                          { key: "outboundCount", label: "Giden Çağrı Adedi" },
+                          { key: "inboundDuration", label: "Gelen Çağrı Süresi" },
+                          { key: "outboundDuration", label: "Giden Çağrı Süresi" },
+                          { key: "lastCallAt", label: "Son Çağrı Zamanı" },
+                        ]
+                          .filter((col) => visibleColumns[col.key])
+                          .map((col) => {
+                            const isSorted = didSortConfig.key === col.key;
+                            return (
+                              <th
+                                key={col.key}
+                                onClick={() =>
+                                  setDidSortConfig((prev) => ({
+                                    key: col.key,
+                                    dir: prev.key === col.key && prev.dir === "desc" ? "asc" : "desc",
+                                  }))
+                                }
+                                className="p-3.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 cursor-pointer select-none hover:text-primary transition"
+                              >
+                                <div className="inline-flex items-center gap-1">
+                                  <span>{col.label}</span>
+                                  {isSorted &&
+                                    (didSortConfig.dir === "asc" ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
+                                </div>
+                              </th>
+                            );
+                          })}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
+                      {didReportData.rows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={Math.max(1, Object.values(visibleColumns).filter(Boolean).length)}
+                            className="p-10 text-center text-xs font-semibold text-slate-400 dark:text-slate-500"
+                          >
+                            {definedDidInventory.length === 0
+                              ? "Sistemde henüz tanımlı bir DID numarası (SIP Trunk, Gelen Arama Kuralı veya Akış DID bloğu) bulunamadı."
+                              : "Seçilen filtre kriterlerine uygun DID kaydı bulunamadı."}
+                          </td>
+                        </tr>
+                      ) : (
+                        didReportData.rows.map((row) => (
+                          <tr
+                            key={row.key}
+                            className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
+                          >
+                            {visibleColumns.didNumber && (
+                              <td className="p-3.5">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="font-mono text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                                    {row.displayNumber}
+                                  </span>
+                                  <span className="text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                                    {row.sourceLabel}
+                                  </span>
+                                </div>
+                              </td>
+                            )}
+                            {visibleColumns.trafficStatus && (
+                              <td className="p-3.5">
+                                {row.trafficStatus === "active" ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-emerald-50 dark:bg-emerald-950/30 text-emerald-600 dark:text-emerald-400 border border-emerald-200/70 dark:border-emerald-800/50">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                                    {row.trafficStatusLabel}
+                                  </span>
+                                ) : row.trafficStatus === "no_inbound" ? (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border border-amber-200/70 dark:border-amber-800/50">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                                    {row.trafficStatusLabel}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200/70 dark:border-rose-800/50">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                    {row.trafficStatusLabel}
+                                  </span>
+                                )}
+                              </td>
+                            )}
+                            {visibleColumns.inboundCount && (
+                              <td className="p-3.5 text-xs">
+                                <div className="flex items-baseline gap-1.5">
+                                  <span
+                                    className={`text-sm font-black ${
+                                      row.inboundCount === 0
+                                        ? "text-rose-500 dark:text-rose-400"
+                                        : "text-slate-800 dark:text-slate-100"
+                                    }`}
+                                  >
+                                    {row.inboundCount}
+                                  </span>
+                                  {row.inboundCount > 0 && (
+                                    <span className="text-[10px] font-semibold text-slate-400">
+                                      ({row.inboundAnsweredCount} yanıtlı)
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                            {visibleColumns.outboundCount && (
+                              <td className="p-3.5 text-xs">
+                                <div className="flex items-baseline gap-1.5">
+                                  <span className="text-sm font-black text-slate-800 dark:text-slate-100">
+                                    {row.outboundCount}
+                                  </span>
+                                  {row.outboundCount > 0 && (
+                                    <span className="text-[10px] font-semibold text-slate-400">
+                                      ({row.outboundAnsweredCount} yanıtlı)
+                                    </span>
+                                  )}
+                                </div>
+                              </td>
+                            )}
+                            {visibleColumns.inboundDuration && (
+                              <td className="p-3.5 text-xs font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                                {row.inboundDurationText}
+                                {row.inboundSeconds > 0 && (
+                                  <span className="block text-[10px] font-normal text-slate-400">
+                                    ({(row.inboundSeconds / 60).toFixed(1)} dk)
+                                  </span>
+                                )}
+                              </td>
+                            )}
+                            {visibleColumns.outboundDuration && (
+                              <td className="p-3.5 text-xs font-bold text-slate-700 dark:text-slate-200 whitespace-nowrap">
+                                {row.outboundDurationText}
+                                {row.outboundSeconds > 0 && (
+                                  <span className="block text-[10px] font-normal text-slate-400">
+                                    ({(row.outboundSeconds / 60).toFixed(1)} dk)
+                                  </span>
+                                )}
+                              </td>
+                            )}
+                            {visibleColumns.lastCallAt && (
+                              <td className="p-3.5 text-xs font-semibold text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                {row.lastCallFormatted}
+                              </td>
+                            )}
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ) : isTrunkMinutesMode ? (
+              <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-6 scrollbar-thin bg-slate-50/30 dark:bg-slate-900/10 animate-in fade-in duration-200">
+                {/* KPI Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Card 1: Seçili Tarih Giden Arama Dakikası */}
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/70 dark:border-slate-800 shadow-sm flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Seçili Aralık Dış Arama (Giden)
+                      </span>
+                      <span className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
+                        <PhoneForwarded size={14} />
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-2xl font-black text-slate-900 dark:text-slate-100">
+                        {trunkMinutesReportData.kpis.periodOutboundBilledMin.toFixed(1)}
+                      </span>
+                      <span className="text-xs font-extrabold text-slate-500">dk</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      Net: {trunkMinutesReportData.kpis.periodOutboundNetText} • {trunkMinutesReportData.kpis.periodOutboundCalls} giden çağrı
+                    </span>
+                  </div>
+
+                  {/* Card 2: Seçili Tarih Gelen Çağrı Dakikası */}
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/70 dark:border-slate-800 shadow-sm flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Seçili Aralık Gelen Çağrı Süresi
+                      </span>
+                      <span className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
+                        <Phone size={14} />
+                      </span>
+                    </div>
+                    <div className="flex items-baseline gap-2 mt-0.5">
+                      <span className="text-2xl font-black text-slate-900 dark:text-slate-100">
+                        {trunkMinutesReportData.kpis.periodInboundNetMin.toFixed(1)}
+                      </span>
+                      <span className="text-xs font-extrabold text-slate-500">dk</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      Toplam: {trunkMinutesReportData.kpis.periodInboundText} • {trunkMinutesReportData.kpis.periodInboundCalls} gelen çağrı
+                    </span>
+                  </div>
+
+                  {/* Card 3: Bu Dönem Paket Kullanımı */}
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/70 dark:border-slate-800 shadow-sm flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Aylık Paket Harcanan / Toplam
+                      </span>
+                      <span className={`p-1.5 rounded-xl ${lightBg} ${text}`}>
+                        <Clock size={14} />
+                      </span>
+                    </div>
+                    {trunkMinutesReportData.kpis.totalMonthlyPackageMin > 0 ? (
+                      <>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                          <span className="text-2xl font-black text-slate-900 dark:text-slate-100">
+                            {Math.round(trunkMinutesReportData.kpis.totalCycleUsedMin).toLocaleString("tr-TR")}
+                          </span>
+                          <span className="text-xs font-bold text-slate-400">
+                            / {trunkMinutesReportData.kpis.totalMonthlyPackageMin.toLocaleString("tr-TR")} dk
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                          {trunkMinutesReportData.kpis.definedPackageTrunkCount} hatta aylık paket tanımlı (%{trunkMinutesReportData.kpis.overallPackagePct.toFixed(1)} doluluk)
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-baseline gap-2 mt-0.5">
+                          <span className="text-lg font-black text-slate-600 dark:text-slate-300">
+                            Paket Tanımsız
+                          </span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                          SIP Trunk ayarlarından hatlara aylık dakika paketi tanımlayabilirsiniz
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Card 4: Kalan Paket Dakikası / Aşım */}
+                  <div className="bg-white dark:bg-slate-900 p-4 rounded-3xl border border-slate-200/70 dark:border-slate-800 shadow-sm flex flex-col gap-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
+                        Kalan Paket Dakikası
+                      </span>
+                      <span
+                        className={`p-1.5 rounded-xl ${
+                          trunkMinutesReportData.kpis.totalCycleOverageMin > 0
+                            ? "bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400"
+                            : `${lightBg} ${text}`
+                        }`}
+                      >
+                        <Activity size={14} />
+                      </span>
+                    </div>
+                    {trunkMinutesReportData.kpis.totalMonthlyPackageMin > 0 ? (
+                      <>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                          <span
+                            className={`text-2xl font-black ${
+                              trunkMinutesReportData.kpis.totalCycleOverageMin > 0
+                                ? "text-rose-600 dark:text-rose-400"
+                                : "text-slate-900 dark:text-slate-100"
+                            }`}
+                          >
+                            {Math.round(trunkMinutesReportData.kpis.totalCycleRemainingMin).toLocaleString("tr-TR")}
+                          </span>
+                          <span className="text-xs font-extrabold text-slate-500">dk kaldı</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                          {trunkMinutesReportData.kpis.totalCycleOverageMin > 0
+                            ? `Dikkat: +${trunkMinutesReportData.kpis.totalCycleOverageMin.toFixed(1)} dk paket aşımı var!`
+                            : "Yenilenme gününde saat 00:00'da otomatik sıfırlanır"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex items-baseline gap-2 mt-0.5">
+                          <span className="text-2xl font-black text-slate-400">—</span>
+                        </div>
+                        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                          Sınırsız / kotasız süre izleme modu
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Quick Filter & Info Bar */}
+                <div className="flex flex-wrap items-center justify-between gap-3 bg-white dark:bg-slate-900 p-3.5 rounded-2xl border border-slate-200/70 dark:border-slate-800 shadow-2xs">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {[
+                      { id: "all", label: "Tüm Dış Hatlar" },
+                      { id: "defined", label: "Paket Tanımlı Hatlar" },
+                      { id: "warning", label: "Kritik Doluluk (%80+)" },
+                      { id: "exceeded", label: "Paketi Aşanlar (%100+)" },
+                    ].map((chip) => {
+                      const active = filterTrunkPackageStatus === chip.id;
+                      return (
+                        <button
+                          key={chip.id}
+                          type="button"
+                          onClick={() => setFilterTrunkPackageStatus(chip.id)}
+                          className={`px-3 py-1.5 rounded-xl text-[11px] font-bold border transition cursor-pointer ${
+                            active
+                              ? `${bg} text-white ${border} shadow-sm`
+                              : "bg-slate-50 dark:bg-slate-800/70 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-primary"
+                          }`}
+                        >
+                          {chip.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
+                    Seçili Aralık:{" "}
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{filterStartDate || "-"}</span> —{" "}
+                    <span className="font-bold text-slate-700 dark:text-slate-200">{filterEndDate || "-"}</span>
+                    {(filterTrunkStartHour !== "" || filterTrunkEndHour !== "") && (
+                      <span className="ml-2">
+                        ({String(filterTrunkStartHour || "0").padStart(2, "0")}:00 -{" "}
+                        {String(filterTrunkEndHour || "23").padStart(2, "0")}:59)
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Trunk Package Usage Table */}
+                <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200/80 dark:border-slate-800 shadow-sm overflow-x-auto">
+                  <table className="w-full text-left border-collapse min-w-[960px]">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-950/30">
+                        {[
+                          { colKey: "trunkName", sortKey: "trunkName", label: "Dış Hat (SIP Trunk)" },
+                          { colKey: "periodOutboundMin", sortKey: "periodOutboundBilledSec", label: "Seçili Aralık Giden Süre" },
+                          { colKey: "periodInboundMin", sortKey: "periodInboundNetSec", label: "Seçili Aralık Gelen Süre" },
+                          { colKey: "monthlyPackage", sortKey: "monthlyPackageMinutes", label: "Tanımlı Aylık Paket" },
+                          { colKey: "cycleUsedMin", sortKey: "cycleUsedMinutes", label: "Bu Dönem Harcanan" },
+                          { colKey: "cycleRemainingMin", sortKey: "cycleRemainingMinutes", label: "Kalan / Aşım Dakikası" },
+                          { colKey: "packageProgress", sortKey: "cycleUsagePct", label: "Paket Doluluk Oranı" },
+                          { colKey: "resetInfo", sortKey: "daysUntilReset", label: "Yenilenme Günü" },
+                        ]
+                          .filter((c) => visibleColumns[c.colKey])
+                          .map((c) => {
+                            const isSorted = trunkMinutesSortConfig.key === c.sortKey;
+                            return (
+                              <th
+                                key={c.colKey}
+                                onClick={() =>
+                                  setTrunkMinutesSortConfig((prev) => ({
+                                    key: c.sortKey,
+                                    dir: prev.key === c.sortKey && prev.dir === "desc" ? "asc" : "desc",
+                                  }))
+                                }
+                                className="p-3.5 text-[10px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 cursor-pointer select-none hover:text-primary transition"
+                              >
+                                <div className="inline-flex items-center gap-1">
+                                  <span>{c.label}</span>
+                                  {isSorted &&
+                                    (trunkMinutesSortConfig.dir === "asc" ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
+                                </div>
+                              </th>
+                            );
+                          })}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/70">
+                      {trunkMinutesReportData.rows.length === 0 ? (
+                        <tr>
+                          <td
+                            colSpan={Math.max(1, Object.values(visibleColumns).filter(Boolean).length)}
+                            className="p-10 text-center text-xs font-semibold text-slate-400 dark:text-slate-500"
+                          >
+                            {trunks.length === 0
+                              ? "Sistemde henüz tanımlı bir Dış Hat (SIP Trunk) bulunamadı."
+                              : "Seçilen filtre kriterlerine uygun dış hat kaydı bulunamadı."}
+                          </td>
+                        </tr>
+                      ) : (
+                        trunkMinutesReportData.rows.map((row) => {
+                          const hasPkg = row.monthlyPackageMinutes > 0;
+                          const isExceeded = hasPkg && row.cycleUsagePct >= 100;
+                          const isWarning = hasPkg && !isExceeded && row.cycleUsagePct >= 80;
+                          const barWidth = hasPkg ? Math.min(100, Math.max(0, row.cycleUsagePct)) : 0;
+
+                          return (
+                            <tr
+                              key={row.trunkKey}
+                              className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition-colors"
+                            >
+                              {visibleColumns.trunkName && (
+                                <td className="p-3.5">
+                                  <div className="flex flex-col gap-0.5">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                                        {row.trunkName}
+                                      </span>
+                                      {!row.isActive && (
+                                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-400">
+                                          Pasif
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="font-mono text-[10px] font-semibold text-slate-400 dark:text-slate-500">
+                                      {row.didNumber ? `DID: ${row.didNumber}` : "DID belirtilmedi"} • Periyot: {row.billingPeriodSeconds} sn
+                                    </span>
+                                  </div>
+                                </td>
+                              )}
+
+                              {visibleColumns.periodOutboundMin && (
+                                <td className="p-3.5 text-xs">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="font-black text-slate-800 dark:text-slate-100">
+                                      {row.periodOutboundBilledMin.toFixed(1)} dk
+                                    </span>
+                                    <span className="text-[10px] font-medium text-slate-400">
+                                      Net: {row.periodOutboundNetText} ({row.periodOutboundCalls} çağrı)
+                                    </span>
+                                  </div>
+                                </td>
+                              )}
+
+                              {visibleColumns.periodInboundMin && (
+                                <td className="p-3.5 text-xs">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="font-black text-slate-800 dark:text-slate-100">
+                                      {row.periodInboundNetMin.toFixed(1)} dk
+                                    </span>
+                                    <span className="text-[10px] font-medium text-slate-400">
+                                      {row.periodInboundNetText} ({row.periodInboundCalls} çağrı)
+                                    </span>
+                                  </div>
+                                </td>
+                              )}
+
+                              {visibleColumns.monthlyPackage && (
+                                <td className="p-3.5 text-xs">
+                                  {hasPkg ? (
+                                    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[11px] font-extrabold border ${lightBg} ${text} ${borderLight}`}>
+                                      {row.monthlyPackageMinutes.toLocaleString("tr-TR")} dk / Ay
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] font-semibold text-slate-400 italic">
+                                      Tanımsız / Sınırsız
+                                    </span>
+                                  )}
+                                </td>
+                              )}
+
+                              {visibleColumns.cycleUsedMin && (
+                                <td className="p-3.5 text-xs">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="font-black text-slate-800 dark:text-slate-100">
+                                      {row.cycleUsedMinutes.toFixed(1)} dk
+                                    </span>
+                                    <span className="text-[10px] font-medium text-slate-400">
+                                      Dönem başı: {row.cycleStartDate}
+                                    </span>
+                                  </div>
+                                </td>
+                              )}
+
+                              {visibleColumns.cycleRemainingMin && (
+                                <td className="p-3.5 text-xs">
+                                  {hasPkg ? (
+                                    row.cycleOverageMinutes > 0 ? (
+                                      <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-xl text-[10px] font-extrabold bg-rose-50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 border border-rose-200 dark:border-rose-800/50">
+                                        +{row.cycleOverageMinutes.toFixed(1)} dk Paket Aşımı
+                                      </span>
+                                    ) : (
+                                      <span className="font-extrabold text-emerald-600 dark:text-emerald-400">
+                                        {row.cycleRemainingMinutes.toFixed(1)} dk Kalan
+                                      </span>
+                                    )
+                                  ) : (
+                                    <span className="text-slate-400">—</span>
+                                  )}
+                                </td>
+                              )}
+
+                              {visibleColumns.packageProgress && (
+                                <td className="p-3.5 min-w-[180px]">
+                                  {hasPkg ? (
+                                    <div className="flex flex-col gap-1.5">
+                                      <div className="flex items-center justify-between text-[10px] font-extrabold">
+                                        <span
+                                          className={
+                                            isExceeded
+                                              ? "text-rose-600 dark:text-rose-400"
+                                              : isWarning
+                                              ? "text-amber-600 dark:text-amber-400"
+                                              : "text-slate-700 dark:text-slate-200"
+                                          }
+                                        >
+                                          %{row.cycleUsagePct.toFixed(1)}
+                                        </span>
+                                        <span className="text-slate-400">
+                                          {isExceeded ? "Aşım!" : isWarning ? "Kritik Seviye" : "Normal"}
+                                        </span>
+                                      </div>
+                                      <div className="w-full h-2 rounded-full bg-slate-100 dark:bg-slate-800 overflow-hidden">
+                                        <div
+                                          className={`h-full rounded-full transition-all duration-300 ${
+                                            isExceeded
+                                              ? "bg-rose-500"
+                                              : isWarning
+                                              ? "bg-amber-500"
+                                              : bg
+                                          }`}
+                                          style={{ width: `${barWidth}%` }}
+                                        />
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <span className="text-[11px] text-slate-400">Kota yok</span>
+                                  )}
+                                </td>
+                              )}
+
+                              {visibleColumns.resetInfo && (
+                                <td className="p-3.5 text-xs whitespace-nowrap">
+                                  <div className="flex flex-col gap-0.5">
+                                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                                      Her Ayın {row.packageResetDay}. Günü
+                                    </span>
+                                    <span className="text-[10px] font-semibold text-slate-400">
+                                      Sıfırlamaya {row.daysUntilReset} gün ({row.nextResetDate})
+                                    </span>
+                                  </div>
+                                </td>
+                              )}
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ) : (isCdrMode || isAudioMode || isTranscriptsMode || isSentimentMode || isQAMode || isNotesMode) ? (
               /* CDR, Audio, Transcripts, Sentiment, QA & Notes Table Mode */

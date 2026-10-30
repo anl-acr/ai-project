@@ -297,6 +297,9 @@ class Trunk(Base):
     call_limit_enabled = Column(Boolean, default=False)
     call_limit_direction = Column(String, default="both") # both, outbound, inbound
     max_channels = Column(Integer, default=30)
+    monthly_package_minutes = Column(Integer, default=0)
+    package_reset_day = Column(Integer, default=1)
+    billing_period_seconds = Column(Integer, default=60)
     sip_headers = Column(JSON, default=dict)
     is_active = Column(Boolean, default=True)
 
