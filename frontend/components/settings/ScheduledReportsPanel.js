@@ -16,8 +16,8 @@ import {
   ArrowDown,
   ArrowUp,
   Users,
-  X,
-  Check
+  FileText,
+  X
 } from "lucide-react";
 import ConfirmDeleteModal from "../dashboard/ConfirmDeleteModal";
 import { useTheme } from "../../utils/theme";
@@ -120,10 +120,22 @@ const EMPTY_FORM = {
   whatsapp_recipients: ""
 };
 
-function UserDualListBox({
+function DualListBox({
+  title,
+  icon: TitleIcon,
   availableItems,
   selectedIds,
   onChangeSelectedIds,
+  availableCountSuffix = "Öğe",
+  selectedCountSuffix = "Seçili",
+  availableSearchPlaceholder = "Arama...",
+  selectedSearchPlaceholder = "Seçililerde ara...",
+  emptyAvailableText = "Eklenebilecek öğe kalmadı veya aramayla eşleşmedi.",
+  emptySelectedText = "Sol listeden seçim yapıp ok butonuyla (veya çift tıklayarak) buraya ekleyin.",
+  columns = [],
+  matchesItemQuery,
+  renderRowCells,
+  allowOrdering = false,
   lightBg,
   lightText,
   ring,
@@ -152,18 +164,15 @@ function UserDualListBox({
     [availableItems, normalizedSelectedIds]
   );
 
-  const matchesQuery = (item, q) => {
+  const defaultMatcher = (item, q) => {
     if (!q.trim()) return true;
     const low = q.trim().toLowerCase();
-    return (
-      String(item.full_name || "").toLowerCase().includes(low) ||
-      String(item.extension || "").toLowerCase().includes(low) ||
-      String(item.email || "").toLowerCase().includes(low)
-    );
+    return Object.values(item).some((v) => String(v || "").toLowerCase().includes(low));
   };
 
-  const filteredAvailable = unselectedItems.filter((i) => matchesQuery(i, availableSearch));
-  const filteredSelected = selectedItems.filter((i) => matchesQuery(i, selectedSearch));
+  const matchFn = matchesItemQuery || defaultMatcher;
+  const filteredAvailable = unselectedItems.filter((i) => matchFn(i, availableSearch));
+  const filteredSelected = selectedItems.filter((i) => matchFn(i, selectedSearch));
 
   const toggleAvailable = (id) => {
     const sid = String(id);
@@ -208,43 +217,44 @@ function UserDualListBox({
     setCheckedSelected((prev) => prev.filter((x) => x !== sid));
   };
 
-  const renderUserCells = (item) => {
-    const hasValidEmail = String(item.email || "").includes("@");
-    return (
-      <>
-        <td className="p-2 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
-          {item.extension || "-"}
-        </td>
-        <td className="p-2">
-          <div className="font-semibold text-slate-800 dark:text-slate-200 leading-tight">
-            {item.full_name}
-          </div>
-          {hasValidEmail ? (
-            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[165px]" title={item.email}>
-              {item.email}
-            </div>
-          ) : (
-            <div className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
-              E-posta tanımlı değil
-            </div>
-          )}
-        </td>
-      </>
-    );
+  const moveUp = (e) => {
+    e.preventDefault();
+    if (checkedSelected.length !== 1) return;
+    const id = checkedSelected[0];
+    const index = normalizedSelectedIds.indexOf(id);
+    if (index > 0) {
+      const next = [...normalizedSelectedIds];
+      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      onChangeSelectedIds(next);
+    }
+  };
+
+  const moveDown = (e) => {
+    e.preventDefault();
+    if (checkedSelected.length !== 1) return;
+    const id = checkedSelected[0];
+    const index = normalizedSelectedIds.indexOf(id);
+    if (index > -1 && index < normalizedSelectedIds.length - 1) {
+      const next = [...normalizedSelectedIds];
+      [next[index + 1], next[index]] = [next[index], next[index + 1]];
+      onChangeSelectedIds(next);
+    }
   };
 
   return (
     <div className="flex flex-col gap-2.5">
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-          <Users size={13} className={lightText} />
-          <span>Kullanıcılar (Çift tıklayarak veya oklarla istediğiniz kadar kullanıcı ekleyin)</span>
-        </span>
-      </div>
+      {title && (
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+            {TitleIcon && <TitleIcon size={13} className={lightText} />}
+            <span>{title}</span>
+          </span>
+        </div>
+      )}
 
       <div className="flex flex-col md:flex-row items-stretch gap-2.5 w-full">
-        {/* Müsait Kullanıcılar */}
-        <div className={`flex-1 rounded-xl flex flex-col overflow-hidden h-[225px] border bg-white dark:bg-slate-900 ${borderLight}`}>
+        {/* Müsait Liste */}
+        <div className={`flex-1 rounded-xl flex flex-col overflow-hidden h-[235px] border bg-white dark:bg-slate-900 ${borderLight}`}>
           <div className={`flex items-center justify-between px-3 py-2 border-b bg-slate-50 dark:bg-slate-900/70 ${borderLight}`}>
             <label className="flex items-center gap-2 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
               <input
@@ -255,7 +265,9 @@ function UserDualListBox({
                 }
                 className={`w-3.5 h-3.5 rounded border-slate-300 focus:${ring}`}
               />
-              <span>{filteredAvailable.length} Kullanıcı</span>
+              <span>
+                {filteredAvailable.length} {availableCountSuffix}
+              </span>
             </label>
             <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Müsait</span>
           </div>
@@ -265,7 +277,7 @@ function UserDualListBox({
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
               <input
                 type="text"
-                placeholder="İsim, dahili veya e-posta ara..."
+                placeholder={availableSearchPlaceholder}
                 value={availableSearch}
                 onChange={(e) => setAvailableSearch(e.target.value)}
                 className={`w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border focus:outline-none bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 ${borderLight}`}
@@ -276,17 +288,22 @@ function UserDualListBox({
           <div className="flex-1 overflow-y-auto px-1.5 pb-1.5">
             {filteredAvailable.length === 0 ? (
               <div className="h-full flex items-center justify-center text-[11px] text-slate-400 p-3 text-center">
-                Eklenebilecek kullanıcı kalmadı veya aramayla eşleşmedi.
+                {emptyAvailableText}
               </div>
             ) : (
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
-                  <tr>
-                    <th className="p-2 w-7"></th>
-                    <th className="p-2 text-[10px] font-bold text-slate-400 uppercase">Dahili</th>
-                    <th className="p-2 text-[10px] font-bold text-slate-400 uppercase">Kullanıcı & E-Posta</th>
-                  </tr>
-                </thead>
+                {columns.length > 0 && (
+                  <thead className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                    <tr>
+                      <th className="p-2 w-7"></th>
+                      {columns.map((col, idx) => (
+                        <th key={idx} className="p-2 text-[10px] font-bold text-slate-400 uppercase">
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                )}
                 <tbody className="divide-y divide-slate-100/70 dark:divide-slate-800/60">
                   {filteredAvailable.map((item) => {
                     const isChecked = checkedAvailable.includes(String(item.id));
@@ -309,7 +326,7 @@ function UserDualListBox({
                             className="w-3.5 h-3.5 rounded border-slate-300"
                           />
                         </td>
-                        {renderUserCells(item)}
+                        {renderRowCells(item)}
                       </tr>
                     );
                   })}
@@ -325,7 +342,7 @@ function UserDualListBox({
             type="button"
             onClick={moveRight}
             disabled={checkedAvailable.length === 0}
-            title="Seçili kullanıcıları rapora ekle"
+            title="Seçilileri ekle"
             className={`p-2 rounded-lg border transition-colors bg-white dark:bg-slate-800 ${borderLight} ${
               checkedAvailable.length > 0
                 ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 shadow-sm"
@@ -339,7 +356,7 @@ function UserDualListBox({
             type="button"
             onClick={moveLeft}
             disabled={checkedSelected.length === 0}
-            title="Seçili kullanıcıları çıkar"
+            title="Seçilileri çıkar"
             className={`p-2 rounded-lg border transition-colors bg-white dark:bg-slate-800 ${borderLight} ${
               checkedSelected.length > 0
                 ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 shadow-sm"
@@ -351,8 +368,8 @@ function UserDualListBox({
           </button>
         </div>
 
-        {/* Seçili Alıcı Kullanıcılar */}
-        <div className={`flex-1 rounded-xl flex flex-col overflow-hidden h-[225px] border ${borderLight} ${lightBg}`}>
+        {/* Seçili Liste */}
+        <div className={`flex-1 rounded-xl flex flex-col overflow-hidden h-[235px] border ${borderLight} ${lightBg}`}>
           <div className={`flex items-center justify-between px-3 py-2 border-b bg-slate-50 dark:bg-slate-900/70 ${borderLight}`}>
             <label className="flex items-center gap-2 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
               <input
@@ -363,7 +380,9 @@ function UserDualListBox({
                 }
                 className={`w-3.5 h-3.5 rounded border-slate-300 focus:${ring}`}
               />
-              <span>{filteredSelected.length} Seçili Alıcı</span>
+              <span>
+                {filteredSelected.length} {selectedCountSuffix}
+              </span>
             </label>
             <span className={`text-[10px] font-bold uppercase tracking-wider ${lightText}`}>Seçili</span>
           </div>
@@ -373,7 +392,7 @@ function UserDualListBox({
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
               <input
                 type="text"
-                placeholder="Seçililerde ara..."
+                placeholder={selectedSearchPlaceholder}
                 value={selectedSearch}
                 onChange={(e) => setSelectedSearch(e.target.value)}
                 className={`w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border focus:outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 ${borderLight}`}
@@ -384,17 +403,22 @@ function UserDualListBox({
           <div className="flex-1 overflow-y-auto px-1.5 pb-1.5 bg-white/40 dark:bg-slate-950/30">
             {filteredSelected.length === 0 ? (
               <div className="h-full flex items-center justify-center text-[11px] text-slate-400 p-3 text-center">
-                Sol listeden kullanıcı seçip ok butonuyla (veya çift tıklayarak) buraya ekleyin.
+                {emptySelectedText}
               </div>
             ) : (
               <table className="w-full text-left text-xs border-collapse">
-                <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-900/95 border-b border-slate-200/70 dark:border-slate-800">
-                  <tr>
-                    <th className="p-2 w-7"></th>
-                    <th className="p-2 text-[10px] font-bold text-slate-400 uppercase">Dahili</th>
-                    <th className="p-2 text-[10px] font-bold text-slate-400 uppercase">Kullanıcı & E-Posta</th>
-                  </tr>
-                </thead>
+                {columns.length > 0 && (
+                  <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-900/95 border-b border-slate-200/70 dark:border-slate-800">
+                    <tr>
+                      <th className="p-2 w-7"></th>
+                      {columns.map((col, idx) => (
+                        <th key={idx} className="p-2 text-[10px] font-bold text-slate-400 uppercase">
+                          {col}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                )}
                 <tbody className="divide-y divide-slate-100/70 dark:divide-slate-800/60">
                   {filteredSelected.map((item) => {
                     const isChecked = checkedSelected.includes(String(item.id));
@@ -417,7 +441,7 @@ function UserDualListBox({
                             className="w-3.5 h-3.5 rounded border-slate-300"
                           />
                         </td>
-                        {renderUserCells(item)}
+                        {renderRowCells(item)}
                       </tr>
                     );
                   })}
@@ -426,6 +450,38 @@ function UserDualListBox({
             )}
           </div>
         </div>
+
+        {/* Sıralama Okları (İsteğe Bağlı) */}
+        {allowOrdering && (
+          <div className="hidden md:flex flex-col items-center justify-center gap-2 px-0.5">
+            <button
+              type="button"
+              onClick={moveUp}
+              disabled={checkedSelected.length !== 1}
+              title="Yukarı Taşı"
+              className={`p-1.5 rounded-lg border transition-colors bg-white dark:bg-slate-800 ${borderLight} ${
+                checkedSelected.length === 1
+                  ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700"
+                  : "text-slate-300 dark:text-slate-600 cursor-not-allowed"
+              }`}
+            >
+              <ArrowUp size={15} />
+            </button>
+            <button
+              type="button"
+              onClick={moveDown}
+              disabled={checkedSelected.length !== 1}
+              title="Aşağı Taşı"
+              className={`p-1.5 rounded-lg border transition-colors bg-white dark:bg-slate-800 ${borderLight} ${
+                checkedSelected.length === 1
+                  ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700"
+                  : "text-slate-300 dark:text-slate-600 cursor-not-allowed"
+              }`}
+            >
+              <ArrowDown size={15} />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -448,7 +504,6 @@ export default function ScheduledReportsPanel({
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState(EMPTY_FORM);
-  const [moduleSearch, setModuleSearch] = useState("");
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [runningId, setRunningId] = useState(null);
@@ -515,16 +570,15 @@ export default function ScheduledReportsPanel({
     fetchSchedules();
   }, []);
 
-  const allModuleEntries = useMemo(() => Object.entries(reportTypesMap), [reportTypesMap]);
-
-  const filteredModuleEntries = useMemo(() => {
-    if (!moduleSearch.trim()) return allModuleEntries;
-    const q = moduleSearch.trim().toLowerCase();
-    return allModuleEntries.filter(
-      ([code, label]) =>
-        String(label).toLowerCase().includes(q) || String(code).toLowerCase().includes(q)
-    );
-  }, [allModuleEntries, moduleSearch]);
+  const reportModuleItems = useMemo(
+    () =>
+      Object.entries(reportTypesMap).map(([code, label], idx) => ({
+        id: code,
+        orderNo: idx + 1,
+        name: label
+      })),
+    [reportTypesMap]
+  );
 
   const selectedUsersPreview = useMemo(() => {
     const ids = Array.isArray(formData.email_user_ids) ? formData.email_user_ids.map(String) : [];
@@ -544,14 +598,12 @@ export default function ScheduledReportsPanel({
 
   const openCreateModal = () => {
     if (!canWrite) return;
-    setModuleSearch("");
     setFormData({ ...EMPTY_FORM });
     setIsModalOpen(true);
   };
 
   const openEditModal = (item) => {
     if (!canWrite) return;
-    setModuleSearch("");
 
     let initialUserIds = Array.isArray(item.email_user_ids)
       ? item.email_user_ids.map((x) => String(x))
@@ -602,38 +654,15 @@ export default function ScheduledReportsPanel({
     setIsModalOpen(true);
   };
 
-  const toggleReportModule = (code) => {
-    setFormData((prev) => {
-      const exists = prev.report_types.includes(code);
-      if (exists && prev.report_types.length === 1) return prev;
-      return {
-        ...prev,
-        report_types: exists
-          ? prev.report_types.filter((c) => c !== code)
-          : [...prev.report_types, code]
-      };
-    });
-  };
-
-  const selectAllReportModules = () => {
-    setFormData((prev) => ({
-      ...prev,
-      report_types: Object.keys(reportTypesMap)
-    }));
-  };
-
-  const resetReportModules = () => {
-    setFormData((prev) => ({
-      ...prev,
-      report_types: ["reports_cdr"]
-    }));
-  };
-
   const handleSave = async (e) => {
     e.preventDefault();
     if (!canWrite) return;
     if (!formData.name.trim()) {
       showToast("Lütfen zamanlanmış rapor için bir başlık girin.", "error");
+      return;
+    }
+    if (!Array.isArray(formData.report_types) || formData.report_types.length === 0) {
+      showToast("Lütfen rapora dahil edilecek en az bir rapor modülü seçin.", "error");
       return;
     }
     if (!formData.send_email && !formData.send_whatsapp) {
@@ -1118,74 +1147,47 @@ export default function ScheduledReportsPanel({
                 </div>
               </div>
 
-              {/* All 37 Report Modules Selection */}
-              <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
-                      Rapora Dahil Edilecek Modüller
-                    </label>
-                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${lightBg} ${lightText} border ${borderLight}`}>
-                      {formData.report_types.length} / {allModuleEntries.length} Seçili
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={selectAllReportModules}
-                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${lightBg} ${lightText} ${borderLight}`}
-                    >
-                      Tümünü Seç ({allModuleEntries.length})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={resetReportModules}
-                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                    >
-                      Sıfırla
-                    </button>
-                  </div>
-                </div>
-
-                <div className="relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input
-                    type="text"
-                    value={moduleSearch}
-                    onChange={(e) => setModuleSearch(e.target.value)}
-                    placeholder="37 rapor modülü içinde ara (Örn: CDR, Kuyruk, Mola, Anket, MOS, DID...)"
-                    className={`w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
-                  />
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-56 overflow-y-auto p-1">
-                  {filteredModuleEntries.map(([code, label]) => {
-                    const checked = formData.report_types.includes(code);
+              {/* All 37 Report Modules Selection (DualListBox) */}
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/70">
+                <DualListBox
+                  title="Rapora Dahil Edilecek Modüller (Çift tıklayarak veya oklarla istediğiniz kadar rapor ekleyin)"
+                  icon={FileText}
+                  availableItems={reportModuleItems}
+                  selectedIds={formData.report_types}
+                  onChangeSelectedIds={(newIds) =>
+                    setFormData((prev) => ({ ...prev, report_types: newIds }))
+                  }
+                  availableCountSuffix="Rapor"
+                  selectedCountSuffix="Seçili Rapor"
+                  availableSearchPlaceholder="Rapor modülü ara (Örn: CDR, Kuyruk, Mola, Anket, MOS...)"
+                  selectedSearchPlaceholder="Seçili raporlarda ara..."
+                  emptyAvailableText="Tüm rapor modülleri seçildi veya aramayla eşleşen rapor yok."
+                  emptySelectedText="Sol listeden rapor seçip ok butonuyla (veya çift tıklayarak) buraya ekleyin."
+                  columns={["#", "Rapor Modülü"]}
+                  allowOrdering={true}
+                  matchesItemQuery={(item, q) => {
+                    if (!q.trim()) return true;
+                    const low = q.trim().toLowerCase();
                     return (
-                      <button
-                        key={code}
-                        type="button"
-                        onClick={() => toggleReportModule(code)}
-                        title={label}
-                        className={`p-2 rounded-xl border text-left flex items-center gap-2 transition cursor-pointer ${
-                          checked
-                            ? `${lightBg} ${borderLight} ${lightText} font-bold`
-                            : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800"
-                        }`}
-                      >
-                        <span
-                          className={`w-4 h-4 rounded flex items-center justify-center shrink-0 ${
-                            checked ? `${bg} text-white` : "border border-slate-300 dark:border-slate-600"
-                          }`}
-                        >
-                          {checked && <Check size={11} />}
-                        </span>
-                        <span className="truncate text-[11px]">{label}</span>
-                      </button>
+                      String(item.name || "").toLowerCase().includes(low) ||
+                      String(item.id || "").toLowerCase().includes(low)
                     );
-                  })}
-                </div>
+                  }}
+                  renderRowCells={(item) => (
+                    <>
+                      <td className="p-2 w-8 font-mono text-[10px] text-slate-400 whitespace-nowrap">
+                        {item.orderNo}
+                      </td>
+                      <td className="p-2 font-semibold text-slate-800 dark:text-slate-200">
+                        {item.name}
+                      </td>
+                    </>
+                  )}
+                  lightBg={lightBg}
+                  lightText={lightText}
+                  ring={ring}
+                  borderLight={borderLight}
+                />
               </div>
 
               {/* Delivery Channels */}
@@ -1204,16 +1206,57 @@ export default function ScheduledReportsPanel({
 
                   {formData.send_email && (
                     <div className="space-y-3 pt-1">
-                      <UserDualListBox
+                      <DualListBox
+                        title="Kullanıcılar (Çift tıklayarak veya oklarla istediğiniz kadar kullanıcı ekleyin)"
+                        icon={Users}
                         availableItems={systemUsers}
                         selectedIds={formData.email_user_ids}
                         onChangeSelectedIds={(newIds) =>
                           setFormData((prev) => ({ ...prev, email_user_ids: newIds }))
                         }
-                        bg={bg}
-                        hover={hover}
-                        text={text}
-                        border={border}
+                        availableCountSuffix="Kullanıcı"
+                        selectedCountSuffix="Seçili Alıcı"
+                        availableSearchPlaceholder="İsim, dahili veya e-posta ara..."
+                        selectedSearchPlaceholder="Seçililerde ara..."
+                        emptyAvailableText="Eklenebilecek kullanıcı kalmadı veya aramayla eşleşmedi."
+                        emptySelectedText="Sol listeden kullanıcı seçip ok butonuyla (veya çift tıklayarak) buraya ekleyin."
+                        columns={["Dahili", "Kullanıcı & E-Posta"]}
+                        matchesItemQuery={(item, q) => {
+                          if (!q.trim()) return true;
+                          const low = q.trim().toLowerCase();
+                          return (
+                            String(item.full_name || "").toLowerCase().includes(low) ||
+                            String(item.extension || "").toLowerCase().includes(low) ||
+                            String(item.email || "").toLowerCase().includes(low)
+                          );
+                        }}
+                        renderRowCells={(item) => {
+                          const hasValidEmail = String(item.email || "").includes("@");
+                          return (
+                            <>
+                              <td className="p-2 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+                                {item.extension || "-"}
+                              </td>
+                              <td className="p-2">
+                                <div className="font-semibold text-slate-800 dark:text-slate-200 leading-tight">
+                                  {item.full_name}
+                                </div>
+                                {hasValidEmail ? (
+                                  <div
+                                    className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[165px]"
+                                    title={item.email}
+                                  >
+                                    {item.email}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+                                    E-posta tanımlı değil
+                                  </div>
+                                )}
+                              </td>
+                            </>
+                          );
+                        }}
                         lightBg={lightBg}
                         lightText={lightText}
                         ring={ring}
