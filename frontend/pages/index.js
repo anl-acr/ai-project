@@ -3069,7 +3069,13 @@ export default function Home() {
                 { tab: "reports-queue-sla", perm: "reports_queue_sla:access", label: "Kuyruk SLA & Hız Dilimleri", Icon: Target },
                 { tab: "reports-repeat-callers", perm: "reports_repeat_callers:access", label: "Tekrar Eden Arayanlar", Icon: Repeat },
                 { tab: "reports-dept-pickup", perm: "reports_dept_pickup:access", label: "Departman & Çağrı Toplama", Icon: Building2 },
-                { tab: "reports-voip-quality", perm: "reports_voip_quality:access", label: "VoIP & Ses Kalitesi (MOS)", Icon: Wifi }
+                { tab: "reports-voip-quality", perm: "reports_voip_quality:access", label: "VoIP & Ses Kalitesi (MOS)", Icon: Wifi },
+                { tab: "reports-forwarding-gsm", perm: "reports_forwarding_gsm:access", label: "Yönlendirme (Follow-Me / GSM)", Icon: PhoneForwarded },
+                { tab: "reports-supervisor-audit", perm: "reports_supervisor_audit:access", label: "Süpervizör Dinleme & Müdahale", Icon: Eye },
+                { tab: "reports-blacklist-security", perm: "reports_blacklist_security:access", label: "Engellenen Çağrı & İhlal", Icon: ShieldAlert },
+                { tab: "reports-ai-appointments-rag", perm: "reports_ai_appointments_rag:access", label: "AI Randevu & Bilgi Bankası", Icon: Bot },
+                { tab: "reports-voicemail", perm: "reports_voicemail:access", label: "Sesli Posta (Voicemail)", Icon: Mail },
+                { tab: "reports-conferences", perm: "reports_conferences:access", label: "Konferans Odası Kullanımı", Icon: Users }
               ].map(({ tab, perm, label, Icon }) => {
                 const allowed =
                   currentUser?.role === "admin" ||
@@ -3540,7 +3546,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "reports-forwarding-gsm", "reports-supervisor-audit", "reports-blacklist-security", "reports-ai-appointments-rag", "reports-voicemail", "reports-conferences", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
@@ -3766,7 +3772,13 @@ export default function Home() {
             { tab: "reports-queue-sla", perm: "reports_queue_sla:access", type: "queue-sla" },
             { tab: "reports-repeat-callers", perm: "reports_repeat_callers:access", type: "repeat-callers" },
             { tab: "reports-dept-pickup", perm: "reports_dept_pickup:access", type: "dept-pickup" },
-            { tab: "reports-voip-quality", perm: "reports_voip_quality:access", type: "voip-quality" }
+            { tab: "reports-voip-quality", perm: "reports_voip_quality:access", type: "voip-quality" },
+            { tab: "reports-forwarding-gsm", perm: "reports_forwarding_gsm:access", type: "forwarding-gsm" },
+            { tab: "reports-supervisor-audit", perm: "reports_supervisor_audit:access", type: "supervisor-audit" },
+            { tab: "reports-blacklist-security", perm: "reports_blacklist_security:access", type: "blacklist-security" },
+            { tab: "reports-ai-appointments-rag", perm: "reports_ai_appointments_rag:access", type: "ai-appointments-rag" },
+            { tab: "reports-voicemail", perm: "reports_voicemail:access", type: "voicemail" },
+            { tab: "reports-conferences", perm: "reports_conferences:access", type: "conferences" }
           ].map(({ tab, perm, type }) => {
             if (activeTab !== tab) return null;
             const allowed =

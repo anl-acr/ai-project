@@ -18,11 +18,16 @@ from sqlalchemy import or_, select
 from backend.database.config import AsyncSessionLocal
 from backend.database.models import (
     AgentBreakLog,
+    Appointment,
+    BlacklistItem,
+    BlockWord,
     BreakType,
     Call,
     ChatMessage,
     ChatSession,
     Contact,
+    DocumentChunk,
+    EventLog,
     PBXQueue,
     QueueSurveyResponse,
     SystemUser,
@@ -53,7 +58,7 @@ def _is_default_tenant(tid: str) -> bool:
 
 
 def _apply_tenant_clause(stmt, model_cls, tenant_id: str):
-    if _is_global_tenant(tenant_id):
+    if _is_global_tenant(tenant_id) or not hasattr(model_cls, "tenant_id"):
         return stmt
     if _is_default_tenant(tenant_id):
         return stmt.where(
@@ -1612,7 +1617,1068 @@ async def report_voip_quality(
 
 
 # ============================================================================
-# 9. SANTRAL > ZAMANLANMIŞ OTOMATİK RAPOR GÖNDERİMİ (SCHEDULED REPORTS)
+# 9. ÇAĞRI YÖNLENDİRME (FOLLOW-ME / GSM) RAPORU
+# ============================================================================
+def _parse_json_dict(raw_val: Any) -> Dict[str, Any]:
+    if isinstance(raw_val, dict):
+        return raw_val
+    if isinstance(raw_val, str) and raw_val.strip():
+        try:
+            parsed = json.loads(raw_val)
+            if isinstance(parsed, dict):
+                return parsed
+        except Exception:
+            pass
+    return {}
+
+
+@advanced_reports_router.get("/api/reports/enterprise/forwarding-gsm")
+async def report_forwarding_gsm(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    start_time: Optional[str] = "00:00",
+    end_time: Optional[str] = "23:59",
+    minute_rate_tl: float = 0.85,
+):
+    from backend.main import settings_db
+
+    tenant_id = _extract_tenant_id(request)
+    start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
+    rate_tl = max(0.0, float(minute_rate_tl or 0.85))
+
+    async with AsyncSessionLocal() as db:
+        stmt_users = _apply_tenant_clause(select(SystemUser).order_by(SystemUser.extension), SystemUser, tenant_id)
+        db_users = (await db.execute(stmt_users)).scalars().all()
+
+        stmt_trunks = _apply_tenant_clause(select(Trunk), Trunk, tenant_id)
+        trunks = (await db.execute(stmt_trunks)).scalars().all()
+
+        stmt_calls = _apply_tenant_clause(
+            select(Call).where(Call.start_time >= start_utc, Call.start_time <= end_utc).order_by(Call.start_time.desc()),
+            Call,
+            tenant_id,
+        )
+        calls = (await db.execute(stmt_calls)).scalars().all()
+
+    did_l10_set = {_last10(t.did_number) for t in trunks if _last10(t.did_number)}
+    subscribers_map: Dict[str, Dict[str, Any]] = {}
+    target_l10_to_ext: Dict[str, Tuple[str, str]] = {}
+
+    for u in db_users:
+        ext = str(u.extension or "").strip()
+        if not ext:
+            continue
+        fa = _parse_json_dict(u.forwarding_always)
+        fb = _parse_json_dict(u.forwarding_busy)
+        fn = _parse_json_dict(u.forwarding_no_answer)
+        fm = _parse_json_dict(u.follow_me)
+
+        fa_on = bool(fa.get("active") or fa.get("enabled")) and bool(str(fa.get("target") or fa.get("number") or "").strip())
+        fb_on = bool(fb.get("active") or fb.get("enabled")) and bool(str(fb.get("target") or fb.get("number") or "").strip())
+        fn_on = bool(fn.get("active") or fn.get("enabled")) and bool(str(fn.get("target") or fn.get("number") or "").strip())
+        fm_on = bool(fm.get("enabled") or fm.get("active"))
+        mob_on = bool(u.mobile_transfer_enabled)
+        gsm_str = str(u.gsm_number or "").strip()
+
+        fa_tgt = str(fa.get("target") or fa.get("number") or "").strip()
+        fb_tgt = str(fb.get("target") or fb.get("number") or "").strip()
+        fn_tgt = str(fn.get("target") or fn.get("number") or "").strip()
+        fn_timeout = int(fn.get("timeout") or 25)
+
+        for rule_lbl, tgt_val, is_on in [
+            ("Her Zaman (*21*)", fa_tgt, fa_on),
+            ("Meşgulde (*67*)", fb_tgt, fb_on),
+            ("Cevapsızda (*61*)", fn_tgt, fn_on),
+            ("Mobil / GSM Yönlendirme", gsm_str, mob_on or bool(gsm_str)),
+        ]:
+            l10 = _last10(tgt_val)
+            if len(l10) >= 10 and is_on:
+                target_l10_to_ext[l10] = (ext, rule_lbl)
+
+        has_any = bool(fa_on or fb_on or fn_on or fm_on or (mob_on and gsm_str))
+        subscribers_map[ext] = {
+            "extension": ext,
+            "full_name": u.full_name or f"Dahili {ext}",
+            "gsm_number": gsm_str or "-",
+            "mobile_transfer_enabled": mob_on,
+            "always_rule": fa_tgt if fa_on else "Kapalı",
+            "busy_rule": fb_tgt if fb_on else "Kapalı",
+            "no_answer_rule": f"{fn_tgt} ({fn_timeout} sn)" if fn_on else "Kapalı",
+            "follow_me_active": fm_on,
+            "has_any_active": has_any,
+            "forwarded_calls": 0,
+            "answered_calls": 0,
+            "missed_calls": 0,
+            "talk_seconds": 0,
+        }
+
+    items: List[Dict[str, Any]] = []
+    total_talk_sec = 0
+    answered_cnt = 0
+
+    for c in calls:
+        caller_s = str(c.caller_number or "").strip()
+        callee_s = str(c.callee_number or "").strip()
+        hsrc = str(c.hangup_source or "").strip()
+        hsrc_low = hsrc.lower()
+        callee_l10 = _last10(callee_s)
+        caller_l10 = _last10(caller_s)
+
+        matched_ext = ""
+        rule_type = ""
+        target_gsm = callee_s
+
+        # 1. Explicit forwarding/mobile hangup_source markers
+        if any(k in hsrc_low for k in ("forward", "follow", "mobile", "gsm", "divert")):
+            rule_type = "Koşullu / Mobil Yönlendirme"
+            for token in re.findall(r"\b\d{3,5}\b", hsrc):
+                if token in subscribers_map:
+                    matched_ext = token
+                    break
+        # 2. Callee matches configured forwarding/GSM number
+        elif len(callee_l10) >= 10 and callee_l10 in target_l10_to_ext:
+            matched_ext, rule_type = target_l10_to_ext[callee_l10]
+        # 3. External caller bridged out to an external non-DID mobile/PSTN number (hairpin / Follow-Me leg)
+        elif len(caller_l10) >= 10 and len(callee_l10) >= 10 and callee_l10 not in did_l10_set and caller_s not in subscribers_map:
+            rule_type = "Dış Hat / GSM Köprüleme (Follow-Me)"
+        # 4. Transferred call to external number
+        elif str(c.status or "").lower() == "transferred" and len(callee_l10) >= 10 and callee_l10 not in did_l10_set:
+            rule_type = "Dış Numaraya Aktarma"
+            if caller_s in subscribers_map:
+                matched_ext = caller_s
+
+        if not rule_type:
+            continue
+
+        ans = _is_answered_call(c)
+        talk_s = _call_talk_sec(c)
+        if ans:
+            answered_cnt += 1
+            total_talk_sec += talk_s
+
+        agent_nm = c.agent_name or "-"
+        if matched_ext and matched_ext in subscribers_map:
+            sub_row = subscribers_map[matched_ext]
+            sub_row["forwarded_calls"] += 1
+            if ans:
+                sub_row["answered_calls"] += 1
+                sub_row["talk_seconds"] += talk_s
+            else:
+                sub_row["missed_calls"] += 1
+            agent_nm = sub_row["full_name"]
+
+        items.append(
+            {
+                "id": c.id,
+                "timestamp": _to_tr_iso(c.start_time),
+                "caller_number": caller_s or "-",
+                "extension": matched_ext or "-",
+                "agent_name": agent_nm,
+                "target_gsm": target_gsm or "-",
+                "rule_type": rule_type,
+                "status": "answered" if ans else (c.status or "no_answer"),
+                "talk_seconds": talk_s,
+                "trunk_name": c.trunk_name or "Operator_Trunk",
+            }
+        )
+
+    sub_list = sorted(
+        subscribers_map.values(),
+        key=lambda r: (r["forwarded_calls"], 1 if r["has_any_active"] else 0, r["extension"]),
+        reverse=True,
+    )
+    tot_fwd = len(items)
+    tot_gsm_min = round(total_talk_sec / 60.0, 1)
+    est_cost = round((math.ceil(total_talk_sec / 60.0) if total_talk_sec > 0 else 0) * rate_tl, 2)
+
+    return {
+        "summary": {
+            "total_subscribers": len(sub_list),
+            "active_forwarding_users": sum(1 for s in sub_list if s["has_any_active"]),
+            "mobile_transfer_users": sum(1 for s in sub_list if s["mobile_transfer_enabled"]),
+            "total_forwarded_calls": tot_fwd,
+            "answered_forwarded_calls": answered_cnt,
+            "missed_forwarded_calls": max(0, tot_fwd - answered_cnt),
+            "answer_rate_pct": round((answered_cnt / max(1, tot_fwd)) * 100.0, 1) if tot_fwd > 0 else 0.0,
+            "total_gsm_minutes": tot_gsm_min,
+            "estimated_cost_tl": est_cost,
+            "minute_rate_tl": rate_tl,
+        },
+        "subscribers": sub_list,
+        "items": items[:300],
+    }
+
+
+# ============================================================================
+# 10. SÜPERVİZÖR DİNLEME & MÜDAHALE RAPORU (LISTEN / WHISPER / BARGE / STATUS)
+# ============================================================================
+@advanced_reports_router.get("/api/reports/enterprise/supervisor-audit")
+async def report_supervisor_audit(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    start_time: Optional[str] = "00:00",
+    end_time: Optional[str] = "23:59",
+):
+    from backend.main import settings_db
+
+    tenant_id = _extract_tenant_id(request)
+    start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
+
+    mon_cfg = (
+        ((settings_db.get("pbx") or {}).get("dialplan") or {}).get("feature_codes") or {}
+    ).get("call_monitoring") or {}
+    p_listen = str(mon_cfg.get("listen") or "*551*").strip()
+    p_whisper = str(mon_cfg.get("whisper") or "*552*").strip()
+    p_barge = str(mon_cfg.get("barge") or "*553*").strip()
+
+    async with AsyncSessionLocal() as db:
+        stmt_users = _apply_tenant_clause(select(SystemUser), SystemUser, tenant_id)
+        db_users = (await db.execute(stmt_users)).scalars().all()
+
+        stmt_calls = _apply_tenant_clause(
+            select(Call).where(Call.start_time >= start_utc, Call.start_time <= end_utc).order_by(Call.start_time.desc()),
+            Call,
+            tenant_id,
+        )
+        calls = (await db.execute(stmt_calls)).scalars().all()
+
+        stmt_ev = select(EventLog).where(EventLog.timestamp >= start_utc, EventLog.timestamp <= end_utc).order_by(EventLog.timestamp.desc())
+        ev_logs = (await db.execute(stmt_ev)).scalars().all()
+
+        stmt_br = _apply_tenant_clause(
+            select(AgentBreakLog).where(AgentBreakLog.start_time >= start_utc, AgentBreakLog.start_time <= end_utc).order_by(AgentBreakLog.start_time.desc()),
+            AgentBreakLog,
+            tenant_id,
+        )
+        br_logs = (await db.execute(stmt_br)).scalars().all()
+
+    ext_name_map = {str(u.extension or "").strip(): (u.full_name or f"Dahili {u.extension}") for u in db_users if u.extension}
+    items: List[Dict[str, Any]] = []
+
+    # 1. Inspect ChanSpy / Feature Code Calls (*551*, *552*, *553*)
+    for c in calls:
+        callee_s = str(c.callee_number or "").strip()
+        caller_s = str(c.caller_number or "").strip()
+        hsrc = str(c.hangup_source or "").strip().lower()
+
+        itype = ""
+        target_ext = ""
+        if callee_s.startswith(p_listen) or "*551*" in callee_s or "listen" in hsrc or "chanspy:listen" in hsrc:
+            itype = "listen"
+            target_ext = callee_s.replace(p_listen, "").replace("*551*", "").strip()
+        elif callee_s.startswith(p_whisper) or "*552*" in callee_s or "whisper" in hsrc or "chanspy:whisper" in hsrc:
+            itype = "whisper"
+            target_ext = callee_s.replace(p_whisper, "").replace("*552*", "").strip()
+        elif callee_s.startswith(p_barge) or "*553*" in callee_s or "barge" in hsrc or "chanspy:barge" in hsrc:
+            itype = "barge"
+            target_ext = callee_s.replace(p_barge, "").replace("*553*", "").strip()
+
+        if not itype:
+            continue
+
+        dur_s = _call_talk_sec(c)
+        sup_label = ext_name_map.get(caller_s, c.agent_name or f"Dahili {caller_s}")
+        tgt_label = ext_name_map.get(target_ext, f"Dahili {target_ext}" if target_ext else "-")
+        lbl_map = {
+            "listen": f"Sessiz Dinleme ({p_listen})",
+            "whisper": f"Sufle / Fısıldama ({p_whisper})",
+            "barge": f"Araya Girme ({p_barge})",
+        }
+        items.append(
+            {
+                "id": f"call-{c.id}",
+                "timestamp": _to_tr_iso(c.start_time),
+                "sort_dt": c.start_time or datetime.datetime.min,
+                "supervisor": sup_label,
+                "intervention_type": itype,
+                "type_label": lbl_map[itype],
+                "target_agent": tgt_label,
+                "duration_seconds": dur_s,
+                "details": f"{sup_label} -> {tgt_label} canlı çağrı müdahalesi",
+                "ip_address": "-",
+            }
+        )
+
+    # 2. Inspect EventLog for Supervisor Monitor / Status / Force Logout actions
+    for ev in ev_logs:
+        mod_l = str(ev.module or "").lower()
+        act_l = str(ev.action or "").lower()
+        det_s = str(ev.details or "")
+        det_l = det_s.lower()
+
+        is_sup_ev = (
+            "supervisor" in mod_l
+            or "monitor" in mod_l
+            or "chanspy" in act_l
+            or any(k in act_l for k in ("spy", "whisper", "barge", "force_logout", "agent_status", "agent_logout"))
+            or any(k in det_l for k in ("*551*", "*552*", "*553*", "sessiz dinle", "sufle", "araya gir", "zorla çıkış", "süpervizör"))
+        )
+        if not is_sup_ev:
+            continue
+
+        if "whisper" in act_l or "sufle" in det_l or "*552*" in det_l:
+            itype, tlabel = "whisper", f"Sufle / Fısıldama ({p_whisper})"
+        elif "barge" in act_l or "araya gir" in det_l or "*553*" in det_l:
+            itype, tlabel = "barge", f"Araya Girme ({p_barge})"
+        elif "listen" in act_l or "spy" in act_l or "dinle" in det_l or "*551*" in det_l:
+            itype, tlabel = "listen", f"Sessiz Dinleme ({p_listen})"
+        else:
+            itype, tlabel = "status_override", "Durum / Oturum Müdahalesi"
+
+        sup_u = str(ev.user_id or "Süpervizör").strip()
+        sup_label = ext_name_map.get(sup_u, sup_u)
+        tgt = "-"
+        ext_m = re.search(r"\b(1\d{2,3}|2\d{2,3})\b", det_s)
+        if ext_m:
+            tgt = ext_name_map.get(ext_m.group(1), f"Dahili {ext_m.group(1)}")
+
+        items.append(
+            {
+                "id": f"ev-{ev.id}",
+                "timestamp": _to_tr_iso(ev.timestamp),
+                "sort_dt": ev.timestamp or datetime.datetime.min,
+                "supervisor": sup_label,
+                "intervention_type": itype,
+                "type_label": tlabel,
+                "target_agent": tgt,
+                "duration_seconds": 0,
+                "details": det_s[:180] or ev.action,
+                "ip_address": ev.ip_address or "-",
+            }
+        )
+
+    # 3. Inspect AgentBreakLog for supervisor forced breaks / session overrides
+    for br in br_logs:
+        bname = str(br.break_name or "").strip()
+        b_low = bname.lower()
+        if "süpervizör" in b_low or "supervisor" in b_low or bname.startswith("__ACTION__:FORCE"):
+            ext_s = str(br.extension or "").strip()
+            tgt_nm = br.agent_name or ext_name_map.get(ext_s, f"Dahili {ext_s}")
+            items.append(
+                {
+                    "id": f"br-{br.id}",
+                    "timestamp": _to_tr_iso(br.start_time),
+                    "sort_dt": br.start_time or datetime.datetime.min,
+                    "supervisor": "Süpervizör Paneli",
+                    "intervention_type": "status_override",
+                    "type_label": "Durum / Mola Müdahalesi",
+                    "target_agent": tgt_nm,
+                    "duration_seconds": int(br.duration_seconds or 0),
+                    "details": bname.replace("__ACTION__:", ""),
+                    "ip_address": "-",
+                }
+            )
+
+    items.sort(key=lambda x: x["sort_dt"], reverse=True)
+    by_sup: Dict[str, Dict[str, Any]] = {}
+    counts = {"listen": 0, "whisper": 0, "barge": 0, "status_override": 0}
+    total_mon_sec = 0
+
+    for it in items:
+        it.pop("sort_dt", None)
+        tp = it["intervention_type"]
+        counts[tp] = counts.get(tp, 0) + 1
+        if tp in ("listen", "whisper", "barge"):
+            total_mon_sec += int(it["duration_seconds"] or 0)
+        sk = it["supervisor"] or "Süpervizör"
+        srow = by_sup.setdefault(
+            sk,
+            {
+                "supervisor": sk,
+                "listen": 0,
+                "whisper": 0,
+                "barge": 0,
+                "status_override": 0,
+                "total": 0,
+                "duration_seconds": 0,
+            },
+        )
+        srow[tp] = srow.get(tp, 0) + 1
+        srow["total"] += 1
+        srow["duration_seconds"] += int(it["duration_seconds"] or 0)
+
+    sup_rows = sorted(by_sup.values(), key=lambda r: r["total"], reverse=True)
+
+    return {
+        "summary": {
+            "total_interventions": len(items),
+            "listen_count": counts["listen"],
+            "whisper_count": counts["whisper"],
+            "barge_count": counts["barge"],
+            "status_override_count": counts["status_override"],
+            "active_supervisors_count": len(sup_rows),
+            "total_monitor_seconds": total_mon_sec,
+            "feature_codes": {"listen": p_listen, "whisper": p_whisper, "barge": p_barge},
+        },
+        "by_supervisor": sup_rows,
+        "items": items[:300],
+    }
+
+
+# ============================================================================
+# 11. ENGELLENEN ÇAĞRI & İHLAL RAPORU (BLACKLIST / SPAM / PROFANITY)
+# ============================================================================
+@advanced_reports_router.get("/api/reports/enterprise/blacklist-security")
+async def report_blacklist_security(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    start_time: Optional[str] = "00:00",
+    end_time: Optional[str] = "23:59",
+):
+    from backend.main import settings_db
+
+    tenant_id = _extract_tenant_id(request)
+    start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
+
+    async with AsyncSessionLocal() as db:
+        bl_db = (await db.execute(select(BlacklistItem).order_by(BlacklistItem.timestamp.desc()))).scalars().all()
+        bw_db = (await db.execute(select(BlockWord).order_by(BlockWord.timestamp.desc()))).scalars().all()
+
+        stmt_calls = _apply_tenant_clause(
+            select(Call).where(Call.start_time >= start_utc, Call.start_time <= end_utc).order_by(Call.start_time.desc()),
+            Call,
+            tenant_id,
+        )
+        calls = (await db.execute(stmt_calls)).scalars().all()
+
+        call_ids = [c.id for c in calls[:600] if c.id]
+        transcripts_by_call: Dict[str, List[str]] = {}
+        if call_ids:
+            tr_rows = (
+                await db.execute(select(Transcript.call_id, Transcript.text).where(Transcript.call_id.in_(call_ids)))
+            ).all()
+            for cid, ttxt in tr_rows:
+                if ttxt:
+                    transcripts_by_call.setdefault(cid, []).append(str(ttxt))
+
+    blacklist_map: Dict[str, Dict[str, Any]] = {}
+    blacklist_l10: Dict[str, str] = {}
+    for b in bl_db:
+        val = str(b.value or "").strip()
+        if not val:
+            continue
+        blacklist_map[val] = {
+            "value": val,
+            "type": b.type or "phone",
+            "reason": b.reason or "Kara Liste Kaydı",
+            "created_at": _to_tr_iso(b.timestamp) or "-",
+            "hit_count": 0,
+        }
+        l10 = _last10(val)
+        if len(l10) >= 7:
+            blacklist_l10[l10] = val
+
+    for sb in settings_db.get("blacklist", []) or []:
+        if isinstance(sb, dict) and _match_dict_tenant(sb, tenant_id):
+            val = str(sb.get("number") or sb.get("value") or "").strip()
+            if val and val not in blacklist_map:
+                blacklist_map[val] = {
+                    "value": val,
+                    "type": sb.get("type") or "phone",
+                    "reason": sb.get("reason") or "Kara Liste Kaydı",
+                    "created_at": str(sb.get("created_at") or "-"),
+                    "hit_count": 0,
+                }
+                l10 = _last10(val)
+                if len(l10) >= 7:
+                    blacklist_l10[l10] = val
+
+    block_words: List[str] = []
+    seen_bw = set()
+    for bw in bw_db:
+        w = str(bw.word or "").strip().lower()
+        if w and w not in seen_bw:
+            seen_bw.add(w)
+            block_words.append(w)
+    for sw in settings_db.get("block_words", []) or []:
+        w = str(sw.get("word") if isinstance(sw, dict) else sw or "").strip().lower()
+        if w and w not in seen_bw:
+            seen_bw.add(w)
+            block_words.append(w)
+
+    items: List[Dict[str, Any]] = []
+    offenders: Dict[str, Dict[str, Any]] = {}
+    blocked_calls_cnt = 0
+    profanity_cnt = 0
+
+    for c in calls:
+        caller_s = str(c.caller_number or "").strip()
+        callee_s = str(c.callee_number or "").strip()
+        l10 = _last10(caller_s)
+        hsrc_low = str(c.hangup_source or "").strip().lower()
+        st_low = str(c.status or "").strip().lower()
+        sum_low = str(c.summary or "").strip().lower()
+
+        matched_bl_key = blacklist_l10.get(l10) if len(l10) >= 7 else (caller_s if caller_s in blacklist_map else None)
+        is_bl_drop = (
+            matched_bl_key is not None
+            or any(k in hsrc_low for k in ("blacklist", "blocked", "spam", "firewall", "banned"))
+            or st_low in ("blocked", "blacklisted")
+        )
+
+        # Check profanity / abuse termination
+        joined_tr = " ".join(transcripts_by_call.get(c.id, [])).lower()
+        matched_word = ""
+        if "abuse" in hsrc_low or "profanity" in hsrc_low or "küfür" in sum_low or "hakaret" in sum_low:
+            matched_word = "AI Uygunsuz Dil / Hakaret Tespiti"
+        elif block_words and (joined_tr or sum_low):
+            haystack = f"{joined_tr} {sum_low}"
+            for bw_item in block_words:
+                if len(bw_item) >= 3 and re.search(rf"\b{re.escape(bw_item)}\b", haystack):
+                    matched_word = f"Yasaklı Kelime: {bw_item}"
+                    break
+
+        if not is_bl_drop and not matched_word:
+            continue
+
+        if is_bl_drop:
+            blocked_calls_cnt += 1
+            inc_type = "blacklist"
+            inc_label = "Kara Liste Engellemesi"
+            rule_desc = blacklist_map[matched_bl_key]["reason"] if matched_bl_key in blacklist_map else "Kara Liste / Güvenlik Kuralı"
+            if matched_bl_key and matched_bl_key in blacklist_map:
+                blacklist_map[matched_bl_key]["hit_count"] += 1
+        else:
+            profanity_cnt += 1
+            inc_type = "profanity"
+            inc_label = "Yasaklı Kelime / İhlal"
+            rule_desc = matched_word
+
+        off_key = l10 or caller_s or "Anonim"
+        off_row = offenders.setdefault(
+            off_key,
+            {
+                "caller_number": caller_s or "Anonim",
+                "reason": rule_desc,
+                "attempts": 0,
+                "blocked_count": 0,
+                "profanity_count": 0,
+                "last_seen": _to_tr_iso(c.start_time) or "-",
+            },
+        )
+        off_row["attempts"] += 1
+        if is_bl_drop:
+            off_row["blocked_count"] += 1
+        if matched_word:
+            off_row["profanity_count"] += 1
+
+        items.append(
+            {
+                "id": c.id,
+                "timestamp": _to_tr_iso(c.start_time),
+                "caller_number": caller_s or "-",
+                "callee_number": callee_s or "-",
+                "incident_type": inc_type,
+                "incident_label": inc_label,
+                "matched_rule": rule_desc,
+                "status": c.status or "blocked",
+                "summary": (c.summary or "")[:160] or "-",
+            }
+        )
+
+    offender_rows = sorted(offenders.values(), key=lambda r: r["attempts"], reverse=True)
+    bl_rules_list = sorted(blacklist_map.values(), key=lambda r: r["hit_count"], reverse=True)
+
+    return {
+        "summary": {
+            "active_blacklist_count": len(bl_rules_list),
+            "active_block_words_count": len(block_words),
+            "blocked_calls_count": blocked_calls_cnt,
+            "profanity_incidents_count": profanity_cnt,
+            "total_security_events": len(items),
+            "unique_offenders_count": len(offender_rows),
+        },
+        "top_offenders": offender_rows[:100],
+        "blacklist_rules": bl_rules_list[:200],
+        "items": items[:300],
+    }
+
+
+# ============================================================================
+# 12. AI RANDEVU & BİLGİ BANKASI (RAG) RAPORU
+# ============================================================================
+@advanced_reports_router.get("/api/reports/enterprise/ai-appointments-rag")
+async def report_ai_appointments_rag(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    start_time: Optional[str] = "00:00",
+    end_time: Optional[str] = "23:59",
+):
+    tenant_id = _extract_tenant_id(request)
+    start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
+    now_utc = datetime.datetime.utcnow()
+
+    async with AsyncSessionLocal() as db:
+        stmt_calls = _apply_tenant_clause(
+            select(Call).where(Call.start_time >= start_utc, Call.start_time <= end_utc).order_by(Call.start_time.desc()),
+            Call,
+            tenant_id,
+        )
+        calls = (await db.execute(stmt_calls)).scalars().all()
+        call_id_set = {c.id for c in calls if c.id}
+
+        stmt_appts = _apply_tenant_clause(
+            select(Appointment).order_by(Appointment.appointment_time.desc()),
+            Appointment,
+            tenant_id,
+        )
+        all_appts = (await db.execute(stmt_appts)).scalars().all()
+
+        stmt_docs = _apply_tenant_clause(
+            select(DocumentChunk.id, DocumentChunk.filename, DocumentChunk.content),
+            DocumentChunk,
+            tenant_id,
+        )
+        doc_rows = (await db.execute(stmt_docs)).all()
+
+    # Filter appointments: linked to calls in period OR appointment_time in [start_utc, end_utc + 60 days]
+    future_horizon = end_utc + datetime.timedelta(days=60)
+    period_appts = [
+        a
+        for a in all_appts
+        if (a.call_id and a.call_id in call_id_set)
+        or (a.appointment_time and start_utc <= a.appointment_time <= future_horizon)
+    ]
+
+    appt_items: List[Dict[str, Any]] = []
+    confirmed_cnt = 0
+    cancelled_cnt = 0
+    upcoming_cnt = 0
+
+    for a in period_appts:
+        st = str(a.status or "confirmed").strip().lower()
+        if st == "cancelled":
+            cancelled_cnt += 1
+        else:
+            confirmed_cnt += 1
+            if a.appointment_time and a.appointment_time >= now_utc:
+                upcoming_cnt += 1
+        appt_items.append(
+            {
+                "id": a.id,
+                "customer_name": a.customer_name or "-",
+                "customer_phone": a.customer_phone or "-",
+                "customer_email": a.customer_email or "-",
+                "appointment_time": _to_tr_iso(a.appointment_time) or "-",
+                "status": st,
+                "notes": (a.notes or "")[:160] or "-",
+                "call_id": a.call_id or "-",
+            }
+        )
+
+    # RAG Knowledge Base breakdown
+    rag_by_file: Dict[str, Dict[str, Any]] = {}
+    for _, fname, content in doc_rows:
+        fn = str(fname or "Adsız Doküman").strip()
+        is_url = fn.startswith("http://") or fn.startswith("https://")
+        f_entry = rag_by_file.setdefault(
+            fn,
+            {
+                "filename": fn,
+                "source_type": "Web URL" if is_url else "Doküman / Dosya",
+                "chunk_count": 0,
+                "char_count": 0,
+            },
+        )
+        f_entry["chunk_count"] += 1
+        f_entry["char_count"] += len(str(content or ""))
+
+    rag_sources = []
+    for rv in sorted(rag_by_file.values(), key=lambda x: x["chunk_count"], reverse=True):
+        rv["est_tokens"] = max(1, round(rv["char_count"] / 4))
+        rag_sources.append(rv)
+
+    # Evaluate AI-handled calls for autonomous resolution vs. human escalation / knowledge gaps
+    ai_calls = []
+    autonomous_cnt = 0
+    escalated_cnt = 0
+    knowledge_gaps: List[Dict[str, Any]] = []
+
+    for c in calls:
+        ag_nm = str(c.agent_name or "").strip().lower()
+        hsrc_l = str(c.hangup_source or "").strip().lower()
+        is_ai = (not ag_nm) or ("ai" in ag_nm) or ("asistan" in ag_nm) or ("audiosocket" in hsrc_l)
+        if not is_ai:
+            continue
+        if not _is_answered_call(c) and str(c.status or "").lower() != "transferred":
+            continue
+
+        ai_calls.append(c)
+        is_transferred = str(c.status or "").lower() == "transferred" or "transfer" in hsrc_l
+        sent_l = str(c.sentiment or "").lower()
+        sum_txt = str(c.summary or "").strip()
+        sum_l = sum_txt.lower()
+        has_gap_hint = any(
+            kw in sum_l
+            for kw in ("bilgi bulunamadı", "yanıtlayamadı", "temsilciye aktar", "emin değilim", "yetkiliye bağla")
+        )
+
+        if is_transferred:
+            escalated_cnt += 1
+        else:
+            autonomous_cnt += 1
+
+        if is_transferred or has_gap_hint or sent_l in ("negative", "very_negative", "negatif", "olumsuz"):
+            reason_lbl = (
+                "Canlı Temsilciye Aktarım"
+                if is_transferred
+                else ("RAG Bilgi Eksikliği İpucu" if has_gap_hint else "Olumsuz Müşteri Duygusu")
+            )
+            knowledge_gaps.append(
+                {
+                    "id": c.id,
+                    "timestamp": _to_tr_iso(c.start_time),
+                    "caller_number": c.caller_number or "-",
+                    "reason": reason_lbl,
+                    "topic": c.agent_topic or "-",
+                    "sentiment": c.sentiment or "-",
+                    "summary": sum_txt[:180] or "-",
+                }
+            )
+
+    tot_ai = len(ai_calls)
+    auto_pct = round((autonomous_cnt / max(1, tot_ai)) * 100.0, 1) if tot_ai > 0 else 100.0
+    conv_pct = round((confirmed_cnt / max(1, tot_ai)) * 100.0, 1) if tot_ai > 0 else 0.0
+
+    return {
+        "summary": {
+            "total_appointments": len(appt_items),
+            "confirmed_appointments": confirmed_cnt,
+            "cancelled_appointments": cancelled_cnt,
+            "upcoming_appointments": upcoming_cnt,
+            "ai_calls_count": tot_ai,
+            "autonomous_resolved_count": autonomous_cnt,
+            "human_transfer_count": escalated_cnt,
+            "ai_autonomous_rate_pct": auto_pct,
+            "appointment_conversion_pct": min(100.0, conv_pct),
+            "rag_sources_count": len(rag_sources),
+            "rag_chunks_count": len(doc_rows),
+        },
+        "appointments": appt_items[:200],
+        "rag_sources": rag_sources,
+        "knowledge_gaps": knowledge_gaps[:200],
+    }
+
+
+# ============================================================================
+# 13. SESLİ POSTA (VOICEMAIL) RAPORU
+# ============================================================================
+@advanced_reports_router.get("/api/reports/enterprise/voicemail")
+async def report_voicemail(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    start_time: Optional[str] = "00:00",
+    end_time: Optional[str] = "23:59",
+):
+    from backend.main import settings_db
+
+    tenant_id = _extract_tenant_id(request)
+    start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
+
+    async with AsyncSessionLocal() as db:
+        stmt_users = _apply_tenant_clause(select(SystemUser).order_by(SystemUser.extension), SystemUser, tenant_id)
+        db_users = (await db.execute(stmt_users)).scalars().all()
+
+        stmt_calls = _apply_tenant_clause(
+            select(Call).where(Call.start_time >= start_utc, Call.start_time <= end_utc).order_by(Call.start_time.asc()),
+            Call,
+            tenant_id,
+        )
+        calls_asc = (await db.execute(stmt_calls)).scalars().all()
+
+    vm_boxes: Dict[str, Dict[str, Any]] = {}
+    for u in db_users:
+        ext = str(u.extension or "").strip()
+        if not ext:
+            continue
+        vm_boxes[ext] = {
+            "extension": ext,
+            "full_name": u.full_name or f"Dahili {ext}",
+            "email": u.email or "-",
+            "voicemail_active": bool(u.voicemail_active),
+            "voicemail_to_email": bool(u.voicemail_to_email),
+            "messages_count": 0,
+            "returned_count": 0,
+            "pending_count": 0,
+        }
+
+    # Build lookup of answered callbacks per external L10 number
+    answered_touches_by_l10: Dict[str, List[Tuple[datetime.datetime, str]]] = {}
+    for c in calls_asc:
+        if not c.start_time or not _is_answered_call(c):
+            continue
+        for num_cand in (c.caller_number, c.callee_number):
+            l10 = _last10(num_cand)
+            if len(l10) >= 10:
+                who = c.agent_name or str(c.caller_number or c.callee_number or "-")
+                answered_touches_by_l10.setdefault(l10, []).append((c.start_time, who))
+
+    vm_items: List[Dict[str, Any]] = []
+    durations: List[int] = []
+
+    for c in reversed(calls_asc):
+        caller_s = str(c.caller_number or "").strip()
+        callee_s = str(c.callee_number or "").strip()
+        hsrc_l = str(c.hangup_source or "").strip().lower()
+        st_l = str(c.status or "").strip().lower()
+        ivr_str = json.dumps(c.ivr_events or []).lower() if c.ivr_events else ""
+
+        is_vm = (
+            "voicemail" in hsrc_l
+            or st_l == "voicemail"
+            or "voicemail" in ivr_str
+            or (callee_s in vm_boxes and vm_boxes[callee_s]["voicemail_active"] and not _is_answered_call(c) and bool(c.recording_path))
+        )
+        if not is_vm:
+            continue
+
+        target_ext = callee_s if callee_s in vm_boxes else "-"
+        for tok in re.findall(r"\b\d{3,5}\b", hsrc_l):
+            if tok in vm_boxes:
+                target_ext = tok
+                break
+
+        dur_s = int(c.talk_duration or 0)
+        if dur_s <= 0 and c.start_time and c.end_time:
+            dur_s = max(0, int((c.end_time - c.start_time).total_seconds()))
+        durations.append(dur_s)
+
+        l10 = _last10(caller_s)
+        cb_done = False
+        cb_by = "-"
+        cb_at = "-"
+        if len(l10) >= 10 and c.start_time:
+            for t_dt, t_who in answered_touches_by_l10.get(l10, []):
+                if t_dt > c.start_time:
+                    cb_done = True
+                    cb_by = t_who
+                    cb_at = _to_tr_iso(t_dt) or "-"
+                    break
+
+        box = vm_boxes.get(target_ext)
+        if box:
+            box["messages_count"] += 1
+            if cb_done:
+                box["returned_count"] += 1
+            else:
+                box["pending_count"] += 1
+
+        vm_items.append(
+            {
+                "id": c.id,
+                "timestamp": _to_tr_iso(c.start_time),
+                "caller_number": caller_s or "-",
+                "extension": target_ext,
+                "agent_name": box["full_name"] if box else (c.agent_name or "-"),
+                "duration_seconds": dur_s,
+                "email_forwarded": bool(box and box["voicemail_to_email"]),
+                "callback_done": cb_done,
+                "callback_by": cb_by,
+                "callback_at": cb_at,
+                "recording_path": c.recording_path or "",
+            }
+        )
+
+    tot_vm = len(vm_items)
+    ret_cnt = sum(1 for v in vm_items if v["callback_done"])
+    pend_cnt = max(0, tot_vm - ret_cnt)
+    box_rows = sorted(
+        vm_boxes.values(),
+        key=lambda b: (b["messages_count"], 1 if b["voicemail_active"] else 0, b["extension"]),
+        reverse=True,
+    )
+
+    return {
+        "summary": {
+            "total_extensions": len(box_rows),
+            "voicemail_enabled_users": sum(1 for b in box_rows if b["voicemail_active"]),
+            "voicemail_email_users": sum(1 for b in box_rows if b["voicemail_active"] and b["voicemail_to_email"]),
+            "total_voicemails": tot_vm,
+            "returned_callbacks": ret_cnt,
+            "pending_callbacks": pend_cnt,
+            "callback_rate_pct": round((ret_cnt / max(1, tot_vm)) * 100.0, 1) if tot_vm > 0 else 100.0,
+            "avg_duration_sec": round(sum(durations) / len(durations), 1) if durations else 0.0,
+        },
+        "by_extension": box_rows,
+        "items": vm_items[:300],
+    }
+
+
+# ============================================================================
+# 14. KONFERANS ODASI KULLANIM RAPORU (CONFERENCE BRIDGE ANALYTICS)
+# ============================================================================
+@advanced_reports_router.get("/api/reports/enterprise/conferences")
+async def report_conferences(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    start_time: Optional[str] = "00:00",
+    end_time: Optional[str] = "23:59",
+):
+    from backend.main import settings_db
+
+    tenant_id = _extract_tenant_id(request)
+    start_utc, end_utc = _parse_tr_date_range(start_date, end_date, start_time, end_time)
+
+    num_plan = ((settings_db.get("pbx") or {}).get("dialplan") or {}).get("numbering_plan") or {}
+    conf_range = num_plan.get("conference_range") or {}
+    c_start = int(conf_range.get("start") or 3000)
+    c_end = int(conf_range.get("end") or 3999)
+
+    raw_confs = [
+        cf for cf in (settings_db.get("conferences", []) or [])
+        if isinstance(cf, dict) and _match_dict_tenant(cf, tenant_id)
+    ]
+
+    rooms_map: Dict[str, Dict[str, Any]] = {}
+    for cf in raw_confs:
+        rnum = str(cf.get("room_number") or cf.get("extension") or "").strip()
+        if not rnum:
+            continue
+        rooms_map[rnum] = {
+            "room_number": rnum,
+            "name": cf.get("name") or f"Konferans {rnum}",
+            "pin_protected": bool(str(cf.get("pin") or cf.get("admin_pin") or "").strip()),
+            "record_enabled": bool(cf.get("record") or cf.get("recording_enabled")),
+            "max_members": int(cf.get("max_members") or cf.get("max_participants") or 20),
+            "sessions_count": 0,
+            "participants_count": 0,
+            "total_seconds": 0,
+            "last_used_at": "-",
+        }
+
+    async with AsyncSessionLocal() as db:
+        stmt_calls = _apply_tenant_clause(
+            select(Call).where(Call.start_time >= start_utc, Call.start_time <= end_utc).order_by(Call.start_time.asc()),
+            Call,
+            tenant_id,
+        )
+        calls_asc = (await db.execute(stmt_calls)).scalars().all()
+
+    legs_by_room: Dict[str, List[Call]] = {}
+    for c in calls_asc:
+        callee_s = str(c.callee_number or "").strip()
+        hsrc_l = str(c.hangup_source or "").strip().lower()
+
+        matched_room = ""
+        if callee_s in rooms_map:
+            matched_room = callee_s
+        elif callee_s.isdigit() and c_start <= int(callee_s) <= c_end:
+            matched_room = callee_s
+        elif "conf" in hsrc_l:
+            m_rm = re.search(r"\b(3\d{3})\b", hsrc_l)
+            matched_room = m_rm.group(1) if m_rm else (callee_s or "3000")
+
+        if not matched_room:
+            continue
+
+        if matched_room not in rooms_map:
+            rooms_map[matched_room] = {
+                "room_number": matched_room,
+                "name": f"Konferans Odası {matched_room}",
+                "pin_protected": False,
+                "record_enabled": False,
+                "max_members": 20,
+                "sessions_count": 0,
+                "participants_count": 0,
+                "total_seconds": 0,
+                "last_used_at": "-",
+            }
+        legs_by_room.setdefault(matched_room, []).append(c)
+
+    sessions: List[Dict[str, Any]] = []
+    peak_participants = 0
+    total_leg_sec_all = 0
+    total_legs_all = 0
+
+    for rnum, rlegs in legs_by_room.items():
+        rm = rooms_map[rnum]
+        # Cluster legs into sessions when start_time gap <= 30 minutes from current session window
+        clusters: List[List[Call]] = []
+        for lg in rlegs:
+            if not clusters:
+                clusters.append([lg])
+                continue
+            prev_cluster = clusters[-1]
+            prev_end = max(
+                (x.end_time or (x.start_time + datetime.timedelta(seconds=_call_talk_sec(x))) for x in prev_cluster if x.start_time),
+                default=prev_cluster[-1].start_time,
+            )
+            if lg.start_time and prev_end and (lg.start_time - prev_end).total_seconds() <= 1800:
+                prev_cluster.append(lg)
+            else:
+                clusters.append([lg])
+
+        for idx, cl in enumerate(clusters, start=1):
+            s_dt = min((x.start_time for x in cl if x.start_time), default=None)
+            e_dt = max(
+                (x.end_time or (x.start_time + datetime.timedelta(seconds=_call_talk_sec(x))) for x in cl if x.start_time),
+                default=s_dt,
+            )
+            wall_sec = max(0, int((e_dt - s_dt).total_seconds())) if (s_dt and e_dt and e_dt >= s_dt) else 0
+            leg_sec = sum(_call_talk_sec(x) for x in cl)
+            parts = list(dict.fromkeys(str(x.caller_number or "-").strip() for x in cl))
+            p_cnt = len(cl)
+            peak_participants = max(peak_participants, p_cnt)
+            total_legs_all += p_cnt
+            total_leg_sec_all += leg_sec
+
+            rm["sessions_count"] += 1
+            rm["participants_count"] += p_cnt
+            rm["total_seconds"] += leg_sec
+            if s_dt:
+                rm["last_used_at"] = _to_tr_iso(s_dt) or "-"
+
+            sessions.append(
+                {
+                    "session_id": f"{rnum}-{idx}-{cl[0].id[:8] if cl[0].id else idx}",
+                    "room_number": rnum,
+                    "room_name": rm["name"],
+                    "start_time": _to_tr_iso(s_dt) or "-",
+                    "end_time": _to_tr_iso(e_dt) or "-",
+                    "sort_dt": s_dt or datetime.datetime.min,
+                    "participants_count": p_cnt,
+                    "participant_numbers": ", ".join(parts[:6]) + (f" (+{len(parts) - 6})" if len(parts) > 6 else ""),
+                    "duration_seconds": wall_sec or (leg_sec // max(1, p_cnt)),
+                    "total_leg_seconds": leg_sec,
+                }
+            )
+
+    sessions.sort(key=lambda s: s["sort_dt"], reverse=True)
+    for s in sessions:
+        s.pop("sort_dt", None)
+
+    room_rows = []
+    for rv in sorted(rooms_map.values(), key=lambda r: (r["sessions_count"], r["room_number"]), reverse=True):
+        rv["total_minutes"] = round(rv["total_seconds"] / 60.0, 1)
+        room_rows.append(rv)
+
+    tot_sess = len(sessions)
+    tot_conf_min = round(total_leg_sec_all / 60.0, 1)
+    avg_sess_min = round((sum(s["duration_seconds"] for s in sessions) / 60.0) / max(1, tot_sess), 1) if tot_sess > 0 else 0.0
+
+    return {
+        "summary": {
+            "configured_rooms_count": len(room_rows),
+            "active_rooms_count": sum(1 for r in room_rows if r["sessions_count"] > 0),
+            "total_sessions": tot_sess,
+            "total_participant_legs": total_legs_all,
+            "peak_participants": peak_participants,
+            "total_conference_minutes": tot_conf_min,
+            "avg_session_minutes": avg_sess_min,
+        },
+        "rooms": room_rows,
+        "sessions": sessions[:300],
+    }
+
+
+# ============================================================================
+# 15. SANTRAL > ZAMANLANMIŞ OTOMATİK RAPOR GÖNDERİMİ (SCHEDULED REPORTS)
 # ============================================================================
 SCHEDULE_REPORT_TYPES_LABELS: Dict[str, str] = {
     "reports_pano": "Pano (Genel Özet)",
@@ -1652,6 +2718,12 @@ SCHEDULE_REPORT_TYPES_LABELS: Dict[str, str] = {
     "reports_repeat_callers": "Tekrar Eden Arayanlar",
     "reports_dept_pickup": "Departman & Çağrı Toplama",
     "reports_voip_quality": "VoIP & Ses Kalitesi (MOS)",
+    "reports_forwarding_gsm": "Çağrı Yönlendirme (Follow-Me / GSM)",
+    "reports_supervisor_audit": "Süpervizör Dinleme & Müdahale",
+    "reports_blacklist_security": "Engellenen Çağrı & İhlal Raporu",
+    "reports_ai_appointments_rag": "AI Randevu & Bilgi Bankası (RAG)",
+    "reports_voicemail": "Sesli Posta (Voicemail) Raporu",
+    "reports_conferences": "Konferans Odası Kullanım Raporu",
 }
 
 LEGACY_SCHEDULE_REPORT_KEY_MAP: Dict[str, str] = {
@@ -1848,6 +2920,18 @@ async def _build_scheduled_report_bundle(
 
         stmt_trunks = _apply_tenant_clause(select(Trunk), Trunk, tenant_id)
         trunks = (await db.execute(stmt_trunks)).scalars().all()
+
+        stmt_appts = _apply_tenant_clause(
+            select(Appointment).where(Appointment.appointment_time >= start_utc),
+            Appointment,
+            tenant_id,
+        )
+        appts_sched = (await db.execute(stmt_appts)).scalars().all()
+
+        stmt_rag = _apply_tenant_clause(select(DocumentChunk.id), DocumentChunk, tenant_id)
+        rag_chunk_cnt = len((await db.execute(stmt_rag)).scalars().all())
+
+        bl_cnt = len((await db.execute(select(BlacklistItem.id))).scalars().all())
 
         call_ids = [c.id for c in calls[:500] if c.id]
         transcript_count = 0
@@ -2164,6 +3248,63 @@ async def _build_scheduled_report_bundle(
                 code,
                 f"Ölçüm Örneği: {len(qos_logs)} | Ortalama MOS Ses Kalitesi: {avg_mos} / 4.50",
                 f"WebRTC Ölçümü: <b>{len(qos_logs)}</b> | Ortalama MOS: <b>{avg_mos} / 4.50</b>",
+            )
+        elif code == "reports_forwarding_gsm":
+            fwd_cnt = sum(
+                1 for c in calls
+                if any(k in str(c.hangup_source or "").lower() for k in ("forward", "follow", "mobile", "gsm"))
+                or (len(_last10(c.caller_number)) >= 10 and len(_last10(c.callee_number)) >= 10)
+            )
+            _add_module_row(
+                code,
+                f"Dış Hat / GSM Yönlendirilen Çağrı: {fwd_cnt} adet",
+                f"Dış Hat / GSM Yönlendirilen Çağrı: <b>{fwd_cnt}</b> adet",
+            )
+        elif code == "reports_supervisor_audit":
+            sup_cnt = sum(
+                1 for c in calls
+                if any(k in str(c.callee_number or "") for k in ("*551*", "*552*", "*553*"))
+                or any(k in str(c.hangup_source or "").lower() for k in ("chanspy", "whisper", "barge"))
+            )
+            _add_module_row(
+                code,
+                f"Süpervizör Dinleme / Sufle / Araya Girme: {sup_cnt} işlem",
+                f"Canlı Çağrı Müdahalesi (Dinle/Sufle/Barge): <b>{sup_cnt}</b> işlem",
+            )
+        elif code == "reports_blacklist_security":
+            blk_drop = sum(
+                1 for c in calls
+                if any(k in str(c.hangup_source or "").lower() for k in ("blacklist", "blocked", "abuse", "spam"))
+            )
+            _add_module_row(
+                code,
+                f"Aktif Kara Liste: {bl_cnt} kural | Engellenen / İhlalli Çağrı: {blk_drop}",
+                f"Aktif Kara Liste: <b>{bl_cnt}</b> kural | Engellenen / İhlalli Çağrı: <b>{blk_drop}</b>",
+            )
+        elif code == "reports_ai_appointments_rag":
+            conf_appts = sum(1 for a in appts_sched if str(a.status or "confirmed").lower() != "cancelled")
+            _add_module_row(
+                code,
+                f"AI Onaylı Randevu: {conf_appts} | Bilgi Bankası (RAG) Parçası: {rag_chunk_cnt}",
+                f"AI Onaylı Randevu: <b>{conf_appts}</b> | Bilgi Bankası (RAG) Parçası: <b>{rag_chunk_cnt}</b>",
+            )
+        elif code == "reports_voicemail":
+            vm_cnt = sum(1 for c in calls if "voicemail" in str(c.hangup_source or "").lower() or str(c.status or "").lower() == "voicemail")
+            _add_module_row(
+                code,
+                f"Bırakılan Sesli Posta (Voicemail): {vm_cnt} mesaj",
+                f"Bırakılan Sesli Posta (Voicemail): <b>{vm_cnt}</b> mesaj",
+            )
+        elif code == "reports_conferences":
+            conf_legs = sum(
+                1 for c in calls
+                if (str(c.callee_number or "").isdigit() and 3000 <= int(str(c.callee_number)) <= 3999)
+                or "conf" in str(c.hangup_source or "").lower()
+            )
+            _add_module_row(
+                code,
+                f"Konferans Katılımcı Bağlantısı: {conf_legs} çağrı bacağı",
+                f"Konferans Katılımcı Bağlantısı: <b>{conf_legs}</b> çağrı bacağı",
             )
 
     plain_body = "\n".join(sections_plain)

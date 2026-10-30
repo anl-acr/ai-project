@@ -22,6 +22,14 @@ import {
   ArrowUpRight,
   PhoneIncoming,
   PhoneMissed,
+  PhoneForwarded,
+  Eye,
+  ShieldAlert,
+  Database,
+  Calendar,
+  Mail,
+  Smartphone,
+  Lock,
   Award,
   Sliders,
   X
@@ -79,6 +87,42 @@ const REPORT_META = {
     subtitle: "Çağrı ve dahili bazlı MOS puanı (1.0–4.5), Jitter (ms), Paket Kaybı (%) ve Gecikme (RTT) telemetrisi",
     endpoint: "/api/reports/enterprise/voip-quality",
     icon: Wifi
+  },
+  "forwarding-gsm": {
+    title: "Çağrı Yönlendirme (Follow-Me / GSM) Raporu",
+    subtitle: "Abone yönlendirme kuralları (*21* / *67* / *61*), mobil GSM köprüleme çağrıları ve dış hat dakika maliyeti",
+    endpoint: "/api/reports/enterprise/forwarding-gsm",
+    icon: PhoneForwarded
+  },
+  "supervisor-audit": {
+    title: "Süpervizör Dinleme & Müdahale Raporu",
+    subtitle: "Canlı çağrı sessiz dinleme (*551*), sufle/fısıldama (*552*), araya girme (*553*) ve temsilci durum müdahale denetimi",
+    endpoint: "/api/reports/enterprise/supervisor-audit",
+    icon: Eye
+  },
+  "blacklist-security": {
+    title: "Engellenen Çağrı & İhlal Raporu",
+    subtitle: "Kara liste numara engellemeleri, yasaklı kelime / uygunsuz dil tespitleri ve en çok ihlal yapan numaralar",
+    endpoint: "/api/reports/enterprise/blacklist-security",
+    icon: ShieldAlert
+  },
+  "ai-appointments-rag": {
+    title: "AI Randevu & Bilgi Bankası (RAG) Raporu",
+    subtitle: "Yapay zeka tarafından oluşturulan randevular, otonom çözüm yüzdesi, bilgi bankası kaynakları ve bilgi açığı analizi",
+    endpoint: "/api/reports/enterprise/ai-appointments-rag",
+    icon: Bot
+  },
+  voicemail: {
+    title: "Sesli Posta (Voicemail) Raporu",
+    subtitle: "Dahili bazlı sesli posta kutuları, e-posta yönlendirme durumu ve bırakılan mesajlara geri dönüş (Callback) takibi",
+    endpoint: "/api/reports/enterprise/voicemail",
+    icon: Mail
+  },
+  conferences: {
+    title: "Konferans Odası Kullanım Raporu",
+    subtitle: "Konferans köprüleri (3000–3999), toplantı oturum sayıları, zirve katılımcı kapasitesi ve toplam toplantı dakikaları",
+    endpoint: "/api/reports/enterprise/conferences",
+    icon: Users
   }
 };
 
@@ -123,6 +167,7 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
   const [slaSeconds, setSlaSeconds] = useState(20);
   const [shortAbandonSeconds, setShortAbandonSeconds] = useState(5);
   const [minRepeatCalls, setMinRepeatCalls] = useState(2);
+  const [minuteRateTl, setMinuteRateTl] = useState(0.85);
   const [activeSubView, setActiveSubView] = useState("primary");
 
   useEffect(() => {
@@ -200,6 +245,8 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
         params.set("short_abandon_seconds", String(shortAbandonSeconds));
       } else if (reportType === "repeat-callers") {
         params.set("min_calls", String(minRepeatCalls));
+      } else if (reportType === "forwarding-gsm") {
+        params.set("minute_rate_tl", String(minuteRateTl));
       }
 
       const res = await tenantFetch(`${API_BASE}${meta.endpoint}?${params.toString()}`);
@@ -226,7 +273,8 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
     selectedChannel,
     slaSeconds,
     shortAbandonSeconds,
-    minRepeatCalls
+    minRepeatCalls,
+    minuteRateTl
   ]);
 
   const handleExportExcel = () => {
@@ -275,6 +323,26 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
     } else if (reportType === "voip-quality") {
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.by_extension || []), "Dahili Kalite");
       XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.items || []), "Cagri MOS Detay");
+    } else if (reportType === "forwarding-gsm") {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.subscribers || []), "Abone Yonlendirme Kurallari");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.items || []), "Yonlendirilen Cagrilar");
+    } else if (reportType === "supervisor-audit") {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.by_supervisor || []), "Supervizor Ozeti");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.items || []), "Mudahale Denetim Kayitlari");
+    } else if (reportType === "blacklist-security") {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.top_offenders || []), "En Cok Ihlal Yapanlar");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.blacklist_rules || []), "Aktif Kara Liste");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.items || []), "Engellenen Cagrilar");
+    } else if (reportType === "ai-appointments-rag") {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.appointments || []), "AI Randevular");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.rag_sources || []), "RAG Bilgi Bankasi");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.knowledge_gaps || []), "Bilgi Acigi Analizi");
+    } else if (reportType === "voicemail") {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.by_extension || []), "Sesli Posta Kutulari");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.items || []), "Sesli Mesajlar");
+    } else if (reportType === "conferences") {
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.rooms || []), "Konferans Odalari");
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.sessions || []), "Konferans Oturumlari");
     }
 
     XLSX.writeFile(wb, `aida_${reportType}_${startDate || "rapor"}.xlsx`);
@@ -478,6 +546,22 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                     <option value={3}>3 ve üzeri arayanlar (3+)</option>
                     <option value={5}>5 ve üzeri kronik arayanlar (5+)</option>
                   </select>
+                </div>
+              )}
+
+              {reportType === "forwarding-gsm" && (
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+                    Operatör Birim Dakika Tarifesi (₺ / Dk)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    min="0"
+                    value={minuteRateTl}
+                    onChange={(e) => setMinuteRateTl(Math.max(0, Number(e.target.value) || 0))}
+                    className={`w-full px-3 py-2 rounded-xl text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 ${ring}`}
+                  />
                 </div>
               )}
             </div>
@@ -1071,6 +1155,684 @@ export default function EnterpriseReportsPanel({ backendHost, reportType = "brea
                     <td className="px-4 py-3 text-[11px] text-slate-500">
                       {r.source === "webrtc_rtcstats" ? "WebRTC Canlı" : "SIP Medya"}
                     </td>
+                  </tr>
+                )}
+              />
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* 9. CALL FORWARDING (FOLLOW-ME / GSM) REPORT                    */}
+          {/* ============================================================== */}
+          {reportType === "forwarding-gsm" && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+                <KpiCard
+                  label="Aktif Yönlendirme Kuralı"
+                  value={`${summary.active_forwarding_users || 0} / ${summary.total_subscribers || 0}`}
+                  sub={`${summary.mobile_transfer_users || 0} mobil transfer açık`}
+                  icon={Smartphone}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Yönlendirilen Çağrı"
+                  value={summary.total_forwarded_calls || 0}
+                  sub="Dış hat / GSM köprülenen"
+                  icon={PhoneForwarded}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="GSM Cevaplanma Oranı"
+                  value={`%${summary.answer_rate_pct || 0}`}
+                  sub={`${summary.answered_forwarded_calls || 0} cevaplanan / ${summary.missed_forwarded_calls || 0} cevapsız`}
+                  icon={CheckCircle2}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Dış Hat GSM Konuşma"
+                  value={`${summary.total_gsm_minutes || 0} dk`}
+                  sub="Operatör trunk tüketimi"
+                  icon={Clock}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Tahmini Yönlendirme Maliyeti"
+                  value={`₺${summary.estimated_cost_tl ?? "0.00"}`}
+                  sub={`Birim tarife: ₺${summary.minute_rate_tl ?? minuteRateTl}/dk`}
+                  icon={Activity}
+                  theme={{ lightBg, lightText }}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <SubTabButton active={activeSubView === "primary"} onClick={() => setActiveSubView("primary")} bg={bg}>
+                  Abone Yönlendirme Matrisi ({(data?.subscribers || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "logs"} onClick={() => setActiveSubView("logs")} bg={bg}>
+                  Yönlendirilen Çağrı Kayıtları ({(data?.items || []).length})
+                </SubTabButton>
+              </div>
+
+              {activeSubView === "primary" ? (
+                <DataTable
+                  ariaLabel="Abone Yönlendirme Kuralları Matrisi"
+                  headers={[
+                    "Dahili / Abone",
+                    "Kayıtlı GSM",
+                    "Mobil Transfer",
+                    "Her Zaman (*21*)",
+                    "Meşgulde (*67*)",
+                    "Cevapsızda (*61*)",
+                    "Yönlendirilen",
+                    "Cevaplanan",
+                    "GSM Süre"
+                  ]}
+                  rows={(data?.subscribers || []).filter((r) =>
+                    matchSearch(r, ["extension", "full_name", "gsm_number", "always_rule", "busy_rule", "no_answer_rule"])
+                  )}
+                  renderRow={(r) => (
+                    <tr key={r.extension} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">
+                        {r.full_name} <span className="text-[11px] text-slate-400">({r.extension})</span>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-[11px]">{r.gsm_number}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            r.mobile_transfer_enabled
+                              ? `${lightBg} ${lightText}`
+                              : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                          }`}
+                        >
+                          {r.mobile_transfer_enabled ? "Aktif" : "Pasif"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">{r.always_rule}</td>
+                      <td className="px-4 py-3">{r.busy_rule}</td>
+                      <td className="px-4 py-3">{r.no_answer_rule}</td>
+                      <td className="px-4 py-3 text-center font-bold">{r.forwarded_calls}</td>
+                      <td className="px-4 py-3 text-center text-emerald-600 font-semibold">{r.answered_calls}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.talk_seconds)}</td>
+                    </tr>
+                  )}
+                />
+              ) : (
+                <DataTable
+                  ariaLabel="Yönlendirilen Çağrı Kayıtları"
+                  headers={["Tarih / Saat", "Arayan Numara", "Abone / Dahili", "Hedef GSM / Dış Numara", "Tetiklenen Kural", "Trunk", "Durum", "Konuşma"]}
+                  rows={(data?.items || []).filter((r) =>
+                    matchSearch(r, ["caller_number", "extension", "agent_name", "target_gsm", "rule_type", "trunk_name"])
+                  )}
+                  renderRow={(r) => (
+                    <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 whitespace-nowrap">{r.timestamp}</td>
+                      <td className="px-4 py-3 font-mono">{r.caller_number}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">
+                        {r.agent_name} {r.extension !== "-" ? `(${r.extension})` : ""}
+                      </td>
+                      <td className="px-4 py-3 font-mono font-semibold">{r.target_gsm}</td>
+                      <td className="px-4 py-3">{r.rule_type}</td>
+                      <td className="px-4 py-3 text-[11px]">{r.trunk_name}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            r.status === "answered"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                              : "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
+                          }`}
+                        >
+                          {r.status === "answered" ? "Cevaplandı" : "Cevapsız"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.talk_seconds)}</td>
+                    </tr>
+                  )}
+                />
+              )}
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* 10. SUPERVISOR LISTEN / WHISPER / BARGE AUDIT REPORT           */}
+          {/* ============================================================== */}
+          {reportType === "supervisor-audit" && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+                <KpiCard
+                  label="Toplam Denetim / Müdahale"
+                  value={summary.total_interventions || 0}
+                  sub={`${summary.active_supervisors_count || 0} aktif süpervizör`}
+                  icon={Eye}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label={`Sessiz Dinleme (${summary.feature_codes?.listen || "*551*"})`}
+                  value={summary.listen_count || 0}
+                  sub="Müşteri & temsilci duymaz"
+                  icon={Headphones}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label={`Sufle / Fısıldama (${summary.feature_codes?.whisper || "*552*"})`}
+                  value={summary.whisper_count || 0}
+                  sub="Yalnızca temsilci duyar"
+                  icon={MessageSquare}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label={`Araya Girme (${summary.feature_codes?.barge || "*553*"})`}
+                  value={summary.barge_count || 0}
+                  sub="Üçlü konferans müdahalesi"
+                  icon={PhoneOutgoing}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Durum / Oturum Müdahalesi"
+                  value={summary.status_override_count || 0}
+                  sub={`Toplam dinleme: ${formatDuration(summary.total_monitor_seconds || 0)}`}
+                  icon={Sliders}
+                  theme={{ lightBg, lightText }}
+                />
+              </div>
+
+              {(data?.by_supervisor || []).length > 0 && (
+                <DataTable
+                  ariaLabel="Süpervizör Bazlı Denetim Özeti"
+                  headers={["Süpervizör", "Sessiz Dinleme", "Sufle / Fısıldama", "Araya Girme", "Durum Müdahalesi", "Toplam İşlem", "Dinleme Süresi"]}
+                  rows={(data?.by_supervisor || []).filter((r) => matchSearch(r, ["supervisor"]))}
+                  renderRow={(r) => (
+                    <tr key={r.supervisor} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">{r.supervisor}</td>
+                      <td className="px-4 py-3 text-center">{r.listen}</td>
+                      <td className="px-4 py-3 text-center">{r.whisper}</td>
+                      <td className="px-4 py-3 text-center">{r.barge}</td>
+                      <td className="px-4 py-3 text-center">{r.status_override}</td>
+                      <td className={`px-4 py-3 text-center font-extrabold ${text}`}>{r.total}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.duration_seconds)}</td>
+                    </tr>
+                  )}
+                />
+              )}
+
+              <DataTable
+                ariaLabel="Kronolojik Süpervizör Müdahale Günlüğü"
+                headers={["Tarih / Saat", "Süpervizör", "Müdahale Türü", "Hedef Temsilci / Dahili", "Süre", "Açıklama / Detay", "Kaynak IP"]}
+                rows={(data?.items || []).filter((r) =>
+                  matchSearch(r, ["supervisor", "type_label", "target_agent", "details", "ip_address"])
+                )}
+                renderRow={(r) => (
+                  <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                    <td className="px-4 py-3 whitespace-nowrap">{r.timestamp}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">{r.supervisor}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${lightBg} ${lightText}`}>
+                        {r.type_label}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 font-semibold">{r.target_agent}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{r.duration_seconds > 0 ? formatDuration(r.duration_seconds) : "-"}</td>
+                    <td className="px-4 py-3 max-w-xs truncate" title={r.details}>{r.details}</td>
+                    <td className="px-4 py-3 font-mono text-[11px] text-slate-400">{r.ip_address}</td>
+                  </tr>
+                )}
+              />
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* 11. BLACKLIST, BLOCKED CALLS & PROFANITY SECURITY REPORT       */}
+          {/* ============================================================== */}
+          {reportType === "blacklist-security" && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+                <KpiCard
+                  label="Engellenen Çağrı Adedi"
+                  value={summary.blocked_calls_count || 0}
+                  sub="Kara liste / güvenlik reddi"
+                  icon={ShieldAlert}
+                  alert={(summary.blocked_calls_count || 0) > 0}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Uygunsuz Dil / Küfür Tespiti"
+                  value={summary.profanity_incidents_count || 0}
+                  sub={`${summary.active_block_words_count || 0} yasaklı kelime aktif`}
+                  icon={AlertTriangle}
+                  alert={(summary.profanity_incidents_count || 0) > 0}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Aktif Kara Liste Kuralı"
+                  value={summary.active_blacklist_count || 0}
+                  sub="Numara & e-posta engeli"
+                  icon={Lock}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Tekil İhlalci Numara"
+                  value={summary.unique_offenders_count || 0}
+                  sub="Tekrarlayan spam / taciz"
+                  icon={PhoneMissed}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Toplam Güvenlik Olayı"
+                  value={summary.total_security_events || 0}
+                  sub="Otomatik koruma kalkanı"
+                  icon={Activity}
+                  theme={{ lightBg, lightText }}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <SubTabButton active={activeSubView === "primary"} onClick={() => setActiveSubView("primary")} bg={bg}>
+                  İhlal & Engelleme Kayıtları ({(data?.items || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "offenders"} onClick={() => setActiveSubView("offenders")} bg={bg}>
+                  En Çok İhlal Yapan Numaralar ({(data?.top_offenders || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "rules"} onClick={() => setActiveSubView("rules")} bg={bg}>
+                  Aktif Kara Liste Kuralları ({(data?.blacklist_rules || []).length})
+                </SubTabButton>
+              </div>
+
+              {activeSubView === "primary" && (
+                <DataTable
+                  ariaLabel="Engellenen Çağrı ve İhlal Kayıtları"
+                  headers={["Tarih / Saat", "Arayan Numara", "Hedef Hat", "İhlal Türü", "Eşleşen Kural / Kelime", "Görüşme Özeti"]}
+                  rows={(data?.items || []).filter((r) =>
+                    matchSearch(r, ["caller_number", "callee_number", "incident_label", "matched_rule", "summary"])
+                  )}
+                  renderRow={(r) => (
+                    <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 whitespace-nowrap">{r.timestamp}</td>
+                      <td className="px-4 py-3 font-mono font-bold text-slate-800 dark:text-white">{r.caller_number}</td>
+                      <td className="px-4 py-3 font-mono">{r.callee_number}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            r.incident_type === "blacklist"
+                              ? "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+                          }`}
+                        >
+                          {r.incident_label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-semibold">{r.matched_rule}</td>
+                      <td className="px-4 py-3 max-w-sm truncate" title={r.summary}>{r.summary}</td>
+                    </tr>
+                  )}
+                />
+              )}
+
+              {activeSubView === "offenders" && (
+                <DataTable
+                  ariaLabel="En Çok İhlal Yapan Numaralar"
+                  headers={["Arayan Numara", "Toplam Deneme", "Kara Liste Reddi", "Küfür / Hakaret", "Son Görülme", "Gerekçe"]}
+                  rows={(data?.top_offenders || []).filter((r) => matchSearch(r, ["caller_number", "reason"]))}
+                  renderRow={(r) => (
+                    <tr key={r.caller_number} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-mono font-bold text-slate-800 dark:text-white">{r.caller_number}</td>
+                      <td className="px-4 py-3 text-center font-extrabold text-rose-600">{r.attempts}</td>
+                      <td className="px-4 py-3 text-center">{r.blocked_count}</td>
+                      <td className="px-4 py-3 text-center">{r.profanity_count}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{r.last_seen}</td>
+                      <td className="px-4 py-3">{r.reason}</td>
+                    </tr>
+                  )}
+                />
+              )}
+
+              {activeSubView === "rules" && (
+                <DataTable
+                  ariaLabel="Aktif Kara Liste Kuralları"
+                  headers={["Engellenen Numara / Değer", "Tip", "Engellenme Gerekçesi", "Eklenme Tarihi", "Dönem İçi Yakalanan"]}
+                  rows={(data?.blacklist_rules || []).filter((r) => matchSearch(r, ["value", "reason", "type"]))}
+                  renderRow={(r) => (
+                    <tr key={r.value} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-mono font-semibold text-slate-800 dark:text-white">{r.value}</td>
+                      <td className="px-4 py-3 uppercase text-[11px]">{r.type}</td>
+                      <td className="px-4 py-3">{r.reason}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">{r.created_at}</td>
+                      <td className="px-4 py-3 text-center font-bold">{r.hit_count}</td>
+                    </tr>
+                  )}
+                />
+              )}
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* 12. AI APPOINTMENTS & RAG KNOWLEDGE BASE REPORT                */}
+          {/* ============================================================== */}
+          {reportType === "ai-appointments-rag" && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+                <KpiCard
+                  label="AI Onaylı Randevu"
+                  value={summary.confirmed_appointments || 0}
+                  sub={`${summary.upcoming_appointments || 0} yaklaşan / ${summary.cancelled_appointments || 0} iptal`}
+                  icon={Calendar}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Randevu Dönüşüm Oranı"
+                  value={`%${summary.appointment_conversion_pct || 0}`}
+                  sub={`${summary.ai_calls_count || 0} AI görüşmesi üzerinden`}
+                  icon={Award}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="AI Otonom Çözüm Oranı"
+                  value={`%${summary.ai_autonomous_rate_pct ?? 100}`}
+                  sub={`${summary.human_transfer_count || 0} canlı temsilciye aktarım`}
+                  icon={Bot}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Bilgi Bankası Kaynağı"
+                  value={summary.rag_sources_count || 0}
+                  sub="Doküman & Web URL kaynağı"
+                  icon={Database}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Vektör Bilgi Parçası (Chunk)"
+                  value={summary.rag_chunks_count || 0}
+                  sub="pgvector 768-dim indeksli"
+                  icon={CheckCircle2}
+                  theme={{ lightBg, lightText }}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <SubTabButton active={activeSubView === "primary"} onClick={() => setActiveSubView("primary")} bg={bg}>
+                  AI Randevu Listesi ({(data?.appointments || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "rag"} onClick={() => setActiveSubView("rag")} bg={bg}>
+                  Bilgi Bankası (RAG) Kaynakları ({(data?.rag_sources || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "gaps"} onClick={() => setActiveSubView("gaps")} bg={bg}>
+                  Aktarım & Bilgi Açığı Analizi ({(data?.knowledge_gaps || []).length})
+                </SubTabButton>
+              </div>
+
+              {activeSubView === "primary" && (
+                <DataTable
+                  ariaLabel="AI Tarafından Oluşturulan Randevular"
+                  headers={["Randevu Zamanı", "Müşteri Adı", "Telefon", "E-Posta", "Durum", "Notlar / Detay"]}
+                  rows={(data?.appointments || []).filter((r) =>
+                    matchSearch(r, ["customer_name", "customer_phone", "customer_email", "notes", "status"])
+                  )}
+                  renderRow={(r) => (
+                    <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 whitespace-nowrap font-semibold text-slate-800 dark:text-white">{r.appointment_time}</td>
+                      <td className="px-4 py-3 font-semibold">{r.customer_name}</td>
+                      <td className="px-4 py-3 font-mono">{r.customer_phone}</td>
+                      <td className="px-4 py-3">{r.customer_email}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            r.status === "cancelled"
+                              ? "bg-rose-100 text-rose-700 dark:bg-rose-950/60 dark:text-rose-300"
+                              : "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                          }`}
+                        >
+                          {r.status === "cancelled" ? "İptal Edildi" : "Onaylı"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 max-w-xs truncate" title={r.notes}>{r.notes}</td>
+                    </tr>
+                  )}
+                />
+              )}
+
+              {activeSubView === "rag" && (
+                <DataTable
+                  ariaLabel="Bilgi Bankası (RAG) Kaynak Envanteri"
+                  headers={["Doküman / Web URL Kaynağı", "Kaynak Türü", "Vektör Parça (Chunk)", "Karakter Boyutu", "Tahmini Token"]}
+                  rows={(data?.rag_sources || []).filter((r) => matchSearch(r, ["filename", "source_type"]))}
+                  renderRow={(r) => (
+                    <tr key={r.filename} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white max-w-md truncate" title={r.filename}>
+                        {r.filename}
+                      </td>
+                      <td className="px-4 py-3">{r.source_type}</td>
+                      <td className={`px-4 py-3 font-extrabold ${text}`}>{r.chunk_count}</td>
+                      <td className="px-4 py-3">{(r.char_count || 0).toLocaleString("tr-TR")} kr</td>
+                      <td className="px-4 py-3">~{(r.est_tokens || 0).toLocaleString("tr-TR")} tok</td>
+                    </tr>
+                  )}
+                />
+              )}
+
+              {activeSubView === "gaps" && (
+                <DataTable
+                  ariaLabel="AI Temsilci Aktarım ve Bilgi Açığı Analizi"
+                  headers={["Tarih / Saat", "Arayan Numara", "Tespit Nedeni", "Konu / Niyet", "Duygu", "AI Görüşme Özeti"]}
+                  rows={(data?.knowledge_gaps || []).filter((r) =>
+                    matchSearch(r, ["caller_number", "reason", "topic", "summary"])
+                  )}
+                  renderRow={(r) => (
+                    <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 whitespace-nowrap">{r.timestamp}</td>
+                      <td className="px-4 py-3 font-mono">{r.caller_number}</td>
+                      <td className="px-4 py-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300">
+                          {r.reason}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">{r.topic}</td>
+                      <td className="px-4 py-3">{r.sentiment}</td>
+                      <td className="px-4 py-3 max-w-sm truncate" title={r.summary}>{r.summary}</td>
+                    </tr>
+                  )}
+                />
+              )}
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* 13. VOICEMAIL & CALLBACK FOLLOW-UP REPORT                      */}
+          {/* ============================================================== */}
+          {reportType === "voicemail" && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+                <KpiCard
+                  label="Sesli Posta Aktif Dahili"
+                  value={`${summary.voicemail_enabled_users || 0} / ${summary.total_extensions || 0}`}
+                  sub={`${summary.voicemail_email_users || 0} e-posta iletimi açık`}
+                  icon={Mail}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Bırakılan Sesli Mesaj"
+                  value={summary.total_voicemails || 0}
+                  sub={`Ort. süre: ${formatDuration(summary.avg_duration_sec || 0)}`}
+                  icon={PhoneIncoming}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Geri Dönüş Yapılan"
+                  value={summary.returned_callbacks || 0}
+                  sub="Müşteriye geri arandı"
+                  icon={CheckCircle2}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Bekleyen Sesli Mesaj"
+                  value={summary.pending_callbacks || 0}
+                  sub="Henüz geri dönüş yapılmadı"
+                  icon={AlertTriangle}
+                  alert={(summary.pending_callbacks || 0) > 0}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Geri Dönüş Oranı"
+                  value={`%${summary.callback_rate_pct ?? 100}`}
+                  sub="Sesli mesaj SLA takibi"
+                  icon={Award}
+                  theme={{ lightBg, lightText }}
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <SubTabButton active={activeSubView === "primary"} onClick={() => setActiveSubView("primary")} bg={bg}>
+                  Bırakılan Sesli Mesajlar ({(data?.items || []).length})
+                </SubTabButton>
+                <SubTabButton active={activeSubView === "boxes"} onClick={() => setActiveSubView("boxes")} bg={bg}>
+                  Dahili Posta Kutusu Durumu ({(data?.by_extension || []).length})
+                </SubTabButton>
+              </div>
+
+              {activeSubView === "primary" ? (
+                <DataTable
+                  ariaLabel="Bırakılan Sesli Posta Kayıtları"
+                  headers={["Tarih / Saat", "Arayan Numara", "Posta Kutusu (Dahili)", "Mesaj Süresi", "E-Posta İletimi", "Geri Dönüş Durumu", "Dönüş Yapan / Zaman"]}
+                  rows={(data?.items || []).filter((r) =>
+                    matchSearch(r, ["caller_number", "extension", "agent_name", "callback_by"])
+                  )}
+                  renderRow={(r) => (
+                    <tr key={r.id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 whitespace-nowrap">{r.timestamp}</td>
+                      <td className="px-4 py-3 font-mono font-semibold text-slate-800 dark:text-white">{r.caller_number}</td>
+                      <td className="px-4 py-3">
+                        {r.agent_name} {r.extension !== "-" ? `(${r.extension})` : ""}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.duration_seconds)}</td>
+                      <td className="px-4 py-3">{r.email_forwarded ? "Gönderildi" : "Kapalı"}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            r.callback_done
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300"
+                          }`}
+                        >
+                          {r.callback_done ? "Geri Arandı" : "Bekliyor"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-[11px]">
+                        {r.callback_done ? `${r.callback_by} (${r.callback_at})` : "-"}
+                      </td>
+                    </tr>
+                  )}
+                />
+              ) : (
+                <DataTable
+                  ariaLabel="Dahili Sesli Posta Kutuları"
+                  headers={["Dahili / Abone", "E-Posta Adresi", "Sesli Posta", "E-Postaya İlet", "Gelen Mesaj", "Dönüş Yapılan", "Bekleyen"]}
+                  rows={(data?.by_extension || []).filter((r) => matchSearch(r, ["extension", "full_name", "email"]))}
+                  renderRow={(r) => (
+                    <tr key={r.extension} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                      <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">
+                        {r.full_name} <span className="text-[11px] text-slate-400">({r.extension})</span>
+                      </td>
+                      <td className="px-4 py-3">{r.email}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            r.voicemail_active
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                              : "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"
+                          }`}
+                        >
+                          {r.voicemail_active ? "Aktif" : "Pasif"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">{r.voicemail_to_email ? "Açık" : "Kapalı"}</td>
+                      <td className="px-4 py-3 text-center font-bold">{r.messages_count}</td>
+                      <td className="px-4 py-3 text-center text-emerald-600 font-semibold">{r.returned_count}</td>
+                      <td className="px-4 py-3 text-center text-amber-600 font-semibold">{r.pending_count}</td>
+                    </tr>
+                  )}
+                />
+              )}
+            </div>
+          )}
+
+          {/* ============================================================== */}
+          {/* 14. CONFERENCE ROOM UTILIZATION REPORT                         */}
+          {/* ============================================================== */}
+          {reportType === "conferences" && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3.5">
+                <KpiCard
+                  label="Tanımlı Konferans Odası"
+                  value={summary.configured_rooms_count || 0}
+                  sub={`${summary.active_rooms_count || 0} oda dönemde kullanıldı`}
+                  icon={Building2}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Gerçekleşen Toplantı"
+                  value={summary.total_sessions || 0}
+                  sub={`Ort. oturum: ${summary.avg_session_minutes || 0} dk`}
+                  icon={Calendar}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Toplam Katılımcı Girişi"
+                  value={summary.total_participant_legs || 0}
+                  sub="Dahili & dış hat katılımcılar"
+                  icon={Users}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Zirve Eşzamanlı Katılımcı"
+                  value={summary.peak_participants || 0}
+                  sub="Tek toplantıda en yüksek"
+                  icon={Award}
+                  theme={{ lightBg, lightText }}
+                />
+                <KpiCard
+                  label="Toplam Konferans Dakikası"
+                  value={`${summary.total_conference_minutes || 0} dk`}
+                  sub="Katılımcı toplam ses süresi"
+                  icon={Clock}
+                  theme={{ lightBg, lightText }}
+                />
+              </div>
+
+              <DataTable
+                ariaLabel="Konferans Odaları Envanter ve Kullanım Özeti"
+                headers={["Oda No", "Konferans Odası Adı", "PIN Koruması", "Ses Kaydı", "Kapasite", "Toplantı Sayısı", "Toplam Katılımcı", "Toplam Dakika", "Son Kullanım"]}
+                rows={(data?.rooms || []).filter((r) => matchSearch(r, ["room_number", "name"]))}
+                renderRow={(r) => (
+                  <tr key={r.room_number} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                    <td className={`px-4 py-3 font-mono font-extrabold ${text}`}>{r.room_number}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">{r.name}</td>
+                    <td className="px-4 py-3">{r.pin_protected ? "PIN Korumalı" : "Açık"}</td>
+                    <td className="px-4 py-3">{r.record_enabled ? "Aktif" : "Pasif"}</td>
+                    <td className="px-4 py-3 text-center">{r.max_members} Kişi</td>
+                    <td className="px-4 py-3 text-center font-bold">{r.sessions_count}</td>
+                    <td className="px-4 py-3 text-center">{r.participants_count}</td>
+                    <td className="px-4 py-3 whitespace-nowrap font-semibold">{r.total_minutes} dk</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-slate-500">{r.last_used_at}</td>
+                  </tr>
+                )}
+              />
+
+              <DataTable
+                ariaLabel="Gerçekleşen Konferans Oturumları"
+                headers={["Oda", "Başlangıç", "Bitiş", "Katılımcı Adedi", "Katılımcı Numaralar / Dahililer", "Toplantı Süresi", "Toplam Bacak Süresi"]}
+                rows={(data?.sessions || []).filter((r) =>
+                  matchSearch(r, ["room_number", "room_name", "participant_numbers"])
+                )}
+                renderRow={(r) => (
+                  <tr key={r.session_id} className="hover:bg-slate-50/80 dark:hover:bg-slate-800/40">
+                    <td className="px-4 py-3 font-semibold text-slate-800 dark:text-white">
+                      {r.room_name} <span className="text-[11px] text-slate-400">({r.room_number})</span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">{r.start_time}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{r.end_time}</td>
+                    <td className={`px-4 py-3 text-center font-extrabold ${text}`}>{r.participants_count}</td>
+                    <td className="px-4 py-3 font-mono text-[11px] max-w-xs truncate" title={r.participant_numbers}>
+                      {r.participant_numbers}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.duration_seconds)}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">{formatDuration(r.total_leg_seconds)}</td>
                   </tr>
                 )}
               />

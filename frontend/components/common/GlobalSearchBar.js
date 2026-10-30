@@ -586,6 +586,66 @@ export default function GlobalSearchBar({
         icon: TrendingUp,
         run: () => navigateTo("reports-ceo-summary")
       },
+      {
+        id: "menu-reports-forwarding-gsm",
+        category: "menu",
+        groupLabel: "Raporlar & Analitik",
+        title: "Çağrı Yönlendirme (Follow-Me / GSM) Raporu",
+        subtitle: "Dahili yönlendirme kuralları (*21*/*67*/*61*), mobil GSM çağrıları ve dış hat dakika maliyeti",
+        keywords: "çağrı yönlendirme follow me gsm mobil cep telefonu aktarma raporu",
+        icon: PhoneForwarded,
+        run: () => navigateTo("reports-forwarding-gsm")
+      },
+      {
+        id: "menu-reports-supervisor-audit",
+        category: "menu",
+        groupLabel: "Raporlar & Analitik",
+        title: "Süpervizör Dinleme & Müdahale Raporu",
+        subtitle: "Sessiz dinleme (*551*), sufle/fısıldama (*552*), araya girme (*553*) ve oturum müdahaleleri",
+        keywords: "süpervizör dinleme sufle fısıldama araya girme barge whisper spy müdahale raporu",
+        icon: ShieldCheck,
+        run: () => navigateTo("reports-supervisor-audit")
+      },
+      {
+        id: "menu-reports-blacklist-security",
+        category: "menu",
+        groupLabel: "Raporlar & Analitik",
+        title: "Engellenen Çağrı & İhlal Raporu",
+        subtitle: "Kara liste numara engellemeleri, yasaklı kelime/küfür tespitleri ve spam analizi",
+        keywords: "engellenen çağrı kara liste blacklist küfür hakaret yasaklı kelime güvenlik raporu",
+        icon: ShieldAlert,
+        run: () => navigateTo("reports-blacklist-security")
+      },
+      {
+        id: "menu-reports-ai-appointments-rag",
+        category: "menu",
+        groupLabel: "Raporlar & Analitik",
+        title: "AI Randevu & Bilgi Bankası (RAG) Raporu",
+        subtitle: "Yapay zeka tarafından alınan randevular, otonom çözüm oranı ve bilgi bankası kapsam analizi",
+        keywords: "ai randevu bilgi bankası rag doküman dönüşüm otonom çözüm raporu",
+        icon: Bot,
+        run: () => navigateTo("reports-ai-appointments-rag")
+      },
+      {
+        id: "menu-reports-voicemail",
+        category: "menu",
+        groupLabel: "Raporlar & Analitik",
+        title: "Sesli Posta (Voicemail) Raporu",
+        subtitle: "Bırakılan sesli mesajlar, e-posta iletim durumu ve geri dönüş (callback) takibi",
+        keywords: "sesli posta voicemail mesaj telesekreter geri dönüş raporu",
+        icon: Mail,
+        run: () => navigateTo("reports-voicemail")
+      },
+      {
+        id: "menu-reports-conferences",
+        category: "menu",
+        groupLabel: "Raporlar & Analitik",
+        title: "Konferans Odası Kullanım Raporu",
+        subtitle: "Konferans odası oturumları (3000-3999), katılımcı sayıları ve toplam toplantı dakikaları",
+        keywords: "konferans odası toplantı katılımcı kullanım raporu",
+        icon: Users,
+        run: () => navigateTo("reports-conferences")
+      },
 
       // --- SİSTEM AYARLARI & GÜVENLİK ---
       {

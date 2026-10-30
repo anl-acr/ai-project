@@ -114,7 +114,13 @@ export const REPORT_FEATURE_IDS = [
   "reports_queue_sla",
   "reports_repeat_callers",
   "reports_dept_pickup",
-  "reports_voip_quality"
+  "reports_voip_quality",
+  "reports_forwarding_gsm",
+  "reports_supervisor_audit",
+  "reports_blacklist_security",
+  "reports_ai_appointments_rag",
+  "reports_voicemail",
+  "reports_conferences"
 ];
 
 const SYSTEM_FEATURES = [
@@ -193,6 +199,12 @@ const SYSTEM_FEATURES = [
   { id: "reports_repeat_callers", name: "Tekrar Eden Arayanlar", icon: Shuffle, type: "access", color: "rose" },
   { id: "reports_dept_pickup", name: "Departman & Çağrı Toplama", icon: MapPin, type: "access", color: "indigo" },
   { id: "reports_voip_quality", name: "VoIP & Ses Kalitesi (MOS)", icon: Activity, type: "access", color: "emerald" },
+  { id: "reports_forwarding_gsm", name: "Çağrı Yönlendirme (Follow-Me / GSM)", icon: Smartphone, type: "access", color: "blue" },
+  { id: "reports_supervisor_audit", name: "Süpervizör Dinleme & Müdahale", icon: Headphones, type: "access", color: "amber" },
+  { id: "reports_blacklist_security", name: "Engellenen Çağrı & İhlal Raporu", icon: Shield, type: "access", color: "rose" },
+  { id: "reports_ai_appointments_rag", name: "AI Randevu & Bilgi Bankası (RAG)", icon: Bot, type: "access", color: "purple" },
+  { id: "reports_voicemail", name: "Sesli Posta (Voicemail) Raporu", icon: Mail, type: "access", color: "indigo" },
+  { id: "reports_conferences", name: "Konferans Odası Kullanım Raporu", icon: Users, type: "access", color: "emerald" },
 
   // 6. Yönetim & Ayarlar
   { id: "system_status", name: "Sistem Panosu & Sağlık", icon: Server, type: "access", color: "cyan" },

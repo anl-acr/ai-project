@@ -1277,6 +1277,8 @@ DEFAULT_SETTINGS = {
                 "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
                 "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
                 "reports_dept_pickup:access", "reports_voip_quality:access",
+                "reports_forwarding_gsm:access", "reports_supervisor_audit:access", "reports_blacklist_security:access",
+                "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access",
                 "roi_settings:read", "roi_settings:write", "roi_settings:delete",
                 # İletişim Kanalları
                 "channels:read", "channels:write",
@@ -1293,8 +1295,7 @@ DEFAULT_SETTINGS = {
                 "storage:access",
                 "api_budgets:read", "api_budgets:write",
                 "ai_task_routing:read", "ai_task_routing:write",
-                "tenants:read", "tenants:write", "tenants:delete",
-                "tenant_license:read", "tenant_license:write", "tenant_license:delete",
+                "tenants:read", "tenants:write", "tenant_license:read", "tenant_license:write", "tenant_license:delete", "tenants:delete",
                 "email_notifications:read", "email_notifications:write", "email_notifications:delete",
                 "restore_points:read", "restore_points:write", "restore_points:delete",
                 "system_status:access", "logs:access", "sip_debugger:access",
@@ -1352,6 +1353,8 @@ DEFAULT_SETTINGS = {
                 "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
                 "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
                 "reports_dept_pickup:access", "reports_voip_quality:access",
+                "reports_forwarding_gsm:access", "reports_supervisor_audit:access", "reports_blacklist_security:access",
+                "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access",
                 "channels:read", "channels:write",
                 "canned_responses:read", "canned_responses:write", "canned_responses:delete",
                 "breaks:read", "breaks:write",
@@ -1746,7 +1749,9 @@ def load_settings():
                     "reports_did:access", "reports_trunk_minutes:access", "reports_invalid_calls:access",
                     "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
                     "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
-                    "reports_dept_pickup:access", "reports_voip_quality:access"
+                    "reports_dept_pickup:access", "reports_voip_quality:access",
+                    "reports_forwarding_gsm:access", "reports_supervisor_audit:access", "reports_blacklist_security:access",
+                    "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access"
                 ]:
                     if rep_perm not in new_perms:
                         new_perms.append(rep_perm)
@@ -1760,7 +1765,9 @@ def load_settings():
                     "reports_did:access", "reports_trunk_minutes:access", "reports_invalid_calls:access",
                     "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
                     "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
-                    "reports_dept_pickup:access", "reports_voip_quality:access"
+                    "reports_dept_pickup:access", "reports_voip_quality:access",
+                    "reports_forwarding_gsm:access", "reports_supervisor_audit:access", "reports_blacklist_security:access",
+                    "reports_ai_appointments_rag:access", "reports_voicemail:access", "reports_conferences:access"
                 ]:
                     if rep_perm not in new_perms:
                         new_perms.append(rep_perm)

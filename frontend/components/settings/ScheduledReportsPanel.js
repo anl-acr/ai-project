@@ -61,7 +61,13 @@ const DEFAULT_REPORT_MODULES = {
   reports_queue_sla: "Kuyruk SLA & Hız Dilimleri",
   reports_repeat_callers: "Tekrar Eden Arayanlar",
   reports_dept_pickup: "Departman & Çağrı Toplama",
-  reports_voip_quality: "VoIP & Ses Kalitesi (MOS)"
+  reports_voip_quality: "VoIP & Ses Kalitesi (MOS)",
+  reports_forwarding_gsm: "Çağrı Yönlendirme (Follow-Me / GSM)",
+  reports_supervisor_audit: "Süpervizör Dinleme & Müdahale",
+  reports_blacklist_security: "Engellenen Çağrı & İhlal Raporu",
+  reports_ai_appointments_rag: "AI Randevu & Bilgi Bankası (RAG)",
+  reports_voicemail: "Sesli Posta (Voicemail) Raporu",
+  reports_conferences: "Konferans Odası Kullanım Raporu"
 };
 
 const LEGACY_REPORT_KEY_MAP = {

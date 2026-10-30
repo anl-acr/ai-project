@@ -42,6 +42,12 @@ export const TAB_TURKISH_SLUGS = {
   "reports-repeat-callers": "tekrar-eden-arayanlar-raporu",
   "reports-dept-pickup": "departman-ve-cagri-toplama-raporu",
   "reports-voip-quality": "voip-ses-kalitesi-mos-raporu",
+  "reports-forwarding-gsm": "yonlendirme-ve-gsm-raporu",
+  "reports-supervisor-audit": "supervizor-dinleme-mudahale-raporu",
+  "reports-blacklist-security": "engellenen-cagri-ve-ihlal-raporu",
+  "reports-ai-appointments-rag": "ai-randevu-ve-rag-raporu",
+  "reports-voicemail": "sesli-posta-voicemail-raporu",
+  "reports-conferences": "konferans-odasi-kullanim-raporu",
   "settings": "ayarlar",
   "system-status": "sistem-durumu"
 };
