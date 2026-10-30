@@ -338,9 +338,26 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     }
     return today;
   });
-  const [filterCdrStartTime, setFilterCdrStartTime] = useState("00:00");
-  const [filterCdrEndTime, setFilterCdrEndTime] = useState("23:59");
-  const cdrDatePresets = React.useMemo(() => {
+  const [filterStartTime, setFilterStartTime] = useState(() => {
+    const today = getTodayDateString();
+    if (typeof window !== "undefined") {
+      const savedEnd = localStorage.getItem("reports_filter_end_date");
+      const savedStartT = localStorage.getItem("reports_filter_start_time");
+      if (savedEnd && savedEnd >= today && savedStartT) return savedStartT;
+    }
+    return "00:00";
+  });
+  const [filterEndTime, setFilterEndTime] = useState(() => {
+    const today = getTodayDateString();
+    if (typeof window !== "undefined") {
+      const savedEnd = localStorage.getItem("reports_filter_end_date");
+      const savedEndT = localStorage.getItem("reports_filter_end_time");
+      if (savedEnd && savedEnd >= today && savedEndT) return savedEndT;
+    }
+    return "23:59";
+  });
+  const hasCustomTimeFilter = filterStartTime !== "00:00" || filterEndTime !== "23:59";
+  const reportDatePresets = React.useMemo(() => {
     const fmtYmd = (d) =>
       `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
     const fmtHm = (d) =>
@@ -363,9 +380,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           const endD = new Date();
           const startD = new Date(endD.getTime() - 60 * 60 * 1000);
           setFilterStartDate(fmtYmd(startD));
-          setFilterCdrStartTime(fmtHm(startD));
+          setFilterStartTime(fmtHm(startD));
           setFilterEndDate(fmtYmd(endD));
-          setFilterCdrEndTime(fmtHm(endD));
+          setFilterEndTime(fmtHm(endD));
         },
       },
       {
@@ -373,21 +390,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         isActive:
           filterStartDate === todayStr &&
           filterEndDate === todayStr &&
-          filterCdrStartTime === "00:00" &&
-          filterCdrEndTime === "23:59",
+          filterStartTime === "00:00" &&
+          filterEndTime === "23:59",
         onSelect: () => {
           setFilterStartDate(todayStr);
-          setFilterCdrStartTime("00:00");
+          setFilterStartTime("00:00");
           setFilterEndDate(todayStr);
-          setFilterCdrEndTime("23:59");
+          setFilterEndTime("23:59");
         },
       },
       {
         label: "Mesai (09:00-18:00)",
-        isActive: filterCdrStartTime === "09:00" && filterCdrEndTime === "18:00",
+        isActive: filterStartTime === "09:00" && filterEndTime === "18:00",
         onSelect: () => {
-          setFilterCdrStartTime("09:00");
-          setFilterCdrEndTime("18:00");
+          setFilterStartTime("09:00");
+          setFilterEndTime("18:00");
         },
       },
       {
@@ -395,13 +412,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         isActive:
           filterStartDate === yestStr &&
           filterEndDate === yestStr &&
-          filterCdrStartTime === "00:00" &&
-          filterCdrEndTime === "23:59",
+          filterStartTime === "00:00" &&
+          filterEndTime === "23:59",
         onSelect: () => {
           setFilterStartDate(yestStr);
-          setFilterCdrStartTime("00:00");
+          setFilterStartTime("00:00");
           setFilterEndDate(yestStr);
-          setFilterCdrEndTime("23:59");
+          setFilterEndTime("23:59");
         },
       },
       {
@@ -409,13 +426,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         isActive:
           filterStartDate === sevenAgoStr &&
           filterEndDate === todayStr &&
-          filterCdrStartTime === "00:00" &&
-          filterCdrEndTime === "23:59",
+          filterStartTime === "00:00" &&
+          filterEndTime === "23:59",
         onSelect: () => {
           setFilterStartDate(sevenAgoStr);
-          setFilterCdrStartTime("00:00");
+          setFilterStartTime("00:00");
           setFilterEndDate(todayStr);
-          setFilterCdrEndTime("23:59");
+          setFilterEndTime("23:59");
         },
       },
       {
@@ -423,17 +440,17 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         isActive:
           filterStartDate === firstOfMonthStr &&
           filterEndDate === todayStr &&
-          filterCdrStartTime === "00:00" &&
-          filterCdrEndTime === "23:59",
+          filterStartTime === "00:00" &&
+          filterEndTime === "23:59",
         onSelect: () => {
           setFilterStartDate(firstOfMonthStr);
-          setFilterCdrStartTime("00:00");
+          setFilterStartTime("00:00");
           setFilterEndDate(todayStr);
-          setFilterCdrEndTime("23:59");
+          setFilterEndTime("23:59");
         },
       },
     ];
-  }, [filterStartDate, filterEndDate, filterCdrStartTime, filterCdrEndTime]);
+  }, [filterStartDate, filterEndDate, filterStartTime, filterEndTime]);
   const [filterStatus, setFilterStatus] = useState("All");
   const [filterDirection, setFilterDirection] = useState("All");
   const [filterConversant, setFilterConversant] = useState("All");
@@ -467,10 +484,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const [filterFcrSentimentsSelected, setFilterFcrSentimentsSelected] = useState([]);
   const [filterMissedQueuesSelected, setFilterMissedQueuesSelected] = useState([]);
   const [filterMissedCallbackSelected, setFilterMissedCallbackSelected] = useState([]);
-  const [filterTrafficStartHour, setFilterTrafficStartHour] = useState("");
-  const [filterTrafficEndHour, setFilterTrafficEndHour] = useState("");
-  const [filterTrunkStartHour, setFilterTrunkStartHour] = useState("");
-  const [filterTrunkEndHour, setFilterTrunkEndHour] = useState("");
   const [filterTrunksSelected, setFilterTrunksSelected] = useState([]);
 
   const trunkFilterItems = React.useMemo(() => {
@@ -704,16 +717,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   const parseCallLocalHour = (dateStr) => {
     const d = parseCallDateObj(dateStr);
     return d ? d.getHours() : null;
-  };
-
-  const isHourInTrafficRange = (hr, startRaw = filterTrafficStartHour, endRaw = filterTrafficEndHour) => {
-    if (hr === null || hr === undefined || isNaN(hr)) return false;
-    if (startRaw === "" && endRaw === "") return true;
-    const s = startRaw === "" ? 0 : parseInt(startRaw, 10);
-    const e = endRaw === "" ? 23 : parseInt(endRaw, 10);
-    if (isNaN(s) || isNaN(e)) return true;
-    if (s <= e) return hr >= s && hr <= e;
-    return hr >= s || hr <= e;
   };
 
   const MISSED_CALLBACK_FILTER_ITEMS = [
@@ -1055,13 +1058,15 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (typeof window !== "undefined") {
       if (filterStartDate) localStorage.setItem("reports_filter_start_date", filterStartDate);
       if (filterEndDate) localStorage.setItem("reports_filter_end_date", filterEndDate);
+      if (filterStartTime) localStorage.setItem("reports_filter_start_time", filterStartTime);
+      if (filterEndTime) localStorage.setItem("reports_filter_end_time", filterEndTime);
     }
     const labelDate =
       filterStartDate && filterEndDate && filterStartDate !== filterEndDate
         ? `${filterStartDate} / ${filterEndDate}`
         : filterEndDate || filterStartDate || getTodayDateString();
     setTimelineDate(labelDate);
-  }, [filterStartDate, filterEndDate]);
+  }, [filterStartDate, filterEndDate, filterStartTime, filterEndTime]);
 
   const fetchAgentTimeline = async (targetDate = timelineDate, showSpin = false) => {
     if (showSpin) setTimelineLoading(true);
@@ -1072,6 +1077,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
+      if (filterStartTime && filterStartTime !== "00:00") params.append("start_time", filterStartTime);
+      if (filterEndTime && filterEndTime !== "23:59") params.append("end_time", filterEndTime);
       if (filterEndDate || filterStartDate) params.append("date", filterEndDate || filterStartDate);
       const res = await fetch(`${protocol}//${backendHost}/api/reports/agent-timeline?${params.toString()}`, {
         headers: { "X-Tenant-ID": activeTenantId }
@@ -1095,7 +1102,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       }, 5000);
       return () => clearInterval(tlInterval);
     }
-  }, [viewMode, filterStartDate, filterEndDate, backendHost]);
+  }, [viewMode, filterStartDate, filterEndDate, filterStartTime, filterEndTime, backendHost]);
 
   const DEFAULT_INTENT_RULES = [
     {
@@ -1164,6 +1171,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
+      if (filterStartTime && filterStartTime !== "00:00") params.append("start_time", filterStartTime);
+      if (filterEndTime && filterEndTime !== "23:59") params.append("end_time", filterEndTime);
       const res = await fetch(`${protocol}//${backendHost}/api/reports/intent-analysis?${params.toString()}`, {
         headers: { "X-Tenant-ID": activeTenantId }
       });
@@ -1289,7 +1298,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (viewMode === "intent") {
       fetchIntentAnalysisData(true);
     }
-  }, [viewMode, filterStartDate, filterEndDate, backendHost]);
+  }, [viewMode, filterStartDate, filterEndDate, filterStartTime, filterEndTime, backendHost]);
 
   const evaluateCallIntent = (call) => {
     if (!call) {
@@ -1867,14 +1876,21 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const hourlyData = Array(24).fill(0);
     (callsList || []).forEach((call) => {
       const hr = parseCallLocalHour(call.start_time);
-      if (hr !== null && hr >= 0 && hr < 24 && isHourInTrafficRange(hr)) {
+      if (hr !== null && hr >= 0 && hr < 24) {
         hourlyData[hr]++;
       }
     });
 
+    const isSingleDay = Boolean(filterStartDate && filterEndDate && filterStartDate === filterEndDate);
+    const sHr = parseInt((filterStartTime || "00:00").split(":")[0], 10) || 0;
+    const eHr = parseInt((filterEndTime || "23:59").split(":")[0], 10);
+    const safeEndHr = Number.isNaN(eHr) ? 23 : eHr;
+
     const visibleHours = [];
     for (let h = 0; h < 24; h++) {
-      if (isHourInTrafficRange(h)) visibleHours.push(h);
+      if (!isSingleDay || !hasCustomTimeFilter || (h >= sHr && h <= safeEndHr)) {
+        visibleHours.push(h);
+      }
     }
 
     let peakHourIdx = visibleHours.length > 0 ? visibleHours[0] : 0;
@@ -1898,11 +1914,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         : 0;
     const estimatedStaff = totalTraffic > 0 ? Math.max(1, Math.ceil(peakHourValue / 12)) : 0;
 
-    const startHLabel =
-      filterTrafficStartHour !== "" ? `${String(filterTrafficStartHour).padStart(2, "0")}:00` : "00:00";
-    const endHLabel =
-      filterTrafficEndHour !== "" ? `${String(filterTrafficEndHour).padStart(2, "0")}:59` : "23:59";
-    const hasHourFilter = filterTrafficStartHour !== "" || filterTrafficEndHour !== "";
+    const startHLabel = filterStartTime || "00:00";
+    const endHLabel = filterEndTime || "23:59";
+    const hasHourFilter = hasCustomTimeFilter;
 
     const hourlySlots = visibleHours.map((h) => {
       const val = hourlyData[h] || 0;
@@ -2850,10 +2864,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       params.append("tenant_id", activeTenantId);
       if (filterStartDate) params.append("start_date", filterStartDate);
       if (filterEndDate) params.append("end_date", filterEndDate);
-      if (viewMode === "cdr") {
-        if (filterCdrStartTime && filterCdrStartTime !== "00:00") params.append("start_time", filterCdrStartTime);
-        if (filterCdrEndTime && filterCdrEndTime !== "23:59") params.append("end_time", filterCdrEndTime);
-      }
+      if (filterStartTime && filterStartTime !== "00:00") params.append("start_time", filterStartTime);
+      if (filterEndTime && filterEndTime !== "23:59") params.append("end_time", filterEndTime);
       if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary" && viewMode !== "did" && viewMode !== "trunk-minutes") {
         if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
         if (viewMode !== "fcr" && viewMode !== "missed" && viewMode !== "friction" && filterCallId) params.append("call_id", filterCallId);
@@ -2880,7 +2892,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         window.removeEventListener("tenantChanged", handleTenantChange);
       }
     };
-  }, [backendHost, viewMode, filterStartDate, filterEndDate, filterCdrStartTime, filterCdrEndTime, filterCallerNumber, filterCallId]);
+  }, [backendHost, viewMode, filterStartDate, filterEndDate, filterStartTime, filterEndTime, filterCallerNumber, filterCallId]);
 
   useEffect(() => {
     if (filterCallerNumber || filterCallId) {
@@ -2952,10 +2964,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     params.append("tenant_id", activeTenantId);
     if (filterStartDate) params.append("start_date", filterStartDate);
     if (filterEndDate) params.append("end_date", filterEndDate);
-    if (viewMode === "cdr") {
-      if (filterCdrStartTime && filterCdrStartTime !== "00:00") params.append("start_time", filterCdrStartTime);
-      if (filterCdrEndTime && filterCdrEndTime !== "23:59") params.append("end_time", filterCdrEndTime);
-    }
+    if (filterStartTime && filterStartTime !== "00:00") params.append("start_time", filterStartTime);
+    if (filterEndTime && filterEndTime !== "23:59") params.append("end_time", filterEndTime);
     if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "traffic" && viewMode !== "trunk" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary" && viewMode !== "did" && viewMode !== "trunk-minutes") {
       if (filterCallerNumber) params.append("caller_number", filterCallerNumber);
       if (viewMode !== "fcr" && viewMode !== "missed" && viewMode !== "friction" && filterCallId) params.append("call_id", filterCallId);
@@ -2986,8 +2996,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     const todayStr = getTodayDateString();
     setFilterStartDate(todayStr);
     setFilterEndDate(todayStr);
-    setFilterCdrStartTime("00:00");
-    setFilterCdrEndTime("23:59");
+    setFilterStartTime("00:00");
+    setFilterEndTime("23:59");
     setFilterStatus("All");
     setFilterDirection("All");
     setFilterConversant("All");
@@ -3027,6 +3037,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     if (typeof window !== "undefined") {
       localStorage.setItem("reports_filter_start_date", todayStr);
       localStorage.setItem("reports_filter_end_date", todayStr);
+      localStorage.setItem("reports_filter_start_time", "00:00");
+      localStorage.setItem("reports_filter_end_time", "23:59");
     }
 
     if (viewMode === "timeline") {
@@ -4947,25 +4959,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const dir = getCallDirection(c);
         if (dir !== filterDirection) return false;
       }
-      if (filterTrafficStartHour !== "" || filterTrafficEndHour !== "") {
-        const hr = parseCallLocalHour(c.start_time);
-        if (!isHourInTrafficRange(hr)) return false;
-      }
     } else if (viewMode === "trunk" || viewMode === "trunk-minutes") {
-      if (filterTrunkStartHour !== "" || filterTrunkEndHour !== "") {
-        const hr = parseCallLocalHour(c.start_time);
-        if (!isHourInTrafficRange(hr, filterTrunkStartHour, filterTrunkEndHour)) return false;
-      }
       if (filterTrunksSelected.length > 0) {
         const matchedT = matchCallToTrunkObj(c);
         const matchedKey = matchedT ? String(matchedT.id ?? matchedT.trunk_name) : "";
         if (!matchedKey || !filterTrunksSelected.includes(matchedKey)) return false;
       }
     } else if (viewMode === "did" || viewMode === "ivr-drop") {
-      if (filterTrunkStartHour !== "" || filterTrunkEndHour !== "") {
-        const hr = parseCallLocalHour(c.start_time);
-        if (!isHourInTrafficRange(hr, filterTrunkStartHour, filterTrunkEndHour)) return false;
-      }
+      // Handled by dedicated DID / IVR sub-filters and unified Date+Time check below
     } else if (viewMode !== "perf" && viewMode !== "queue" && viewMode !== "sentiment-heat" && viewMode !== "wordcloud" && viewMode !== "roi" && viewMode !== "timeline" && viewMode !== "ivr-drop" && viewMode !== "efficiency" && viewMode !== "ceo-summary") {
       // 1. Caller Number Filter
       if (filterCallerNumber && !getCustomerNumber(c)?.toLowerCase().includes(filterCallerNumber.toLowerCase())) {
@@ -5038,22 +5039,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       if (!qMatch) return false;
     }
 
-    // 6. Date Range Filter
+    // 6. Unified Date & Time Range Filter across all reports
     if (c.start_time) {
       const callDateStr = c.start_time.endsWith("Z") ? c.start_time : c.start_time + "Z";
       const callDate = new Date(callDateStr);
       if (filterStartDate) {
-        const start =
-          viewMode === "cdr"
-            ? new Date(`${filterStartDate.slice(0, 10)}T${filterCdrStartTime || "00:00"}:00`)
-            : new Date(filterStartDate.length <= 10 ? filterStartDate + "T00:00:00" : filterStartDate);
+        const start = new Date(`${filterStartDate.slice(0, 10)}T${filterStartTime || "00:00"}:00`);
         if (callDate < start) return false;
       }
       if (filterEndDate) {
-        const end =
-          viewMode === "cdr"
-            ? new Date(`${filterEndDate.slice(0, 10)}T${filterCdrEndTime || "23:59"}:59.999`)
-            : new Date(filterEndDate.length <= 10 ? filterEndDate + "T23:59:59.999" : filterEndDate);
+        const end = new Date(`${filterEndDate.slice(0, 10)}T${filterEndTime || "23:59"}:59.999`);
         if (callDate > end) return false;
       }
     }
@@ -5951,32 +5946,32 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 onClick={() => setIsFilterOpen(true)}
                 className={`flex items-center gap-1.5 text-[10px] px-3 py-1.5 rounded-xl border font-bold cursor-pointer transition-all duration-200 ${
                   (viewMode === "perf" || viewMode === "timeline"
-                    ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All")
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterAgentsSelected.length > 0 || filterConversant !== "All")
                     : viewMode === "queue"
-                    ? Boolean(filterStartDate || filterEndDate || filterQueuesSelected.length > 0)
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterQueuesSelected.length > 0)
                     : viewMode === "sentiment-heat"
-                    ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterSentimentsSelected.length > 0)
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterSentimentsSelected.length > 0)
                     : viewMode === "wordcloud"
-                    ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterWordcloudKeyword.trim())
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterWordcloudKeyword.trim())
                     : viewMode === "fcr"
-                    ? Boolean(filterStartDate || filterEndDate || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterCallerNumber || filterFcrStatusesSelected.length > 0 || filterFcrSentimentsSelected.length > 0)
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterAgentsSelected.length > 0 || filterConversant !== "All" || filterCallerNumber || filterFcrStatusesSelected.length > 0 || filterFcrSentimentsSelected.length > 0)
                     : viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary"
-                    ? Boolean(filterStartDate || filterEndDate)
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter)
                     : viewMode === "missed"
-                    ? Boolean(filterStartDate || filterEndDate || filterCallerNumber || filterMissedQueuesSelected.length > 0 || filterMissedCallbackSelected.length > 0)
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterCallerNumber || filterMissedQueuesSelected.length > 0 || filterMissedCallbackSelected.length > 0)
                     : viewMode === "traffic"
-                    ? Boolean(filterStartDate || filterEndDate || filterDirection !== "All" || filterTrafficStartHour !== "" || filterTrafficEndHour !== "")
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterDirection !== "All")
                     : viewMode === "trunk"
-                    ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterTrunksSelected.length > 0)
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterTrunksSelected.length > 0)
                     : viewMode === "trunk-minutes"
-                    ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterTrunksSelected.length > 0 || filterTrunkPackageStatus !== "all")
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterTrunksSelected.length > 0 || filterTrunkPackageStatus !== "all")
                     : viewMode === "did"
-                    ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterDidNumbersSelected.length > 0 || filterDidTrafficStatus !== "all" || filterDidMinInbound !== "" || filterDidMaxInbound !== "" || filterDidMinOutbound !== "" || filterDidMaxOutbound !== "" || filterDidMinInDur !== "" || filterDidMaxInDur !== "" || filterDidMinOutDur !== "" || filterDidMaxOutDur !== "")
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterDidNumbersSelected.length > 0 || filterDidTrafficStatus !== "all" || filterDidMinInbound !== "" || filterDidMaxInbound !== "" || filterDidMinOutbound !== "" || filterDidMaxOutbound !== "" || filterDidMinInDur !== "" || filterDidMaxInDur !== "" || filterDidMinOutDur !== "" || filterDidMaxOutDur !== "")
                     : viewMode === "ivr-drop"
-                    ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterIvrWorkflowsSelected.length > 0 || filterIvrMenusSelected.length > 0 || filterIvrDigitsSelected.length > 0 || filterIvrCaller.trim())
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterIvrWorkflowsSelected.length > 0 || filterIvrMenusSelected.length > 0 || filterIvrDigitsSelected.length > 0 || filterIvrCaller.trim())
                     : viewMode === "friction"
-                    ? Boolean(filterStartDate || filterEndDate || filterCallerNumber || filterFrictionSentimentsSelected.length > 0)
-                    : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0 || (viewMode === "cdr" && (filterCdrStartTime !== "00:00" || filterCdrEndTime !== "23:59"))))
+                    ? Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterCallerNumber || filterFrictionSentimentsSelected.length > 0)
+                    : Boolean(filterStartDate || filterEndDate || hasCustomTimeFilter || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
                     ? `${bg} ${hover} text-white ${border} shadow-sm`
                     : `${lightBg} ${text} ${borderLight} ${hover} hover:text-white`
                 }`}
@@ -6694,127 +6689,57 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
               {/* Modal Body */}
               <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop" || viewMode === "friction" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
-                {/* Date range (and side-by-side Hour range for trunk / did / trunk-minutes / ivr-drop modes) */}
-                <div className={viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "friction" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
-                  <div className={viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop" ? "grid grid-cols-2 sm:grid-cols-4 gap-2.5" : "contents"}>
-                    {viewMode === "cdr" ? (
-                      <>
-                        <DateTimePickerInput
-                          label="Başlangıç Tarihi & Saati"
-                          dateValue={filterStartDate}
-                          timeValue={filterCdrStartTime}
-                          defaultTime="00:00"
-                          presets={cdrDatePresets}
-                          onDateChange={(newDate) => {
-                            setFilterStartDate(newDate);
-                            if (filterEndDate && newDate > filterEndDate) {
-                              setFilterEndDate(newDate);
-                            }
-                          }}
-                          onTimeChange={setFilterCdrStartTime}
-                        />
-                        <DateTimePickerInput
-                          label="Bitiş Tarihi & Saati"
-                          dateValue={filterEndDate}
-                          timeValue={filterCdrEndTime}
-                          defaultTime="23:59"
-                          presets={cdrDatePresets}
-                          onDateChange={(newDate) => {
-                            setFilterEndDate(newDate);
-                            if (filterStartDate && newDate < filterStartDate) {
-                              setFilterStartDate(newDate);
-                            }
-                          }}
-                          onTimeChange={setFilterCdrEndTime}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
-                          <input
-                            type="date"
-                            value={filterStartDate}
-                            onChange={(e) => setFilterStartDate(e.target.value)}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Bitiş Tarihi</label>
-                          <input
-                            type="date"
-                            value={filterEndDate}
-                            onChange={(e) => setFilterEndDate(e.target.value)}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
-                          />
-                        </div>
-                      </>
-                    )}
-                    {(viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop") && (
-                      <>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Saati</label>
-                          <select
-                            value={filterTrunkStartHour}
-                            onChange={(e) => setFilterTrunkStartHour(e.target.value)}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
-                          >
-                            <option value="">00:00 (Tümü)</option>
-                            {Array.from({ length: 24 }).map((_, h) => (
-                              <option key={h} value={String(h)}>
-                                {String(h).padStart(2, "0")}:00
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Bitiş Saati</label>
-                          <select
-                            value={filterTrunkEndHour}
-                            onChange={(e) => setFilterTrunkEndHour(e.target.value)}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
-                          >
-                            <option value="">23:59 (Tümü)</option>
-                            {Array.from({ length: 24 }).map((_, h) => (
-                              <option key={h} value={String(h)}>
-                                {String(h).padStart(2, "0")}:59
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  {(viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop") && (
-                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                      {[
-                        { label: "Tüm Gün (00-23)", s: "", e: "" },
-                        { label: "Mesai (09:00-18:59)", s: "9", e: "18" },
-                        { label: "Sabah (08:00-12:59)", s: "8", e: "12" },
-                        { label: "Öğleden Sonra (13:00-17:59)", s: "13", e: "17" },
-                        { label: "Akşam (18:00-23:59)", s: "18", e: "23" },
-                      ].map((preset) => {
-                        const isActive = filterTrunkStartHour === preset.s && filterTrunkEndHour === preset.e;
-                        return (
-                          <button
-                            key={preset.label}
-                            type="button"
-                            onClick={() => {
-                              setFilterTrunkStartHour(preset.s);
-                              setFilterTrunkEndHour(preset.e);
-                            }}
-                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                              isActive
-                                ? `${bg} text-white ${border} shadow-sm`
-                                : `bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-primary`
-                            }`}
-                          >
-                            {preset.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  )}
+                {/* Unified Date & Time Range across all reports */}
+                <div
+                  className={
+                    viewMode === "queue" ||
+                    viewMode === "perf" ||
+                    viewMode === "sentiment-heat" ||
+                    viewMode === "wordcloud" ||
+                    viewMode === "fcr" ||
+                    viewMode === "roi" ||
+                    viewMode === "efficiency" ||
+                    viewMode === "ceo-summary" ||
+                    viewMode === "missed" ||
+                    viewMode === "timeline" ||
+                    viewMode === "traffic" ||
+                    viewMode === "trunk" ||
+                    viewMode === "did" ||
+                    viewMode === "trunk-minutes" ||
+                    viewMode === "ivr-drop" ||
+                    viewMode === "friction"
+                      ? "grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"
+                      : "col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"
+                  }
+                >
+                  <DateTimePickerInput
+                    label="Başlangıç Tarihi & Saati"
+                    dateValue={filterStartDate}
+                    timeValue={filterStartTime}
+                    defaultTime="00:00"
+                    presets={reportDatePresets}
+                    onDateChange={(newDate) => {
+                      setFilterStartDate(newDate);
+                      if (filterEndDate && newDate > filterEndDate) {
+                        setFilterEndDate(newDate);
+                      }
+                    }}
+                    onTimeChange={setFilterStartTime}
+                  />
+                  <DateTimePickerInput
+                    label="Bitiş Tarihi & Saati"
+                    dateValue={filterEndDate}
+                    timeValue={filterEndTime}
+                    defaultTime="23:59"
+                    presets={reportDatePresets}
+                    onDateChange={(newDate) => {
+                      setFilterEndDate(newDate);
+                      if (filterStartDate && newDate < filterStartDate) {
+                        setFilterStartDate(newDate);
+                      }
+                    }}
+                    onTimeChange={setFilterEndTime}
+                  />
                 </div>
 
                 {viewMode === "queue" ? (
@@ -7030,70 +6955,6 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   </>
                 ) : viewMode === "traffic" ? (
                   <>
-                    {/* Hour Range Filter */}
-                    <div className="flex flex-col gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Saati</label>
-                          <select
-                            value={filterTrafficStartHour}
-                            onChange={(e) => setFilterTrafficStartHour(e.target.value)}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
-                          >
-                            <option value="">00:00 (Günün Başı)</option>
-                            {Array.from({ length: 24 }).map((_, h) => (
-                              <option key={h} value={String(h)}>
-                                {String(h).padStart(2, "0")}:00
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div className="flex flex-col gap-1">
-                          <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Bitiş Saati</label>
-                          <select
-                            value={filterTrafficEndHour}
-                            onChange={(e) => setFilterTrafficEndHour(e.target.value)}
-                            className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
-                          >
-                            <option value="">23:59 (Günün Sonu)</option>
-                            {Array.from({ length: 24 }).map((_, h) => (
-                              <option key={h} value={String(h)}>
-                                {String(h).padStart(2, "0")}:59
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {[
-                          { label: "Tüm Gün (00-23)", s: "", e: "" },
-                          { label: "Mesai (09:00-18:59)", s: "9", e: "18" },
-                          { label: "Sabah (08:00-12:59)", s: "8", e: "12" },
-                          { label: "Öğleden Sonra (13:00-17:59)", s: "13", e: "17" },
-                          { label: "Akşam (18:00-23:59)", s: "18", e: "23" },
-                        ].map((preset) => {
-                          const isActive = filterTrafficStartHour === preset.s && filterTrafficEndHour === preset.e;
-                          return (
-                            <button
-                              key={preset.label}
-                              type="button"
-                              onClick={() => {
-                                setFilterTrafficStartHour(preset.s);
-                                setFilterTrafficEndHour(preset.e);
-                              }}
-                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
-                                isActive
-                                  ? `${bg} text-white ${border} shadow-sm`
-                                  : `bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-primary`
-                              }`}
-                            >
-                              {preset.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
                     {/* Call Direction */}
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">Yön</label>
@@ -10206,9 +10067,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     return fmtDateLabel(getTodayDateString());
                   })();
 
-                  const hasTrunkHourFilter = filterTrunkStartHour !== "" || filterTrunkEndHour !== "";
+                  const hasTrunkHourFilter = hasCustomTimeFilter;
                   const trunkHourBadgeLabel = hasTrunkHourFilter
-                    ? `${String(filterTrunkStartHour === "" ? 0 : parseInt(filterTrunkStartHour, 10)).padStart(2, "0")}:00 — ${String(filterTrunkEndHour === "" ? 23 : parseInt(filterTrunkEndHour, 10)).padStart(2, "0")}:59`
+                    ? `${filterStartTime} — ${filterEndTime}`
                     : null;
 
                   // Calls used for the chart & metrics (filtered by effectiveChartDate if a single day is selected)
@@ -10376,9 +10237,16 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         : null
                     };
                   });
-                  const visibleHourlyDetails = hourlyDetails.filter((d) =>
-                    isHourInTrafficRange(d.hour, filterTrunkStartHour, filterTrunkEndHour)
-                  );
+                  const visibleHourlyDetails = hourlyDetails.filter((d) => {
+                    if (!hasTrunkHourFilter) return true;
+                    if (effectiveChartDate === "ALL" && filterStartDate && filterEndDate && filterStartDate !== filterEndDate) {
+                      return true;
+                    }
+                    const sHr = parseInt(String(filterStartTime || "00:00").split(":")[0], 10);
+                    const eHr = parseInt(String(filterEndTime || "23:59").split(":")[0], 10);
+                    if (isNaN(sHr) || isNaN(eHr)) return true;
+                    return sHr <= eHr ? d.hour >= sHr && d.hour <= eHr : d.hour >= sHr || d.hour <= eHr;
+                  });
                   const concurrentTimeline = visibleHourlyDetails.map((d) => d.peakChannels);
                   const chartMaxScale = Math.max(trunkCapacity, ...concurrentTimeline, 1);
 
@@ -10682,8 +10550,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     filterIvrMenusSelected.length > 0 ||
                     filterIvrDigitsSelected.length > 0 ||
                     Boolean(filterIvrCaller.trim()) ||
-                    filterTrunkStartHour !== "" ||
-                    filterTrunkEndHour !== "";
+                    hasCustomTimeFilter;
 
                   return (
                     <>
@@ -10692,9 +10559,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         <div className={"px-4 py-2.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 " + borderLight + " " + lightBg}>
                           <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
                             <span className={"uppercase tracking-wider text-[10px] mr-1 " + text}>Aktif Filtreler:</span>
-                            {(filterTrunkStartHour !== "" || filterTrunkEndHour !== "") && (
+                            {hasCustomTimeFilter && (
                               <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
-                                Saat: {String(filterTrunkStartHour || "0").padStart(2, "0")}:00 - {String(filterTrunkEndHour || "23").padStart(2, "0")}:59
+                                Saat: {filterStartTime} - {filterEndTime}
                               </span>
                             )}
                             {filterIvrWorkflowsSelected.length > 0 && (
@@ -10725,8 +10592,8 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                               setFilterIvrMenusSelected([]);
                               setFilterIvrDigitsSelected([]);
                               setFilterIvrCaller("");
-                              setFilterTrunkStartHour("");
-                              setFilterTrunkEndHour("");
+                              setFilterStartTime("00:00");
+                              setFilterEndTime("23:59");
                             }}
                             className="text-[11px] font-extrabold text-rose-500 hover:underline cursor-pointer"
                           >
@@ -12793,14 +12660,14 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     })}
                   </div>
                   <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
-                    Tarih: <span className="font-bold text-slate-700 dark:text-slate-200">{filterStartDate || "-"}</span> —{" "}
-                    <span className="font-bold text-slate-700 dark:text-slate-200">{filterEndDate || "-"}</span>
-                    {(filterTrunkStartHour !== "" || filterTrunkEndHour !== "") && (
-                      <span className="ml-2">
-                        ({String(filterTrunkStartHour || "0").padStart(2, "0")}:00 -{" "}
-                        {String(filterTrunkEndHour || "23").padStart(2, "0")}:59)
-                      </span>
-                    )}
+                    Tarih:{" "}
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {filterStartDate ? `${filterStartDate} ${filterStartTime}` : "-"}
+                    </span>{" "}
+                    —{" "}
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {filterEndDate ? `${filterEndDate} ${filterEndTime}` : "-"}
+                    </span>
                   </div>
                 </div>
 
@@ -13119,14 +12986,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   </div>
                   <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">
                     Seçili Aralık:{" "}
-                    <span className="font-bold text-slate-700 dark:text-slate-200">{filterStartDate || "-"}</span> —{" "}
-                    <span className="font-bold text-slate-700 dark:text-slate-200">{filterEndDate || "-"}</span>
-                    {(filterTrunkStartHour !== "" || filterTrunkEndHour !== "") && (
-                      <span className="ml-2">
-                        ({String(filterTrunkStartHour || "0").padStart(2, "0")}:00 -{" "}
-                        {String(filterTrunkEndHour || "23").padStart(2, "0")}:59)
-                      </span>
-                    )}
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {filterStartDate ? `${filterStartDate} ${filterStartTime}` : "-"}
+                    </span>{" "}
+                    —{" "}
+                    <span className="font-bold text-slate-700 dark:text-slate-200">
+                      {filterEndDate ? `${filterEndDate} ${filterEndTime}` : "-"}
+                    </span>
                   </div>
                 </div>
 

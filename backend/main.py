@@ -17578,6 +17578,8 @@ async def get_agent_timeline_report(
     date: str = None,
     start_date: str = None,
     end_date: str = None,
+    start_time: str = None,
+    end_time: str = None,
     agent: str = None,
     db: AsyncSession = Depends(get_db)
 ):
@@ -17594,15 +17596,26 @@ async def get_agent_timeline_report(
     # Determine date window in TR local time (UTC+3)
     target_start_str = date or end_date or start_date
     try:
+        s_hh, s_mm = 0, 0
+        if start_time and ":" in start_time:
+            parts = start_time.strip().split(":")
+            s_hh = max(0, min(23, int(parts[0])))
+            s_mm = max(0, min(59, int(parts[1])))
+        e_hh, e_mm = 23, 59
+        if end_time and ":" in end_time:
+            parts = end_time.strip().split(":")
+            e_hh = max(0, min(23, int(parts[0])))
+            e_mm = max(0, min(59, int(parts[1])))
+
         if start_date and end_date and start_date != end_date:
-            s_dt_tr = datetime.datetime.strptime(start_date[:10], "%Y-%m-%d").replace(hour=0, minute=0, second=0)
-            e_dt_tr = datetime.datetime.strptime(end_date[:10], "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+            s_dt_tr = datetime.datetime.strptime(start_date[:10], "%Y-%m-%d").replace(hour=s_hh, minute=s_mm, second=0, microsecond=0)
+            e_dt_tr = datetime.datetime.strptime(end_date[:10], "%Y-%m-%d").replace(hour=e_hh, minute=e_mm, second=59, microsecond=999999)
         elif target_start_str:
-            s_dt_tr = datetime.datetime.strptime(target_start_str[:10], "%Y-%m-%d").replace(hour=0, minute=0, second=0)
-            e_dt_tr = s_dt_tr.replace(hour=23, minute=59, second=59)
+            s_dt_tr = datetime.datetime.strptime(target_start_str[:10], "%Y-%m-%d").replace(hour=s_hh, minute=s_mm, second=0, microsecond=0)
+            e_dt_tr = datetime.datetime.strptime(target_start_str[:10], "%Y-%m-%d").replace(hour=e_hh, minute=e_mm, second=59, microsecond=999999)
         else:
-            s_dt_tr = now_tr.replace(hour=0, minute=0, second=0, microsecond=0)
-            e_dt_tr = now_tr.replace(hour=23, minute=59, second=59, microsecond=999999)
+            s_dt_tr = now_tr.replace(hour=s_hh, minute=s_mm, second=0, microsecond=0)
+            e_dt_tr = now_tr.replace(hour=e_hh, minute=e_mm, second=59, microsecond=999999)
     except Exception:
         s_dt_tr = now_tr.replace(hour=0, minute=0, second=0, microsecond=0)
         e_dt_tr = now_tr.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -18228,6 +18241,8 @@ async def get_intent_analysis_report(
     request: Request,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
     tenant_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db)
 ):
@@ -18239,8 +18254,18 @@ async def get_intent_analysis_report(
     try:
         s_str = (start_date or "").strip() or now_tr.strftime("%Y-%m-%d")
         e_str = (end_date or "").strip() or s_str
-        s_dt_tr = datetime.datetime.strptime(s_str[:10], "%Y-%m-%d")
-        e_dt_tr = datetime.datetime.strptime(e_str[:10], "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+        s_hh, s_mm = 0, 0
+        if start_time and ":" in start_time:
+            parts = start_time.strip().split(":")
+            s_hh = max(0, min(23, int(parts[0])))
+            s_mm = max(0, min(59, int(parts[1])))
+        e_hh, e_mm = 23, 59
+        if end_time and ":" in end_time:
+            parts = end_time.strip().split(":")
+            e_hh = max(0, min(23, int(parts[0])))
+            e_mm = max(0, min(59, int(parts[1])))
+        s_dt_tr = datetime.datetime.strptime(s_str[:10], "%Y-%m-%d").replace(hour=s_hh, minute=s_mm, second=0, microsecond=0)
+        e_dt_tr = datetime.datetime.strptime(e_str[:10], "%Y-%m-%d").replace(hour=e_hh, minute=e_mm, second=59, microsecond=999999)
     except Exception:
         s_dt_tr = now_tr.replace(hour=0, minute=0, second=0, microsecond=0)
         e_dt_tr = now_tr.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -23094,6 +23119,8 @@ async def get_queue_survey_reports(
     score_filter: Optional[str] = "all",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None,
     user_info: dict = Depends(get_user_info),
     db: AsyncSession = Depends(get_db)
 ):
@@ -23171,6 +23198,47 @@ async def get_queue_survey_reports(
                     "low_threshold": int(q.get("survey_low_score_threshold", 2) or 2)
                 }
 
+    s_bound_tr = None
+    e_bound_tr = None
+    if start_date:
+        try:
+            s_dt_base = datetime.datetime.strptime(start_date[:10], "%Y-%m-%d")
+            s_hh, s_mm = 0, 0
+            if start_time and ":" in start_time:
+                parts = start_time.strip().split(":")
+                s_hh = max(0, min(23, int(parts[0])))
+                s_mm = max(0, min(59, int(parts[1])))
+            s_bound_tr = s_dt_base.replace(hour=s_hh, minute=s_mm, second=0, microsecond=0)
+        except Exception:
+            s_bound_tr = None
+    if end_date:
+        try:
+            e_dt_base = datetime.datetime.strptime(end_date[:10], "%Y-%m-%d")
+            e_hh, e_mm = 23, 59
+            if end_time and ":" in end_time:
+                parts = end_time.strip().split(":")
+                e_hh = max(0, min(23, int(parts[0])))
+                e_mm = max(0, min(59, int(parts[1])))
+            e_bound_tr = e_dt_base.replace(hour=e_hh, minute=e_mm, second=59, microsecond=999999)
+        except Exception:
+            e_bound_tr = None
+
+    def _row_tr_datetime(ts_raw: str):
+        if not ts_raw:
+            return None
+        try:
+            clean = str(ts_raw).strip()
+            if clean.endswith("Z"):
+                clean = clean[:-1] + "+00:00"
+            dt_obj = datetime.datetime.fromisoformat(clean)
+            if dt_obj.tzinfo is not None:
+                dt_utc = dt_obj.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+            else:
+                dt_utc = dt_obj
+            return dt_utc + datetime.timedelta(hours=3)
+        except Exception:
+            return None
+
     # Filter rows
     filtered = []
     for row in raw_rows:
@@ -23180,12 +23248,18 @@ async def get_queue_survey_reports(
         if agent_extension and agent_extension != "all":
             if str(row.get("agent_extension")) != str(agent_extension):
                 continue
-        if start_date:
-            if str(row.get("timestamp", ""))[:10] < start_date:
-                continue
-        if end_date:
-            if str(row.get("timestamp", ""))[:10] > end_date:
-                continue
+        if s_bound_tr or e_bound_tr:
+            r_dt_tr = _row_tr_datetime(row.get("timestamp", ""))
+            if r_dt_tr is not None:
+                if s_bound_tr and r_dt_tr < s_bound_tr:
+                    continue
+                if e_bound_tr and r_dt_tr > e_bound_tr:
+                    continue
+            else:
+                if start_date and str(row.get("timestamp", ""))[:10] < start_date:
+                    continue
+                if end_date and str(row.get("timestamp", ""))[:10] > end_date:
+                    continue
 
         sc = row.get("score")
         st = row.get("status", "completed")

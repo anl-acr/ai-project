@@ -22,6 +22,7 @@ import {
 import * as XLSX from "xlsx";
 import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
+import DateTimePickerInput from "../common/DateTimePickerInput";
 
 const SURVEY_REPORT_COLUMNS = {
   createdAt: { label: "Tarih / Saat", defaultVisible: true },
@@ -96,7 +97,83 @@ export default function QueueSurveyReportPanel({ backendHost }) {
   const [scoreFilter, setScoreFilter] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [startTime, setStartTime] = useState("00:00");
+  const [endTime, setEndTime] = useState("23:59");
   const [searchQuery, setSearchQuery] = useState("");
+
+  const formatLocalYMD = (d) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+  const surveyDatePresets = [
+    {
+      label: "Son 1 Saat",
+      apply: () => {
+        const now = new Date();
+        const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+        setStartDate(formatLocalYMD(oneHourAgo));
+        setStartTime(`${String(oneHourAgo.getHours()).padStart(2, "0")}:${String(oneHourAgo.getMinutes()).padStart(2, "0")}`);
+        setEndDate(formatLocalYMD(now));
+        setEndTime(`${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`);
+      },
+    },
+    {
+      label: "Bugün",
+      apply: () => {
+        const today = formatLocalYMD(new Date());
+        setStartDate(today);
+        setStartTime("00:00");
+        setEndDate(today);
+        setEndTime("23:59");
+      },
+    },
+    {
+      label: "Mesai (09:00-18:00)",
+      apply: () => {
+        const today = formatLocalYMD(new Date());
+        setStartDate(today);
+        setStartTime("09:00");
+        setEndDate(today);
+        setEndTime("18:00");
+      },
+    },
+    {
+      label: "Dün",
+      apply: () => {
+        const y = new Date();
+        y.setDate(y.getDate() - 1);
+        const yStr = formatLocalYMD(y);
+        setStartDate(yStr);
+        setStartTime("00:00");
+        setEndDate(yStr);
+        setEndTime("23:59");
+      },
+    },
+    {
+      label: "Son 7 Gün",
+      apply: () => {
+        const now = new Date();
+        const w = new Date();
+        w.setDate(w.getDate() - 6);
+        setStartDate(formatLocalYMD(w));
+        setStartTime("00:00");
+        setEndDate(formatLocalYMD(now));
+        setEndTime("23:59");
+      },
+    },
+    {
+      label: "Bu Ay",
+      apply: () => {
+        const now = new Date();
+        const first = new Date(now.getFullYear(), now.getMonth(), 1);
+        setStartDate(formatLocalYMD(first));
+        setStartTime("00:00");
+        setEndDate(formatLocalYMD(now));
+        setEndTime("23:59");
+      },
+    },
+  ];
+
+  const hasCustomTime = startTime !== "00:00" || endTime !== "23:59";
 
   const activeFilterCount = [
     selectedQueue,
@@ -104,6 +181,7 @@ export default function QueueSurveyReportPanel({ backendHost }) {
     scoreFilter,
     startDate,
     endDate,
+    hasCustomTime ? "time" : "",
     searchQuery.trim()
   ].filter(Boolean).length;
 
@@ -113,6 +191,8 @@ export default function QueueSurveyReportPanel({ backendHost }) {
     setScoreFilter("");
     setStartDate("");
     setEndDate("");
+    setStartTime("00:00");
+    setEndTime("23:59");
     setSearchQuery("");
   };
 
@@ -127,8 +207,14 @@ export default function QueueSurveyReportPanel({ backendHost }) {
       if (selectedQueue) params.append("queue_ext", selectedQueue);
       if (selectedAgent) params.append("agent_ext", selectedAgent);
       if (scoreFilter) params.append("score_filter", scoreFilter);
-      if (startDate) params.append("start_date", startDate);
-      if (endDate) params.append("end_date", endDate);
+      if (startDate) {
+        params.append("start_date", startDate);
+        if (startTime) params.append("start_time", startTime);
+      }
+      if (endDate) {
+        params.append("end_date", endDate);
+        if (endTime) params.append("end_time", endTime);
+      }
 
       const res = await tenantFetch(`${API_BASE}/api/reports/queue-surveys?${params.toString()}`);
       if (res.ok) {
@@ -150,7 +236,7 @@ export default function QueueSurveyReportPanel({ backendHost }) {
 
   useEffect(() => {
     fetchSurveyReport();
-  }, [selectedQueue, selectedAgent, scoreFilter, startDate, endDate]);
+  }, [selectedQueue, selectedAgent, scoreFilter, startDate, endDate, startTime, endTime]);
 
   useEffect(() => {
     return () => {
@@ -440,30 +526,36 @@ export default function QueueSurveyReportPanel({ backendHost }) {
 
             {/* Modal Body */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Tarih Aralığı */}
+              {/* Tarih & Saat Aralığı */}
               <div className="sm:col-span-2 grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50/60 dark:bg-slate-950/40 p-3.5 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Başlangıç Tarihi
-                  </label>
-                  <input
-                    type="date"
-                    value={startDate}
-                    onChange={(e) => setStartDate(e.target.value)}
-                    className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 " + ring}
-                  />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                    Bitiş Tarihi
-                  </label>
-                  <input
-                    type="date"
-                    value={endDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                    className={"w-full text-xs px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 font-semibold focus:outline-none focus:ring-2 " + ring}
-                  />
-                </div>
+                <DateTimePickerInput
+                  label="Başlangıç Tarihi & Saati"
+                  dateValue={startDate}
+                  timeValue={startTime}
+                  onDateChange={setStartDate}
+                  onTimeChange={setStartTime}
+                  placeholder="Tüm Tarihler"
+                  allowClear={true}
+                  onClear={() => {
+                    setStartDate("");
+                    setStartTime("00:00");
+                  }}
+                  presets={surveyDatePresets}
+                />
+                <DateTimePickerInput
+                  label="Bitiş Tarihi & Saati"
+                  dateValue={endDate}
+                  timeValue={endTime}
+                  onDateChange={setEndDate}
+                  onTimeChange={setEndTime}
+                  placeholder="Tüm Tarihler"
+                  allowClear={true}
+                  onClear={() => {
+                    setEndDate("");
+                    setEndTime("23:59");
+                  }}
+                  presets={surveyDatePresets}
+                />
               </div>
 
               {/* Kuyruk Filtresi */}

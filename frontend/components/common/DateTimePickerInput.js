@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { Calendar, Clock, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { Calendar, Clock, ChevronLeft, ChevronRight, Check, X } from "lucide-react";
 import { useTheme } from "../../utils/theme";
 
 const TR_MONTHS = [
@@ -62,6 +62,9 @@ export default function DateTimePickerInput({
   onDateChange,
   onTimeChange,
   presets = [],
+  placeholder = "",
+  allowClear = false,
+  onClear,
 }) {
   const { bg, hover, text, border, ring, lightBg, borderLight } = useTheme();
 
@@ -212,17 +215,20 @@ export default function DateTimePickerInput({
   }, [viewYear, viewMonth]);
 
   const todayYmd = getTodayYmd();
-  const activeYmd = (dateValue || todayYmd).slice(0, 10);
+  const hasDateValue = Boolean(dateValue && String(dateValue).trim());
+  const activeYmd = hasDateValue ? String(dateValue).slice(0, 10) : placeholder ? "" : todayYmd;
 
   const formattedDisplayDate = useMemo(() => {
-    const { year, month, day } = parseYmd(activeYmd);
+    if (!activeYmd && placeholder) return placeholder;
+    const { year, month, day } = parseYmd(activeYmd || todayYmd);
     return `${pad2(day)}.${pad2(month + 1)}.${year}`;
-  }, [activeYmd]);
+  }, [activeYmd, placeholder, todayYmd]);
 
   const formattedLongPreview = useMemo(() => {
-    const { year, month, day } = parseYmd(activeYmd);
+    if (!activeYmd && placeholder) return placeholder;
+    const { year, month, day } = parseYmd(activeYmd || todayYmd);
     return `${pad2(day)} ${TR_MONTHS[month]} ${year} • ${normalizedTime}`;
-  }, [activeYmd, normalizedTime]);
+  }, [activeYmd, placeholder, todayYmd, normalizedTime]);
 
   const handlePrevMonth = () => {
     if (viewMonth === 0) {
@@ -249,12 +255,20 @@ export default function DateTimePickerInput({
     setViewMonth(p.month);
   };
 
+  const ensureDateIfEmpty = () => {
+    if (!hasDateValue && onDateChange) {
+      onDateChange(todayYmd);
+    }
+  };
+
   const handleSelectHour = (h) => {
+    ensureDateIfEmpty();
     const next = `${pad2(h)}:${pad2(selectedMinute)}`;
     if (onTimeChange) onTimeChange(next);
   };
 
   const handleSelectMinute = (m) => {
+    ensureDateIfEmpty();
     const next = `${pad2(selectedHour)}:${pad2(m)}`;
     if (onTimeChange) onTimeChange(next);
   };
@@ -268,6 +282,7 @@ export default function DateTimePickerInput({
     if (/^\d{2}:\d{2}$/.test(raw)) {
       const [hh, mm] = raw.split(":").map((v) => parseInt(v, 10));
       if (hh >= 0 && hh <= 23 && mm >= 0 && mm <= 59) {
+        ensureDateIfEmpty();
         if (onTimeChange) onTimeChange(`${pad2(hh)}:${pad2(mm)}`);
       }
     }
@@ -330,17 +345,46 @@ export default function DateTimePickerInput({
       >
         <div className="flex items-center gap-2 min-w-0">
           <Calendar size={14} className={`${text} shrink-0`} />
-          <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100 tabular-nums whitespace-nowrap">
+          <span
+            className={`text-xs tabular-nums whitespace-nowrap ${
+              !activeYmd && placeholder
+                ? "font-semibold text-slate-400 dark:text-slate-500"
+                : "font-extrabold text-slate-800 dark:text-slate-100"
+            }`}
+          >
             {formattedDisplayDate}
           </span>
         </div>
 
-        <span
-          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-extrabold tabular-nums border shrink-0 ${lightBg} ${text} ${borderLight}`}
-        >
-          <Clock size={11} />
-          <span>{normalizedTime}</span>
-        </span>
+        <div className="flex items-center gap-1 shrink-0">
+          {(!placeholder || hasDateValue) && (
+            <span
+              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-[11px] font-extrabold tabular-nums border shrink-0 ${lightBg} ${text} ${borderLight}`}
+            >
+              <Clock size={11} />
+              <span>{normalizedTime}</span>
+            </span>
+          )}
+          {allowClear && hasDateValue && (
+            <span
+              role="button"
+              tabIndex={0}
+              title="Tarihi Temizle"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (onClear) {
+                  onClear();
+                } else {
+                  if (onDateChange) onDateChange("");
+                  if (onTimeChange) onTimeChange(defaultTime);
+                }
+              }}
+              className="p-0.5 rounded-md text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
+            >
+              <X size={12} />
+            </span>
+          )}
+        </div>
       </button>
 
       {/* Portal Popover */}
@@ -349,6 +393,8 @@ export default function DateTimePickerInput({
         createPortal(
           <div
             ref={popoverRef}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             style={{
               position: "fixed",
               top: `${popoverPos.top}px`,
