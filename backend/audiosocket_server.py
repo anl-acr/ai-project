@@ -346,10 +346,532 @@ async def get_call_did(call_id: str) -> str:
         print(f"Error querying call DID from DB: {e}")
     return "s"
 
+def _describe_workflow_target_node(target_node: dict, settings: dict) -> tuple[str, str, str]:
+    """Returns (target_type, target_value, human_readable_label) for a CallFlow node."""
+    if not target_node or not isinstance(target_node, dict):
+        return ("unknown", "", "Belirtilmemiş Hedef")
+    ntype = str(target_node.get("type") or "").lower()
+    val = str(
+        target_node.get("value")
+        or target_node.get("target")
+        or (target_node.get("data", {}).get("target") if isinstance(target_node.get("data"), dict) else "")
+        or ""
+    ).strip()
+    title = str(target_node.get("title") or "").strip()
+
+    if ntype == "menu":
+        return ("menu", str(target_node.get("id") or ""), title or "Alt Menü")
+    if ntype == "hangup":
+        return ("hangup", "hangup", title or "Çağrıyı Sonlandır")
+    if ntype in ("ai", "ai_agent"):
+        ai_agents = settings.get("ai_agents", [])
+        ag = next((a for a in ai_agents if str(a.get("id")) == val), None)
+        ag_name = (ag.get("name") if ag else "") or title or "AI Asistan"
+        return ("ai_agent", val, f"AI: {ag_name}")
+    if ntype in ("transfer", "extension", "user", "queue", "agent_transfer"):
+        all_queues = settings.get("queues", [])
+        all_users = settings.get("users", [])
+        q_match = next(
+            (q for q in all_queues if str(q.get("extension")) == val or str(q.get("id")) == val or str(q.get("name")) == val),
+            None,
+        )
+        if q_match:
+            q_ext = str(q_match.get("extension") or val)
+            q_name = str(q_match.get("name") or "Kuyruk")
+            return ("queue", q_ext, f"{q_ext} - {q_name}")
+        u_match = next(
+            (u for u in all_users if str(u.get("extension")) == val or str(u.get("id")) == val),
+            None,
+        )
+        if u_match:
+            u_ext = str(u_match.get("extension") or val)
+            u_name = str(u_match.get("full_name") or u_match.get("username") or "Abone")
+            return ("extension", u_ext, f"{u_ext} - {u_name}")
+        return ("transfer", val, f"{title}: {val}" if (title and val) else (val or title or "Transfer"))
+    return (ntype or "step", val, title or val or "Sonraki Adım")
+
+
+def _resolve_terminal_workflow_node(node: dict, settings: dict) -> dict:
+    """Converts a terminal CallFlow node (transfer/queue/ai/hangup) into a route_action dict."""
+    if not node or not isinstance(node, dict):
+        return None
+    ntype = str(node.get("type", "")).lower()
+    all_queues = settings.get("queues", [])
+    if ntype in ["transfer", "extension", "user", "queue", "agent_transfer"]:
+        val = node.get("value") or node.get("target") or (node.get("data", {}).get("target") if isinstance(node.get("data"), dict) else None)
+        if val:
+            extra = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
+            t_type = str(extra.get("transfer_type") or "").lower()
+            q_match = next(
+                (q for q in all_queues if str(q.get("extension")) == str(val) or str(q.get("id")) == str(val) or str(q.get("name")) == str(val)),
+                None,
+            )
+            is_q = bool(ntype == "queue" or t_type in ("kuyruk", "queue") or q_match)
+            resolved_target = str(q_match.get("extension") or val) if q_match else str(val)
+            return {"action": "transfer", "target": resolved_target, "context": "webrtc_agents", "is_queue": is_q}
+    elif ntype in ["ai", "ai_agent"]:
+        val = node.get("value") or node.get("agent_id") or (node.get("data", {}).get("agent_id") if isinstance(node.get("data"), dict) else None)
+        ai_agents = settings.get("ai_agents", [])
+        agent = next((a for a in ai_agents if str(a.get("id")) == str(val)), None) if val else (ai_agents[0] if ai_agents else None)
+        return {"action": "ai", "agent": agent, "agent_id": val or (agent.get("id") if agent else None)}
+    elif ntype == "hangup":
+        return {"action": "hangup"}
+    return None
+
+
+def _advance_workflow_from_node(workflow: dict, start_node: dict, settings: dict) -> dict:
+    """Advances along non-interactive pass-through nodes until hitting a Menu node or a terminal action."""
+    nodes = workflow.get("nodes", []) or []
+    conns = workflow.get("connections", []) or []
+    node_map = {n.get("id"): n for n in nodes if isinstance(n, dict) and n.get("id")}
+    visited = set()
+    cur = start_node
+    pre_announcements = []
+
+    while cur and cur.get("id") not in visited:
+        visited.add(cur.get("id"))
+        ntype = str(cur.get("type") or "").lower()
+
+        if ntype == "menu":
+            return {
+                "action": "interactive_workflow",
+                "workflow": workflow,
+                "menu_node": cur,
+                "pre_announcements": pre_announcements,
+            }
+
+        term = _resolve_terminal_workflow_node(cur, settings)
+        if term:
+            term["pre_announcements"] = pre_announcements
+            return term
+
+        if ntype in ("announcement", "play", "playback"):
+            pre_announcements.append(cur)
+
+        out_conns = [c for c in conns if c.get("fromNode") == cur.get("id")]
+        if not out_conns:
+            break
+
+        chosen_conn = None
+        if ntype == "timerule":
+            now_tr = datetime.datetime.utcnow() + datetime.timedelta(hours=3)
+            is_work_time = (now_tr.weekday() < 5) and (9 <= now_tr.hour < 18)
+            pref_port = "active" if is_work_time else "inactive"
+            chosen_conn = next((c for c in out_conns if c.get("fromPort") == pref_port), out_conns[0])
+        else:
+            chosen_conn = next((c for c in out_conns if c.get("fromPort") in ("output", None, "")), out_conns[0])
+
+        cur = node_map.get(chosen_conn.get("toNode")) if chosen_conn else None
+
+    return None
+
+
+def _evaluate_workflow_object(workflow: dict, settings: dict) -> dict:
+    nodes = workflow.get("nodes", []) or []
+    conns = workflow.get("connections", []) or []
+    if conns and nodes:
+        incoming_ids = {c.get("toNode") for c in conns if c.get("toNode")}
+        start_node = (
+            next((n for n in nodes if str(n.get("type") or "").lower() in ("did", "start", "inbound")), None)
+            or next((n for n in nodes if n.get("id") not in incoming_ids), None)
+            or nodes[0]
+        )
+        step_res = _advance_workflow_from_node(workflow, start_node, settings)
+        if step_res:
+            return step_res
+
+    menu_node = next((n for n in nodes if str(n.get("type") or "").lower() == "menu"), None)
+    if menu_node:
+        return {
+            "action": "interactive_workflow",
+            "workflow": workflow,
+            "menu_node": menu_node,
+            "pre_announcements": [],
+        }
+
+    for node in nodes:
+        term = _resolve_terminal_workflow_node(node, settings)
+        if term:
+            return term
+    return None
+
+
+def _load_menu_prompt_pcm_8k(node: dict, settings: dict) -> bytes:
+    """Loads or synthesizes 8kHz mono 16-bit signed PCM audio bytes for a CallFlow menu/announcement node."""
+    import hashlib
+    import subprocess
+    if not node or not isinstance(node, dict):
+        return b""
+    extra = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
+    ann_type = str(extra.get("announcement_type") or "recorded").lower()
+    raw_val = str(node.get("value") or "").strip()
+    if not raw_val:
+        return b""
+
+    src_path = ""
+    if ann_type == "tts":
+        os.makedirs("uploads/announcements", exist_ok=True)
+        h = hashlib.md5(raw_val.encode("utf-8", errors="ignore")).hexdigest()[:16]
+        cached_raw = os.path.join("uploads/announcements", f"_menu_tts_{h}.raw")
+        if os.path.exists(cached_raw) and os.path.getsize(cached_raw) > 320:
+            try:
+                with open(cached_raw, "rb") as rf:
+                    return rf.read()
+            except Exception:
+                pass
+        try:
+            from backend.main import synthesize_announcement_tts_mp3
+            mp3_bytes = synthesize_announcement_tts_mp3(raw_val)
+            if mp3_bytes:
+                tmp_mp3 = os.path.join("uploads/announcements", f"_menu_tts_{h}.mp3")
+                with open(tmp_mp3, "wb") as mf:
+                    mf.write(mp3_bytes)
+                proc = subprocess.run(
+                    ["ffmpeg", "-y", "-i", tmp_mp3, "-f", "s16le", "-acodec", "pcm_s16le", "-ar", "8000", "-ac", "1", cached_raw],
+                    capture_output=True,
+                    timeout=5.0,
+                )
+                if proc.returncode == 0 and os.path.exists(cached_raw):
+                    with open(cached_raw, "rb") as rf:
+                        return rf.read()
+        except Exception as tts_err:
+            print(f"[CallFlow Menu TTS Warning]: {tts_err}")
+        return b""
+
+    # Recorded announcement lookup
+    safe_base = os.path.basename(raw_val)
+    candidates = [
+        os.path.join("uploads/announcements", safe_base),
+        os.path.join("uploads/announcements", f"{safe_base}.wav"),
+        os.path.join("uploads/announcements", f"{safe_base}.mp3"),
+    ]
+    for a in (settings.get("announcements") or []):
+        if str(a.get("id")) == raw_val or str(a.get("filename")) == raw_val or str(a.get("name")) == raw_val:
+            fn = os.path.basename(str(a.get("filename") or a.get("id") or ""))
+            if fn:
+                candidates.insert(0, os.path.join("uploads/announcements", fn))
+                candidates.append(os.path.join("uploads/announcements", f"{fn}.wav"))
+    for cand in candidates:
+        if cand and os.path.exists(cand) and os.path.isfile(cand):
+            src_path = cand
+            break
+
+    if not src_path:
+        return b""
+
+    try:
+        proc = subprocess.run(
+            ["ffmpeg", "-v", "error", "-i", src_path, "-f", "s16le", "-acodec", "pcm_s16le", "-ar", "8000", "-ac", "1", "pipe:1"],
+            capture_output=True,
+            timeout=4.0,
+        )
+        if proc.returncode == 0 and proc.stdout:
+            return proc.stdout
+    except Exception:
+        pass
+
+    try:
+        import wave
+        with wave.open(src_path, "rb") as wf:
+            if wf.getnchannels() == 1 and wf.getsampwidth() == 2 and wf.getframerate() == 8000:
+                return wf.readframes(wf.getnframes())
+    except Exception:
+        pass
+    return b""
+
+
+async def run_interactive_callflow_menus(
+    call_id: str,
+    did: str,
+    workflow: dict,
+    start_menu_node: dict,
+    pre_announcements: list,
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+    settings: dict,
+) -> dict:
+    """
+    Executes interactive Arama Akış Yönetimi (CallFlow) Menu nodes over AudioSocket:
+      - Plays menu greeting audio (8kHz slin frames) with instant DTMF barge-in
+      - Captures DTMF digits from BOTH AudioSocket 0x03 frames AND Asterisk AMI DTMFEnd events
+      - Persists every menu visit (pressed digit, invalid digit, timeout, or caller abandon) to Call.ivr_events
+      - Routes to the connected next node (supporting multi-level sub-menus, queues, extensions, AI, hangup)
+    """
+    from backend.services.ami_manager import register_dtmf_waiter, unregister_dtmf_waiter
+    from backend.main import append_call_ivr_event
+
+    dtmf_q = register_dtmf_waiter(call_id)
+    incoming_dtmf_q = asyncio.Queue()
+    hungup_flag = {"closed": False}
+    last_digit_seen = {"digit": "", "ts": 0.0}
+
+    def _push_unique_digit(d_char: str):
+        d_s = str(d_char or "").strip()
+        if not d_s:
+            return
+        now_m = asyncio.get_event_loop().time()
+        if last_digit_seen["digit"] == d_s and (now_m - last_digit_seen["ts"]) < 0.35:
+            return
+        last_digit_seen["digit"] = d_s
+        last_digit_seen["ts"] = now_m
+        incoming_dtmf_q.put_nowait(d_s)
+
+    async def _pump_audiosocket_reader():
+        try:
+            while not hungup_flag["closed"]:
+                h = await reader.readexactly(3)
+                m_type = h[0]
+                p_len = int.from_bytes(h[1:3], byteorder="big")
+                if m_type == 0x00:
+                    hungup_flag["closed"] = True
+                    incoming_dtmf_q.put_nowait("__HANGUP__")
+                    break
+                payload = await reader.readexactly(p_len) if p_len > 0 else b""
+                if m_type == 0x03 and payload:
+                    digit_ch = payload.decode("ascii", errors="ignore").strip()
+                    if digit_ch:
+                        print(f"[CallFlow Menu DTMF - AudioSocket] Call {call_id} pressed '{digit_ch}'")
+                        _push_unique_digit(digit_ch[0])
+        except (asyncio.IncompleteReadError, ConnectionResetError, BrokenPipeError):
+            hungup_flag["closed"] = True
+            incoming_dtmf_q.put_nowait("__HANGUP__")
+        except asyncio.CancelledError:
+            pass
+        except Exception as r_err:
+            print(f"[CallFlow Menu Reader Warning]: {r_err}")
+            hungup_flag["closed"] = True
+            incoming_dtmf_q.put_nowait("__HANGUP__")
+
+    async def _pump_ami_dtmf():
+        try:
+            while not hungup_flag["closed"]:
+                d_ami = await dtmf_q.get()
+                if d_ami:
+                    print(f"[CallFlow Menu DTMF - AMI] Call {call_id} pressed '{d_ami}'")
+                    _push_unique_digit(str(d_ami)[0])
+        except asyncio.CancelledError:
+            pass
+
+    reader_task = asyncio.create_task(_pump_audiosocket_reader())
+    ami_task = asyncio.create_task(_pump_ami_dtmf())
+
+    async def _play_pcm_or_wait(pcm_bytes: bytes, wait_after_sec: float, allow_barge_in: bool = True) -> str:
+        """Streams 20ms PCM frames + silence wait; returns pressed digit, '__HANGUP__', or '__TIMEOUT__'."""
+        loop = asyncio.get_event_loop()
+        silence_payload = b"\x00" * 320
+        total_audio_frames = (len(pcm_bytes) // 320) if pcm_bytes else 0
+        wait_frames = max(1, int(round(wait_after_sec / 0.02)))
+        total_frames = total_audio_frames + wait_frames
+        start_t = loop.time()
+
+        for f_idx in range(total_frames):
+            if hungup_flag["closed"]:
+                return "__HANGUP__"
+            if allow_barge_in and not incoming_dtmf_q.empty():
+                tok = incoming_dtmf_q.get_nowait()
+                return tok
+
+            if f_idx < total_audio_frames:
+                chunk = pcm_bytes[f_idx * 320 : (f_idx + 1) * 320]
+                if len(chunk) < 320:
+                    chunk = chunk + (b"\x00" * (320 - len(chunk)))
+            else:
+                chunk = silence_payload
+
+            try:
+                writer.write(b"\x10\x01\x40" + chunk)
+                await writer.drain()
+            except Exception:
+                hungup_flag["closed"] = True
+                return "__HANGUP__"
+
+            target_t = start_t + ((f_idx + 1) * 0.02)
+            sleep_for = target_t - loop.time()
+            if sleep_for > 0:
+                try:
+                    tok = await asyncio.wait_for(incoming_dtmf_q.get(), timeout=sleep_for)
+                    if allow_barge_in or tok == "__HANGUP__":
+                        return tok
+                except asyncio.TimeoutError:
+                    pass
+
+        if not incoming_dtmf_q.empty():
+            return incoming_dtmf_q.get_nowait()
+        return "__TIMEOUT__"
+
+    try:
+        for pre_ann in (pre_announcements or []):
+            pcm_pre = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pre_ann, settings)
+            if pcm_pre:
+                res_pre = await _play_pcm_or_wait(pcm_pre, wait_after_sec=0.1, allow_barge_in=False)
+                if res_pre == "__HANGUP__":
+                    return {"action": "already_hungup"}
+
+        wf_id = str(workflow.get("id") or "")
+        wf_name = str(workflow.get("name") or "Arama Akışı")
+        nodes = workflow.get("nodes", []) or []
+        conns = workflow.get("connections", []) or []
+        node_map = {n.get("id"): n for n in nodes if isinstance(n, dict) and n.get("id")}
+
+        cur_menu = start_menu_node
+        menu_hops = 0
+        invalid_retries = 0
+
+        while cur_menu and menu_hops < 8:
+            menu_hops += 1
+            m_id = str(cur_menu.get("id") or "")
+            m_name = str(cur_menu.get("title") or "IVR Menü")
+            m_extra = cur_menu.get("extra_fields") if isinstance(cur_menu.get("extra_fields"), dict) else {}
+            wait_secs = float(m_extra.get("timeout_seconds") or m_extra.get("timeout") or 8.0)
+            active_opts = [str(o) for o in (cur_menu.get("options") or [])]
+            out_conns = [c for c in conns if c.get("fromNode") == m_id]
+
+            # Drain any stale digit queued prior to entering menu
+            while not incoming_dtmf_q.empty():
+                stale = incoming_dtmf_q.get_nowait()
+                if stale == "__HANGUP__":
+                    hungup_flag["closed"] = True
+                    break
+
+            menu_enter_ts = asyncio.get_event_loop().time()
+            pcm_prompt = await asyncio.to_thread(_load_menu_prompt_pcm_8k, cur_menu, settings)
+            token = await _play_pcm_or_wait(pcm_prompt, wait_after_sec=wait_secs, allow_barge_in=True)
+            spent_sec = max(1, int(round(asyncio.get_event_loop().time() - menu_enter_ts)))
+
+            if token == "__HANGUP__":
+                await append_call_ivr_event(call_id, {
+                    "workflow_id": wf_id,
+                    "workflow_name": wf_name,
+                    "menu_id": m_id,
+                    "menu_name": m_name,
+                    "digit": "",
+                    "outcome": "abandoned",
+                    "target_type": "abandoned",
+                    "target_value": "",
+                    "target_label": "Menüde Terk (Kapattı)",
+                    "duration_sec": spent_sec,
+                })
+                try:
+                    async with AsyncSessionLocal() as session:
+                        db_call = await session.get(Call, call_id)
+                        if db_call:
+                            db_call.hangup_source = f"ivr:{m_id}:abandoned"
+                            if not db_call.ended_by:
+                                db_call.ended_by = "customer"
+                            await session.commit()
+                except Exception:
+                    pass
+                return {"action": "already_hungup"}
+
+            if token == "__TIMEOUT__":
+                to_conn = next((c for c in out_conns if str(c.get("fromPort")) == "timeout"), None)
+                to_node = node_map.get(to_conn.get("toNode")) if to_conn else None
+                t_type, t_val, t_label = _describe_workflow_target_node(to_node, settings) if to_node else ("hangup", "", "Zaman Aşımı (Kapandı)")
+                await append_call_ivr_event(call_id, {
+                    "workflow_id": wf_id,
+                    "workflow_name": wf_name,
+                    "menu_id": m_id,
+                    "menu_name": m_name,
+                    "digit": "timeout",
+                    "outcome": "timeout",
+                    "target_type": t_type,
+                    "target_value": t_val,
+                    "target_label": t_label,
+                    "duration_sec": spent_sec,
+                })
+                if to_node:
+                    nxt = _advance_workflow_from_node(workflow, to_node, settings)
+                    if nxt and nxt.get("action") == "interactive_workflow":
+                        for pa in (nxt.get("pre_announcements") or []):
+                            pcm_pa = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pa, settings)
+                            if pcm_pa:
+                                await _play_pcm_or_wait(pcm_pa, wait_after_sec=0.1, allow_barge_in=False)
+                        cur_menu = nxt.get("menu_node")
+                        invalid_retries = 0
+                        continue
+                    if nxt:
+                        return nxt
+                return {"action": "hangup"}
+
+            # Customer pressed a real DTMF digit ('0'-'9', '*', '#')
+            pressed_digit = str(token).strip()
+            digit_conn = next((c for c in out_conns if str(c.get("fromPort")) == pressed_digit), None)
+
+            if digit_conn or pressed_digit in active_opts:
+                target_node = node_map.get(digit_conn.get("toNode")) if digit_conn else None
+                t_type, t_val, t_label = _describe_workflow_target_node(target_node, settings) if target_node else ("unconnected", "", "Hedef Bağlı Değil")
+                await append_call_ivr_event(call_id, {
+                    "workflow_id": wf_id,
+                    "workflow_name": wf_name,
+                    "menu_id": m_id,
+                    "menu_name": m_name,
+                    "digit": pressed_digit,
+                    "outcome": "pressed",
+                    "target_type": t_type,
+                    "target_value": t_val,
+                    "target_label": t_label,
+                    "duration_sec": spent_sec,
+                })
+                if target_node:
+                    nxt = _advance_workflow_from_node(workflow, target_node, settings)
+                    if nxt and nxt.get("action") == "interactive_workflow":
+                        for pa in (nxt.get("pre_announcements") or []):
+                            pcm_pa = await asyncio.to_thread(_load_menu_prompt_pcm_8k, pa, settings)
+                            if pcm_pa:
+                                await _play_pcm_or_wait(pcm_pa, wait_after_sec=0.1, allow_barge_in=False)
+                        cur_menu = nxt.get("menu_node")
+                        invalid_retries = 0
+                        continue
+                    if nxt:
+                        return nxt
+                return {"action": "hangup"}
+
+            # Invalid / unmapped digit pressed!
+            err_conn = next((c for c in out_conns if str(c.get("fromPort")) == "error"), None)
+            err_node = node_map.get(err_conn.get("toNode")) if err_conn else None
+            t_type, t_val, t_label = (
+                _describe_workflow_target_node(err_node, settings)
+                if err_node
+                else ("retry" if invalid_retries < 1 else "hangup", "", "Menü Tekrarı" if invalid_retries < 1 else "Hatalı Tuşlama (Kapandı)")
+            )
+            await append_call_ivr_event(call_id, {
+                "workflow_id": wf_id,
+                "workflow_name": wf_name,
+                "menu_id": m_id,
+                "menu_name": m_name,
+                "digit": pressed_digit,
+                "outcome": "invalid",
+                "target_type": t_type,
+                "target_value": t_val,
+                "target_label": t_label,
+                "duration_sec": spent_sec,
+            })
+            if err_node:
+                nxt = _advance_workflow_from_node(workflow, err_node, settings)
+                if nxt and nxt.get("action") == "interactive_workflow":
+                    cur_menu = nxt.get("menu_node")
+                    invalid_retries = 0
+                    continue
+                if nxt:
+                    return nxt
+            if invalid_retries < 1:
+                invalid_retries += 1
+                continue
+            return {"action": "hangup"}
+
+        return {"action": "hangup"}
+    finally:
+        hungup_flag["closed"] = True
+        unregister_dtmf_waiter(call_id)
+        reader_task.cancel()
+        ami_task.cancel()
+
+
 def evaluate_call_flow_action(did: str) -> dict:
     """
     Evaluates Inbound Rules and Visual CallFlow workflows for the given DID.
     Returns a dictionary describing the route action:
+      - {"action": "interactive_workflow", "workflow": wf, "menu_node": node, "pre_announcements": [...]}
       - {"action": "transfer", "target": "1000", "context": "webrtc_agents"}
       - {"action": "hangup"}
       - {"action": "ai", "agent": ai_agent_dict, "agent_id": "..."}
@@ -359,6 +881,7 @@ def evaluate_call_flow_action(did: str) -> dict:
     
     settings = load_settings()
     inbound_rules = settings.get("inbound_rules", [])
+    workflows = settings.get("workflows", [])
     
     # 1. Match Inbound Rule
     matched_rule = None
@@ -377,6 +900,21 @@ def evaluate_call_flow_action(did: str) -> dict:
 
     if not matched_rule and inbound_rules:
         matched_rule = inbound_rules[0]
+
+    # If no inbound rule matched, check active workflows whose DID node matches the dialed DID
+    if not matched_rule and workflows:
+        for wf in workflows:
+            if wf.get("status") == "draft":
+                continue
+            did_node = next((n for n in (wf.get("nodes") or []) if str(n.get("type") or "").lower() == "did"), None)
+            if did_node:
+                ef = did_node.get("extra_fields") if isinstance(did_node.get("extra_fields"), dict) else {}
+                is_wc = ef.get("is_wildcard", True) is not False
+                d_nums = [str(x).strip() for x in (ef.get("did_numbers") or []) if x]
+                if is_wc or any(p == did or did.endswith(p) or p.endswith(did) for p in d_nums):
+                    wf_res = _evaluate_workflow_object(wf, settings)
+                    if wf_res:
+                        return wf_res
 
     if not matched_rule:
         ai_agents = settings.get("ai_agents", [])
@@ -435,9 +973,8 @@ def evaluate_call_flow_action(did: str) -> dict:
         return {"action": "ai", "agent": agent, "agent_id": dest_id}
 
     # 3. Visual CallFlow (Workflow)
-    if dest_type == "call_flow":
-        workflows = settings.get("workflows", [])
-        workflow = next((w for w in workflows if w.get("id") == dest_id), None)
+    if dest_type in ("call_flow", "ivr"):
+        workflow = next((w for w in workflows if str(w.get("id")) == str(dest_id)), None)
         if not workflow and workflows:
             workflow = workflows[0]
             
@@ -445,30 +982,9 @@ def evaluate_call_flow_action(did: str) -> dict:
             ai_agents = settings.get("ai_agents", [])
             return {"action": "ai", "agent": ai_agents[0] if ai_agents else None}
 
-        all_queues = settings.get("queues", [])
-        nodes = workflow.get("nodes", [])
-        for node in nodes:
-            ntype = str(node.get("type", "")).lower()
-            if ntype in ["transfer", "extension", "user", "queue", "agent_transfer"]:
-                val = node.get("value") or node.get("target") or (node.get("data", {}).get("target") if isinstance(node.get("data"), dict) else None)
-                if val:
-                    extra = node.get("extra_fields") if isinstance(node.get("extra_fields"), dict) else {}
-                    t_type = str(extra.get("transfer_type") or "").lower()
-                    q_match = next(
-                        (q for q in all_queues if str(q.get("extension")) == str(val) or str(q.get("id")) == str(val) or str(q.get("name")) == str(val)),
-                        None
-                    )
-                    is_q = bool(ntype == "queue" or t_type in ("kuyruk", "queue") or q_match)
-                    resolved_target = str(q_match.get("extension") or val) if q_match else str(val)
-                    return {"action": "transfer", "target": resolved_target, "context": "webrtc_agents", "is_queue": is_q}
-            elif ntype in ["ai", "ai_agent"]:
-                val = node.get("value") or node.get("agent_id") or (node.get("data", {}).get("agent_id") if isinstance(node.get("data"), dict) else None)
-                if val:
-                    ai_agents = settings.get("ai_agents", [])
-                    agent = next((a for a in ai_agents if a.get("id") == val), None)
-                    return {"action": "ai", "agent": agent, "agent_id": val}
-            elif ntype == "hangup":
-                return {"action": "hangup"}
+        wf_res = _evaluate_workflow_object(workflow, settings)
+        if wf_res:
+            return wf_res
 
     ai_agents = settings.get("ai_agents", [])
     return {"action": "ai", "agent": ai_agents[0] if ai_agents else None}
@@ -1139,6 +1655,29 @@ async def handle_audiosocket_connection(reader: asyncio.StreamReader, writer: as
         call_eval = evaluate_call_flow_action(did)
 
         route_action = call_eval.get("action")
+        if route_action == "interactive_workflow":
+            wf_obj = call_eval.get("workflow") or {}
+            m_node = call_eval.get("menu_node") or {}
+            print(f"[Call Flow Interactive Menu] Call {call_id} entering Workflow '{wf_obj.get('name')}' -> Menu '{m_node.get('title')}'")
+            call_eval = await run_interactive_callflow_menus(
+                call_id=call_id,
+                did=did,
+                workflow=wf_obj,
+                start_menu_node=m_node,
+                pre_announcements=call_eval.get("pre_announcements") or [],
+                reader=reader,
+                writer=writer,
+                settings=load_settings(),
+            )
+            route_action = call_eval.get("action")
+            if route_action == "already_hungup":
+                try:
+                    writer.close()
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+                return
+
         print(f"[Call Flow Route] DID: {did} -> Action: {route_action}, Target/Agent: {call_eval.get('target') or call_eval.get('agent_id')}")
 
         if route_action == "transfer":

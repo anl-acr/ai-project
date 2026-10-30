@@ -12595,6 +12595,84 @@ async def register_call_endpoint(call_id: str, did: str, caller: str, asterisk_i
     return Response(content="ALLOW", media_type="text/plain")
 
 
+async def append_call_ivr_event(call_id: str, event_data: dict):
+    """Appends a CallFlow Menu / DTMF event dict to calls.ivr_events JSON list."""
+    cid_s = str(call_id or "").strip()
+    if not cid_s or not isinstance(event_data, dict):
+        return False
+    try:
+        from backend.database.config import AsyncSessionLocal
+        from backend.database.models import Call
+        async with AsyncSessionLocal() as session:
+            db_call = await session.get(Call, cid_s)
+            if not db_call:
+                return False
+            raw_existing = getattr(db_call, "ivr_events", None)
+            if isinstance(raw_existing, str):
+                try:
+                    existing_list = json.loads(raw_existing)
+                    if not isinstance(existing_list, list):
+                        existing_list = []
+                except Exception:
+                    existing_list = []
+            elif isinstance(raw_existing, list):
+                existing_list = list(raw_existing)
+            else:
+                existing_list = []
+
+            if "timestamp" not in event_data or not event_data["timestamp"]:
+                event_data = {
+                    **event_data,
+                    "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+                }
+            existing_list.append(event_data)
+            db_call.ivr_events = existing_list
+            await session.commit()
+            return True
+    except Exception as e:
+        print(f"[Append Call IVR Event Error]: {e}")
+        return False
+
+
+@app.api_route("/api/calls/ivr-event", methods=["GET", "POST"])
+async def record_call_ivr_event_endpoint(
+    request: Request,
+    call_id: str = "",
+    workflow_id: str = "",
+    workflow_name: str = "",
+    menu_id: str = "",
+    menu_name: str = "",
+    digit: str = "",
+    outcome: str = "pressed",
+    target_type: str = "",
+    target_value: str = "",
+    target_label: str = "",
+    duration_sec: int = 0,
+):
+    body = {}
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+    cid = str(body.get("call_id") or call_id or "").strip()
+    ev = {
+        "workflow_id": str(body.get("workflow_id") or workflow_id or "").strip(),
+        "workflow_name": str(body.get("workflow_name") or workflow_name or "").strip(),
+        "menu_id": str(body.get("menu_id") or menu_id or "").strip(),
+        "menu_name": str(body.get("menu_name") or menu_name or "").strip(),
+        "digit": str(body.get("digit") if body.get("digit") is not None else digit).strip(),
+        "outcome": str(body.get("outcome") or outcome or "pressed").strip(),
+        "target_type": str(body.get("target_type") or target_type or "").strip(),
+        "target_value": str(body.get("target_value") or target_value or "").strip(),
+        "target_label": str(body.get("target_label") or target_label or "").strip(),
+        "duration_sec": int(body.get("duration_sec") or duration_sec or 0),
+        "timestamp": str(body.get("timestamp") or (datetime.datetime.utcnow().isoformat() + "Z")),
+    }
+    ok = await append_call_ivr_event(cid, ev)
+    return {"status": "ok" if ok else "not_found", "call_id": cid}
+
+
 live_extension_call_state = {}
 
 
@@ -13909,6 +13987,28 @@ async def list_calls(
                 else:
                     c.duration_queue = 0
                 c.duration_total = total_wall_sec if is_unanswered_st else (resolved_talk_sec + c.duration_queue)
+
+                raw_ivr_ev = getattr(c, "ivr_events", None)
+                if isinstance(raw_ivr_ev, str):
+                    try:
+                        parsed_ivr = json.loads(raw_ivr_ev)
+                        c.ivr_events = parsed_ivr if isinstance(parsed_ivr, list) else []
+                    except Exception:
+                        c.ivr_events = []
+                elif isinstance(raw_ivr_ev, list):
+                    c.ivr_events = raw_ivr_ev
+                else:
+                    c.ivr_events = []
+
+                if c.ivr_events:
+                    c.duration_ivr = sum(max(0, int(ev.get("duration_sec") or 0)) for ev in c.ivr_events if isinstance(ev, dict))
+                    first_ev = next((ev for ev in c.ivr_events if isinstance(ev, dict) and ev.get("workflow_id")), None)
+                    c.workflow_id = str(first_ev.get("workflow_id") or "") if first_ev else ""
+                    c.workflow_name = str(first_ev.get("workflow_name") or "") if first_ev else ""
+                else:
+                    c.duration_ivr = 0
+                    c.workflow_id = ""
+                    c.workflow_name = ""
 
                 rec_val = str(getattr(c, "recording_path", "") or "").strip()
                 if rec_val in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
@@ -20940,6 +21040,7 @@ async def startup_event():
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS trunk_name VARCHAR;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS answered_at TIMESTAMP;",
                 "ALTER TABLE calls ADD COLUMN IF NOT EXISTS talk_duration INTEGER;",
+                "ALTER TABLE calls ADD COLUMN IF NOT EXISTS ivr_events JSON;",
                 "ALTER TABLE agent_break_logs ADD COLUMN IF NOT EXISTS agent_name VARCHAR;",
                 "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS delivered_at TIMESTAMP;",
                 "ALTER TABLE internal_chat_messages ADD COLUMN IF NOT EXISTS read_at TIMESTAMP;",

@@ -396,6 +396,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
   }, [trunks]);
 
   const [filterIvrWorkflowsSelected, setFilterIvrWorkflowsSelected] = useState([]);
+  const [filterIvrMenusSelected, setFilterIvrMenusSelected] = useState([]);
+  const [filterIvrDigitsSelected, setFilterIvrDigitsSelected] = useState([]);
+  const [filterIvrCaller, setFilterIvrCaller] = useState("");
   const [filterFrictionSentimentsSelected, setFilterFrictionSentimentsSelected] = useState([]);
   const [outboundRules, setOutboundRules] = useState([]);
   const [trunkPackageUsage, setTrunkPackageUsage] = useState(null);
@@ -519,18 +522,75 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       const rawName = String(wf.name || `Arama Akışı ${idx + 1}`).trim();
       const ext = String(wf.extension || "").trim();
       const key = String(wf.id ?? rawName);
+      const menuCount = Array.isArray(wf.nodes)
+        ? wf.nodes.filter((n) => String(n.type || "").toLowerCase() === "menu").length
+        : 0;
       if (!map.has(key)) {
+        const suffixParts = [];
+        if (ext && ext !== rawName) suffixParts.push(ext);
+        suffixParts.push(`${menuCount} Menü`);
         map.set(key, {
           id: key,
           workflowId: wf.id,
           rawName,
           extension: ext,
-          name: ext && ext !== rawName ? `${rawName} (${ext})` : rawName,
+          menuCount,
+          name: `${rawName} (${suffixParts.join(" • ")})`,
         });
       }
     });
     return Array.from(map.values());
   }, [workflows]);
+
+  const ivrMenuFilterItems = React.useMemo(() => {
+    const items = [];
+    const seen = new Set();
+    (Array.isArray(workflows) ? workflows : []).forEach((wf, idx) => {
+      const wfName = String(wf.name || `Arama Akışı ${idx + 1}`).trim();
+      const wfKey = String(wf.id ?? wfName).trim();
+      if (filterIvrWorkflowsSelected.length > 0 && !filterIvrWorkflowsSelected.includes(wfKey)) {
+        return;
+      }
+      const menuNodes = Array.isArray(wf.nodes)
+        ? wf.nodes.filter((n) => String(n.type || "").toLowerCase() === "menu")
+        : [];
+      menuNodes.forEach((mNode, mIdx) => {
+        const mId = String(mNode.id || `menu-${mIdx + 1}`);
+        const compositeId = `${wfKey}::${mId}`;
+        if (!seen.has(compositeId)) {
+          seen.add(compositeId);
+          const mTitle = String(mNode.title || `Menü ${mIdx + 1}`).trim();
+          items.push({
+            id: compositeId,
+            workflowKey: wfKey,
+            workflowName: wfName,
+            menuId: mId,
+            menuTitle: mTitle,
+            name: `${wfName} › ${mTitle}`,
+          });
+        }
+      });
+    });
+    return items;
+  }, [workflows, filterIvrWorkflowsSelected]);
+
+  const IVR_DIGIT_FILTER_OPTIONS = [
+    { id: "1", label: "Tuş [1]" },
+    { id: "2", label: "Tuş [2]" },
+    { id: "3", label: "Tuş [3]" },
+    { id: "4", label: "Tuş [4]" },
+    { id: "5", label: "Tuş [5]" },
+    { id: "6", label: "Tuş [6]" },
+    { id: "7", label: "Tuş [7]" },
+    { id: "8", label: "Tuş [8]" },
+    { id: "9", label: "Tuş [9]" },
+    { id: "0", label: "Tuş [0]" },
+    { id: "*", label: "Tuş [*]" },
+    { id: "#", label: "Tuş [#]" },
+    { id: "timeout", label: "Zaman Aşımı" },
+    { id: "invalid", label: "Hatalı Tuşlama" },
+    { id: "abandoned", label: "Menüde Terk (Tuşlama Yok)" },
+  ];
 
   const parseCallDateObj = (dateStr) => {
     if (!dateStr) return null;
@@ -1373,11 +1433,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
       status: "Durum"
     },
     "ivr-drop": {
+      workflowName: "Arama Akışı",
       menuName: "Menü Adı",
-      hits: "Giriş (Hit)",
-      drops: "Terk (Drop)",
-      transfers: "Aktarım",
-      nextStep: "Sonraki Adım"
+      digit: "Digit (Tuş)",
+      hits: "Tuşlanma / Giriş Adedi",
+      usageRate: "Kullanım Oranı (%)",
+      drops: "Menüde Terk",
+      nextStep: "Yönlenen Hedef"
     },
     "transfer-hold": {
       startTime: "Tarih / Saat",
@@ -2003,18 +2065,45 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
     if (viewMode === "ivr-drop") {
       const ivrData = computeIvrReportData(filteredCalls);
-      const headers = ["Menü Adı", "Giriş (Hit)", "Terk (Drop)", "Terk Oranı (%)", "Aktarım", "Sonraki Adım"];
-      csvContent += headers.join(";") + "\n";
+      const summaryHeaders = ["Arama Akışı", "Menü Adı", "Digit (Tuş)", "Tuşlanma / Giriş Adedi", "Kullanım Oranı (%)", "Menüde Terk", "Yönlenen Hedef"];
+      csvContent += summaryHeaders.join(";") + "\n";
       (ivrData.ivrMenus || []).forEach((m) => {
-        const dropPct = m.hits > 0 ? ((m.drops / m.hits) * 100).toFixed(1) : "0.0";
-        const row = [m.name, m.hits, m.drops, `%${dropPct}`, m.transfers, m.next];
+        const row = [
+          m.workflowName || "-",
+          m.menuTitle || m.name || "-",
+          m.digitLabel || m.digit || "-",
+          m.hits ?? 0,
+          `%${m.usagePct || "0.0"}`,
+          m.drops ?? 0,
+          m.next || "-"
+        ];
         csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
       });
+
+      if (Array.isArray(ivrData.callLogs) && ivrData.callLogs.length > 0) {
+        csvContent += "\n";
+        const logHeaders = ["Tarih/Saat", "Arayan Numara", "Aranan DID", "Arama Akışı", "Menü Adı", "Basılan Digit / Durum", "Yönlenen Hedef", "Çağrı ID"];
+        csvContent += logHeaders.join(";") + "\n";
+        ivrData.callLogs.forEach((lg) => {
+          const row = [
+            formatDate(lg.timestamp || lg.call?.start_time),
+            lg.callerNumber || "-",
+            lg.didNumber || "-",
+            lg.workflowName || "-",
+            lg.menuName || "-",
+            lg.digitDisplay || "-",
+            lg.targetLabel || "-",
+            lg.callId || "-"
+          ];
+          csvContent += row.map((v) => `"${String(v ?? "").replace(/"/g, '""')}"`).join(";") + "\n";
+        });
+      }
+
       const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.setAttribute("href", url);
-      link.setAttribute("download", `ivr_terk_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
+      link.setAttribute("download", `ivr_menu_digit_raporu_${filterEndDate || filterStartDate || new Date().toISOString().slice(0, 10)}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -2811,6 +2900,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     setFilterTrunkEndHour("");
     setFilterTrunksSelected([]);
     setFilterIvrWorkflowsSelected([]);
+    setFilterIvrMenusSelected([]);
+    setFilterIvrDigitsSelected([]);
+    setFilterIvrCaller("");
     setFilterFrictionSentimentsSelected([]);
     setFilterDidNumbersSelected([]);
     setFilterDidTrafficStatus("all");
@@ -3121,56 +3213,239 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
     return raw;
   };
 
-  const computeIvrReportData = (callsToAnalyze = filteredCalls) => {
-    const configuredMenus = [];
-    const hasWorkflowFilter = filterIvrWorkflowsSelected.length > 0;
-    const addedWfKeys = new Set();
+  const getCallIvrMenuEvents = (call) => {
+    if (!call) return [];
+    let rawList = call.ivr_events;
+    if (typeof rawList === "string" && rawList.trim()) {
+      try {
+        const parsed = JSON.parse(rawList);
+        rawList = Array.isArray(parsed) ? parsed : [];
+      } catch (_e) {
+        rawList = [];
+      }
+    }
+    if (!Array.isArray(rawList)) {
+      rawList = [];
+    }
 
-    const pushWorkflowMenus = (wf, didPatterns = [], matchMode = "all") => {
+    const normalized = rawList
+      .filter((ev) => ev && typeof ev === "object")
+      .map((ev) => {
+        const outcome = String(ev.outcome || "pressed").toLowerCase().trim();
+        const digit = String(ev.digit ?? "").trim();
+        const wfId = String(ev.workflow_id || call.workflow_id || "").trim();
+        let wfName = String(ev.workflow_name || call.workflow_name || "").trim();
+        const menuId = String(ev.menu_id || "").trim();
+        let menuName = String(ev.menu_name || "").trim();
+
+        if ((!wfName || !menuName) && Array.isArray(workflows)) {
+          const matchedWf = workflows.find(
+            (w) => (wfId && String(w.id) === wfId) || (wfName && String(w.name) === wfName)
+          );
+          if (matchedWf) {
+            if (!wfName) wfName = String(matchedWf.name || "Arama Akışı");
+            if (!menuName && menuId && Array.isArray(matchedWf.nodes)) {
+              const mn = matchedWf.nodes.find((n) => String(n.id) === menuId);
+              if (mn?.title) menuName = String(mn.title);
+            }
+          }
+        }
+        if (!wfName) wfName = "Arama Akışı";
+        if (!menuName) menuName = "IVR Menü";
+
+        let filterKey = digit || "abandoned";
+        let digitDisplay = "";
+        if (outcome === "abandoned" || (!digit && outcome !== "pressed")) {
+          filterKey = "abandoned";
+          digitDisplay = "Menüde Terk (Tuşlama Yok)";
+        } else if (outcome === "timeout" || digit === "timeout") {
+          filterKey = "timeout";
+          digitDisplay = "Zaman Aşımı (Tuşlama Yok)";
+        } else if (outcome === "invalid" || digit === "error") {
+          filterKey = "invalid";
+          digitDisplay = digit && digit !== "error" ? `Hatalı Tuşlama [${digit}]` : "Hatalı Tuşlama";
+        } else {
+          filterKey = digit;
+          digitDisplay = `Tuş [${digit}]`;
+        }
+
+        const rawTarget = String(ev.target_label || ev.target_value || "").trim();
+        const targetLabel = rawTarget ? resolveTargetName(rawTarget) : "Belirtilmedi";
+
+        return {
+          workflow_id: wfId,
+          workflow_name: wfName,
+          menu_id: menuId,
+          menu_name: menuName,
+          digit,
+          outcome,
+          filterKey,
+          digitDisplay,
+          target_type: String(ev.target_type || ""),
+          target_value: String(ev.target_value || ""),
+          target_label: targetLabel,
+          duration_sec: Math.max(0, Number(ev.duration_sec || 0)),
+          timestamp: ev.timestamp || call.start_time || "",
+        };
+      });
+
+    if (normalized.length === 0) {
+      const hs = String(call.hangup_source || "").trim();
+      if (hs.startsWith("ivr:")) {
+        const parts = hs.split(":");
+        const mId = parts[1] || "";
+        let foundWfName = "Arama Akışı";
+        let foundWfId = "";
+        let foundMenuName = "IVR Menü";
+        if (Array.isArray(workflows)) {
+          for (const w of workflows) {
+            const mn = (w.nodes || []).find((n) => String(n.id) === mId);
+            if (mn) {
+              foundWfId = String(w.id || "");
+              foundWfName = String(w.name || "Arama Akışı");
+              foundMenuName = String(mn.title || "IVR Menü");
+              break;
+            }
+          }
+        }
+        normalized.push({
+          workflow_id: foundWfId,
+          workflow_name: foundWfName,
+          menu_id: mId,
+          menu_name: foundMenuName,
+          digit: "",
+          outcome: "abandoned",
+          filterKey: "abandoned",
+          digitDisplay: "Menüde Terk (Tuşlama Yok)",
+          target_type: "abandoned",
+          target_value: "",
+          target_label: "Menüde Terk (Kapattı)",
+          duration_sec: Math.max(0, Number(call.duration_ivr || 0)),
+          timestamp: call.start_time || "",
+        });
+      }
+    }
+
+    return normalized;
+  };
+
+  const computeIvrReportData = (callsToAnalyze = filteredCalls) => {
+    const hasWorkflowFilter = filterIvrWorkflowsSelected.length > 0;
+    const hasMenuFilter = filterIvrMenusSelected.length > 0;
+    const hasDigitFilter = filterIvrDigitsSelected.length > 0;
+    const callerQuery = String(filterIvrCaller || "").trim().toLowerCase();
+
+    const addedWfKeys = new Set();
+    const slotMap = new Map();
+    const menuMetaMap = new Map();
+    const DIGIT_ORDER = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "*", "#", "timeout", "error", "abandoned"];
+
+    const formatPortDisplay = (portKey) => {
+      if (portKey === "timeout") return "Zaman Aşımı";
+      if (portKey === "error" || portKey === "invalid") return "Hatalı Tuşlama";
+      if (portKey === "abandoned") return "Menüde Terk";
+      if (portKey === "__menu__") return "Tanımlı Tuş Yok";
+      return `Tuş [${portKey}]`;
+    };
+
+    const resolveNodeNextDesc = (targetNode) => {
+      if (!targetNode) return "Hedef Bağlı Değil";
+      const nType = String(targetNode.type || "").toLowerCase();
+      if (nType === "menu") return `Alt Menü: ${targetNode.title || "IVR Menü"}`;
+      if (nType === "hangup") return "Çağrıyı Sonlandır";
+      const val = targetNode.value || targetNode.target || targetNode.title || targetNode.type;
+      return resolveTargetName(val);
+    };
+
+    const pushWorkflowMenus = (wf) => {
       if (!wf || !Array.isArray(wf.nodes)) return;
-      const wfKey = String(wf.id ?? wf.name ?? "").trim();
+      const wfName = String(wf.name || "Arama Akışı").trim();
+      const wfKey = String(wf.id ?? wfName).trim();
       if (hasWorkflowFilter && !filterIvrWorkflowsSelected.includes(wfKey)) {
         return;
       }
       const menuNodes = wf.nodes.filter((n) => String(n.type || "").toLowerCase() === "menu");
       const conns = Array.isArray(wf.connections) ? wf.connections : [];
-      const wfExt = String(wf.extension || "").trim();
-      menuNodes.forEach((mNode) => {
+
+      menuNodes.forEach((mNode, mIdx) => {
+        const mId = String(mNode.id || `menu-${mIdx + 1}`).trim();
+        const mTitle = String(mNode.title || `IVR Menü ${mIdx + 1}`).trim();
+        const compositeMenuId = `${wfKey}::${mId}`;
+        if (hasMenuFilter && !filterIvrMenusSelected.includes(compositeMenuId)) {
+          return;
+        }
+
+        menuMetaMap.set(compositeMenuId, {
+          workflowKey: wfKey,
+          workflowName: wfName,
+          menuId: mId,
+          menuTitle: mTitle,
+        });
+
         const outConns = conns.filter((c) => c.fromNode === mNode.id);
-        if (outConns.length > 0) {
-          outConns.forEach((conn) => {
-            const targetNode = wf.nodes.find((n) => n.id === conn.toNode);
-            const portLabel = conn.fromPort || "*";
-            const targetDesc = targetNode
-              ? resolveTargetName(targetNode.value || targetNode.target || targetNode.title || targetNode.type)
-              : "Bilinmeyen Hedef";
-            configuredMenus.push({
-              id: `${wf.id}-${mNode.id}-${portLabel}`,
-              workflowKey: wfKey,
-              wfExtension: wfExt,
-              trunkId: wf.trunk_id ?? null,
-              name: `${wf.name} — Tuş [${portLabel}]`,
-              didPatterns,
-              matchMode,
-              next: targetDesc
-            });
+        const portSet = new Set();
+        (Array.isArray(mNode.options) ? mNode.options : []).forEach((opt) => {
+          if (opt !== undefined && opt !== null && String(opt).trim() !== "") {
+            portSet.add(String(opt).trim());
+          }
+        });
+        outConns.forEach((c) => {
+          if (c.fromPort) portSet.add(String(c.fromPort).trim());
+        });
+
+        const sortedPorts = Array.from(portSet).sort((a, b) => {
+          const ia = DIGIT_ORDER.indexOf(a);
+          const ib = DIGIT_ORDER.indexOf(b);
+          return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        });
+
+        if (sortedPorts.length > 0) {
+          sortedPorts.forEach((portKey) => {
+            const filterNormKey = portKey === "error" ? "invalid" : portKey;
+            if (hasDigitFilter && !filterIvrDigitsSelected.includes(filterNormKey)) {
+              return;
+            }
+            const conn = outConns.find((c) => String(c.fromPort) === portKey);
+            const targetNode = conn ? wf.nodes.find((n) => n.id === conn.toNode) : null;
+            const slotId = `${compositeMenuId}::${filterNormKey}`;
+            if (!slotMap.has(slotId)) {
+              slotMap.set(slotId, {
+                id: slotId,
+                workflowKey: wfKey,
+                workflowName: wfName,
+                menuId: mId,
+                menuTitle: mTitle,
+                digit: filterNormKey,
+                digitLabel: formatPortDisplay(portKey),
+                name: `${wfName} › ${mTitle} — ${formatPortDisplay(portKey)}`,
+                hits: 0,
+                drops: 0,
+                transfers: 0,
+                next: resolveNodeNextDesc(targetNode),
+              });
+            }
           });
-        } else {
-          configuredMenus.push({
-            id: `${wf.id}-${mNode.id}`,
+        } else if (!hasDigitFilter) {
+          const slotId = `${compositeMenuId}::__menu__`;
+          slotMap.set(slotId, {
+            id: slotId,
             workflowKey: wfKey,
-            wfExtension: wfExt,
-            trunkId: wf.trunk_id ?? null,
-            name: `${wf.name} (${mNode.title || "IVR Menü"})`,
-            didPatterns,
-            matchMode,
-            next: wf.name
+            workflowName: wfName,
+            menuId: mId,
+            menuTitle: mTitle,
+            digit: "-",
+            digitLabel: "Tanımlı Tuş Yok",
+            name: `${wfName} › ${mTitle}`,
+            hits: 0,
+            drops: 0,
+            transfers: 0,
+            next: "Tuş Seçeneği Aktif Değil",
           });
         }
       });
     };
 
-    // 1a. Check Inbound Rules routed to a CallFlow (Workflow) containing IVR menu nodes
+    // Strictly Arama Akış Yönetimi (CallFlow workflows containing 'menu' nodes) — NO Queue periodic IVR
     if (Array.isArray(inboundRules) && inboundRules.length > 0) {
       inboundRules.forEach((rule) => {
         const destType = String(rule.destination_type || "").toLowerCase();
@@ -3183,140 +3458,163 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           if (wf) {
             const wfKey = String(wf.id ?? wf.name ?? "").trim();
             addedWfKeys.add(wfKey);
-            pushWorkflowMenus(
-              wf,
-              Array.isArray(rule.did_patterns) ? rule.did_patterns : [],
-              rule.did_match_mode || "all"
-            );
+            pushWorkflowMenus(wf);
           }
         }
       });
     }
 
-    // 1b. Also check active/selected workflows configured directly in Arama Akış Yönetimi
     if (Array.isArray(workflows) && workflows.length > 0) {
       workflows.forEach((wf, idx) => {
         const wfKey = String(wf.id ?? wf.name ?? `Arama Akışı ${idx + 1}`).trim();
         if (addedWfKeys.has(wfKey)) return;
         if (!hasWorkflowFilter && wf.status === "draft") return;
-        const didNode = Array.isArray(wf.nodes)
-          ? wf.nodes.find((n) => String(n.type || "").toLowerCase() === "did")
-          : null;
-        const isWildcard = didNode?.extra_fields?.is_wildcard !== false;
-        const didNums = Array.isArray(didNode?.extra_fields?.did_numbers)
-          ? didNode.extra_fields.did_numbers.filter((d) => d && d !== "x." && d !== "X.")
-          : [];
-        pushWorkflowMenus(
-          wf,
-          didNums,
-          !isWildcard && didNums.length > 0 ? "specific" : "all"
-        );
+        pushWorkflowMenus(wf);
       });
     }
 
-    // 2. Check PBX Queues that have active ivr_routes configured (only when no specific CallFlow filter is selected)
-    if (!hasWorkflowFilter && Array.isArray(queues) && queues.length > 0) {
-      queues.forEach((q) => {
-        const routes = q.ivr_routes;
-        if (routes && typeof routes === "object") {
-          Object.entries(routes).forEach(([digit, routeCfg]) => {
-            const targetVal = typeof routeCfg === "object" ? routeCfg?.target : routeCfg;
-            if (targetVal && String(targetVal).trim() !== "") {
-              configuredMenus.push({
-                id: `queue-${q.id || q.name}-${digit}`,
-                name: `${q.name} — Tuş [${digit}]`,
-                queueExt: String(q.extension || "").trim(),
-                next: resolveTargetName(targetVal)
-              });
-            }
-          });
-        }
-      });
-    }
-
-    const hasConfiguredIvr = configuredMenus.length > 0;
-    if (!hasConfiguredIvr) {
-      return {
-        hasConfiguredIvr: false,
-        ivrCalls: 0,
-        dropCalls: 0,
-        dropRate: "0.0",
-        transferToHuman: 0,
-        transferRate: "0.0",
-        ivrMenus: []
-      };
-    }
-
-    const inboundList = (callsToAnalyze || []).filter((c) => getCallDirection(c) === "Gelen");
-
-    const matchesMenuCall = (call, menu) => {
-      const callee = String(call.callee_number || "").trim();
-      if (menu.queueExt) {
-        return callee === menu.queueExt;
-      }
-      const callWfId = String(call.workflow_id ?? call.call_flow_id ?? "").trim();
-      if (callWfId && menu.workflowKey && callWfId === menu.workflowKey) {
-        return true;
-      }
-      if (menu.wfExtension && callee === menu.wfExtension) {
-        return true;
-      }
-      if (menu.matchMode === "specific" && Array.isArray(menu.didPatterns) && menu.didPatterns.length > 0) {
-        return menu.didPatterns.some((p) => p && (callee === p || callee.endsWith(p) || p.endsWith(callee)));
-      }
-      if (hasWorkflowFilter && menu.trunkId !== null && menu.trunkId !== undefined && Array.isArray(trunks) && trunks.length > 1) {
-        const matchedT = matchCallToTrunkObj(call);
-        if (matchedT && String(matchedT.id) !== String(menu.trunkId)) {
-          return false;
-        }
+    // Aggregate real call-level menu & digit events
+    const inboundList = (callsToAnalyze || []).filter((c) => {
+      if (getCallDirection(c) !== "Gelen") return false;
+      if (callerQuery) {
+        const cust = String(getCustomerNumber(c) || c.caller_number || "").toLowerCase();
+        const did = String(c.callee_number || "").toLowerCase();
+        if (!cust.includes(callerQuery) && !did.includes(callerQuery)) return false;
       }
       return true;
-    };
-
-    const menuStats = configuredMenus.map((menu) => {
-      const matchingCalls = inboundList.filter((call) => matchesMenuCall(call, menu));
-
-      const hits = matchingCalls.length;
-      const drops = matchingCalls.filter((c) => getCallStatus(c) === "Başarısız").length;
-      const transfers = matchingCalls.filter(
-        (c) =>
-          Boolean(c.is_transferred) ||
-          c.status === "transferred" ||
-          String(c.hangup_source || "").startsWith("transfer:")
-      ).length;
-
-      return {
-        ...menu,
-        hits,
-        drops,
-        transfers
-      };
     });
 
-    const activeInboundList = hasWorkflowFilter
-      ? inboundList.filter((call) => configuredMenus.some((menu) => matchesMenuCall(call, menu)))
-      : inboundList;
+    const callLogs = [];
+    const digitPressCounts = {};
 
-    const totalIvrHits = activeInboundList.length;
-    const totalIvrDrops = activeInboundList.filter((c) => getCallStatus(c) === "Başarısız").length;
-    const totalIvrTransfers = activeInboundList.filter(
-      (c) =>
-        Boolean(c.is_transferred) ||
-        c.status === "transferred" ||
-        String(c.hangup_source || "").startsWith("transfer:")
-    ).length;
+    inboundList.forEach((call) => {
+      const evList = getCallIvrMenuEvents(call);
+      if (evList.length === 0) return;
 
-    const dropRate = totalIvrHits > 0 ? ((totalIvrDrops / totalIvrHits) * 100).toFixed(1) : "0.0";
-    const transferRate = totalIvrHits > 0 ? ((totalIvrTransfers / totalIvrHits) * 100).toFixed(1) : "0.0";
+      evList.forEach((ev, evIdx) => {
+        const wfKey = String(ev.workflow_id || ev.workflow_name || "").trim();
+        const mId = String(ev.menu_id || ev.menu_name || "").trim();
+        const compositeMenuId = `${wfKey}::${mId}`;
+
+        if (hasWorkflowFilter && !filterIvrWorkflowsSelected.includes(wfKey) && !filterIvrWorkflowsSelected.includes(ev.workflow_name)) {
+          return;
+        }
+        if (hasMenuFilter && !filterIvrMenusSelected.includes(compositeMenuId)) {
+          return;
+        }
+        if (hasDigitFilter) {
+          const matchesFilter =
+            filterIvrDigitsSelected.includes(ev.filterKey) ||
+            (ev.digit && filterIvrDigitsSelected.includes(ev.digit));
+          if (!matchesFilter) return;
+        }
+
+        const slotKey = `${compositeMenuId}::${ev.filterKey}`;
+        let slot = slotMap.get(slotKey);
+        if (!slot) {
+          slot = {
+            id: slotKey,
+            workflowKey: wfKey,
+            workflowName: ev.workflow_name,
+            menuId: mId,
+            menuTitle: ev.menu_name,
+            digit: ev.filterKey,
+            digitLabel: ev.digitDisplay,
+            name: `${ev.workflow_name} › ${ev.menu_name} — ${ev.digitDisplay}`,
+            hits: 0,
+            drops: 0,
+            transfers: 0,
+            next: ev.target_label || "-",
+          };
+          slotMap.set(slotKey, slot);
+        }
+
+        slot.hits += 1;
+        if (ev.outcome === "abandoned" || ev.outcome === "timeout") {
+          slot.drops += 1;
+        } else if (ev.outcome === "pressed") {
+          slot.transfers += 1;
+          if (ev.digit) {
+            digitPressCounts[ev.digit] = (digitPressCounts[ev.digit] || 0) + 1;
+          }
+        }
+
+        callLogs.push({
+          id: `${call.id}-${evIdx}`,
+          call,
+          callId: call.id,
+          timestamp: ev.timestamp || call.start_time,
+          callerNumber: getCustomerNumber(call) || call.caller_number || "-",
+          didNumber: call.callee_number || "-",
+          workflowId: ev.workflow_id,
+          workflowName: ev.workflow_name,
+          menuId: ev.menu_id,
+          menuName: ev.menu_name,
+          digit: ev.digit,
+          outcome: ev.outcome,
+          filterKey: ev.filterKey,
+          digitDisplay: ev.digitDisplay,
+          targetLabel: ev.target_label || "-",
+          durationSec: ev.duration_sec || 0,
+        });
+      });
+    });
+
+    callLogs.sort((a, b) => {
+      const ta = parseCallDateObj(a.timestamp)?.getTime() || 0;
+      const tb = parseCallDateObj(b.timestamp)?.getTime() || 0;
+      return tb - ta;
+    });
+
+    const totalMenuEntries = callLogs.length;
+    const pressedLogs = callLogs.filter((l) => l.outcome === "pressed");
+    const dropLogs = callLogs.filter((l) => l.outcome === "abandoned" || l.outcome === "timeout");
+    const invalidLogs = callLogs.filter((l) => l.outcome === "invalid");
+
+    const pressedCount = pressedLogs.length;
+    const dropCalls = dropLogs.length;
+    const invalidCalls = invalidLogs.length;
+    const transferToHuman = pressedCount;
+
+    const pressedRate = totalMenuEntries > 0 ? ((pressedCount / totalMenuEntries) * 100).toFixed(1) : "0.0";
+    const dropRate = totalMenuEntries > 0 ? ((dropCalls / totalMenuEntries) * 100).toFixed(1) : "0.0";
+    const transferRate = totalMenuEntries > 0 ? ((transferToHuman / totalMenuEntries) * 100).toFixed(1) : "0.0";
+
+    let topDigit = null;
+    Object.entries(digitPressCounts).forEach(([dg, cnt]) => {
+      if (!topDigit || cnt > topDigit.count) {
+        topDigit = { digit: dg, count: cnt };
+      }
+    });
+
+    const allSlots = Array.from(slotMap.values()).map((s) => ({
+      ...s,
+      usagePct: totalMenuEntries > 0 ? ((s.hits / totalMenuEntries) * 100).toFixed(1) : "0.0",
+    }));
+
+    allSlots.sort((a, b) => {
+      if (b.hits !== a.hits) return b.hits - a.hits;
+      if (a.workflowName !== b.workflowName) return a.workflowName.localeCompare(b.workflowName, "tr");
+      if (a.menuTitle !== b.menuTitle) return a.menuTitle.localeCompare(b.menuTitle, "tr");
+      return DIGIT_ORDER.indexOf(a.digit) - DIGIT_ORDER.indexOf(b.digit);
+    });
+
+    const hasConfiguredIvr = menuMetaMap.size > 0 || allSlots.length > 0;
 
     return {
-      hasConfiguredIvr: true,
-      ivrCalls: totalIvrHits,
-      dropCalls: totalIvrDrops,
+      hasConfiguredIvr,
+      configuredMenuCount: menuMetaMap.size,
+      ivrCalls: totalMenuEntries,
+      pressedCount,
+      pressedRate,
+      topDigit,
+      invalidCalls,
+      dropCalls,
       dropRate,
-      transferToHuman: totalIvrTransfers,
+      transferToHuman,
       transferRate,
-      ivrMenus: menuStats
+      ivrMenus: allSlots,
+      callLogs,
     };
   };
 
@@ -4279,7 +4577,51 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           (Array.isArray(queues) && queues.some((q) => String(q.extension || "").trim() === callee))
       );
 
-      if (ivrSecs > 0) {
+      const callIvrEvents = getCallIvrMenuEvents(call);
+      if (callIvrEvents.length > 0) {
+        callIvrEvents.forEach((ev) => {
+          const stepDur = Math.max(1, Number(ev.duration_sec || 2));
+          let stepTitle = `Menü Tuşlaması — ${ev.menu_name}`;
+          let stepDesc = "";
+          let stepStatus = "info";
+
+          if (ev.outcome === "pressed") {
+            stepTitle = `Menü Tuşlaması — ${ev.menu_name}`;
+            stepDesc = `"${ev.workflow_name} › ${ev.menu_name}" menüsünde [${ev.digit}] tuşlandı → ${ev.target_label} adımına yönlendirildi.`;
+            stepStatus = "success";
+          } else if (ev.outcome === "invalid") {
+            stepTitle = `Hatalı Tuşlama — ${ev.menu_name}`;
+            stepDesc = `"${ev.workflow_name} › ${ev.menu_name}" menüsünde tanımsız [${ev.digit || "?"}] tuşlandı → ${ev.target_label}.`;
+            stepStatus = "warning";
+          } else if (ev.outcome === "timeout") {
+            stepTitle = `Menü Zaman Aşımı — ${ev.menu_name}`;
+            stepDesc = `"${ev.workflow_name} › ${ev.menu_name}" menüsünde süre içinde tuşlama yapılmadı → ${ev.target_label}.`;
+            stepStatus = "warning";
+          } else {
+            stepTitle = `Menüde Terk — ${ev.menu_name}`;
+            stepDesc = `"${ev.workflow_name} › ${ev.menu_name}" menüsü dinlenirken arayan tuşlama yapmadan telefonu kapattı.`;
+            stepStatus = "error";
+          }
+
+          timeline.push({
+            time: ev.timestamp
+              ? parseUtcSafeDate(ev.timestamp).toLocaleTimeString("tr-TR", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  second: "2-digit",
+                })
+              : formatOffsetTime(offset),
+            title: stepTitle,
+            description: stepDesc,
+            status: stepStatus,
+          });
+          offset += stepDur;
+        });
+
+        if (hs.startsWith("ivr:") && hs.includes(":abandoned")) {
+          return timeline;
+        }
+      } else if (ivrSecs > 0) {
         timeline.push({
           time: formatOffsetTime(offset),
           title: "IVR Karşılama Menüsü",
@@ -4512,7 +4854,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
         const matchedKey = matchedT ? String(matchedT.id ?? matchedT.trunk_name) : "";
         if (!matchedKey || !filterTrunksSelected.includes(matchedKey)) return false;
       }
-    } else if (viewMode === "did") {
+    } else if (viewMode === "did" || viewMode === "ivr-drop") {
       if (filterTrunkStartHour !== "" || filterTrunkEndHour !== "") {
         const hr = parseCallLocalHour(c.start_time);
         if (!isHourInTrafficRange(hr, filterTrunkStartHour, filterTrunkEndHour)) return false;
@@ -5518,7 +5860,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     : viewMode === "did"
                     ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterDidNumbersSelected.length > 0 || filterDidTrafficStatus !== "all" || filterDidMinInbound !== "" || filterDidMaxInbound !== "" || filterDidMinOutbound !== "" || filterDidMaxOutbound !== "" || filterDidMinInDur !== "" || filterDidMaxInDur !== "" || filterDidMinOutDur !== "" || filterDidMaxOutDur !== "")
                     : viewMode === "ivr-drop"
-                    ? Boolean(filterStartDate || filterEndDate || filterIvrWorkflowsSelected.length > 0)
+                    ? Boolean(filterStartDate || filterEndDate || filterTrunkStartHour !== "" || filterTrunkEndHour !== "" || filterIvrWorkflowsSelected.length > 0 || filterIvrMenusSelected.length > 0 || filterIvrDigitsSelected.length > 0 || filterIvrCaller.trim())
                     : viewMode === "friction"
                     ? Boolean(filterStartDate || filterEndDate || filterCallerNumber || filterFrictionSentimentsSelected.length > 0)
                     : Boolean(filterStartDate || filterEndDate || filterStatus !== "All" || filterDirection !== "All" || filterConversant !== "All" || filterCallerNumber || filterCallId || filterAgentsSelected.length > 0))
@@ -5541,6 +5883,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
           const timelineSteps = getCallFlowTimeline(selectedTimelineCall);
           const endedByInfo = resolveCallEndedByDetail(selectedTimelineCall);
           const hangupLabel = endedByInfo.label;
+          const modalIvrEvents = getCallIvrMenuEvents(selectedTimelineCall);
 
           return (
           <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-50 flex items-center justify-center animate-in fade-in duration-200">
@@ -5594,6 +5937,62 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                   <p className="text-[10px] font-mono font-bold text-slate-550 dark:text-slate-400 mt-0.5 break-all">{selectedTimelineCall.id}</p>
                 </div>
               </div>
+
+              {/* Arama Akış Yönetimi — Menü & Basılan Digit (DTMF) Özeti */}
+              {modalIvrEvents.length > 0 && (
+                <div className={"p-3 rounded-2xl border flex flex-col gap-2 " + borderLight + " " + lightBg}>
+                  <div className="flex items-center justify-between">
+                    <span className={"text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1.5 " + text}>
+                      <GitMerge size={12} />
+                      Menü & Tuşlama (DTMF) Bilgisi
+                    </span>
+                    <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500">
+                      {modalIvrEvents.length} Adım
+                    </span>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    {modalIvrEvents.map((ev, evIdx) => (
+                      <div
+                        key={evIdx}
+                        className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-2 rounded-xl bg-white/90 dark:bg-slate-900/90 border border-slate-200/70 dark:border-slate-800"
+                      >
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-[9px] font-bold text-slate-400 dark:text-slate-500 truncate">
+                            {ev.workflow_name}
+                          </span>
+                          <span className="text-xs font-extrabold text-slate-800 dark:text-slate-100 truncate">
+                            {ev.menu_name}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {ev.outcome === "pressed" ? (
+                            <span className={"px-2.5 py-1 rounded-lg text-[11px] font-black text-white shadow-sm " + bg}>
+                              Tuş [{ev.digit}] Tuşlandı
+                            </span>
+                          ) : ev.outcome === "invalid" ? (
+                            <span className="px-2 py-1 rounded-lg text-[10px] font-extrabold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              Hatalı Tuş [{ev.digit || "?"}]
+                            </span>
+                          ) : ev.outcome === "timeout" ? (
+                            <span className="px-2 py-1 rounded-lg text-[10px] font-extrabold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                              Zaman Aşımı (Tuşlama Yok)
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 rounded-lg text-[10px] font-extrabold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                              Menüde Terk (Tuşlama Yok)
+                            </span>
+                          )}
+                          {ev.target_label && ev.outcome === "pressed" && (
+                            <span className="text-[10px] font-bold text-slate-600 dark:text-slate-300">
+                              → {ev.target_label}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Timeline Container */}
               <div className="flex-1 flex flex-col gap-4 mt-2 pr-1">
@@ -6182,9 +6581,9 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
 
               {/* Modal Body */}
               <div className={viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop" || viewMode === "friction" ? "flex flex-col gap-4" : "grid grid-cols-2 gap-4"}>
-                {/* Date range (and side-by-side Hour range for trunk / did / trunk-minutes modes) */}
-                <div className={viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "ivr-drop" || viewMode === "friction" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
-                  <div className={viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" ? "grid grid-cols-2 sm:grid-cols-4 gap-2.5" : "contents"}>
+                {/* Date range (and side-by-side Hour range for trunk / did / trunk-minutes / ivr-drop modes) */}
+                <div className={viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop" ? "flex flex-col gap-2.5 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : viewMode === "queue" || viewMode === "perf" || viewMode === "sentiment-heat" || viewMode === "wordcloud" || viewMode === "fcr" || viewMode === "roi" || viewMode === "efficiency" || viewMode === "ceo-summary" || viewMode === "missed" || viewMode === "timeline" || viewMode === "traffic" || viewMode === "friction" ? "grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50" : "col-span-2 grid grid-cols-2 gap-3 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50"}>
+                  <div className={viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop" ? "grid grid-cols-2 sm:grid-cols-4 gap-2.5" : "contents"}>
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Tarihi</label>
                       <input
@@ -6203,7 +6602,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
                       />
                     </div>
-                    {(viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes") && (
+                    {(viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop") && (
                       <>
                         <div className="flex flex-col gap-1">
                           <label className="text-[10px] font-bold text-slate-450 dark:text-slate-555 uppercase tracking-wider">Başlangıç Saati</label>
@@ -6238,7 +6637,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       </>
                     )}
                   </div>
-                  {(viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes") && (
+                  {(viewMode === "trunk" || viewMode === "did" || viewMode === "trunk-minutes" || viewMode === "ivr-drop") && (
                     <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                       {[
                         { label: "Tüm Gün (00-23)", s: "", e: "" },
@@ -6577,19 +6976,103 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     )}
                   />
                 ) : viewMode === "ivr-drop" ? (
-                  <DualListBox 
-                    title="Arama Akış Yönetimi"
-                    availableItems={ivrWorkflowFilterItems}
-                    selectedIds={filterIvrWorkflowsSelected}
-                    onChangeSelectedIds={setFilterIvrWorkflowsSelected}
-                    columns={["İsim"]}
-                    bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
-                    renderRow={(item) => (
-                      <>
-                        <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
-                      </>
+                  <div className="flex flex-col gap-3">
+                    <DualListBox 
+                      title="Arama Akış Yönetimi"
+                      availableItems={ivrWorkflowFilterItems}
+                      selectedIds={filterIvrWorkflowsSelected}
+                      onChangeSelectedIds={setFilterIvrWorkflowsSelected}
+                      columns={["İsim"]}
+                      bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                      renderRow={(item) => (
+                        <>
+                          <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                        </>
+                      )}
+                    />
+
+                    {ivrMenuFilterItems.length > 0 && (
+                      <DualListBox 
+                        title="Menü Düğümleri (Arama Akışı Menüsü)"
+                        availableItems={ivrMenuFilterItems}
+                        selectedIds={filterIvrMenusSelected}
+                        onChangeSelectedIds={setFilterIvrMenusSelected}
+                        columns={["Akış › Menü Adı"]}
+                        bg={bg} hover={hover} text={text} border={border} lightBg={lightBg} ring={ring} borderLight={borderLight}
+                        renderRow={(item) => (
+                          <>
+                            <td className="p-2 text-slate-800 dark:text-slate-200 font-medium">{item.name}</td>
+                          </>
+                        )}
+                      />
                     )}
-                  />
+
+                    {/* Digit (Tuş) & Sonuç Seçimi */}
+                    <div className="flex flex-col gap-2 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-2xl border border-slate-100 dark:border-slate-800/50">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                          Tuşlanan Digit (Tuş) & Menü Sonucu
+                        </label>
+                        {filterIvrDigitsSelected.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setFilterIvrDigitsSelected([])}
+                            className="text-[10px] font-bold text-rose-500 hover:underline cursor-pointer"
+                          >
+                            Seçimi Temizle ({filterIvrDigitsSelected.length})
+                          </button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setFilterIvrDigitsSelected([])}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                            filterIvrDigitsSelected.length === 0
+                              ? `${bg} text-white ${border} shadow-sm`
+                              : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-primary"
+                          }`}
+                        >
+                          Tümü
+                        </button>
+                        {IVR_DIGIT_FILTER_OPTIONS.map((opt) => {
+                          const active = filterIvrDigitsSelected.includes(opt.id);
+                          return (
+                            <button
+                              key={opt.id}
+                              type="button"
+                              onClick={() => {
+                                setFilterIvrDigitsSelected((prev) =>
+                                  prev.includes(opt.id) ? prev.filter((x) => x !== opt.id) : [...prev, opt.id]
+                                );
+                              }}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${
+                                active
+                                  ? `${bg} text-white ${border} shadow-sm`
+                                  : "bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800 hover:border-primary"
+                              }`}
+                            >
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Arayan / DID Numara Ara */}
+                    <div className="flex flex-col gap-1">
+                      <label className="text-[10px] font-bold text-slate-400 dark:text-slate-555 uppercase tracking-wider">
+                        Arayan Numara veya DID Ara
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Örn: 0532... veya 0850..."
+                        value={filterIvrCaller}
+                        onChange={(e) => setFilterIvrCaller(e.target.value)}
+                        className="w-full bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 rounded-xl px-2.5 py-1.5 text-xs focus:outline-none focus:border-primary font-semibold"
+                      />
+                    </div>
+                  </div>
                 ) : viewMode === "friction" ? (
                   <>
                     <DualListBox 
@@ -10027,80 +10510,182 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 })()}
               </div>
             ) : isIvrDropMode ? (
-              /* IVR Drop Mode */
+              /* IVR Drop & Menu Digit Usage Mode (Strictly Arama Akış Yönetimi Menus) */
               <div className="p-5 flex flex-col gap-6 flex-1 overflow-y-auto scrollbar-thin">
                 {(() => {
                   const {
                     hasConfiguredIvr,
+                    configuredMenuCount,
                     ivrCalls,
+                    pressedCount,
+                    pressedRate,
+                    topDigit,
+                    invalidCalls,
                     dropCalls,
                     dropRate,
                     transferToHuman,
                     transferRate,
-                    ivrMenus
+                    ivrMenus,
+                    callLogs,
                   } = computeIvrReportData(filteredCalls);
+
+                  const hasActiveSubFilters =
+                    filterIvrWorkflowsSelected.length > 0 ||
+                    filterIvrMenusSelected.length > 0 ||
+                    filterIvrDigitsSelected.length > 0 ||
+                    Boolean(filterIvrCaller.trim()) ||
+                    filterTrunkStartHour !== "" ||
+                    filterTrunkEndHour !== "";
 
                   return (
                     <>
-                      {/* KPI Header */}
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 shrink-0">
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
-                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Toplam IVR Etkileşimi</p>
-                          <h4 className="text-4xl font-black text-blue-500 flex items-center gap-3">
-                            <GitMerge size={28} />
+                      {/* Active Filter Chips Bar */}
+                      {hasActiveSubFilters && (
+                        <div className={"px-4 py-2.5 rounded-2xl border flex flex-wrap items-center justify-between gap-2 " + borderLight + " " + lightBg}>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[11px] font-bold">
+                            <span className={"uppercase tracking-wider text-[10px] mr-1 " + text}>Aktif Filtreler:</span>
+                            {(filterTrunkStartHour !== "" || filterTrunkEndHour !== "") && (
+                              <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                                Saat: {String(filterTrunkStartHour || "0").padStart(2, "0")}:00 - {String(filterTrunkEndHour || "23").padStart(2, "0")}:59
+                              </span>
+                            )}
+                            {filterIvrWorkflowsSelected.length > 0 && (
+                              <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                                {filterIvrWorkflowsSelected.length} Arama Akışı
+                              </span>
+                            )}
+                            {filterIvrMenusSelected.length > 0 && (
+                              <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                                {filterIvrMenusSelected.length} Menü
+                              </span>
+                            )}
+                            {filterIvrDigitsSelected.length > 0 && (
+                              <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                                Digit: {filterIvrDigitsSelected.map((d) => `[${d}]`).join(", ")}
+                              </span>
+                            )}
+                            {filterIvrCaller.trim() && (
+                              <span className="px-2 py-0.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300">
+                                Numara: {filterIvrCaller.trim()}
+                              </span>
+                            )}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFilterIvrWorkflowsSelected([]);
+                              setFilterIvrMenusSelected([]);
+                              setFilterIvrDigitsSelected([]);
+                              setFilterIvrCaller("");
+                              setFilterTrunkStartHour("");
+                              setFilterTrunkEndHour("");
+                            }}
+                            className="text-[11px] font-extrabold text-rose-500 hover:underline cursor-pointer"
+                          >
+                            Filtreleri Temizle
+                          </button>
+                        </div>
+                      )}
+
+                      {/* 4 KPI Cards */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 shrink-0">
+                        <div className={"rounded-2xl p-5 border flex flex-col gap-1.5 " + borderLight + " " + lightBg}>
+                          <p className={"text-[11px] font-bold uppercase tracking-wider " + text}>Toplam Menü Girişi (Hit)</p>
+                          <h4 className={"text-3xl font-black flex items-center gap-2.5 " + text}>
+                            <GitMerge size={24} />
                             {ivrCalls}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">
-                            {hasConfiguredIvr ? "Sesli yanıt sistemine giren çağrılar" : "Aktif IVR menüsü tanımlı değil"}
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                            {hasConfiguredIvr
+                              ? `Arama Akış Yönetimi (${configuredMenuCount} aktif menü düğümü)`
+                              : "Arama Akış Yönetimi içinde menü tanımlı değil"}
                           </p>
                         </div>
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
-                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>IVR Terk Oranı (Drop Rate)</p>
-                          <h4 className={`text-4xl font-black ${parseFloat(dropRate) > 15 ? "text-rose-500" : "text-emerald-500"}`}>
+
+                        <div className={"rounded-2xl p-5 border flex flex-col gap-1.5 " + borderLight + " " + lightBg}>
+                          <p className={"text-[11px] font-bold uppercase tracking-wider " + text}>Tuşlama Yapılan (DTMF)</p>
+                          <div className="flex items-baseline gap-2.5">
+                            <h4 className={"text-3xl font-black " + text}>%{pressedRate}</h4>
+                            <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300">
+                              ({pressedCount} Tuşlama)
+                            </span>
+                          </div>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                            {topDigit
+                              ? `En Çok Tuşlanan: Tuş [${topDigit.digit}] (${topDigit.count} kez)`
+                              : "Seçili aralıkta henüz tuşlama kaydı yok"}
+                          </p>
+                        </div>
+
+                        <div className={"rounded-2xl p-5 border flex flex-col gap-1.5 " + borderLight + " " + lightBg}>
+                          <p className={"text-[11px] font-bold uppercase tracking-wider " + text}>Menüde Terk & Zaman Aşımı</p>
+                          <h4 className={`text-3xl font-black ${parseFloat(dropRate) > 15 ? "text-rose-500" : "text-slate-800 dark:text-slate-100"}`}>
                             %{dropRate}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Menüde işlem yapmadan kapanan çağrılar ({dropCalls})</p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                            {dropCalls} terk / z.aşımı {invalidCalls > 0 ? `• ${invalidCalls} hatalı tuşlama` : ""}
+                          </p>
                         </div>
-                        <div className={"rounded-2xl p-6 border flex flex-col gap-2 " + borderLight + " " + lightBg}>
-                          <p className={"text-xs font-bold uppercase tracking-wider " + text}>Müşteri Hizmetlerine Aktarım</p>
-                          <h4 className="text-4xl font-black text-amber-500">
+
+                        <div className={"rounded-2xl p-5 border flex flex-col gap-1.5 " + borderLight + " " + lightBg}>
+                          <p className={"text-[11px] font-bold uppercase tracking-wider " + text}>Hedefe Başarılı Yönlendirme</p>
+                          <h4 className="text-3xl font-black text-primary">
                             %{transferRate}
                           </h4>
-                          <p className="text-sm font-medium text-slate-500">Canlı desteğe bağlanan çağrılar ({transferToHuman})</p>
+                          <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                            Tuşlama ile sonraki adıma geçen ({transferToHuman})
+                          </p>
                         </div>
                       </div>
 
                       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 shrink-0">
-                        {/* IVR Funnel Chart / Breakdown */}
-                        <div className={"lg:col-span-1 rounded-2xl p-6 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
-                          <h4 className={"text-sm font-bold uppercase tracking-wider " + text}>Terk Dağılımı (Funnel)</h4>
-                          <div className="flex flex-col gap-3 mt-2 flex-1 justify-center">
+                        {/* Digit Usage & Drop Distribution Visual Card */}
+                        <div className={"lg:col-span-1 rounded-2xl p-5 border flex flex-col gap-4 " + borderLight + " " + lightBg}>
+                          <div className="flex items-center justify-between">
+                            <h4 className={"text-xs font-extrabold uppercase tracking-wider " + text}>
+                              Menü & Digit Dağılımı
+                            </h4>
+                            <span className="text-[10px] font-bold text-slate-400">
+                              {ivrMenus.length} Seçenek
+                            </span>
+                          </div>
+                          <div className="flex flex-col gap-3 mt-1 flex-1 justify-center max-h-[380px] overflow-y-auto pr-1 scrollbar-thin">
                             {ivrMenus.length === 0 ? (
                               <div className="py-8 px-4 text-center rounded-xl border border-dashed border-slate-200 dark:border-slate-800">
                                 <p className="text-xs font-bold text-slate-600 dark:text-slate-300">
-                                  {filterIvrWorkflowsSelected.length > 0
-                                    ? "Seçili arama akışında tanımlı IVR (Sesli Yanıt) menüsü bulunmuyor."
-                                    : "Sistemde aktif bir IVR (Sesli Yanıt) menüsü tanımlı değildir."}
+                                  {filterIvrWorkflowsSelected.length > 0 || filterIvrMenusSelected.length > 0
+                                    ? "Seçili filtre kriterlerine uygun Menü düğümü veya tuşlama bulunamadı."
+                                    : "Arama Akış Yönetimi altında tanımlı aktif bir Menü düğümü bulunmuyor."}
                                 </p>
                                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">
-                                  {filterIvrWorkflowsSelected.length > 0
-                                    ? "Seçtiğiniz arama akışı şemasında Menü düğümü yer almadığı için terk dağılım verisi oluşmamıştır."
-                                    : "Gelen Arama Kuralları veya Kuyruk IVR yönlendirmelerinde aktif bir IVR menüsü bulunmadığı için terk dağılım verisi oluşmamıştır."}
+                                  Arama Akış Yönetimi ekranından akışınıza Menü düğümü ekleyip tuşları bağladığınızda tüm tuşlama istatistikleri burada listelenir.
                                 </p>
                               </div>
                             ) : (
                               ivrMenus.map((menu, idx) => {
-                                const dropPercent = menu.hits > 0 ? ((menu.drops / menu.hits) * 100).toFixed(1) : "0.0";
+                                const sharePct = parseFloat(menu.usagePct || "0");
+                                const isDropItem = menu.digit === "abandoned" || menu.digit === "timeout";
+                                const isInvalidItem = menu.digit === "invalid" || menu.digit === "error";
+                                const barClass = isDropItem
+                                  ? "bg-rose-500"
+                                  : isInvalidItem
+                                  ? "bg-amber-500"
+                                  : bg;
                                 return (
-                                  <div key={idx} className="flex flex-col gap-1">
-                                    <div className="flex justify-between items-end">
-                                      <span className="text-xs font-bold text-slate-700 dark:text-slate-300 truncate pr-2">{menu.name}</span>
-                                      <span className="text-[10px] font-bold text-rose-500 flex items-center gap-1 shrink-0">
-                                        <UserX size={10} /> {menu.drops} Terk (%{dropPercent})
+                                  <div key={menu.id || idx} className="flex flex-col gap-1">
+                                    <div className="flex justify-between items-center gap-2">
+                                      <span className="text-xs font-bold text-slate-700 dark:text-slate-200 truncate">
+                                        {menu.menuTitle} — <span className={text}>{menu.digitLabel}</span>
+                                      </span>
+                                      <span className="text-[10px] font-extrabold text-slate-600 dark:text-slate-300 shrink-0">
+                                        {menu.hits} (%{menu.usagePct})
                                       </span>
                                     </div>
-                                    <div className="w-full h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                                      <div className="h-full bg-rose-500 rounded-full" style={{ width: `${Math.min(100, parseFloat(dropPercent))}%` }}></div>
+                                    <div className="w-full h-2 bg-slate-200/70 dark:bg-slate-800 rounded-full overflow-hidden">
+                                      <div
+                                        className={"h-full rounded-full transition-all duration-300 " + barClass}
+                                        style={{ width: `${Math.min(100, sharePct)}%` }}
+                                      />
                                     </div>
                                   </div>
                                 );
@@ -10109,50 +10694,218 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           </div>
                         </div>
 
-                        {/* IVR Menus Table */}
-                        <div className="lg:col-span-2 flex flex-col gap-4">
+                        {/* Menu & Digit Performance Summary Table */}
+                        <div className="lg:col-span-2 flex flex-col gap-3">
                           <div className="flex items-center justify-between">
-                            <h4 className="text-sm font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">Menü Performans Detayları</h4>
-                            {filterIvrWorkflowsSelected.length > 0 && (
-                              <span className="text-xs font-bold text-slate-400">
-                                Filtrelenen {filterIvrWorkflowsSelected.length} Arama Akışı
-                              </span>
-                            )}
+                            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                              Menü & Digit (Tuş) Kullanım Özeti
+                            </h4>
+                            <span className="text-[11px] font-bold text-slate-400">
+                              Yalnızca Arama Akış Yönetimi Menüleri
+                            </span>
                           </div>
                           <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40">
-                            <table className="w-full text-left border-collapse min-w-[600px]">
+                            <table className="w-full text-left border-collapse min-w-[680px]">
                               <thead>
                                 <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
-                                  {visibleColumns.menuName && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Menü Adı</th>}
-                                  {visibleColumns.hits && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Giriş (Hit)</th>}
-                                  {visibleColumns.drops && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Terk (Drop)</th>}
-                                  {visibleColumns.transfers && <th className={"p-4 text-xs font-bold uppercase tracking-wider text-center " + text}>Aktarım</th>}
-                                  {visibleColumns.nextStep && <th className={"p-4 text-xs font-bold uppercase tracking-wider " + text}>Sonraki Adım</th>}
+                                  {visibleColumns.workflowName !== false && (
+                                    <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider " + text}>Arama Akışı</th>
+                                  )}
+                                  {visibleColumns.menuName !== false && (
+                                    <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider " + text}>Menü Adı</th>
+                                  )}
+                                  {visibleColumns.digit !== false && (
+                                    <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider text-center " + text}>Digit (Tuş)</th>
+                                  )}
+                                  {visibleColumns.hits !== false && (
+                                    <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider text-center " + text}>Adet</th>
+                                  )}
+                                  {visibleColumns.usageRate !== false && (
+                                    <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider text-center " + text}>Oran (%)</th>
+                                  )}
+                                  {visibleColumns.drops !== false && (
+                                    <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider text-center " + text}>Menüde Terk</th>
+                                  )}
+                                  {visibleColumns.nextStep !== false && (
+                                    <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider " + text}>Yönlenen Hedef</th>
+                                  )}
                                 </tr>
                               </thead>
                               <tbody>
                                 {ivrMenus.length === 0 ? (
                                   <tr>
-                                    <td colSpan="5" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium text-sm">
-                                      {filterIvrWorkflowsSelected.length > 0
-                                        ? "Seçili arama akışında tanımlı IVR menüsü veya seçili tarih aralığında kaydedilmiş tuşlama verisi bulunmamaktadır."
-                                        : "Sistemde tanımlı aktif bir IVR menüsü veya seçili tarih aralığında kaydedilmiş IVR tuşlama verisi bulunmamaktadır."}
+                                    <td colSpan="7" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium text-sm">
+                                      Arama Akış Yönetimi altında tanımlı menü veya seçili filtrelerde tuşlama verisi bulunmamaktadır.
                                     </td>
                                   </tr>
                                 ) : (
-                                  ivrMenus.map((m, idx) => (
-                                    <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}>
-                                      {visibleColumns.menuName && <td className="p-4 font-bold text-slate-700 dark:text-slate-300">{m.name}</td>}
-                                      {visibleColumns.hits && <td className="p-4 text-center font-bold text-slate-600 dark:text-slate-400">{m.hits}</td>}
-                                      {visibleColumns.drops && <td className="p-4 text-center font-black text-rose-500">{m.drops}</td>}
-                                      {visibleColumns.transfers && <td className="p-4 text-center font-bold text-amber-500">{m.transfers}</td>}
-                                      {visibleColumns.nextStep && <td className="p-4 font-medium text-slate-500 dark:text-slate-400 text-sm">{m.next}</td>}
-                                    </tr>
-                                  ))
+                                  ivrMenus.map((m, idx) => {
+                                    const isDropKey = m.digit === "abandoned" || m.digit === "timeout";
+                                    const isInvalidKey = m.digit === "invalid" || m.digit === "error";
+                                    return (
+                                      <tr
+                                        key={m.id || idx}
+                                        className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}
+                                      >
+                                        {visibleColumns.workflowName !== false && (
+                                          <td className="p-3.5 text-xs font-semibold text-slate-600 dark:text-slate-400">
+                                            {m.workflowName || "-"}
+                                          </td>
+                                        )}
+                                        {visibleColumns.menuName !== false && (
+                                          <td className="p-3.5 text-xs font-extrabold text-slate-800 dark:text-slate-200">
+                                            {m.menuTitle || m.name}
+                                          </td>
+                                        )}
+                                        {visibleColumns.digit !== false && (
+                                          <td className="p-3.5 text-center">
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                if (!m.digit || m.digit === "-") return;
+                                                setFilterIvrDigitsSelected((prev) =>
+                                                  prev.includes(m.digit) ? prev.filter((x) => x !== m.digit) : [...prev, m.digit]
+                                                );
+                                              }}
+                                              title="Bu tuşa göre filtrele"
+                                              className={`px-2.5 py-1 rounded-lg text-[11px] font-black border transition cursor-pointer ${
+                                                isDropKey
+                                                  ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                                                  : isInvalidKey
+                                                  ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                                  : `${lightBg} ${text} ${borderLight}`
+                                              }`}
+                                            >
+                                              {m.digitLabel}
+                                            </button>
+                                          </td>
+                                        )}
+                                        {visibleColumns.hits !== false && (
+                                          <td className="p-3.5 text-center text-xs font-black text-slate-800 dark:text-slate-100">
+                                            {m.hits}
+                                          </td>
+                                        )}
+                                        {visibleColumns.usageRate !== false && (
+                                          <td className="p-3.5 text-center text-xs font-bold text-slate-600 dark:text-slate-300">
+                                            %{m.usagePct}
+                                          </td>
+                                        )}
+                                        {visibleColumns.drops !== false && (
+                                          <td className="p-3.5 text-center text-xs font-black text-rose-500">
+                                            {m.drops}
+                                          </td>
+                                        )}
+                                        {visibleColumns.nextStep !== false && (
+                                          <td className="p-3.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                            {m.next}
+                                          </td>
+                                        )}
+                                      </tr>
+                                    );
+                                  })
                                 )}
                               </tbody>
                             </table>
                           </div>
+                        </div>
+                      </div>
+
+                      {/* Call-Level Menu & Digit Keypress Log Table */}
+                      <div className="flex flex-col gap-3 shrink-0">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                              Çağrı Bazlı Menü & Digit Tuşlama Kayıtları
+                            </h4>
+                            <p className="text-[11px] text-slate-400 dark:text-slate-500">
+                              Hangi arayanın hangi menüde hangi tuşa bastığının kronolojik dökümü (Detay için büyütece tıklayın)
+                            </p>
+                          </div>
+                          <span className={"px-2.5 py-1 rounded-xl text-[11px] font-extrabold border " + borderLight + " " + lightBg + " " + text}>
+                            {callLogs.length} Kayıt
+                          </span>
+                        </div>
+
+                        <div className="w-full overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900/40">
+                          <table className="w-full text-left border-collapse min-w-[780px]">
+                            <thead>
+                              <tr className={"border-b border-slate-200 dark:border-slate-800 " + lightBg}>
+                                <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider " + text}>Tarih / Saat</th>
+                                <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider " + text}>Arayan Numara</th>
+                                <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider " + text}>Aranan DID</th>
+                                <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider " + text}>Arama Akışı › Menü</th>
+                                <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider text-center " + text}>Basılan Digit / Durum</th>
+                                <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider " + text}>Yönlenen Hedef</th>
+                                <th className={"p-3.5 text-[11px] font-bold uppercase tracking-wider text-center " + text}>Akış Detayı</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {callLogs.length === 0 ? (
+                                <tr>
+                                  <td colSpan="7" className="p-8 text-center text-slate-500 dark:text-slate-400 font-medium text-xs">
+                                    Seçili tarih/saat aralığında ve filtrelerde kaydedilmiş çağrı bazlı menü tuşlaması bulunmamaktadır.
+                                  </td>
+                                </tr>
+                              ) : (
+                                callLogs.slice(0, 200).map((lg) => (
+                                  <tr
+                                    key={lg.id}
+                                    className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}
+                                  >
+                                    <td className="p-3.5 text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">
+                                      {formatDate(lg.timestamp)}
+                                    </td>
+                                    <td className="p-3.5 text-xs font-extrabold text-slate-800 dark:text-slate-100">
+                                      {lg.callerNumber}
+                                    </td>
+                                    <td className="p-3.5 text-xs font-mono font-semibold text-slate-500 dark:text-slate-400">
+                                      {lg.didNumber}
+                                    </td>
+                                    <td className="p-3.5 text-xs">
+                                      <span className="font-semibold text-slate-500 dark:text-slate-400">{lg.workflowName}</span>
+                                      <span className="mx-1 text-slate-400">›</span>
+                                      <span className="font-extrabold text-slate-800 dark:text-slate-200">{lg.menuName}</span>
+                                    </td>
+                                    <td className="p-3.5 text-center">
+                                      {lg.outcome === "pressed" ? (
+                                        <span className={"inline-flex items-center px-2.5 py-1 rounded-lg text-[11px] font-black text-white shadow-sm " + bg}>
+                                          Tuş [{lg.digit}]
+                                        </span>
+                                      ) : lg.outcome === "invalid" ? (
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                          {lg.digitDisplay}
+                                        </span>
+                                      ) : lg.outcome === "timeout" ? (
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                                          Zaman Aşımı
+                                        </span>
+                                      ) : (
+                                        <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-[10px] font-extrabold bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30">
+                                          Menüde Terk
+                                        </span>
+                                      )}
+                                    </td>
+                                    <td className="p-3.5 text-xs font-semibold text-slate-600 dark:text-slate-300">
+                                      {lg.targetLabel}
+                                    </td>
+                                    <td className="p-3.5 text-center">
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setSelectedTimelineCall(lg.call);
+                                          setIsTimelineOpen(true);
+                                        }}
+                                        title="Detaylı Arama Akışı & Menü Tuşlama Bilgisini Görüntüle"
+                                        className={"inline-flex items-center justify-center h-7 w-7 rounded-lg border transition cursor-pointer " + borderLight + " " + lightBg + " " + text + " " + hover + " hover:text-white"}
+                                      >
+                                        <Search size={13} />
+                                      </button>
+                                    </td>
+                                  </tr>
+                                ))
+                              )}
+                            </tbody>
+                          </table>
                         </div>
                       </div>
                     </>

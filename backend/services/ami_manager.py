@@ -19,6 +19,22 @@ uniqueid_to_linkedid = {}
 first_hangup_by_id = {}
 # Registry to record exact UTC timestamp when a call was bridged / answered per Linkedid / Uniqueid
 answered_at_by_id = {}
+# Registry of active asyncio.Queue waiters for live CallFlow Menu DTMF digits keyed by call_id
+dtmf_waiters = {}
+
+
+def register_dtmf_waiter(call_id: str) -> asyncio.Queue:
+    cid_s = str(call_id or "").strip()
+    q = asyncio.Queue()
+    if cid_s:
+        dtmf_waiters[cid_s] = q
+    return q
+
+
+def unregister_dtmf_waiter(call_id: str):
+    cid_s = str(call_id or "").strip()
+    if cid_s:
+        dtmf_waiters.pop(cid_s, None)
 
 
 def _record_call_answered(uniqueid: str, linkedid: str, overwrite: bool = False):
@@ -425,6 +441,24 @@ def register_event_handlers(manager: Manager):
                     asyncio.create_task(schedule_agent_disconnect_auto_pause(str(aor)))
                 except Exception as e_dc:
                     print(f"[AMI AutoPause Disconnect Hook Error]: {e_dc}")
+
+    @manager.register_event('DTMFEnd')
+    def handle_dtmf_end(m, event):
+        digit = str(event.get('Digit') or "").strip()
+        direction = str(event.get('Direction') or "").strip().lower()
+        if not digit or (direction and direction != "received"):
+            return
+        uid = str(event.get('Uniqueid') or "").strip()
+        lid = str(event.get('Linkedid') or uniqueid_to_linkedid.get(uid) or "").strip()
+        if not dtmf_waiters:
+            return
+        for cid, q in list(dtmf_waiters.items()):
+            ast_id = str(call_id_to_asterisk_id.get(cid) or "").strip()
+            if cid in (uid, lid) or (ast_id and ast_id in (uid, lid)):
+                try:
+                    q.put_nowait(digit)
+                except Exception:
+                    pass
 
     @manager.register_event('QueueCallerJoin')
     def handle_queue_caller_join(m, event):
