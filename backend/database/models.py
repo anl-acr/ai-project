@@ -429,3 +429,24 @@ class QueueSurveyResponse(Base):
     question_answers = Column(JSON, default=list)
     status = Column(String, default="completed")  # completed, timeout, invalid
     timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+
+
+class VoipQualityLog(Base):
+    __tablename__ = "voip_quality_logs"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    tenant_id = Column(String, default="tenant-default", index=True)
+    call_id = Column(String, nullable=True, index=True)
+    extension = Column(String, nullable=True, index=True)
+    agent_name = Column(String, nullable=True)
+    remote_number = Column(String, nullable=True, index=True)
+    direction = Column(String, default="outbound")
+    mos_score = Column(Float, default=4.4)
+    jitter_ms = Column(Float, default=0.0)
+    packet_loss_pct = Column(Float, default=0.0)
+    rtt_ms = Column(Float, default=0.0)
+    packets_received = Column(Integer, default=0)
+    packets_lost = Column(Integer, default=0)
+    codec = Column(String, default="opus/48000")
+    quality_grade = Column(String, default="excellent")  # excellent, good, fair, poor
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow, index=True)
+

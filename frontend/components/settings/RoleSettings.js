@@ -106,7 +106,15 @@ export const REPORT_FEATURE_IDS = [
   "reports_compliance",
   "reports_silence",
   "reports_ceo_summary",
-  "reports_intent"
+  "reports_intent",
+  "reports_breaks_attendance",
+  "reports_omnichannel",
+  "reports_disposition",
+  "reports_dialer_callback",
+  "reports_queue_sla",
+  "reports_repeat_callers",
+  "reports_dept_pickup",
+  "reports_voip_quality"
 ];
 
 const SYSTEM_FEATURES = [
@@ -140,6 +148,7 @@ const SYSTEM_FEATURES = [
   { id: "conferences", name: "Konferans", icon: Users, type: "crud", color: "blue" },
   { id: "speed_dials", name: "Hızlı Arama", icon: PhoneCall, type: "crud", color: "rose" },
   { id: "blacklist", name: "Numara Engelleme", icon: Shield, type: "crud", color: "rose" },
+  { id: "scheduled_reports", name: "Zamanlanmış Raporlar", icon: Calendar, type: "crud", color: "indigo" },
 
   // 4. Çağrı & Yönlendirme
   { id: "call_flow", name: "Arama Akış Yönetimi", icon: GitBranch, type: "crud", color: "indigo" },
@@ -176,6 +185,14 @@ const SYSTEM_FEATURES = [
   { id: "reports_silence", name: "Sessizlik & Söz Kesme", icon: Volume2, type: "access", color: "emerald" },
   { id: "reports_ceo_summary", name: "CEO Özet Raporu", icon: FileText, type: "access", color: "amber" },
   { id: "reports_intent", name: "Niyet Raporu", icon: Sparkles, type: "access", color: "emerald" },
+  { id: "reports_breaks_attendance", name: "Mola & Puantaj Raporu", icon: Coffee, type: "access", color: "amber" },
+  { id: "reports_omnichannel", name: "Omnichannel Kanal & SLA", icon: MessageSquare, type: "access", color: "purple" },
+  { id: "reports_disposition", name: "Çağrı Sonuç Kodları", icon: FileText, type: "access", color: "emerald" },
+  { id: "reports_dialer_callback", name: "Kampanya & Geri Arama", icon: ArrowUpRight, type: "access", color: "blue" },
+  { id: "reports_queue_sla", name: "Kuyruk SLA & Hız Dilimleri", icon: Clock, type: "access", color: "emerald" },
+  { id: "reports_repeat_callers", name: "Tekrar Eden Arayanlar", icon: Shuffle, type: "access", color: "rose" },
+  { id: "reports_dept_pickup", name: "Departman & Çağrı Toplama", icon: MapPin, type: "access", color: "indigo" },
+  { id: "reports_voip_quality", name: "VoIP & Ses Kalitesi (MOS)", icon: Activity, type: "access", color: "emerald" },
 
   // 6. Yönetim & Ayarlar
   { id: "system_status", name: "Sistem Panosu & Sağlık", icon: Server, type: "access", color: "cyan" },
@@ -447,7 +464,8 @@ export default function RoleSettings({ backendHost = "localhost:8000" }) {
         "trunks",
         "conferences",
         "speed_dials",
-        "blacklist"
+        "blacklist",
+        "scheduled_reports"
       ]
     },
     {

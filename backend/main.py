@@ -45,7 +45,7 @@ def add_system_log(source: str, level: str, message: str):
 add_system_log("SYSTEM", "INFO", "FastAPI Sunucusu başlatıldı.")
 add_system_log("DATABASE", "INFO", "Veritabanı bağlantısı kuruldu.")
 from backend.database.config import get_db, Base, engine, AsyncSessionLocal
-from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse
+from backend.database.models import Rule, Call, Transcript, Appointment, ChatSession, ChatMessage, Contact, CannedResponse, BlacklistItem, BlockWord, SystemUser, SystemRole, PBXQueue, Trunk, AIAgent, BreakType, AgentBreakLog, SystemSetting, EventLog, QueueSurveyResponse, VoipQualityLog
 from backend.services.agent_presence import get_agent_state
 from backend.services.rag_service import index_pdf_file, index_website_url, query_vector_search, index_manual_text, delete_indexed_source, get_genai_client
 from backend.services.license_service import verify_license_key, generate_license_key
@@ -1256,6 +1256,7 @@ DEFAULT_SETTINGS = {
                 "conferences:read", "conferences:write", "conferences:delete",
                 "speed_dials:read", "speed_dials:write", "speed_dials:delete",
                 "blacklist:read", "blacklist:write", "blacklist:delete",
+                "scheduled_reports:read", "scheduled_reports:write", "scheduled_reports:delete",
                 "call_flow:read", "call_flow:write", "call_flow:delete", "call_flow:access",
                 "dialer:read", "dialer:write", "dialer:delete", "dialer:access",
                 "calendar:read", "calendar:write", "calendar:delete",
@@ -1273,6 +1274,9 @@ DEFAULT_SETTINGS = {
                 "reports_ivr_drop:access", "reports_transfer_hold:access", "reports_ab_testing:access",
                 "reports_friction:access", "reports_compliance:access", "reports_silence:access", "reports_ceo_summary:access",
                 "reports_intent:access",
+                "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
+                "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
+                "reports_dept_pickup:access", "reports_voip_quality:access",
                 "roi_settings:read", "roi_settings:write", "roi_settings:delete",
                 # İletişim Kanalları
                 "channels:read", "channels:write",
@@ -1329,6 +1333,7 @@ DEFAULT_SETTINGS = {
                 "conferences:read", "conferences:write",
                 "speed_dials:read", "speed_dials:write",
                 "blacklist:read", "blacklist:write", "blacklist:delete",
+                "scheduled_reports:read", "scheduled_reports:write",
                 "call_flow:read", "call_flow:write", "call_flow:access",
                 "dialer:read", "dialer:write", "dialer:access",
                 "calendar:read", "calendar:write", "calendar:delete",
@@ -1344,6 +1349,9 @@ DEFAULT_SETTINGS = {
                 "reports_ivr_drop:access", "reports_transfer_hold:access", "reports_ab_testing:access",
                 "reports_friction:access", "reports_compliance:access", "reports_silence:access", "reports_ceo_summary:access",
                 "reports_intent:access",
+                "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
+                "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
+                "reports_dept_pickup:access", "reports_voip_quality:access",
                 "channels:read", "channels:write",
                 "canned_responses:read", "canned_responses:write", "canned_responses:delete",
                 "breaks:read", "breaks:write",
@@ -1734,11 +1742,26 @@ def load_settings():
                     new_perms.append("ai_task_routing:read")
                 if r.get("role_code") == "admin" and "ai_task_routing:write" not in new_perms:
                     new_perms.append("ai_task_routing:write")
-                for rep_perm in ["reports_did:access", "reports_trunk_minutes:access", "reports_invalid_calls:access"]:
+                for rep_perm in [
+                    "reports_did:access", "reports_trunk_minutes:access", "reports_invalid_calls:access",
+                    "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
+                    "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
+                    "reports_dept_pickup:access", "reports_voip_quality:access"
+                ]:
                     if rep_perm not in new_perms:
                         new_perms.append(rep_perm)
-            elif "reports_trunk:access" in new_perms or "reports_missed:access" in new_perms or "reports:access" in new_perms:
-                for rep_perm in ["reports_did:access", "reports_trunk_minutes:access", "reports_invalid_calls:access"]:
+                for sr_perm in ["scheduled_reports:read", "scheduled_reports:write"]:
+                    if sr_perm not in new_perms:
+                        new_perms.append(sr_perm)
+                if r.get("role_code") == "admin" and "scheduled_reports:delete" not in new_perms:
+                    new_perms.append("scheduled_reports:delete")
+            elif "reports_trunk:access" in new_perms or "reports_missed:access" in new_perms or "reports_cdr:access" in new_perms or "reports:access" in new_perms:
+                for rep_perm in [
+                    "reports_did:access", "reports_trunk_minutes:access", "reports_invalid_calls:access",
+                    "reports_breaks_attendance:access", "reports_omnichannel:access", "reports_disposition:access",
+                    "reports_dialer_callback:access", "reports_queue_sla:access", "reports_repeat_callers:access",
+                    "reports_dept_pickup:access", "reports_voip_quality:access"
+                ]:
                     if rep_perm not in new_perms:
                         new_perms.append(rep_perm)
             
@@ -27508,6 +27531,20 @@ async def on_startup_restore_points_worker():
         asyncio.create_task(_restore_points_auto_worker())
     except Exception as e:
         print(f"[RestorePoints Startup Error]: {e}")
+
+
+# ==============================================================================
+# ENTERPRISE REPORTS & SCHEDULED REPORTS ROUTER + BACKGROUND WORKER
+# ==============================================================================
+from backend.services.advanced_reports_service import advanced_reports_router, scheduled_reports_worker
+app.include_router(advanced_reports_router)
+
+@app.on_event("startup")
+async def on_startup_scheduled_reports_worker():
+    try:
+        asyncio.create_task(scheduled_reports_worker())
+    except Exception as e:
+        print(f"[ScheduledReports Startup Error]: {e}")
 
 
 # ==============================================================================

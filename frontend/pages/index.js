@@ -66,6 +66,13 @@ import {
   Copy,
   RefreshCw,
   Hash,
+  Coffee,
+  Tag,
+  Target,
+  Repeat,
+  Building2,
+  Wifi,
+  PhoneOutgoing,
   X
 } from "lucide-react";
 import { getSafeThemeColor } from "../utils/theme";
@@ -128,6 +135,8 @@ import LicenseModal from "../components/modals/LicenseModal";
 import GlobalSearchBar from "../components/common/GlobalSearchBar";
 import APIBudgetSettings from "../components/settings/APIBudgetSettings";
 import QueueSurveyReportPanel from "../components/reports/QueueSurveyReportPanel";
+import EnterpriseReportsPanel from "../components/reports/EnterpriseReportsPanel";
+import ScheduledReportsPanel from "../components/settings/ScheduledReportsPanel";
 
 const SUPER_ADMIN = {
   id: 9999,
@@ -232,6 +241,7 @@ export default function Home() {
   const [hasTrunksPermission, setHasTrunksPermission] = useState(false);
   const [hasConferencesPermission, setHasConferencesPermission] = useState(false);
   const [hasSpeedDialPermission, setHasSpeedDialPermission] = useState(false);
+  const [hasScheduledReportsPermission, setHasScheduledReportsPermission] = useState(false);
   const [gsmNumber, setGsmNumber] = useState("");
   const [mobileTransferEnabled, setMobileTransferEnabled] = useState(false);
   const [tempThemeColor, setTempThemeColor] = useState("99, 102, 241");
@@ -1336,6 +1346,7 @@ export default function Home() {
         setHasTrunksPermission(true);
         setHasConferencesPermission(true);
         setHasSpeedDialPermission(true);
+        setHasScheduledReportsPermission(true);
         setIsAgentOnlyUser(false);
         setIsWallboardOnlyUser(false);
         setIsAgentFullScreenMode(false);
@@ -1359,6 +1370,7 @@ export default function Home() {
         setHasTrunksPermission(false);
         setHasConferencesPermission(false);
         setHasSpeedDialPermission(false);
+        setHasScheduledReportsPermission(false);
         setIsWallboardOnlyUser(false);
         setIsAgentOnlyUser(true);
         setIsAgentFullScreenMode(true);
@@ -1380,6 +1392,7 @@ export default function Home() {
         const canTrunks = hasPerm('trunks');
         const canConfs = hasPerm('conferences');
         const canSpeedDial = hasPerm('speed_dials');
+        const canScheduledReports = hasPerm('scheduled_reports');
 
         setHasOmnichannelPermission(canOmni);
         setHasContactsPermission(canContacts);
@@ -1397,6 +1410,7 @@ export default function Home() {
         setHasTrunksPermission(canTrunks);
         setHasConferencesPermission(canConfs);
         setHasSpeedDialPermission(canSpeedDial);
+        setHasScheduledReportsPermission(canScheduledReports);
 
         const canDashboard = hasPerm('dashboard');
         const canWallboard = hasPerm('wallboard');
@@ -1415,6 +1429,7 @@ export default function Home() {
           canTrunks ||
           canConfs ||
           canSpeedDial ||
+          canScheduledReports ||
           hasPerm('call_flow') ||
           hasPerm('dialer') ||
           canContacts ||
@@ -1490,6 +1505,7 @@ export default function Home() {
           setHasTrunksPermission(true);
           setHasConferencesPermission(true);
           setHasSpeedDialPermission(true);
+          setHasScheduledReportsPermission(true);
         }
         setCurrentUser(currentUserData);
         setIsLoggedIn(true);
@@ -2244,7 +2260,7 @@ export default function Home() {
             
             <div
               className={`space-y-1 overflow-hidden transition-all duration-300 ${
-                isSidebarCollapsed || openCategories.pbxGroup ? "max-h-[700px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
+                isSidebarCollapsed || openCategories.pbxGroup ? "max-h-[900px] opacity-100" : "max-h-0 opacity-0 pointer-events-none"
               }`}
             >
               {hasUsersPermission && (
@@ -2465,6 +2481,23 @@ export default function Home() {
                 >
                   <ShieldAlert size={16} className={`shrink-0 ${activeTab === "blacklist" ? "text-primary" : ""}`} />
                   <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Numara Engelleme</span>
+                </button>
+              )}
+
+              {hasScheduledReportsPermission && (
+                <button
+                  onClick={() => setActiveTab("scheduled-reports")}
+                  title="Zamanlanmış Raporlar"
+                  className={`w-full flex items-center ${
+                    isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                  } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                    activeTab === "scheduled-reports"
+                      ? `${lightBg} text-primary ${borderLight} shadow-sm`
+                      : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                  }`}
+                >
+                  <Calendar size={16} className={`shrink-0 ${activeTab === "scheduled-reports" ? "text-primary" : ""}`} />
+                  <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>Zamanlanmış Raporlar</span>
                 </button>
               )}
             </div>
@@ -3027,6 +3060,41 @@ export default function Home() {
                 <Crown size={16} className={`shrink-0 ${activeTab === "reports-ceo-summary" ? "text-primary" : ""}`} />
                 <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>CEO Özet Raporu</span>
               </button>
+
+              {[
+                { tab: "reports-breaks-attendance", perm: "reports_breaks_attendance:access", label: "Mola & Puantaj Raporu", Icon: Coffee },
+                { tab: "reports-omnichannel", perm: "reports_omnichannel:access", label: "Omnichannel Kanal & SLA", Icon: MessageSquare },
+                { tab: "reports-disposition", perm: "reports_disposition:access", label: "Çağrı Sonuç Kodları", Icon: Tag },
+                { tab: "reports-dialer-callback", perm: "reports_dialer_callback:access", label: "Kampanya & Geri Arama", Icon: PhoneOutgoing },
+                { tab: "reports-queue-sla", perm: "reports_queue_sla:access", label: "Kuyruk SLA & Hız Dilimleri", Icon: Target },
+                { tab: "reports-repeat-callers", perm: "reports_repeat_callers:access", label: "Tekrar Eden Arayanlar", Icon: Repeat },
+                { tab: "reports-dept-pickup", perm: "reports_dept_pickup:access", label: "Departman & Çağrı Toplama", Icon: Building2 },
+                { tab: "reports-voip-quality", perm: "reports_voip_quality:access", label: "VoIP & Ses Kalitesi (MOS)", Icon: Wifi }
+              ].map(({ tab, perm, label, Icon }) => {
+                const allowed =
+                  currentUser?.role === "admin" ||
+                  !Array.isArray(currentRolePermissions) ||
+                  currentRolePermissions.includes(perm) ||
+                  currentRolePermissions.includes("reports:access");
+                if (!allowed) return null;
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setActiveTab(tab)}
+                    title={`Raporlar: ${label}`}
+                    className={`w-full flex items-center ${
+                      isSidebarCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2"
+                    } rounded-xl text-xs font-semibold tracking-wide transition-all duration-200 border ${
+                      activeTab === tab
+                        ? `${lightBg} text-primary ${borderLight} shadow-sm`
+                        : "text-slate-500 dark:text-slate-400 border-transparent hover:text-slate-900 dark:hover:text-white hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                    }`}
+                  >
+                    <Icon size={16} className={`shrink-0 ${activeTab === tab ? "text-primary" : ""}`} />
+                    <span className={`whitespace-nowrap overflow-hidden transition-all duration-300 ${isSidebarCollapsed ? "max-w-0 opacity-0" : "max-w-[180px] opacity-100"}`}>{label}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
           )}
@@ -3472,7 +3540,7 @@ export default function Home() {
         )}
 
         {/* Dynamic View Panel */}
-        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "users", "trunks", "blacklist", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
+        <div key={activeTenantId} className={`flex-1 overflow-y-auto flex ${isEditingCallFlow ? "p-0 justify-center w-full h-full bg-white dark:bg-slate-950" : activeTab === "call-center" ? "p-3 justify-start items-start w-full h-full" : ["wallboard", "settings", "rag-kb", "rule-editor", "calendar", "system-status", "dialer", "call-flow", "ai-agents", "changelog", "reports-pano", "reports-cdr", "reports-audio", "reports-transcripts", "reports-sentiment", "reports-intent", "reports-qa", "reports-notes", "reports-perf", "reports-queue", "reports-survey", "reports-sentiment-heat", "reports-wordcloud", "reports-fcr", "reports-roi", "reports-missed", "reports-agent-status-timeline", "reports-traffic-load", "reports-trunk", "reports-did", "reports-trunk-minutes", "reports-invalid-calls", "reports-ivr-drop", "reports-transfer-hold", "reports-ab-testing", "reports-friction", "reports-compliance", "reports-silence", "reports-ceo-summary", "reports-breaks-attendance", "reports-omnichannel", "reports-disposition", "reports-dialer-callback", "reports-queue-sla", "reports-repeat-callers", "reports-dept-pickup", "reports-voip-quality", "users", "trunks", "blacklist", "scheduled-reports", "announcements", "acd-queues", "auto-provision", "outbound-rules", "inbound-rules", "call-pickup-groups", "subscriber-groups", "conferences", "speed-dial", "event-logs", "sip-debugger"].includes(activeTab) ? "p-8 justify-start items-start w-full" : "p-8 justify-center"}`}>
           <div className={activeTab === "call-center" ? "w-full h-full flex" : "hidden"}>
             <AgentPanel 
               backendHost={backendHost} 
@@ -3505,6 +3573,22 @@ export default function Home() {
 
           {activeTab === "blacklist" && (
             <BlacklistSettings backendHost={backendHost} />
+          )}
+
+          {activeTab === "scheduled-reports" && hasScheduledReportsPermission && (
+            <ScheduledReportsPanel
+              backendHost={backendHost}
+              canWrite={
+                currentUser?.role === "admin" ||
+                !Array.isArray(currentRolePermissions) ||
+                currentRolePermissions.includes("scheduled_reports:write")
+              }
+              canDelete={
+                currentUser?.role === "admin" ||
+                !Array.isArray(currentRolePermissions) ||
+                currentRolePermissions.includes("scheduled_reports:delete")
+              }
+            />
           )}
 
           {activeTab === "announcements" && (
@@ -3673,6 +3757,26 @@ export default function Home() {
           {activeTab === "reports-ceo-summary" && (
             <ReportsPanel backendHost={backendHost} viewMode="ceo-summary" />
           )}
+
+          {[
+            { tab: "reports-breaks-attendance", perm: "reports_breaks_attendance:access", type: "breaks-attendance" },
+            { tab: "reports-omnichannel", perm: "reports_omnichannel:access", type: "omnichannel" },
+            { tab: "reports-disposition", perm: "reports_disposition:access", type: "disposition" },
+            { tab: "reports-dialer-callback", perm: "reports_dialer_callback:access", type: "dialer-callback" },
+            { tab: "reports-queue-sla", perm: "reports_queue_sla:access", type: "queue-sla" },
+            { tab: "reports-repeat-callers", perm: "reports_repeat_callers:access", type: "repeat-callers" },
+            { tab: "reports-dept-pickup", perm: "reports_dept_pickup:access", type: "dept-pickup" },
+            { tab: "reports-voip-quality", perm: "reports_voip_quality:access", type: "voip-quality" }
+          ].map(({ tab, perm, type }) => {
+            if (activeTab !== tab) return null;
+            const allowed =
+              currentUser?.role === "admin" ||
+              !Array.isArray(currentRolePermissions) ||
+              currentRolePermissions.includes(perm) ||
+              currentRolePermissions.includes("reports:access");
+            if (!allowed) return null;
+            return <EnterpriseReportsPanel key={tab} backendHost={backendHost} reportType={type} />;
+          })}
 
           {activeTab === "dialer" && (
             <DialerSettings backendHost={backendHost} />

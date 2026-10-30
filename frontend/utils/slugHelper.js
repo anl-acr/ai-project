@@ -21,6 +21,7 @@ export const TAB_TURKISH_SLUGS = {
   "conferences": "konferans-odalari",
   "speed-dial": "hizli-arama",
   "blacklist": "karaliste",
+  "scheduled-reports": "zamanlanmis-raporlar",
   "call-flow": "arama-akislari",
   "dialer": "dis-arama-dialer",
   "calendar": "takvim",
@@ -33,6 +34,14 @@ export const TAB_TURKISH_SLUGS = {
   "reports-intent": "niyet-raporu",
   "reports-did": "did-raporu",
   "reports-trunk-minutes": "operator-dakika-paket-raporu",
+  "reports-breaks-attendance": "mola-ve-puantaj-raporu",
+  "reports-omnichannel": "omnichannel-kanal-sla-raporu",
+  "reports-disposition": "cagri-sonuc-kodlari-raporu",
+  "reports-dialer-callback": "kampanya-ve-geri-arama-raporu",
+  "reports-queue-sla": "kuyruk-sla-ve-hiz-dilimleri",
+  "reports-repeat-callers": "tekrar-eden-arayanlar-raporu",
+  "reports-dept-pickup": "departman-ve-cagri-toplama-raporu",
+  "reports-voip-quality": "voip-ses-kalitesi-mos-raporu",
   "settings": "ayarlar",
   "system-status": "sistem-durumu"
 };
