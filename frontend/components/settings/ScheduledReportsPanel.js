@@ -1,7 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Calendar,
-  Clock,
   Plus,
   Edit2,
   Trash2,
@@ -11,6 +10,12 @@ import {
   CheckCircle2,
   AlertTriangle,
   RefreshCw,
+  Search,
+  ChevronRight,
+  ChevronLeft,
+  ArrowDown,
+  ArrowUp,
+  Users,
   X,
   Check
 } from "lucide-react";
@@ -19,14 +24,67 @@ import { useTheme } from "../../utils/theme";
 import { getApiBaseUrl, tenantFetch } from "../../utils/apiHost";
 
 const DEFAULT_REPORT_MODULES = {
-  cdr_summary: "Genel Çağrı & CDR Özeti",
-  breaks_attendance: "Temsilci Mola & Puantaj Özeti",
-  queue_sla: "Kuyruk SLA & Bekleme Analizi",
-  omnichannel: "Omnichannel (WhatsApp/Dijital) Özeti",
-  disposition: "Çağrı Sonuç Kodları (Disposition)",
-  missed_recovery: "Kaçan Çağrı & Geri Kazanım",
-  repeat_callers: "Tekrar Eden Arayanlar"
+  reports_pano: "Pano (Genel Özet)",
+  reports_cdr: "CDR (Detaylı Çağrı Kayıtları)",
+  reports_audio: "Ses Kayıtları",
+  reports_transcripts: "Çağrı Transkripti",
+  reports_sentiment: "Duygu Analizi",
+  reports_intent: "Niyet Raporu",
+  reports_qa: "Kalite Değerlendirmeleri",
+  reports_notes: "Temsilci Notları",
+  reports_perf: "Temsilci Performans & KPI",
+  reports_queue: "Kuyruk / Bekleme Analitiği",
+  reports_survey: "Anket Raporları",
+  reports_sentiment_heat: "Duygu Durumu Isı Haritası",
+  reports_wordcloud: "Kelime Bulutu & Trendler",
+  reports_fcr: "İlk Aramada Çözüm (FCR)",
+  reports_roi: "AI vs. İnsan ROI Paneli",
+  reports_missed: "Kaçan Çağrı Analizi",
+  agent_timeline: "Temsilci Kronolojisi",
+  reports_traffic_load: "Yoğunluk Raporu",
+  reports_trunk: "Hat Kapasite Raporu",
+  reports_did: "DID Raporu",
+  reports_trunk_minutes: "Operatör Dakika & Paket Raporu",
+  reports_invalid_calls: "Hatalı & Eşleşmeyen Çağrı Raporu",
+  reports_ivr_drop: "IVR Terk Oranı",
+  reports_transfer_hold: "Aktarma & Bekletme",
+  reports_ab_testing: "Verimlilik Karşılaştırması",
+  reports_friction: "Müşteri Çile Noktaları",
+  reports_compliance: "Senaryo Sadakati Raporu",
+  reports_silence: "Sessizlik & Söz Kesme",
+  reports_ceo_summary: "CEO Özet Raporu",
+  reports_breaks_attendance: "Mola & Puantaj Raporu",
+  reports_omnichannel: "Omnichannel Kanal & SLA",
+  reports_disposition: "Çağrı Sonuç Kodları",
+  reports_dialer_callback: "Kampanya & Geri Arama",
+  reports_queue_sla: "Kuyruk SLA & Hız Dilimleri",
+  reports_repeat_callers: "Tekrar Eden Arayanlar",
+  reports_dept_pickup: "Departman & Çağrı Toplama",
+  reports_voip_quality: "VoIP & Ses Kalitesi (MOS)"
 };
+
+const LEGACY_REPORT_KEY_MAP = {
+  cdr_summary: "reports_cdr",
+  breaks_attendance: "reports_breaks_attendance",
+  queue_sla: "reports_queue_sla",
+  omnichannel: "reports_omnichannel",
+  disposition: "reports_disposition",
+  missed_recovery: "reports_missed",
+  repeat_callers: "reports_repeat_callers"
+};
+
+function normalizeReportTypes(rawList, validMap = DEFAULT_REPORT_MODULES) {
+  const out = [];
+  (Array.isArray(rawList) ? rawList : []).forEach((k) => {
+    const raw = String(k || "").trim();
+    if (!raw) return;
+    const mapped = LEGACY_REPORT_KEY_MAP[raw] || raw;
+    if (validMap[mapped] && !out.includes(mapped)) {
+      out.push(mapped);
+    }
+  });
+  return out.length > 0 ? out : ["reports_cdr"];
+}
 
 const DAYS_OF_WEEK = [
   { value: 0, label: "Pazartesi" },
@@ -54,12 +112,324 @@ const EMPTY_FORM = {
   day_of_week: 0,
   day_of_month: 1,
   period_range: "yesterday",
-  report_types: ["cdr_summary", "breaks_attendance", "queue_sla"],
+  report_types: ["reports_pano", "reports_cdr", "reports_breaks_attendance", "reports_queue_sla"],
   send_email: true,
-  email_recipients: "",
+  email_user_ids: [],
+  extra_emails: "",
   send_whatsapp: false,
   whatsapp_recipients: ""
 };
+
+function UserDualListBox({
+  availableItems,
+  selectedIds,
+  onChangeSelectedIds,
+  lightBg,
+  lightText,
+  ring,
+  borderLight
+}) {
+  const [availableSearch, setAvailableSearch] = useState("");
+  const [selectedSearch, setSelectedSearch] = useState("");
+  const [checkedAvailable, setCheckedAvailable] = useState([]);
+  const [checkedSelected, setCheckedSelected] = useState([]);
+
+  const normalizedSelectedIds = useMemo(
+    () => (Array.isArray(selectedIds) ? selectedIds.map((x) => String(x)) : []),
+    [selectedIds]
+  );
+
+  const unselectedItems = useMemo(
+    () => availableItems.filter((i) => !normalizedSelectedIds.includes(String(i.id))),
+    [availableItems, normalizedSelectedIds]
+  );
+
+  const selectedItems = useMemo(
+    () =>
+      normalizedSelectedIds
+        .map((id) => availableItems.find((i) => String(i.id) === String(id)))
+        .filter(Boolean),
+    [availableItems, normalizedSelectedIds]
+  );
+
+  const matchesQuery = (item, q) => {
+    if (!q.trim()) return true;
+    const low = q.trim().toLowerCase();
+    return (
+      String(item.full_name || "").toLowerCase().includes(low) ||
+      String(item.extension || "").toLowerCase().includes(low) ||
+      String(item.email || "").toLowerCase().includes(low)
+    );
+  };
+
+  const filteredAvailable = unselectedItems.filter((i) => matchesQuery(i, availableSearch));
+  const filteredSelected = selectedItems.filter((i) => matchesQuery(i, selectedSearch));
+
+  const toggleAvailable = (id) => {
+    const sid = String(id);
+    setCheckedAvailable((prev) =>
+      prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]
+    );
+  };
+
+  const toggleSelected = (id) => {
+    const sid = String(id);
+    setCheckedSelected((prev) =>
+      prev.includes(sid) ? prev.filter((x) => x !== sid) : [...prev, sid]
+    );
+  };
+
+  const moveRight = (e) => {
+    e.preventDefault();
+    if (checkedAvailable.length === 0) return;
+    const merged = Array.from(new Set([...normalizedSelectedIds, ...checkedAvailable]));
+    onChangeSelectedIds(merged);
+    setCheckedAvailable([]);
+  };
+
+  const moveLeft = (e) => {
+    e.preventDefault();
+    if (checkedSelected.length === 0) return;
+    onChangeSelectedIds(normalizedSelectedIds.filter((id) => !checkedSelected.includes(id)));
+    setCheckedSelected([]);
+  };
+
+  const quickAddOne = (id) => {
+    const sid = String(id);
+    if (!normalizedSelectedIds.includes(sid)) {
+      onChangeSelectedIds([...normalizedSelectedIds, sid]);
+      setCheckedAvailable((prev) => prev.filter((x) => x !== sid));
+    }
+  };
+
+  const quickRemoveOne = (id) => {
+    const sid = String(id);
+    onChangeSelectedIds(normalizedSelectedIds.filter((x) => x !== sid));
+    setCheckedSelected((prev) => prev.filter((x) => x !== sid));
+  };
+
+  const renderUserCells = (item) => {
+    const hasValidEmail = String(item.email || "").includes("@");
+    return (
+      <>
+        <td className="p-2 font-mono text-[11px] text-slate-500 dark:text-slate-400 whitespace-nowrap">
+          {item.extension || "-"}
+        </td>
+        <td className="p-2">
+          <div className="font-semibold text-slate-800 dark:text-slate-200 leading-tight">
+            {item.full_name}
+          </div>
+          {hasValidEmail ? (
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 truncate max-w-[165px]" title={item.email}>
+              {item.email}
+            </div>
+          ) : (
+            <div className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">
+              E-posta tanımlı değil
+            </div>
+          )}
+        </td>
+      </>
+    );
+  };
+
+  return (
+    <div className="flex flex-col gap-2.5">
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-bold text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
+          <Users size={13} className={lightText} />
+          <span>Kullanıcılar (Çift tıklayarak veya oklarla istediğiniz kadar kullanıcı ekleyin)</span>
+        </span>
+      </div>
+
+      <div className="flex flex-col md:flex-row items-stretch gap-2.5 w-full">
+        {/* Müsait Kullanıcılar */}
+        <div className={`flex-1 rounded-xl flex flex-col overflow-hidden h-[225px] border bg-white dark:bg-slate-900 ${borderLight}`}>
+          <div className={`flex items-center justify-between px-3 py-2 border-b bg-slate-50 dark:bg-slate-900/70 ${borderLight}`}>
+            <label className="flex items-center gap-2 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={checkedAvailable.length === filteredAvailable.length && filteredAvailable.length > 0}
+                onChange={(e) =>
+                  setCheckedAvailable(e.target.checked ? filteredAvailable.map((i) => String(i.id)) : [])
+                }
+                className={`w-3.5 h-3.5 rounded border-slate-300 focus:${ring}`}
+              />
+              <span>{filteredAvailable.length} Kullanıcı</span>
+            </label>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Müsait</span>
+          </div>
+
+          <div className={`p-2 border-b ${borderLight}`}>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+              <input
+                type="text"
+                placeholder="İsim, dahili veya e-posta ara..."
+                value={availableSearch}
+                onChange={(e) => setAvailableSearch(e.target.value)}
+                className={`w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border focus:outline-none bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-200 ${borderLight}`}
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-1.5 pb-1.5">
+            {filteredAvailable.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-[11px] text-slate-400 p-3 text-center">
+                Eklenebilecek kullanıcı kalmadı veya aramayla eşleşmedi.
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-slate-100 dark:border-slate-800">
+                  <tr>
+                    <th className="p-2 w-7"></th>
+                    <th className="p-2 text-[10px] font-bold text-slate-400 uppercase">Dahili</th>
+                    <th className="p-2 text-[10px] font-bold text-slate-400 uppercase">Kullanıcı & E-Posta</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100/70 dark:divide-slate-800/60">
+                  {filteredAvailable.map((item) => {
+                    const isChecked = checkedAvailable.includes(String(item.id));
+                    return (
+                      <tr
+                        key={item.id}
+                        onClick={() => toggleAvailable(item.id)}
+                        onDoubleClick={() => quickAddOne(item.id)}
+                        title="Seçmek için tıklayın, doğrudan eklemek için çift tıklayın"
+                        className={`cursor-pointer transition-colors hover:bg-slate-100/80 dark:hover:bg-slate-800/60 ${
+                          isChecked ? lightBg : ""
+                        }`}
+                      >
+                        <td className="p-2 w-7">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleAvailable(item.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-3.5 h-3.5 rounded border-slate-300"
+                          />
+                        </td>
+                        {renderUserCells(item)}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+
+        {/* Aktarım Okları */}
+        <div className="flex flex-row md:flex-col items-center justify-center gap-2 px-1">
+          <button
+            type="button"
+            onClick={moveRight}
+            disabled={checkedAvailable.length === 0}
+            title="Seçili kullanıcıları rapora ekle"
+            className={`p-2 rounded-lg border transition-colors bg-white dark:bg-slate-800 ${borderLight} ${
+              checkedAvailable.length > 0
+                ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 shadow-sm"
+                : "text-slate-300 dark:text-slate-600 cursor-not-allowed"
+            }`}
+          >
+            <ChevronRight size={16} className="hidden md:block" />
+            <ArrowDown size={16} className="block md:hidden" />
+          </button>
+          <button
+            type="button"
+            onClick={moveLeft}
+            disabled={checkedSelected.length === 0}
+            title="Seçili kullanıcıları çıkar"
+            className={`p-2 rounded-lg border transition-colors bg-white dark:bg-slate-800 ${borderLight} ${
+              checkedSelected.length > 0
+                ? "text-slate-800 dark:text-white cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700 shadow-sm"
+                : "text-slate-300 dark:text-slate-600 cursor-not-allowed"
+            }`}
+          >
+            <ChevronLeft size={16} className="hidden md:block" />
+            <ArrowUp size={16} className="block md:hidden" />
+          </button>
+        </div>
+
+        {/* Seçili Alıcı Kullanıcılar */}
+        <div className={`flex-1 rounded-xl flex flex-col overflow-hidden h-[225px] border ${borderLight} ${lightBg}`}>
+          <div className={`flex items-center justify-between px-3 py-2 border-b bg-slate-50 dark:bg-slate-900/70 ${borderLight}`}>
+            <label className="flex items-center gap-2 text-[11px] font-bold text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={checkedSelected.length === filteredSelected.length && filteredSelected.length > 0}
+                onChange={(e) =>
+                  setCheckedSelected(e.target.checked ? filteredSelected.map((i) => String(i.id)) : [])
+                }
+                className={`w-3.5 h-3.5 rounded border-slate-300 focus:${ring}`}
+              />
+              <span>{filteredSelected.length} Seçili Alıcı</span>
+            </label>
+            <span className={`text-[10px] font-bold uppercase tracking-wider ${lightText}`}>Seçili</span>
+          </div>
+
+          <div className={`p-2 border-b bg-white/60 dark:bg-slate-900/40 ${borderLight}`}>
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" size={13} />
+              <input
+                type="text"
+                placeholder="Seçililerde ara..."
+                value={selectedSearch}
+                onChange={(e) => setSelectedSearch(e.target.value)}
+                className={`w-full pl-8 pr-2.5 py-1.5 text-xs rounded-lg border focus:outline-none bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 ${borderLight}`}
+              />
+            </div>
+          </div>
+
+          <div className="flex-1 overflow-y-auto px-1.5 pb-1.5 bg-white/40 dark:bg-slate-950/30">
+            {filteredSelected.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-[11px] text-slate-400 p-3 text-center">
+                Sol listeden kullanıcı seçip ok butonuyla (veya çift tıklayarak) buraya ekleyin.
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="sticky top-0 z-10 bg-slate-50/95 dark:bg-slate-900/95 border-b border-slate-200/70 dark:border-slate-800">
+                  <tr>
+                    <th className="p-2 w-7"></th>
+                    <th className="p-2 text-[10px] font-bold text-slate-400 uppercase">Dahili</th>
+                    <th className="p-2 text-[10px] font-bold text-slate-400 uppercase">Kullanıcı & E-Posta</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100/70 dark:divide-slate-800/60">
+                  {filteredSelected.map((item) => {
+                    const isChecked = checkedSelected.includes(String(item.id));
+                    return (
+                      <tr
+                        key={item.id}
+                        onClick={() => toggleSelected(item.id)}
+                        onDoubleClick={() => quickRemoveOne(item.id)}
+                        title="Seçmek için tıklayın, çıkarmak için çift tıklayın"
+                        className={`cursor-pointer transition-colors hover:bg-white/80 dark:hover:bg-slate-800/60 ${
+                          isChecked ? lightBg : ""
+                        }`}
+                      >
+                        <td className="p-2 w-7">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSelected(item.id)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-3.5 h-3.5 rounded border-slate-300"
+                          />
+                        </td>
+                        {renderUserCells(item)}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function ScheduledReportsPanel({
   backendHost,
@@ -73,10 +443,12 @@ export default function ScheduledReportsPanel({
   const [schedules, setSchedules] = useState([]);
   const [history, setHistory] = useState([]);
   const [reportTypesMap, setReportTypesMap] = useState(DEFAULT_REPORT_MODULES);
+  const [systemUsers, setSystemUsers] = useState([]);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState(EMPTY_FORM);
+  const [moduleSearch, setModuleSearch] = useState("");
 
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [runningId, setRunningId] = useState(null);
@@ -90,15 +462,48 @@ export default function ScheduledReportsPanel({
   const fetchSchedules = async () => {
     setLoading(true);
     try {
-      const res = await tenantFetch(`${API_BASE}/api/settings/scheduled-reports`);
-      if (res.ok) {
-        const json = await res.json();
+      const [schedRes, usersRes] = await Promise.all([
+        tenantFetch(`${API_BASE}/api/settings/scheduled-reports`),
+        tenantFetch(`${API_BASE}/api/settings/users`).catch(() => null)
+      ]);
+
+      let mergedUsers = [];
+      const seenUserIds = new Set();
+
+      const pushUser = (u) => {
+        if (!u || typeof u !== "object") return;
+        const ext = String(u.extension || "").trim();
+        const uid = String(u.id !== undefined && u.id !== null ? u.id : ext).trim();
+        if (!uid || seenUserIds.has(uid)) return;
+        seenUserIds.add(uid);
+        mergedUsers.push({
+          id: uid,
+          extension: ext,
+          full_name: String(u.full_name || u.name || `Dahili ${ext}`).trim(),
+          email: String(u.email || "").trim(),
+          role: String(u.role || "agent").trim()
+        });
+      };
+
+      if (schedRes && schedRes.ok) {
+        const json = await schedRes.json();
         setSchedules(Array.isArray(json.schedules) ? json.schedules : []);
         setHistory(Array.isArray(json.history) ? json.history : []);
-        if (json.report_types && typeof json.report_types === "object") {
-          setReportTypesMap(json.report_types);
+        if (json.report_types && typeof json.report_types === "object" && Object.keys(json.report_types).length > 0) {
+          setReportTypesMap({ ...DEFAULT_REPORT_MODULES, ...json.report_types });
+        }
+        if (Array.isArray(json.users)) {
+          json.users.forEach(pushUser);
         }
       }
+
+      if (usersRes && usersRes.ok) {
+        const uJson = await usersRes.json().catch(() => []);
+        const uArr = Array.isArray(uJson) ? uJson : Array.isArray(uJson?.users) ? uJson.users : [];
+        uArr.forEach(pushUser);
+      }
+
+      setSystemUsers(mergedUsers);
     } catch (err) {
       console.error("[ScheduledReportsPanel] Fetch error:", err);
     } finally {
@@ -110,14 +515,74 @@ export default function ScheduledReportsPanel({
     fetchSchedules();
   }, []);
 
+  const allModuleEntries = useMemo(() => Object.entries(reportTypesMap), [reportTypesMap]);
+
+  const filteredModuleEntries = useMemo(() => {
+    if (!moduleSearch.trim()) return allModuleEntries;
+    const q = moduleSearch.trim().toLowerCase();
+    return allModuleEntries.filter(
+      ([code, label]) =>
+        String(label).toLowerCase().includes(q) || String(code).toLowerCase().includes(q)
+    );
+  }, [allModuleEntries, moduleSearch]);
+
+  const selectedUsersPreview = useMemo(() => {
+    const ids = Array.isArray(formData.email_user_ids) ? formData.email_user_ids.map(String) : [];
+    return ids
+      .map((id) => systemUsers.find((u) => String(u.id) === id))
+      .filter(Boolean);
+  }, [formData.email_user_ids, systemUsers]);
+
+  const resolvedUserEmails = useMemo(() => {
+    const set = new Set();
+    selectedUsersPreview.forEach((u) => {
+      const m = String(u.email || "").trim();
+      if (m.includes("@")) set.add(m);
+    });
+    return Array.from(set);
+  }, [selectedUsersPreview]);
+
   const openCreateModal = () => {
     if (!canWrite) return;
+    setModuleSearch("");
     setFormData({ ...EMPTY_FORM });
     setIsModalOpen(true);
   };
 
   const openEditModal = (item) => {
     if (!canWrite) return;
+    setModuleSearch("");
+
+    let initialUserIds = Array.isArray(item.email_user_ids)
+      ? item.email_user_ids.map((x) => String(x))
+      : [];
+    let initialExtraEmails =
+      item.extra_emails !== undefined && item.extra_emails !== null
+        ? String(item.extra_emails)
+        : "";
+
+    // Migrate legacy manual email_recipients into matching user selections + remaining extra emails
+    if (initialUserIds.length === 0 && !initialExtraEmails && item.email_recipients) {
+      const rawParts = String(item.email_recipients)
+        .split(/[,;\s]+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const unmatched = [];
+      rawParts.forEach((addr) => {
+        const matchedU = systemUsers.find(
+          (u) => String(u.email || "").trim().toLowerCase() === addr.toLowerCase()
+        );
+        if (matchedU) {
+          if (!initialUserIds.includes(String(matchedU.id))) {
+            initialUserIds.push(String(matchedU.id));
+          }
+        } else {
+          unmatched.push(addr);
+        }
+      });
+      initialExtraEmails = unmatched.join(", ");
+    }
+
     setFormData({
       id: item.id || "",
       name: item.name || "",
@@ -127,9 +592,10 @@ export default function ScheduledReportsPanel({
       day_of_week: Number(item.day_of_week ?? 0),
       day_of_month: Number(item.day_of_month ?? 1),
       period_range: item.period_range || "yesterday",
-      report_types: Array.isArray(item.report_types) && item.report_types.length > 0 ? item.report_types : ["cdr_summary"],
+      report_types: normalizeReportTypes(item.report_types, reportTypesMap),
       send_email: item.send_email !== false,
-      email_recipients: item.email_recipients || "",
+      email_user_ids: initialUserIds,
+      extra_emails: initialExtraEmails,
       send_whatsapp: Boolean(item.send_whatsapp),
       whatsapp_recipients: item.whatsapp_recipients || ""
     });
@@ -142,9 +608,25 @@ export default function ScheduledReportsPanel({
       if (exists && prev.report_types.length === 1) return prev;
       return {
         ...prev,
-        report_types: exists ? prev.report_types.filter((c) => c !== code) : [...prev.report_types, code]
+        report_types: exists
+          ? prev.report_types.filter((c) => c !== code)
+          : [...prev.report_types, code]
       };
     });
+  };
+
+  const selectAllReportModules = () => {
+    setFormData((prev) => ({
+      ...prev,
+      report_types: Object.keys(reportTypesMap)
+    }));
+  };
+
+  const resetReportModules = () => {
+    setFormData((prev) => ({
+      ...prev,
+      report_types: ["reports_cdr"]
+    }));
   };
 
   const handleSave = async (e) => {
@@ -157,6 +639,16 @@ export default function ScheduledReportsPanel({
     if (!formData.send_email && !formData.send_whatsapp) {
       showToast("En az bir gönderim kanalı (E-Posta veya WhatsApp) seçmelisiniz.", "error");
       return;
+    }
+    if (formData.send_email) {
+      const hasExtraEmail = String(formData.extra_emails || "").includes("@");
+      if (resolvedUserEmails.length === 0 && !hasExtraEmail) {
+        showToast(
+          "Lütfen E-Posta gönderimi için listeden e-posta adresi tanımlı en az bir kullanıcı seçin veya harici e-posta girin.",
+          "error"
+        );
+        return;
+      }
     }
 
     setSaving(true);
@@ -242,6 +734,21 @@ export default function ScheduledReportsPanel({
     return `Günlük • Her Gün ${s.send_time || "09:00"}`;
   };
 
+  const resolveScheduleUserNames = (s) => {
+    if (Array.isArray(s.email_user_names) && s.email_user_names.length > 0) {
+      return s.email_user_names;
+    }
+    if (Array.isArray(s.email_user_ids) && s.email_user_ids.length > 0) {
+      return s.email_user_ids
+        .map((id) => {
+          const u = systemUsers.find((usr) => String(usr.id) === String(id));
+          return u ? u.full_name : null;
+        })
+        .filter(Boolean);
+    }
+    return [];
+  };
+
   return (
     <div className="w-full space-y-5">
       {/* Toast Notification */}
@@ -271,7 +778,7 @@ export default function ScheduledReportsPanel({
               Zamanlanmış Otomatik Raporlar
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Belirlediğiniz gün ve saatlerde santral performans özetlerini CSV/Excel ekiyle E-Posta veya WhatsApp üzerinden yöneticilere otomatik iletin.
+              Belirlediğiniz gün ve saatlerde seçili rapor modüllerini CSV/Excel ekiyle sistem kullanıcılarına otomatik iletin.
             </p>
           </div>
         </div>
@@ -327,116 +834,144 @@ export default function ScheduledReportsPanel({
                 </td>
               </tr>
             ) : (
-              schedules.map((s) => (
-                <tr key={s.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
-                  <td className="px-4 py-3.5">
-                    <button
-                      type="button"
-                      disabled={!canWrite}
-                      onClick={() => handleToggleEnabled(s)}
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition cursor-pointer ${
-                        s.enabled !== false
-                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
-                          : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
-                      }`}
-                    >
-                      {s.enabled !== false ? "Aktif" : "Pasif"}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3.5 font-bold text-slate-800 dark:text-white">{s.name}</td>
-                  <td className="px-4 py-3.5 whitespace-nowrap font-medium">{formatFrequencyLabel(s)}</td>
-                  <td className="px-4 py-3.5 whitespace-nowrap text-slate-500">
-                    {PERIOD_LABELS[s.period_range] || s.period_range}
-                  </td>
-                  <td className="px-4 py-3.5">
-                    <div className="flex flex-wrap gap-1 max-w-xs">
-                      {(s.report_types || []).map((rt) => (
-                        <span
-                          key={rt}
-                          className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold ${lightBg} ${lightText}`}
-                        >
-                          {reportTypesMap[rt] || rt}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3.5 space-y-1">
-                    {s.send_email && s.email_recipients && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-slate-600 dark:text-slate-300">
-                        <Mail size={12} className={text} />
-                        <span className="truncate max-w-[180px]" title={s.email_recipients}>
-                          {s.email_recipients}
-                        </span>
+              schedules.map((s) => {
+                const normMods = normalizeReportTypes(s.report_types, reportTypesMap);
+                const visibleMods = normMods.slice(0, 3);
+                const hiddenModCount = Math.max(0, normMods.length - visibleMods.length);
+                const fullModTooltip = normMods.map((rt) => reportTypesMap[rt] || rt).join(", ");
+                const userNames = resolveScheduleUserNames(s);
+
+                return (
+                  <tr key={s.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/40 transition">
+                    <td className="px-4 py-3.5">
+                      <button
+                        type="button"
+                        disabled={!canWrite}
+                        onClick={() => handleToggleEnabled(s)}
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold transition cursor-pointer ${
+                          s.enabled !== false
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/60 dark:text-emerald-300"
+                            : "bg-slate-200 text-slate-600 dark:bg-slate-800 dark:text-slate-400"
+                        }`}
+                      >
+                        {s.enabled !== false ? "Aktif" : "Pasif"}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3.5 font-bold text-slate-800 dark:text-white">{s.name}</td>
+                    <td className="px-4 py-3.5 whitespace-nowrap font-medium">{formatFrequencyLabel(s)}</td>
+                    <td className="px-4 py-3.5 whitespace-nowrap text-slate-500">
+                      {PERIOD_LABELS[s.period_range] || s.period_range}
+                    </td>
+                    <td className="px-4 py-3.5" title={fullModTooltip}>
+                      <div className="flex flex-wrap gap-1 max-w-xs">
+                        {visibleMods.map((rt) => (
+                          <span
+                            key={rt}
+                            className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold ${lightBg} ${lightText}`}
+                          >
+                            {reportTypesMap[rt] || rt}
+                          </span>
+                        ))}
+                        {hiddenModCount > 0 && (
+                          <span className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                            +{hiddenModCount} rapor
+                          </span>
+                        )}
                       </div>
-                    )}
-                    {s.send_whatsapp && s.whatsapp_recipients && (
-                      <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
-                        <MessageSquare size={12} />
-                        <span className="truncate max-w-[180px]" title={s.whatsapp_recipients}>
-                          {s.whatsapp_recipients}
-                        </span>
-                      </div>
-                    )}
-                  </td>
-                  <td className="px-4 py-3.5 whitespace-nowrap">
-                    {s.last_run_at ? (
-                      <div>
-                        <div className="text-[11px] font-semibold">{s.last_run_at}</div>
-                        <div
-                          className={`text-[10px] truncate max-w-[180px] ${
-                            s.last_status === "success" ? "text-emerald-600" : "text-rose-500"
-                          }`}
-                          title={s.last_message || ""}
-                        >
-                          {s.last_message || s.last_status}
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-slate-400">Henüz çalışmadı</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                    <div className="inline-flex items-center gap-1.5">
-                      {canWrite && (
-                        <button
-                          type="button"
-                          onClick={() => handleRunNow(s)}
-                          disabled={runningId === s.id}
-                          title="Şimdi Gönder (Test Et)"
-                          className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-white transition inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 ${bg} ${hover}`}
-                        >
-                          {runningId === s.id ? (
-                            <RefreshCw size={12} className="animate-spin" />
-                          ) : (
-                            <Send size={12} />
+                    </td>
+                    <td className="px-4 py-3.5 space-y-1">
+                      {s.send_email && (userNames.length > 0 || s.email_recipients) && (
+                        <div className="space-y-0.5">
+                          {userNames.length > 0 && (
+                            <div
+                              className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-700 dark:text-slate-200"
+                              title={userNames.join(", ")}
+                            >
+                              <Users size={12} className={text} />
+                              <span className="truncate max-w-[200px]">
+                                {userNames.length} Kullanıcı ({userNames.join(", ")})
+                              </span>
+                            </div>
                           )}
-                          <span>Şimdi Gönder</span>
-                        </button>
+                          {s.email_recipients && (
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400">
+                              <Mail size={11} className={text} />
+                              <span className="truncate max-w-[200px]" title={s.email_recipients}>
+                                {s.email_recipients}
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       )}
-                      {canWrite && (
-                        <button
-                          type="button"
-                          onClick={() => openEditModal(s)}
-                          title="Düzenle"
-                          className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
-                        >
-                          <Edit2 size={13} />
-                        </button>
+                      {s.send_whatsapp && s.whatsapp_recipients && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                          <MessageSquare size={12} />
+                          <span className="truncate max-w-[200px]" title={s.whatsapp_recipients}>
+                            {s.whatsapp_recipients}
+                          </span>
+                        </div>
                       )}
-                      {canDelete && (
-                        <button
-                          type="button"
-                          onClick={() => setDeleteTarget(s)}
-                          title="Sil"
-                          className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-900/50 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                        >
-                          <Trash2 size={13} />
-                        </button>
+                    </td>
+                    <td className="px-4 py-3.5 whitespace-nowrap">
+                      {s.last_run_at ? (
+                        <div>
+                          <div className="text-[11px] font-semibold">{s.last_run_at}</div>
+                          <div
+                            className={`text-[10px] truncate max-w-[180px] ${
+                              s.last_status === "success" ? "text-emerald-600" : "text-rose-500"
+                            }`}
+                            title={s.last_message || ""}
+                          >
+                            {s.last_message || s.last_status}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-slate-400">Henüz çalışmadı</span>
                       )}
-                    </div>
-                  </td>
-                </tr>
-              ))
+                    </td>
+                    <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1.5">
+                        {canWrite && (
+                          <button
+                            type="button"
+                            onClick={() => handleRunNow(s)}
+                            disabled={runningId === s.id}
+                            title="Şimdi Gönder (Test Et)"
+                            className={`px-2.5 py-1.5 rounded-xl text-[11px] font-bold text-white transition inline-flex items-center gap-1 cursor-pointer disabled:opacity-50 ${bg} ${hover}`}
+                          >
+                            {runningId === s.id ? (
+                              <RefreshCw size={12} className="animate-spin" />
+                            ) : (
+                              <Send size={12} />
+                            )}
+                            <span>Şimdi Gönder</span>
+                          </button>
+                        )}
+                        {canWrite && (
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(s)}
+                            title="Düzenle"
+                            className="p-1.5 rounded-lg border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                          >
+                            <Edit2 size={13} />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(s)}
+                            title="Sil"
+                            className="p-1.5 rounded-lg border border-rose-200 dark:border-rose-900/50 text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
@@ -473,21 +1008,21 @@ export default function ScheduledReportsPanel({
       {/* Create / Edit Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 z-[9990] bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+          <div className="w-full max-w-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between shrink-0">
               <h3 className="text-sm font-bold text-slate-800 dark:text-white">
                 {formData.id ? "Zamanlanmış Raporu Düzenle" : "Yeni Zamanlanmış Rapor Ekle"}
               </h3>
               <button
                 type="button"
                 onClick={() => setIsModalOpen(false)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
               >
                 <X size={16} />
               </button>
             </div>
 
-            <form onSubmit={handleSave} className="p-5 space-y-4 overflow-y-auto text-xs">
+            <form onSubmit={handleSave} className="p-5 space-y-5 overflow-y-auto text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div className="sm:col-span-2">
                   <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-1">
@@ -583,23 +1118,60 @@ export default function ScheduledReportsPanel({
                 </div>
               </div>
 
-              {/* Report Modules Selection */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 dark:text-slate-300 mb-2">
-                  Rapora Dahil Edilecek Modüller
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {Object.entries(reportTypesMap).map(([code, label]) => {
+              {/* All 37 Report Modules Selection */}
+              <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <label className="text-[11px] font-bold text-slate-700 dark:text-slate-200">
+                      Rapora Dahil Edilecek Modüller
+                    </label>
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${lightBg} ${lightText} border ${borderLight}`}>
+                      {formData.report_types.length} / {allModuleEntries.length} Seçili
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={selectAllReportModules}
+                      className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border transition cursor-pointer ${lightBg} ${lightText} ${borderLight}`}
+                    >
+                      Tümünü Seç ({allModuleEntries.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={resetReportModules}
+                      className="px-2.5 py-1 rounded-lg text-[10px] font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition cursor-pointer"
+                    >
+                      Sıfırla
+                    </button>
+                  </div>
+                </div>
+
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={moduleSearch}
+                    onChange={(e) => setModuleSearch(e.target.value)}
+                    placeholder="37 rapor modülü içinde ara (Örn: CDR, Kuyruk, Mola, Anket, MOS, DID...)"
+                    className={`w-full pl-8 pr-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white focus:outline-none focus:ring-2 ${ring}`}
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-56 overflow-y-auto p-1">
+                  {filteredModuleEntries.map(([code, label]) => {
                     const checked = formData.report_types.includes(code);
                     return (
                       <button
                         key={code}
                         type="button"
                         onClick={() => toggleReportModule(code)}
-                        className={`p-2.5 rounded-xl border text-left flex items-center gap-2.5 transition cursor-pointer ${
+                        title={label}
+                        className={`p-2 rounded-xl border text-left flex items-center gap-2 transition cursor-pointer ${
                           checked
                             ? `${lightBg} ${borderLight} ${lightText} font-bold`
-                            : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+                            : "bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100/70 dark:hover:bg-slate-800"
                         }`}
                       >
                         <span
@@ -609,7 +1181,7 @@ export default function ScheduledReportsPanel({
                         >
                           {checked && <Check size={11} />}
                         </span>
-                        <span className="truncate">{label}</span>
+                        <span className="truncate text-[11px]">{label}</span>
                       </button>
                     );
                   })}
@@ -617,8 +1189,8 @@ export default function ScheduledReportsPanel({
               </div>
 
               {/* Delivery Channels */}
-              <div className="space-y-3 pt-2 border-t border-slate-100 dark:border-slate-800">
-                <div className="p-3.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/70 space-y-2">
+              <div className="space-y-3.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200/70 dark:border-slate-700/70 space-y-3">
                   <label className="flex items-center gap-2 font-bold text-slate-700 dark:text-slate-200 cursor-pointer">
                     <input
                       type="checkbox"
@@ -629,14 +1201,53 @@ export default function ScheduledReportsPanel({
                     <Mail size={14} className={text} />
                     <span>E-Posta ile Gönder (HTML Özet Tablo + CSV/Excel Eki)</span>
                   </label>
+
                   {formData.send_email && (
-                    <input
-                      type="text"
-                      value={formData.email_recipients}
-                      onChange={(e) => setFormData({ ...formData, email_recipients: e.target.value })}
-                      placeholder="yonetici@firma.com, operasyon@firma.com (virgülle ayırın)"
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white"
-                    />
+                    <div className="space-y-3 pt-1">
+                      <UserDualListBox
+                        availableItems={systemUsers}
+                        selectedIds={formData.email_user_ids}
+                        onChangeSelectedIds={(newIds) =>
+                          setFormData((prev) => ({ ...prev, email_user_ids: newIds }))
+                        }
+                        bg={bg}
+                        hover={hover}
+                        text={text}
+                        border={border}
+                        lightBg={lightBg}
+                        lightText={lightText}
+                        ring={ring}
+                        borderLight={borderLight}
+                      />
+
+                      {selectedUsersPreview.length > 0 && (
+                        <div className={`px-3 py-2 rounded-xl border text-[11px] ${lightBg} ${borderLight}`}>
+                          <span className="font-bold text-slate-700 dark:text-slate-200">
+                            Seçili kullanıcılardan algılanan e-postalar ({resolvedUserEmails.length}):{" "}
+                          </span>
+                          {resolvedUserEmails.length > 0 ? (
+                            <span className={lightText}>{resolvedUserEmails.join(", ")}</span>
+                          ) : (
+                            <span className="text-rose-500 font-semibold">
+                              Seçili kullanıcıların profilinde geçerli bir e-posta adresi bulunmuyor!
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mb-1">
+                          Ek Harici E-Posta Adresleri (İsteğe Bağlı)
+                        </label>
+                        <input
+                          type="text"
+                          value={formData.extra_emails}
+                          onChange={(e) => setFormData({ ...formData, extra_emails: e.target.value })}
+                          placeholder="Sistem dışı alıcı eklemek isterseniz yazın: yonetim@firma.com, muhasebe@firma.com"
+                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-white"
+                        />
+                      </div>
+                    </div>
                   )}
                 </div>
 
@@ -667,7 +1278,7 @@ export default function ScheduledReportsPanel({
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                  className="px-4 py-2 rounded-xl text-xs font-bold border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
                 >
                   Vazgeç
                 </button>

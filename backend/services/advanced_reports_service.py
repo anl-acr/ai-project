@@ -24,7 +24,9 @@ from backend.database.models import (
     ChatSession,
     Contact,
     PBXQueue,
+    QueueSurveyResponse,
     SystemUser,
+    Transcript,
     Trunk,
     VoipQualityLog,
 )
@@ -1612,15 +1614,173 @@ async def report_voip_quality(
 # ============================================================================
 # 9. SANTRAL > ZAMANLANMIŞ OTOMATİK RAPOR GÖNDERİMİ (SCHEDULED REPORTS)
 # ============================================================================
-SCHEDULE_REPORT_TYPES_LABELS = {
-    "cdr_summary": "Genel Çağrı & CDR Özeti",
-    "breaks_attendance": "Temsilci Mola & Puantaj Özeti",
-    "queue_sla": "Kuyruk SLA & Bekleme Analizi",
-    "omnichannel": "Omnichannel (WhatsApp/Dijital) Özeti",
-    "disposition": "Çağrı Sonuç Kodları (Disposition)",
-    "missed_recovery": "Kaçan Çağrı & Geri Kazanım",
-    "repeat_callers": "Tekrar Eden Arayanlar",
+SCHEDULE_REPORT_TYPES_LABELS: Dict[str, str] = {
+    "reports_pano": "Pano (Genel Özet)",
+    "reports_cdr": "CDR (Detaylı Çağrı Kayıtları)",
+    "reports_audio": "Ses Kayıtları",
+    "reports_transcripts": "Çağrı Transkripti",
+    "reports_sentiment": "Duygu Analizi",
+    "reports_intent": "Niyet Raporu",
+    "reports_qa": "Kalite Değerlendirmeleri",
+    "reports_notes": "Temsilci Notları",
+    "reports_perf": "Temsilci Performans & KPI",
+    "reports_queue": "Kuyruk / Bekleme Analitiği",
+    "reports_survey": "Anket Raporları",
+    "reports_sentiment_heat": "Duygu Durumu Isı Haritası",
+    "reports_wordcloud": "Kelime Bulutu & Trendler",
+    "reports_fcr": "İlk Aramada Çözüm (FCR)",
+    "reports_roi": "AI vs. İnsan ROI Paneli",
+    "reports_missed": "Kaçan Çağrı Analizi",
+    "agent_timeline": "Temsilci Kronolojisi",
+    "reports_traffic_load": "Yoğunluk Raporu",
+    "reports_trunk": "Hat Kapasite Raporu",
+    "reports_did": "DID Raporu",
+    "reports_trunk_minutes": "Operatör Dakika & Paket Raporu",
+    "reports_invalid_calls": "Hatalı & Eşleşmeyen Çağrı Raporu",
+    "reports_ivr_drop": "IVR Terk Oranı",
+    "reports_transfer_hold": "Aktarma & Bekletme",
+    "reports_ab_testing": "Verimlilik Karşılaştırması",
+    "reports_friction": "Müşteri Çile Noktaları",
+    "reports_compliance": "Senaryo Sadakati Raporu",
+    "reports_silence": "Sessizlik & Söz Kesme",
+    "reports_ceo_summary": "CEO Özet Raporu",
+    "reports_breaks_attendance": "Mola & Puantaj Raporu",
+    "reports_omnichannel": "Omnichannel Kanal & SLA",
+    "reports_disposition": "Çağrı Sonuç Kodları",
+    "reports_dialer_callback": "Kampanya & Geri Arama",
+    "reports_queue_sla": "Kuyruk SLA & Hız Dilimleri",
+    "reports_repeat_callers": "Tekrar Eden Arayanlar",
+    "reports_dept_pickup": "Departman & Çağrı Toplama",
+    "reports_voip_quality": "VoIP & Ses Kalitesi (MOS)",
 }
+
+LEGACY_SCHEDULE_REPORT_KEY_MAP: Dict[str, str] = {
+    "cdr_summary": "reports_cdr",
+    "breaks_attendance": "reports_breaks_attendance",
+    "queue_sla": "reports_queue_sla",
+    "omnichannel": "reports_omnichannel",
+    "disposition": "reports_disposition",
+    "missed_recovery": "reports_missed",
+    "repeat_callers": "reports_repeat_callers",
+}
+
+
+def _normalize_schedule_report_types(raw_types: Optional[List[str]]) -> List[str]:
+    out: List[str] = []
+    for k in raw_types or []:
+        raw_k = str(k or "").strip()
+        if not raw_k:
+            continue
+        mapped = LEGACY_SCHEDULE_REPORT_KEY_MAP.get(raw_k, raw_k)
+        if mapped in SCHEDULE_REPORT_TYPES_LABELS and mapped not in out:
+            out.append(mapped)
+    return out or ["reports_cdr"]
+
+
+async def _fetch_tenant_users_for_schedules(tenant_id: str) -> List[Dict[str, Any]]:
+    from backend.main import settings_db
+
+    users_out: List[Dict[str, Any]] = []
+    seen_keys = set()
+
+    try:
+        async with AsyncSessionLocal() as db:
+            stmt_u = _apply_tenant_clause(
+                select(SystemUser).order_by(SystemUser.id),
+                SystemUser,
+                tenant_id,
+            )
+            db_users = (await db.execute(stmt_u)).scalars().all()
+            for u in db_users:
+                ext = str(u.extension or "").strip()
+                uid_str = str(u.id) if u.id is not None else ext
+                if not uid_str or uid_str in seen_keys:
+                    continue
+                seen_keys.add(uid_str)
+                users_out.append(
+                    {
+                        "id": uid_str,
+                        "user_id": u.id,
+                        "extension": ext,
+                        "full_name": str(u.full_name or f"Dahili {ext}").strip(),
+                        "email": str(u.email or "").strip(),
+                        "gsm_number": str(u.gsm_number or "").strip(),
+                        "role": str(u.role or "agent").strip(),
+                        "is_active": bool(u.is_active) if u.is_active is not None else True,
+                    }
+                )
+    except Exception as e_u:
+        print(f"[ScheduledReports Users DB Error]: {e_u}")
+
+    if not users_out:
+        for du in settings_db.get("users", []) or []:
+            if not isinstance(du, dict) or not _match_dict_tenant(du, tenant_id):
+                continue
+            ext = str(du.get("extension") or "").strip()
+            uid_str = str(du.get("id") if du.get("id") is not None else ext).strip()
+            if not uid_str or uid_str in seen_keys:
+                continue
+            seen_keys.add(uid_str)
+            users_out.append(
+                {
+                    "id": uid_str,
+                    "user_id": du.get("id"),
+                    "extension": ext,
+                    "full_name": str(du.get("full_name") or du.get("name") or f"Dahili {ext}").strip(),
+                    "email": str(du.get("email") or "").strip(),
+                    "gsm_number": str(du.get("gsm_number") or "").strip(),
+                    "role": str(du.get("role") or "agent").strip(),
+                    "is_active": du.get("is_active", True) is not False,
+                }
+            )
+
+    return users_out
+
+
+async def _resolve_schedule_email_recipients(
+    tenant_id: str,
+    email_user_ids: Optional[List[Any]],
+    extra_emails_str: Optional[str],
+    legacy_emails_str: Optional[str] = None,
+) -> Tuple[List[str], List[Dict[str, str]]]:
+    """Resolves deduplicated recipient email addresses and matched user summary objects."""
+    users = await _fetch_tenant_users_for_schedules(tenant_id)
+    wanted_keys = {str(x).strip() for x in (email_user_ids or []) if str(x).strip()}
+
+    emails_ordered: List[str] = []
+    seen_lower = set()
+    matched_users: List[Dict[str, str]] = []
+
+    def _add_email(addr: str):
+        clean_e = str(addr or "").strip()
+        if "@" in clean_e and "." in clean_e.split("@")[-1]:
+            low = clean_e.lower()
+            if low not in seen_lower:
+                seen_lower.add(low)
+                emails_ordered.append(clean_e)
+
+    if wanted_keys:
+        for u in users:
+            u_id = str(u.get("id") or "").strip()
+            u_ext = str(u.get("extension") or "").strip()
+            u_mail = str(u.get("email") or "").strip()
+            if u_id in wanted_keys or (u_ext and f"ext:{u_ext}" in wanted_keys):
+                matched_users.append(
+                    {
+                        "id": u_id,
+                        "extension": u_ext,
+                        "full_name": u.get("full_name") or "",
+                        "email": u_mail,
+                    }
+                )
+                _add_email(u_mail)
+
+    raw_extra = str(extra_emails_str if extra_emails_str is not None else (legacy_emails_str or "")).strip()
+    if raw_extra:
+        for part in re.split(r"[,;\s]+", raw_extra):
+            _add_email(part)
+
+    return emails_ordered, matched_users
 
 
 async def _build_scheduled_report_bundle(
@@ -1672,105 +1832,355 @@ async def _build_scheduled_report_bundle(
         )
         chats = (await db.execute(stmt_s)).scalars().all()
 
+        stmt_surv = _apply_tenant_clause(
+            select(QueueSurveyResponse).where(QueueSurveyResponse.timestamp >= start_utc, QueueSurveyResponse.timestamp <= end_utc),
+            QueueSurveyResponse,
+            tenant_id,
+        )
+        surveys = (await db.execute(stmt_surv)).scalars().all()
+
+        stmt_qos = _apply_tenant_clause(
+            select(VoipQualityLog).where(VoipQualityLog.timestamp >= start_utc, VoipQualityLog.timestamp <= end_utc),
+            VoipQualityLog,
+            tenant_id,
+        )
+        qos_logs = (await db.execute(stmt_qos)).scalars().all()
+
+        stmt_trunks = _apply_tenant_clause(select(Trunk), Trunk, tenant_id)
+        trunks = (await db.execute(stmt_trunks)).scalars().all()
+
+        call_ids = [c.id for c in calls[:500] if c.id]
+        transcript_count = 0
+        if call_ids:
+            stmt_tr = select(Transcript.id).where(Transcript.call_id.in_(call_ids))
+            transcript_count = len((await db.execute(stmt_tr)).scalars().all())
+
     total_calls = len(calls)
     ans_calls = [c for c in calls if _is_answered_call(c)]
     missed_calls = total_calls - len(ans_calls)
-    total_talk_min = round(sum(_call_talk_sec(c) for c in ans_calls) / 60.0, 1)
+    ans_rate = round((len(ans_calls) / max(1, total_calls)) * 100.0, 1) if total_calls > 0 else 0.0
+    total_talk_sec = sum(_call_talk_sec(c) for c in ans_calls)
+    total_talk_min = round(total_talk_sec / 60.0, 1)
+    avg_talk_sec = round(total_talk_sec / max(1, len(ans_calls)), 1) if ans_calls else 0.0
     total_break_min = round(sum(int(b.duration_seconds or 0) for b in breaks) / 60.0, 1)
 
-    sections_plain: List[str] = [f"📊 AIDA SANTRAL ZAMANLANMIŞ RAPOR ÖZETİ", f"📅 Dönem: {range_label}", ""]
+    # Pre-compute shared slices across the 37 report modules
+    ai_calls = [c for c in ans_calls if not str(c.agent_name or "").strip() or "ai" in str(c.agent_name or "").lower()]
+    human_calls = [c for c in ans_calls if c not in ai_calls]
+    rec_calls = sum(1 for c in calls if str(c.recording_path or "").strip())
+    pos_sent = sum(1 for c in calls if str(c.sentiment or "").lower() in ("positive", "very_positive", "pozitif", "memnun", "mutlu", "olumlu"))
+    neg_sent = sum(1 for c in calls if str(c.sentiment or "").lower() in ("negative", "very_negative", "negatif", "öfkeli", "ofkeli", "kızgın", "olumsuz"))
+    neu_sent = max(0, total_calls - pos_sent - neg_sent)
+    qa_vals = [int(c.qa_score) for c in calls if c.qa_score is not None]
+    avg_qa = round(sum(qa_vals) / len(qa_vals), 1) if qa_vals else 0.0
+    notes_cnt = sum(1 for c in calls if str(c.agent_notes or "").strip())
+    tagged_cnt = sum(1 for c in ans_calls if str(c.agent_topic or "").strip())
+
+    q_calls = [c for c in calls if str(c.hangup_source or "").startswith("queue:")]
+    q_ans = [c for c in q_calls if _is_answered_call(c)]
+    q_wait_avg = round(sum(_call_wait_sec(c) for c in q_calls) / max(1, len(q_calls)), 1) if q_calls else 0.0
+    q_sla_ok = sum(1 for c in q_ans if _call_wait_sec(c) <= 20)
+    q_sla_pct = round((q_sla_ok / max(1, len(q_calls))) * 100.0, 1) if q_calls else 100.0
+
+    cnt_by_num: Dict[str, int] = {}
+    for c in calls:
+        l10 = _last10(c.caller_number)
+        if len(l10) >= 7:
+            cnt_by_num[l10] = cnt_by_num.get(l10, 0) + 1
+    unique_callers = len(cnt_by_num)
+    repeat_cnt = sum(1 for v in cnt_by_num.values() if v >= 2)
+    fcr_cnt = sum(1 for v in cnt_by_num.values() if v == 1)
+    fcr_pct = round((fcr_cnt / max(1, unique_callers)) * 100.0, 1) if unique_callers > 0 else 100.0
+
+    hourly_counts: Dict[str, int] = {}
+    for c in calls:
+        if c.start_time:
+            hr_k = (c.start_time + datetime.timedelta(hours=3)).strftime("%H:00")
+            hourly_counts[hr_k] = hourly_counts.get(hr_k, 0) + 1
+    peak_hour = max(hourly_counts.items(), key=lambda x: x[1])[0] if hourly_counts else "-"
+    peak_hour_cnt = hourly_counts.get(peak_hour, 0) if peak_hour != "-" else 0
+
+    sections_plain: List[str] = [
+        "📊 AIDA SANTRAL ZAMANLANMIŞ RAPOR ÖZETİ",
+        f"📅 Dönem: {range_label}",
+        "",
+    ]
     html_rows: List[str] = []
 
-    selected = set(report_types or ["cdr_summary"])
+    normalized_selected = _normalize_schedule_report_types(report_types)
 
-    if "cdr_summary" in selected or not selected:
-        ans_rate = round((len(ans_calls) / max(1, total_calls)) * 100.0, 1) if total_calls > 0 else 0.0
-        sections_plain.append(
-            f"📞 Genel Çağrı Özeti:\n• Toplam Çağrı: {total_calls}\n• Cevaplanan: {len(ans_calls)} (%{ans_rate})\n• Cevapsız/Başarısız: {missed_calls}\n• Toplam Konuşma: {total_talk_min} dk"
-        )
+    def _add_module_row(code: str, metric_text: str, metric_html: str):
+        label = SCHEDULE_REPORT_TYPES_LABELS.get(code, code)
+        sections_plain.append(f"• {label}: {metric_text}")
         html_rows.append(
-            f"<tr><td style='padding:8px;border:1px solid #e2e8f0;'><b>Genel Çağrı & CDR</b></td>"
-            f"<td style='padding:8px;border:1px solid #e2e8f0;'>Toplam: <b>{total_calls}</b> | Cevaplanan: <b>{len(ans_calls)}</b> (%{ans_rate}) | Cevapsız: <b>{missed_calls}</b> | Konuşma: <b>{total_talk_min} dk</b></td></tr>"
+            f"<tr><td style='padding:8px 10px;border:1px solid #e2e8f0;'><b>{label}</b></td>"
+            f"<td style='padding:8px 10px;border:1px solid #e2e8f0;'>{metric_html}</td></tr>"
         )
 
-    if "breaks_attendance" in selected:
-        sections_plain.append(
-            f"☕ Mola & Puantaj:\n• Toplam Mola Kaydı: {len(breaks)}\n• Toplam Mola Süresi: {total_break_min} dk"
-        )
-        html_rows.append(
-            f"<tr><td style='padding:8px;border:1px solid #e2e8f0;'><b>Mola & Puantaj</b></td>"
-            f"<td style='padding:8px;border:1px solid #e2e8f0;'>Mola Adedi: <b>{len(breaks)}</b> | Toplam Mola Süresi: <b>{total_break_min} dk</b></td></tr>"
-        )
+    for code in normalized_selected:
+        if code == "reports_pano":
+            _add_module_row(
+                code,
+                f"Toplam: {total_calls} | Cevaplanan: {len(ans_calls)} (%{ans_rate}) | Cevapsız: {missed_calls} | Konuşma: {total_talk_min} dk",
+                f"Toplam: <b>{total_calls}</b> | Cevaplanan: <b>{len(ans_calls)}</b> (%{ans_rate}) | Cevapsız: <b>{missed_calls}</b> | Konuşma: <b>{total_talk_min} dk</b>",
+            )
+        elif code == "reports_cdr":
+            _add_module_row(
+                code,
+                f"Toplam Kayıt: {total_calls} | Başarılı: {len(ans_calls)} | Başarısız/Cevapsız: {missed_calls} | Ort. Süre: {avg_talk_sec} sn",
+                f"Toplam Kayıt: <b>{total_calls}</b> | Başarılı: <b>{len(ans_calls)}</b> | Başarısız/Cevapsız: <b>{missed_calls}</b> | Ort. Süre: <b>{avg_talk_sec} sn</b>",
+            )
+        elif code == "reports_audio":
+            _add_module_row(
+                code,
+                f"Ses Kaydı Bulunan Çağrı: {rec_calls} / {len(ans_calls)} cevaplanan çağrı",
+                f"Ses Kaydı Bulunan: <b>{rec_calls}</b> / Cevaplanan: <b>{len(ans_calls)}</b>",
+            )
+        elif code == "reports_transcripts":
+            _add_module_row(
+                code,
+                f"Diyalog Satırı (Transkript): {transcript_count} mesaj | Özetlenen Çağrı: {sum(1 for c in calls if str(c.summary or '').strip())}",
+                f"Transkript Satırı: <b>{transcript_count}</b> | AI Özeti Olan Çağrı: <b>{sum(1 for c in calls if str(c.summary or '').strip())}</b>",
+            )
+        elif code == "reports_sentiment":
+            _add_module_row(
+                code,
+                f"Pozitif: {pos_sent} | Nötr: {neu_sent} | Negatif: {neg_sent}",
+                f"Pozitif: <b>{pos_sent}</b> | Nötr: <b>{neu_sent}</b> | Negatif: <b>{neg_sent}</b>",
+            )
+        elif code == "reports_intent":
+            top_topics: Dict[str, int] = {}
+            for c in calls:
+                tp = str(c.agent_topic or "").strip()
+                if tp:
+                    top_topics[tp] = top_topics.get(tp, 0) + 1
+            top_str = ", ".join(f"{k} ({v})" for k, v in sorted(top_topics.items(), key=lambda x: -x[1])[:3]) or "Veri yok"
+            _add_module_row(
+                code,
+                f"Tespit Edilen Başlıca Niyetler: {top_str}",
+                f"Başlıca Niyet / Konular: <b>{top_str}</b>",
+            )
+        elif code == "reports_qa":
+            _add_module_row(
+                code,
+                f"Değerlendirilen: {len(qa_vals)} çağrı | Ortalama Kalite Puanı: {avg_qa}",
+                f"Değerlendirilen: <b>{len(qa_vals)}</b> çağrı | Ortalama QA Puanı: <b>{avg_qa}</b>",
+            )
+        elif code == "reports_notes":
+            _add_module_row(
+                code,
+                f"Temsilci Notu Girilen Çağrı: {notes_cnt} adet",
+                f"Temsilci Notu Girilen Çağrı: <b>{notes_cnt}</b> adet",
+            )
+        elif code == "reports_perf":
+            active_agents = len({str(c.agent_name).strip() for c in ans_calls if str(c.agent_name or "").strip()})
+            _add_module_row(
+                code,
+                f"Aktif Görüşen Temsilci: {active_agents} | Cevaplanan: {len(human_calls)} | Ort. AHT: {avg_talk_sec} sn",
+                f"Aktif Temsilci: <b>{active_agents}</b> | İnsan Cevaplanan: <b>{len(human_calls)}</b> | Ort. Konuşma (AHT): <b>{avg_talk_sec} sn</b>",
+            )
+        elif code == "reports_queue":
+            _add_module_row(
+                code,
+                f"Kuyruk Çağrısı: {len(q_calls)} | Cevaplanan: {len(q_ans)} | Terk: {len(q_calls) - len(q_ans)} | Ort. Bekleme: {q_wait_avg} sn",
+                f"Kuyruk Çağrısı: <b>{len(q_calls)}</b> | Cevaplanan: <b>{len(q_ans)}</b> | Terk: <b>{len(q_calls) - len(q_ans)}</b> | Ort. Bekleme: <b>{q_wait_avg} sn</b>",
+            )
+        elif code == "reports_survey":
+            scored = [int(s.score) for s in surveys if s.score is not None]
+            csat_avg = round(sum(scored) / len(scored), 2) if scored else 0.0
+            _add_module_row(
+                code,
+                f"Katılım: {len(surveys)} anket | Ortalama Memnuniyet Puanı: {csat_avg} / 5",
+                f"Anket Katılımı: <b>{len(surveys)}</b> | Ortalama Puan (CSAT): <b>{csat_avg} / 5</b>",
+            )
+        elif code == "reports_sentiment_heat":
+            _add_module_row(
+                code,
+                f"Yoğun Saat: {peak_hour} ({peak_hour_cnt} çağrı) | Negatif Duygu Oranı: %{round((neg_sent / max(1, total_calls)) * 100, 1)}",
+                f"Zirve Saat: <b>{peak_hour}</b> ({peak_hour_cnt} çağrı) | Negatif Duygu: <b>%{round((neg_sent / max(1, total_calls)) * 100, 1)}</b>",
+            )
+        elif code == "reports_wordcloud":
+            words_cnt: Dict[str, int] = {}
+            for c in calls:
+                for w in re.findall(r"[a-zA-ZçğıöşüÇĞİÖŞÜ]{4,}", str(c.summary or "").lower()):
+                    words_cnt[w] = words_cnt.get(w, 0) + 1
+            top_w = ", ".join(k for k, _ in sorted(words_cnt.items(), key=lambda x: -x[1])[:5]) or "Veri yok"
+            _add_module_row(code, f"Öne Çıkan Kelimeler: {top_w}", f"Öne Çıkan Kelimeler: <b>{top_w}</b>")
+        elif code == "reports_fcr":
+            _add_module_row(
+                code,
+                f"İlk Aramada Çözüm (FCR): %{fcr_pct} ({fcr_cnt} / {unique_callers} tekil numara)",
+                f"FCR Oranı: <b>%{fcr_pct}</b> ({fcr_cnt} / {unique_callers} tekil numara)",
+            )
+        elif code == "reports_roi":
+            ai_min = round(sum(_call_talk_sec(c) for c in ai_calls) / 60.0, 1)
+            _add_module_row(
+                code,
+                f"AI Karşılanan: {len(ai_calls)} ({ai_min} dk) | İnsan Temsilci: {len(human_calls)}",
+                f"AI Karşılanan: <b>{len(ai_calls)}</b> ({ai_min} dk) | İnsan Temsilci: <b>{len(human_calls)}</b>",
+            )
+        elif code == "reports_missed":
+            _add_module_row(
+                code,
+                f"Toplam Kaçan / Başarısız Çağrı: {missed_calls} adet",
+                f"Toplam Kaçan / Başarısız Çağrı: <b>{missed_calls}</b> adet",
+            )
+        elif code == "agent_timeline":
+            _add_module_row(
+                code,
+                f"Mola Kaydı: {len(breaks)} ({total_break_min} dk) | Aktif Görüşme: {total_talk_min} dk",
+                f"Mola Kaydı: <b>{len(breaks)}</b> ({total_break_min} dk) | Toplam Görüşme: <b>{total_talk_min} dk</b>",
+            )
+        elif code == "reports_traffic_load":
+            _add_module_row(
+                code,
+                f"En Yoğun Saat Dilimi: {peak_hour} ({peak_hour_cnt} çağrı) | Toplam Trafik: {total_calls}",
+                f"Zirve Saat Dilimi: <b>{peak_hour}</b> ({peak_hour_cnt} çağrı) | Toplam Trafik: <b>{total_calls}</b>",
+            )
+        elif code == "reports_trunk":
+            trunk_used = len({str(c.trunk_name).strip() for c in calls if str(c.trunk_name or "").strip()})
+            _add_module_row(
+                code,
+                f"Tanımlı Trunk: {len(trunks)} | Trafik Geçen Aktif Hat: {trunk_used}",
+                f"Tanımlı Trunk: <b>{len(trunks)}</b> | Trafik Geçen Hat: <b>{trunk_used}</b>",
+            )
+        elif code == "reports_did":
+            dids = {str(c.callee_number or "").strip() for c in calls if len(re.sub(r"\D", "", str(c.callee_number or ""))) >= 7}
+            _add_module_row(
+                code,
+                f"Aktif Trafik Alan DID Numarası: {len(dids)} adet",
+                f"Trafik Alan Tekil DID Numarası: <b>{len(dids)}</b> adet",
+            )
+        elif code == "reports_trunk_minutes":
+            _add_module_row(
+                code,
+                f"Dönem İçi Kullanılan Dakika: {total_talk_min} dk ({len(trunks)} SIP Trunk)",
+                f"Dönem İçi Kullanılan Dakika: <b>{total_talk_min} dk</b> ({len(trunks)} SIP Trunk)",
+            )
+        elif code == "reports_invalid_calls":
+            inv_cnt = sum(1 for c in calls if str(c.hangup_source or "").startswith("call_error:") or str(c.status or "").lower() in ("failed", "rejected", "invalid"))
+            _add_module_row(
+                code,
+                f"Hatalı / Eşleşmeyen Çağrı: {inv_cnt} adet",
+                f"Hatalı / Eşleşmeyen Çağrı: <b>{inv_cnt}</b> adet",
+            )
+        elif code == "reports_ivr_drop":
+            ivr_calls = [c for c in calls if c.ivr_events]
+            ivr_drop = sum(1 for c in ivr_calls if not _is_answered_call(c))
+            _add_module_row(
+                code,
+                f"IVR'a Giren: {len(ivr_calls)} | IVR'da Terk: {ivr_drop}",
+                f"IVR'a Giren: <b>{len(ivr_calls)}</b> | IVR'da Terk: <b>{ivr_drop}</b>",
+            )
+        elif code == "reports_transfer_hold":
+            trf_cnt = sum(1 for c in calls if str(c.status or "").lower() == "transferred")
+            _add_module_row(
+                code,
+                f"Aktarılan (Transfer) Çağrı: {trf_cnt} adet",
+                f"Aktarılan (Transfer) Çağrı: <b>{trf_cnt}</b> adet",
+            )
+        elif code == "reports_ab_testing":
+            _add_module_row(
+                code,
+                f"AI Cevaplanan: {len(ai_calls)} | İnsan Cevaplanan: {len(human_calls)} | Genel Cevaplama: %{ans_rate}",
+                f"AI Cevaplanan: <b>{len(ai_calls)}</b> | İnsan Cevaplanan: <b>{len(human_calls)}</b> | Cevaplama: <b>%{ans_rate}</b>",
+            )
+        elif code == "reports_friction":
+            _add_module_row(
+                code,
+                f"Olumsuz Deneyim / Çile Noktası Tespit Edilen Çağrı: {neg_sent} adet",
+                f"Olumsuz Deneyim / Çile Noktası Çağrısı: <b>{neg_sent}</b> adet",
+            )
+        elif code == "reports_compliance":
+            comp_ok = sum(1 for v in qa_vals if v >= 70)
+            _add_module_row(
+                code,
+                f"Uyumlu Çağrı (QA >= 70): {comp_ok} / {len(qa_vals)} denetlenen",
+                f"Senaryoya Uyumlu (QA &ge; 70): <b>{comp_ok}</b> / <b>{len(qa_vals)}</b> denetlenen",
+            )
+        elif code == "reports_silence":
+            short_ans = sum(1 for c in ans_calls if 0 < _call_talk_sec(c) <= 5)
+            _add_module_row(
+                code,
+                f"Çok Kısa / Sessiz Kapanan Görüşme (<=5 sn): {short_ans} adet",
+                f"Çok Kısa / Sessiz Kapanan (&le;5 sn): <b>{short_ans}</b> adet",
+            )
+        elif code == "reports_ceo_summary":
+            _add_module_row(
+                code,
+                f"Çağrı: {total_calls} (%{ans_rate} Cevaplama) | FCR: %{fcr_pct} | SLA: %{q_sla_pct} | Dijital Oturum: {len(chats)}",
+                f"Çağrı: <b>{total_calls}</b> (%{ans_rate}) | FCR: <b>%{fcr_pct}</b> | SLA: <b>%{q_sla_pct}</b> | Dijital: <b>{len(chats)}</b>",
+            )
+        elif code == "reports_breaks_attendance":
+            _add_module_row(
+                code,
+                f"Toplam Mola Adedi: {len(breaks)} | Toplam Mola Süresi: {total_break_min} dk",
+                f"Mola Adedi: <b>{len(breaks)}</b> | Toplam Mola Süresi: <b>{total_break_min} dk</b>",
+            )
+        elif code == "reports_omnichannel":
+            ai_chats = sum(1 for s in chats if str(s.assigned_agent or "").lower() != "human")
+            hum_chats = len(chats) - ai_chats
+            _add_module_row(
+                code,
+                f"Toplam Oturum: {len(chats)} | AI Otonom: {ai_chats} | Canlı Temsilci: {hum_chats}",
+                f"Oturum: <b>{len(chats)}</b> | AI Otonom: <b>{ai_chats}</b> | Canlı Temsilci: <b>{hum_chats}</b>",
+            )
+        elif code == "reports_disposition":
+            _add_module_row(
+                code,
+                f"Sonuç Kodu Girilen: {tagged_cnt} / {len(ans_calls)} cevaplanan çağrı",
+                f"Kod Girilen: <b>{tagged_cnt}</b> / Cevaplanan: <b>{len(ans_calls)}</b>",
+            )
+        elif code == "reports_dialer_callback":
+            out_calls = [c for c in calls if len(re.sub(r"\D", "", str(c.callee_number or ""))) >= 10]
+            out_ans = sum(1 for c in out_calls if _is_answered_call(c))
+            _add_module_row(
+                code,
+                f"Dış Arama / Geri Dönüş: {len(out_calls)} | İsabetli (Cevaplanan): {out_ans}",
+                f"Dış Arama / Callback: <b>{len(out_calls)}</b> | Cevaplanan: <b>{out_ans}</b>",
+            )
+        elif code == "reports_queue_sla":
+            _add_module_row(
+                code,
+                f"Kuyruk Çağrısı: {len(q_calls)} | Cevaplanan: {len(q_ans)} | SLA (20sn): %{q_sla_pct}",
+                f"Kuyruk Çağrısı: <b>{len(q_calls)}</b> | Cevaplanan: <b>{len(q_ans)}</b> | SLA (20sn): <b>%{q_sla_pct}</b>",
+            )
+        elif code == "reports_repeat_callers":
+            _add_module_row(
+                code,
+                f"2+ Kez Arayan Tekil Müşteri: {repeat_cnt} numara",
+                f"2+ Kez Arayan Tekil Müşteri: <b>{repeat_cnt}</b> numara",
+            )
+        elif code == "reports_dept_pickup":
+            pickup_cnt = sum(1 for c in calls if "pickup" in str(c.hangup_source or "").lower())
+            _add_module_row(
+                code,
+                f"Çağrı Toplama (*8) Adedi: {pickup_cnt} | Toplam Cevaplanan: {len(ans_calls)}",
+                f"Çağrı Toplama (*8): <b>{pickup_cnt}</b> | Toplam Cevaplanan: <b>{len(ans_calls)}</b>",
+            )
+        elif code == "reports_voip_quality":
+            avg_mos = round(sum(float(q.mos_score or 4.4) for q in qos_logs) / len(qos_logs), 2) if qos_logs else 4.40
+            _add_module_row(
+                code,
+                f"Ölçüm Örneği: {len(qos_logs)} | Ortalama MOS Ses Kalitesi: {avg_mos} / 4.50",
+                f"WebRTC Ölçümü: <b>{len(qos_logs)}</b> | Ortalama MOS: <b>{avg_mos} / 4.50</b>",
+            )
 
-    if "queue_sla" in selected:
-        q_calls = [c for c in calls if str(c.hangup_source or "").startswith("queue:")]
-        q_ans = [c for c in q_calls if _is_answered_call(c)]
-        q_sla_ok = sum(1 for c in q_ans if _call_wait_sec(c) <= 20)
-        q_sla_pct = round((q_sla_ok / max(1, len(q_calls))) * 100.0, 1) if q_calls else 100.0
-        sections_plain.append(
-            f"🎯 Kuyruk SLA (20sn):\n• Kuyruk Çağrısı: {len(q_calls)} | Cevaplanan: {len(q_ans)} | SLA: %{q_sla_pct}"
-        )
-        html_rows.append(
-            f"<tr><td style='padding:8px;border:1px solid #e2e8f0;'><b>Kuyruk SLA (20sn)</b></td>"
-            f"<td style='padding:8px;border:1px solid #e2e8f0;'>Kuyruk Çağrısı: <b>{len(q_calls)}</b> | Cevaplanan: <b>{len(q_ans)}</b> | SLA Başarısı: <b>%{q_sla_pct}</b></td></tr>"
-        )
-
-    if "omnichannel" in selected:
-        ai_chats = sum(1 for s in chats if str(s.assigned_agent or "").lower() != "human")
-        hum_chats = len(chats) - ai_chats
-        sections_plain.append(
-            f"💬 Omnichannel Sohbet:\n• Toplam Oturum: {len(chats)} | AI Çözüm: {ai_chats} | Temsilci Devir: {hum_chats}"
-        )
-        html_rows.append(
-            f"<tr><td style='padding:8px;border:1px solid #e2e8f0;'><b>Omnichannel Dijital</b></td>"
-            f"<td style='padding:8px;border:1px solid #e2e8f0;'>Oturum: <b>{len(chats)}</b> | AI Otonom: <b>{ai_chats}</b> | Canlı Temsilci: <b>{hum_chats}</b></td></tr>"
-        )
-
-    if "disposition" in selected:
-        tagged_c = sum(1 for c in ans_calls if str(c.agent_topic or "").strip())
-        sections_plain.append(
-            f"🏷️ Sonuç Kodları:\n• Kod Girilen: {tagged_c}/{len(ans_calls)} çağrı"
-        )
-        html_rows.append(
-            f"<tr><td style='padding:8px;border:1px solid #e2e8f0;'><b>Çağrı Sonuç Kodları</b></td>"
-            f"<td style='padding:8px;border:1px solid #e2e8f0;'>Kod Girilen: <b>{tagged_c}</b> / Cevaplanan: <b>{len(ans_calls)}</b></td></tr>"
-        )
-
-    if "missed_recovery" in selected:
-        sections_plain.append(f"📵 Cevapsız Çağrılar: {missed_calls} adet")
-        html_rows.append(
-            f"<tr><td style='padding:8px;border:1px solid #e2e8f0;'><b>Kaçan Çağrı Analizi</b></td>"
-            f"<td style='padding:8px;border:1px solid #e2e8f0;'>Toplam Cevapsız / Başarısız: <b>{missed_calls}</b></td></tr>"
-        )
-
-    if "repeat_callers" in selected:
-        cnt_by_num: Dict[str, int] = {}
-        for c in calls:
-            l10 = _last10(c.caller_number)
-            if len(l10) >= 7:
-                cnt_by_num[l10] = cnt_by_num.get(l10, 0) + 1
-        rep_cnt = sum(1 for v in cnt_by_num.values() if v >= 2)
-        sections_plain.append(f"🔁 Tekrar Eden Arayanlar (2+): {rep_cnt} numara")
-        html_rows.append(
-            f"<tr><td style='padding:8px;border:1px solid #e2e8f0;'><b>Tekrar Eden Arayanlar</b></td>"
-            f"<td style='padding:8px;border:1px solid #e2e8f0;'>2+ Kez Arayan Tekil Müşteri: <b>{rep_cnt}</b></td></tr>"
-        )
-
-    plain_body = "\n\n".join(sections_plain)
+    plain_body = "\n".join(sections_plain)
     html_body = f"""
     <html>
       <body style="font-family: Arial, sans-serif; color: #1e293b; line-height: 1.5;">
-        <div style="max-width: 680px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
+        <div style="max-width: 720px; margin: 0 auto; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
           <div style="background: #0f172a; color: #ffffff; padding: 18px 24px;">
             <h2 style="margin: 0; font-size: 18px;">AIDA Santral — Zamanlanmış Yönetici Raporu</h2>
-            <p style="margin: 4px 0 0; font-size: 12px; color: #94a3b8;">Dönem: {range_label}</p>
+            <p style="margin: 4px 0 0; font-size: 12px; color: #94a3b8;">Dönem: {range_label} • Dahil Edilen Modül: {len(normalized_selected)}</p>
           </div>
           <div style="padding: 20px 24px;">
             <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
               <thead>
                 <tr style="background: #f8fafc;">
-                  <th style="padding: 8px; border: 1px solid #e2e8f0; text-align: left;">Rapor Modülü</th>
-                  <th style="padding: 8px; border:1px solid #e2e8f0; text-align: left;">Özet Metrikler</th>
+                  <th style="padding: 8px 10px; border: 1px solid #e2e8f0; text-align: left; width: 38%;">Rapor Modülü</th>
+                  <th style="padding: 8px 10px; border: 1px solid #e2e8f0; text-align: left;">Özet Metrikler</th>
                 </tr>
               </thead>
               <tbody>
@@ -1813,7 +2223,7 @@ async def execute_scheduled_report(schedule: Dict[str, Any]) -> Dict[str, Any]:
 
     tenant_id = str(schedule.get("tenant_id") or "tenant-default")
     title = str(schedule.get("name") or "Zamanlanmış Rapor").strip()
-    report_types = schedule.get("report_types") or ["cdr_summary"]
+    report_types = _normalize_schedule_report_types(schedule.get("report_types"))
     period_range = str(schedule.get("period_range") or "yesterday").strip()
 
     range_label, plain_body, html_body, csv_bytes = await _build_scheduled_report_bundle(
@@ -1825,10 +2235,17 @@ async def execute_scheduled_report(schedule: Dict[str, Any]) -> Dict[str, Any]:
     delivery_results = []
     any_ok = False
 
-    # 1. Email Delivery with CSV Attachment
+    # 1. Email Delivery with CSV Attachment (resolving selected system users + extra manual emails)
     if schedule.get("send_email", True):
-        raw_emails = str(schedule.get("email_recipients") or "").strip()
-        recipients = [e.strip() for e in re.split(r"[,;\s]+", raw_emails) if "@" in e]
+        email_user_ids = schedule.get("email_user_ids") or []
+        extra_emails = schedule.get("extra_emails")
+        legacy_emails = schedule.get("email_recipients") if not email_user_ids and extra_emails is None else None
+        recipients, _ = await _resolve_schedule_email_recipients(
+            tenant_id=tenant_id,
+            email_user_ids=email_user_ids,
+            extra_emails_str=extra_emails,
+            legacy_emails_str=legacy_emails,
+        )
         if recipients:
             notif_cfg = get_tenant_notification_settings(settings_db, tenant_id)
             channels_cfg = settings_db.get("channels", {}) or {}
@@ -1882,6 +2299,8 @@ async def execute_scheduled_report(schedule: Dict[str, Any]) -> Dict[str, Any]:
                     delivery_results.append(f"SMTP Hatası: {e_mail}")
             else:
                 delivery_results.append("SMTP sunucu ayarları tanımlı değil")
+        else:
+            delivery_results.append("Seçili kullanıcılarda geçerli e-posta adresi bulunamadı")
 
     # 2. WhatsApp Summary Delivery
     if schedule.get("send_whatsapp", False):
@@ -1930,18 +2349,26 @@ async def list_scheduled_reports(request: Request):
     from backend.main import settings_db
 
     tenant_id = _extract_tenant_id(request)
-    all_scheds = [
+    raw_scheds = [
         s for s in (settings_db.get("scheduled_reports", []) or [])
         if isinstance(s, dict) and _match_dict_tenant(s, tenant_id)
     ]
+    all_scheds = []
+    for s in raw_scheds:
+        sc = dict(s)
+        sc["report_types"] = _normalize_schedule_report_types(sc.get("report_types"))
+        all_scheds.append(sc)
+
     all_hist = [
         h for h in (settings_db.get("scheduled_reports_history", []) or [])
         if isinstance(h, dict) and _match_dict_tenant(h, tenant_id)
     ]
+    users_list = await _fetch_tenant_users_for_schedules(tenant_id)
     return {
         "schedules": all_scheds,
         "history": all_hist[:30],
         "report_types": SCHEDULE_REPORT_TYPES_LABELS,
+        "users": users_list,
     }
 
 
@@ -1957,6 +2384,18 @@ async def save_scheduled_report(request: Request, payload: Dict[str, Any] = Body
     s_id = str(payload.get("id") or "").strip()
     name = str(payload.get("name") or "").strip() or "Günlük Santral Özeti"
 
+    raw_user_ids = payload.get("email_user_ids")
+    email_user_ids = [str(uid).strip() for uid in (raw_user_ids or []) if str(uid).strip()]
+    extra_emails = str(payload.get("extra_emails") if payload.get("extra_emails") is not None else "").strip()
+    legacy_emails = str(payload.get("email_recipients") or "").strip() if not email_user_ids and "extra_emails" not in payload else None
+
+    resolved_emails, matched_users = await _resolve_schedule_email_recipients(
+        tenant_id=tenant_id,
+        email_user_ids=email_user_ids,
+        extra_emails_str=extra_emails,
+        legacy_emails_str=legacy_emails,
+    )
+
     record = {
         "id": s_id or f"sched-{int(datetime.datetime.utcnow().timestamp() * 1000)}",
         "tenant_id": tenant_id,
@@ -1967,9 +2406,12 @@ async def save_scheduled_report(request: Request, payload: Dict[str, Any] = Body
         "day_of_week": int(payload.get("day_of_week") or 0),  # 0=Monday .. 6=Sunday
         "day_of_month": max(1, min(28, int(payload.get("day_of_month") or 1))),
         "period_range": str(payload.get("period_range") or "yesterday").strip(),
-        "report_types": list(payload.get("report_types") or ["cdr_summary"]),
+        "report_types": _normalize_schedule_report_types(payload.get("report_types")),
         "send_email": bool(payload.get("send_email", True)),
-        "email_recipients": str(payload.get("email_recipients") or "").strip(),
+        "email_user_ids": email_user_ids,
+        "email_user_names": [u.get("full_name") or u.get("extension") for u in matched_users],
+        "extra_emails": extra_emails if "extra_emails" in payload else (legacy_emails or ""),
+        "email_recipients": ", ".join(resolved_emails),
         "send_whatsapp": bool(payload.get("send_whatsapp", False)),
         "whatsapp_recipients": str(payload.get("whatsapp_recipients") or "").strip(),
         "last_run_at": payload.get("last_run_at") or None,
