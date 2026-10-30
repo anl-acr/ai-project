@@ -3669,7 +3669,8 @@ same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
 same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out:deny_out)
 same => n(deny_out),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, Sebep=${{OUT_ACL}})
-same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
+same => n,Progress()
+same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
 same => n,Hangup(21)
 same => n(allow_out),NoOp(Dis arama onaylandi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
@@ -3728,16 +3729,17 @@ same => n(already_registered_int),Set(ACL_RESULT=${{CURL(http://{backend_host}/a
 same => n,GotoIf($["${{ACL_RESULT}}" = "DENY"]?deny:allow)
 same => n(deny),NoOp(ACL REDDEDILDI: Yetkisiz arama)
 same => n,Set(DIALSTATUS=FAILED)
-same => n,Answer()
-same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
-same => n,Hangup()
+same => n,Progress()
+same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
+same => n,Hangup(21)
 same => n(outbound_route_ext),NoOp(Prefixli veya 7+ haneli dis arama yonlendiriliyor: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(OUT_ACL=${{CURL(http://{backend_host}/api/acl/check_outbound_call?caller=${{CALLERID(num)}}&callee=${{EXTEN}}&channel=${{URIENCODE(${{CHANNEL(name)}})}}&via=${{URIENCODE(${{PJSIP_HEADER(read,Via)}})}})}})
 same => n,GotoIf($["${{OUT_ACL}}" = "ALLOW"]?allow_out_ext:deny_out_ext)
 same => n(deny_out_ext),NoOp(GUVENLIK ENGELI: Yetkisiz veya sahte dis arama reddedildi -> Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}}, Sebep=${{OUT_ACL}})
-same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama)
+same => n,Progress()
+same => n,Playback(/var/spool/asterisk/monitor/tr_yetkisiz_arama,noanswer)
 same => n,Hangup(21)
 same => n(allow_out_ext),NoOp(Dis arama onaylandi: Arayan=${{CALLERID(num)}}, Aranan=${{EXTEN}})
 same => n,Set(MD5_VAL=${{MD5(${{UNIQUEID}}${{EPOCH}})}})
@@ -3846,13 +3848,17 @@ same => n,GotoIf($["${{FWD_STATUS}}"="ALLOW"]?forward_call:end_call)
 
 same => n(end_call),NoOp(Cagri tamamlandi veya yanitlanmadi: Status=${{DIALSTATUS}})
 same => n,GotoIf($["${{DIALSTATUS}}"="ANSWER"]?check_post_call_survey)
-same => n,GotoIf($["${{DIALSTATUS}}"="CANCEL"]?final_hangup)
-same => n,Answer()
+same => n,Set(DIALSTATUS=${{IF($["${{DIALSTATUS}}"=""]?NOANSWER:${{DIALSTATUS}})}})
+same => n,GotoIf($["${{DIALSTATUS}}"="CANCEL"]?hangup_cancel)
+same => n,Progress()
 same => n,GotoIf($["${{DIALSTATUS}}"="BUSY"]?play_busy:play_unavail)
-same => n(play_busy),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul)
-same => n,Goto(final_hangup)
-same => n(play_unavail),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor)
-same => n,Goto(final_hangup)
+same => n(play_busy),Playback(/var/spool/asterisk/monitor/tr_abone_mesgul,noanswer)
+same => n,Hangup(17)
+same => n(play_unavail),Playback(/var/spool/asterisk/monitor/tr_abone_ulasilamiyor,noanswer)
+same => n,GotoIf($["${{DIALSTATUS}}"="NOANSWER"]?hangup_noans:hangup_unavail)
+same => n(hangup_noans),Hangup(19)
+same => n(hangup_unavail),Hangup(20)
+same => n(hangup_cancel),Hangup(16)
 same => n(check_post_call_survey),Set(SURVEY_CFG=${{CURL(http://{backend_host}/api/queues/survey/config?queue_ext=${{EXTEN}}&agent_ext=${{EXTEN}}&call_id=${{CALL_UUID}})}})
 same => n,GotoIf($["${{CUT(SURVEY_CFG,:,1)}}" != "ENABLED"]?final_hangup)
 same => n,Set(SURVEY_Q_EXT=${{CUT(SURVEY_CFG,:,2)}})
@@ -3884,16 +3890,16 @@ exten => _[1-9],1,NoOp(Hatali Tek Haneli Tuslama: Arayan=${{CALLERID(num)}}, Ara
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(INV_LOG=${{CURL(http://{backend_host}/api/calls/log_invalid?caller=${{URIENCODE(${{CALLERID(num)}})}}&callee=${{URIENCODE(${{EXTEN}})}}&category=invalid_dialplan&asterisk_id=${{UNIQUEID}})}})
-same => n,Answer()
-same => n,Playback(beeperr)
+same => n,Progress()
+same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
 
 exten => i,1,NoOp(Eslesmeyen / Gecersiz Uzanti: Arayan=${{CALLERID(num)}}, Aranan=${{INVALID_EXTEN}})
 same => n,Set(CURLOPT(conntimeout)=1)
 same => n,Set(CURLOPT(httptimeout)=2)
 same => n,Set(INV_LOG=${{CURL(http://{backend_host}/api/calls/log_invalid?caller=${{URIENCODE(${{CALLERID(num)}})}}&callee=${{URIENCODE(${{INVALID_EXTEN}})}}&category=invalid_dialplan&asterisk_id=${{UNIQUEID}})}})
-same => n,Answer()
-same => n,Playback(beeperr)
+same => n,Progress()
+same => n,Playback(beeperr,noanswer)
 same => n,Hangup(28)
 
 [mobile_transfer_context]
@@ -5620,9 +5626,12 @@ async def process_call_recording_and_retention(call_id: str):
             dynamic_enabled = bool(retention.get("dynamic_recording_enabled", False))
 
             if not dynamic_enabled:
-                # Standard mode: keep recording 100% intact
-                if db_call.recording_path in (None, "", "DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                # Standard mode: keep recording 100% intact when an actual WAV file exists
+                if wav_path and db_call.recording_path in (None, "", "DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
                     db_call.recording_path = f"/api/recordings/{call_id}.wav"
+                    await session.commit()
+                elif not wav_path and db_call.recording_path == f"/api/recordings/{call_id}.wav":
+                    db_call.recording_path = None
                     await session.commit()
 
                 # Ensure transcript & AI summary are populated BEFORE moving file to external storage
@@ -13373,13 +13382,20 @@ async def end_call_endpoint(
                 set_live_extension_call_state(picker_ext_val, None)
 
             db_call.end_time = datetime.datetime.utcnow()
-            db_call.recording_path = f"/api/recordings/{call_id}.wav"
             if trunk and str(trunk).strip() and not db_call.trunk_name:
                 db_call.trunk_name = str(trunk).strip()
 
             dur_sec = 0
             if db_call.start_time:
                 dur_sec = (db_call.end_time - db_call.start_time).total_seconds()
+
+            ami_ans_dt = None
+            try:
+                from backend.services.ami_manager import resolve_call_answered_at
+                ami_ans_dt = resolve_call_answered_at(call_id)
+            except Exception:
+                pass
+            wav_sec = _get_call_wav_duration_seconds(call_id)
 
             q_map = _get_queue_extensions_map()
             callee_s = str(db_call.callee_number or "").strip()
@@ -13432,13 +13448,21 @@ async def end_call_endpoint(
                 if cause == "16":
                     if db_call.status in ("no_answer", "cancelled", "busy", "failed", "missed"):
                         resolved_status = db_call.status
+                    elif (
+                        ami_ans_dt is None
+                        and wav_sec is None
+                        and dur_sec <= 3
+                        and hangup_src_val != "webrtc:callee_answered"
+                        and not hangup_src_val.startswith("pickup:")
+                    ):
+                        resolved_status = "no_answer"
                     else:
                         resolved_status = "completed"
                 elif cause == "17":
                     resolved_status = "busy"
                 elif cause in ("18", "19"):
                     resolved_status = "no_answer"
-                elif cause in ("21", "34", "38"):
+                elif cause in ("20", "21", "28", "34", "38"):
                     resolved_status = "failed"
             else:
                 caller = str(db_call.caller_number or "").strip()
@@ -13456,25 +13480,23 @@ async def end_call_endpoint(
                 resolved_status = "transferred"
             db_call.status = resolved_status
 
-            # Resolve exact talk_duration (matching .wav recording duration and excluding dialing/ringing time)
-            try:
-                from backend.services.ami_manager import resolve_call_answered_at
-                ami_ans_dt = resolve_call_answered_at(call_id)
-                if ami_ans_dt and not db_call.answered_at and not hangup_src_val.startswith("call_error:"):
-                    db_call.answered_at = ami_ans_dt
-            except Exception:
-                pass
-
             wall_sec = max(0, int(dur_sec))
             ast_ans_str = str(answeredtime or "").strip()
             ast_ans_sec = int(ast_ans_str) if ast_ans_str.isdigit() else None
+            cur_rec_flag = str(db_call.recording_path or "").strip()
 
             if resolved_status in ("no_answer", "busy", "cancelled", "failed", "blocked", "rejected_limit", "missed") or hangup_src_val.startswith("call_error:"):
                 db_call.talk_duration = 0
-                if hangup_src_val.startswith("call_error:"):
-                    db_call.answered_at = None
+                db_call.answered_at = None
+                if cur_rec_flag not in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                    db_call.recording_path = None
+                if hangup_src_val in ("webrtc:answered", "webrtc:callee_answered"):
+                    db_call.hangup_source = f"webrtc:unanswered:{resolved_status}"
             else:
-                wav_sec = _get_call_wav_duration_seconds(call_id)
+                if ami_ans_dt and not db_call.answered_at:
+                    db_call.answered_at = ami_ans_dt
+                if wav_sec is not None and cur_rec_flag not in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                    db_call.recording_path = f"/api/recordings/{call_id}.wav"
                 computed_talk = None
                 if wav_sec is not None and wav_sec > 0:
                     computed_talk = wav_sec
@@ -13553,12 +13575,22 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
         event_type = str(payload.get("event") or payload.get("action") or "start").strip().lower()
         duration = int(payload.get("duration") or 0)
         terminated_by = str(payload.get("terminated_by") or "").strip()
+        leg_direction = str(payload.get("direction") or "").strip().lower()
 
         if not caller or not callee:
             return {"status": "ignored", "reason": "missing_numbers"}
 
         now_utc = datetime.datetime.utcnow()
         q_map = _get_queue_extensions_map()
+        is_internal_pair = (
+            caller.isdigit()
+            and len(caller) <= 6
+            and bool(callee)
+            and len(callee) < 7
+            and not callee.startswith(("0", "+", "*", "#", "%23"))
+            and callee not in q_map
+            and callee not in ("s", "transfer_to_human")
+        )
 
         # Handle directed/group pickup (**1001 or *8) without creating a duplicate **1001 Call row
         if callee.startswith("**") or callee.startswith("*8"):
@@ -13731,11 +13763,29 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     # Let Asterisk dialplan (/api/calls/register) create the single authoritative Call record
                     await session.commit()
                     return {"status": "deferred_to_asterisk", "call_id": call_id}
-                resolved_init_status = "completed" if (event_type == "end" and duration > 0) else ("in_progress" if status == "ringing" else status)
+                eff_duration = duration
+                if (
+                    event_type == "end"
+                    and is_internal_pair
+                    and leg_direction != "inbound"
+                    and duration <= 2
+                    and _get_call_wav_duration_seconds(call_id) is None
+                ):
+                    eff_duration = 0
+                if event_type == "end" and eff_duration > 0:
+                    resolved_init_status = "completed"
+                elif status in ("in_progress", "ringing", "completed", ""):
+                    resolved_init_status = (
+                        "failed"
+                        if (is_internal_pair and not is_defined_internal_destination(callee, queues_map=q_map))
+                        else "no_answer"
+                    )
+                else:
+                    resolved_init_status = status
                 init_hsrc = (
                     f"webrtc:unanswered:{resolved_init_status}"
-                    if (event_type == "end" and duration == 0 and resolved_init_status in ("no_answer", "cancelled", "busy", "failed", "missed"))
-                    else ("webrtc:answered" if (event_type == "end" and duration > 0) else None)
+                    if (event_type == "end" and eff_duration == 0 and resolved_init_status in ("no_answer", "cancelled", "busy", "failed", "missed", "blocked"))
+                    else ("webrtc:answered" if (event_type == "end" and eff_duration > 0) else None)
                 )
                 init_start = now_utc - datetime.timedelta(seconds=max(0, duration)) if event_type == "end" else now_utc
                 db_call = Call(
@@ -13747,9 +13797,9 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                     ended_by=terminated_by if (event_type == "end" and terminated_by) else None,
                     tenant_id=call_tenant,
                     start_time=init_start,
-                    answered_at=init_start if (event_type == "end" and duration > 0) else None,
+                    answered_at=init_start if (event_type == "end" and eff_duration > 0) else None,
                     end_time=now_utc if event_type == "end" else None,
-                    talk_duration=max(0, duration) if event_type == "end" else None,
+                    talk_duration=max(0, eff_duration) if event_type == "end" else None,
                     agent_name=resolved_agent_name or None,
                     summary="Dahili Görüşme" if (len(caller) <= 5 and len(callee) <= 5) else None
                 )
@@ -13758,39 +13808,86 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                 if resolved_agent_name and not db_call.agent_name:
                     db_call.agent_name = resolved_agent_name
                 cur_hsrc = str(db_call.hangup_source or "").strip()
+                cur_st_low = str(db_call.status or "").strip().lower()
                 is_err_or_bl = cur_hsrc.startswith("call_error:") or cur_hsrc.startswith("blacklist:")
+                already_unanswered_ended = (
+                    db_call.end_time is not None
+                    and cur_st_low in ("no_answer", "busy", "cancelled", "failed", "blocked", "rejected_limit", "missed")
+                )
                 if event_type == "answer":
-                    if not is_err_or_bl:
+                    if not is_err_or_bl and not already_unanswered_ended:
                         db_call.status = "in_progress"
                         if not db_call.answered_at:
                             db_call.answered_at = now_utc
-                        if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
+                        if leg_direction == "inbound":
+                            db_call.hangup_source = "webrtc:callee_answered"
+                        elif (not cur_hsrc or cur_hsrc.startswith("webrtc:")) and cur_hsrc != "webrtc:callee_answered":
                             db_call.hangup_source = "webrtc:answered"
                 elif event_type == "end":
                     if terminated_by and not db_call.ended_by and not is_err_or_bl:
                         db_call.ended_by = terminated_by
                     if not db_call.end_time:
                         db_call.end_time = now_utc
+
+                    wav_c = _get_call_wav_duration_seconds(db_call.id) if duration > 0 else None
+                    is_false_unbridged_internal = (
+                        is_internal_pair
+                        and leg_direction != "inbound"
+                        and cur_hsrc != "webrtc:callee_answered"
+                        and not cur_hsrc.startswith("pickup:")
+                        and duration <= 2
+                        and wav_c is None
+                    )
+                    cur_rec_flag_w = str(db_call.recording_path or "").strip()
+
                     if is_err_or_bl:
                         db_call.status = db_call.status if db_call.status in ("blocked", "failed") else "failed"
                         db_call.talk_duration = 0
                         db_call.answered_at = None
+                        if cur_rec_flag_w not in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                            db_call.recording_path = None
+                    elif already_unanswered_ended:
+                        db_call.talk_duration = 0
+                        db_call.answered_at = None
+                        if cur_rec_flag_w not in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                            db_call.recording_path = None
+                    elif is_false_unbridged_internal:
+                        healed_st_w = (
+                            status
+                            if status in ("no_answer", "cancelled", "busy", "failed", "blocked", "missed")
+                            else (
+                                "failed"
+                                if not is_defined_internal_destination(callee, queues_map=q_map)
+                                else "no_answer"
+                            )
+                        )
+                        db_call.status = healed_st_w
+                        db_call.talk_duration = 0
+                        db_call.answered_at = None
+                        if cur_rec_flag_w not in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING"):
+                            db_call.recording_path = None
+                        if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
+                            db_call.hangup_source = f"webrtc:unanswered:{healed_st_w}"
                     elif cur_hsrc.startswith("pickup:"):
                         db_call.status = "completed"
                     elif duration > 0 or status == "completed":
                         db_call.status = "completed"
-                        if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
+                        if (not cur_hsrc or cur_hsrc.startswith("webrtc:")) and cur_hsrc != "webrtc:callee_answered":
                             db_call.hangup_source = "webrtc:answered"
-                    elif duration == 0 and status in ("no_answer", "cancelled", "busy", "failed", "missed"):
+                    elif duration == 0 and status in ("no_answer", "cancelled", "busy", "failed", "missed", "blocked"):
                         db_call.status = status
                         if not cur_hsrc or cur_hsrc.startswith("webrtc:"):
                             db_call.hangup_source = f"webrtc:unanswered:{status}"
                     elif db_call.status not in ("completed", "transferred", "blocked"):
                         db_call.status = status if status not in ("in_progress", "ringing") else "no_answer"
 
-                    if duration > 0 and not is_err_or_bl:
+                    if (
+                        duration > 0
+                        and not is_err_or_bl
+                        and not already_unanswered_ended
+                        and not is_false_unbridged_internal
+                    ):
                         end_ref = db_call.end_time or now_utc
-                        wav_c = _get_call_wav_duration_seconds(db_call.id)
                         if wav_c is not None and wav_c > 0:
                             db_call.talk_duration = wav_c
                         else:
@@ -13801,9 +13898,9 @@ async def log_webrtc_call_endpoint(payload: dict = Body(...), user_info: dict = 
                         if not db_call.answered_at:
                             inf_ans = end_ref - datetime.timedelta(seconds=db_call.talk_duration)
                             db_call.answered_at = max(db_call.start_time, inf_ans) if db_call.start_time else inf_ans
-                    elif duration == 0 and db_call.status in ("no_answer", "cancelled", "busy", "failed", "missed", "blocked"):
-                        if db_call.talk_duration is None:
-                            db_call.talk_duration = 0
+                    elif db_call.status in ("no_answer", "cancelled", "busy", "failed", "missed", "blocked", "rejected_limit"):
+                        db_call.talk_duration = 0
+                        db_call.answered_at = None
 
                     if not is_err_or_bl and not db_call.summary and len(caller) <= 5 and len(callee) <= 5:
                         db_call.summary = "Dahili Görüşme"
@@ -14472,6 +14569,8 @@ async def list_calls(
                 d = re.sub(r"\D", "", str(v or ""))
                 return d[-10:] if len(d) >= 10 else d
 
+            healed_unbridged_calls = []
+
             for c in calls_list:
                 c_caller = str(c.caller_number or "").strip()
                 c_callee = str(c.callee_number or "").strip()
@@ -14555,9 +14654,49 @@ async def list_calls(
                 # Expose exact talk, queue, and total durations (in seconds) matching .wav audio recording duration
                 total_wall_sec = max(0, int((c_end_i - c_start_i).total_seconds()))
                 st_norm = str(c.status or "").strip().lower()
+                raw_rec_check = str(getattr(c, "recording_path", "") or "").strip()
+                raw_talk_check = getattr(c, "talk_duration", None)
+
+                # Self-heal historical false 1-second unbridged internal calls caused by legacy dialplan Answer()
+                if (
+                    st_norm == "completed"
+                    and c.end_time is not None
+                    and not c_is_q_i
+                    and not c_hsrc_i.startswith("pickup:")
+                    and c_hsrc_i != "webrtc:callee_answered"
+                    and c_caller.isdigit()
+                    and len(c_caller) <= 6
+                    and c_callee
+                    and len(c_callee) < 7
+                    and not c_callee.startswith(("0", "+", "*", "#", "%23"))
+                    and c_callee not in ("s", "transfer_to_human")
+                    and raw_rec_check not in ("DELETED_BY_DYNAMIC_POLICY", "DISABLED_BY_USER_SETTING")
+                    and (
+                        total_wall_sec <= 2
+                        or (raw_talk_check is not None and int(raw_talk_check or 0) <= 2)
+                    )
+                    and _get_call_wav_duration_seconds(c.id) is None
+                ):
+                    healed_st = (
+                        "failed"
+                        if not is_defined_internal_destination(
+                            c_callee, users_list=all_users_cfg, queues_map=q_map, db_exts=all_db_exts_set
+                        )
+                        else ("failed" if total_wall_sec <= 2 else "no_answer")
+                    )
+                    healed_hsrc = f"webrtc:unanswered:{healed_st}"
+                    c.status = healed_st
+                    c.talk_duration = 0
+                    c.answered_at = None
+                    c.recording_path = None
+                    c.hangup_source = healed_hsrc
+                    c_hsrc_i = healed_hsrc
+                    st_norm = healed_st
+                    healed_unbridged_calls.append((c.id, healed_st, healed_hsrc))
+
                 is_unanswered_st = st_norm in ("no_answer", "no answer", "busy", "cancelled", "canceled", "failed", "blocked", "rejected_limit", "missed", "abandoned") or ":abandoned" in c_hsrc_i
 
-                resolved_talk_sec = 0 if c_hsrc_i.startswith("call_error:") else _resolve_authoritative_talk_seconds(c)
+                resolved_talk_sec = 0 if (is_unanswered_st or c_hsrc_i.startswith("call_error:")) else _resolve_authoritative_talk_seconds(c)
 
                 try:
                     db.expunge(c)
@@ -14658,6 +14797,27 @@ async def list_calls(
                     c.recording_path = None
                 else:
                     c.recording_deleted_reason = None
+                    if is_unanswered_st and rec_val.startswith("/api/recordings/") and _get_call_wav_duration_seconds(c.id) is None:
+                        c.recording_path = None
+
+            if healed_unbridged_calls:
+                try:
+                    from sqlalchemy import update as sa_update
+                    for h_cid, h_st, h_hsrc in healed_unbridged_calls:
+                        await db.execute(
+                            sa_update(Call)
+                            .where(Call.id == h_cid)
+                            .values(
+                                status=h_st,
+                                talk_duration=0,
+                                answered_at=None,
+                                recording_path=None,
+                                hangup_source=h_hsrc,
+                            )
+                        )
+                    await db.commit()
+                except Exception as heal_err:
+                    print(f"[List Calls Self-Heal Warning]: {heal_err}")
         except Exception as enrich_err:
             print(f"[List Calls Enrich Warning]: {enrich_err}")
 

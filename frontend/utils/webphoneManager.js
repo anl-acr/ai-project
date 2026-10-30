@@ -307,7 +307,8 @@ class WebphoneManager {
           sip_call_id: payload.sip_call_id || this.state.activeSipCallId || "",
           status: payload.status || "",
           duration: payload.duration ?? this.state.callDuration ?? 0,
-          terminated_by: payload.terminated_by || ""
+          terminated_by: payload.terminated_by || "",
+          direction: payload.direction || ""
         })
       }).catch(() => {});
     } catch (e) {}
@@ -933,7 +934,8 @@ class WebphoneManager {
       sip_call_id: sipCallId,
       caller: callerNum,
       callee: myExt,
-      destination: myExt
+      destination: myExt,
+      direction: "inbound"
     });
 
     const isChanSpyAutoAnswer =
@@ -983,7 +985,8 @@ class WebphoneManager {
           sip_call_id: sipCallId,
           caller: callerNum,
           callee: myExt,
-          destination: myExt
+          destination: myExt,
+          direction: "inbound"
         });
       } else if (state === SIP.SessionState.Terminated) {
         stopRingtoneSound();
@@ -1008,7 +1011,8 @@ class WebphoneManager {
             destination: myExt,
             duration: durSec,
             status: durSec > 0 ? "completed" : "no_answer",
-            terminated_by: remoteEndedBy
+            terminated_by: remoteEndedBy,
+            direction: "inbound"
           });
         }
 
@@ -1511,7 +1515,8 @@ class WebphoneManager {
       caller: myExt,
       callee: cleanTarget,
       sip_call_id: sipCallId,
-      status: "in_progress"
+      status: "in_progress",
+      direction: "outbound"
     });
 
     let wasEstablished = false;
@@ -1544,7 +1549,8 @@ class WebphoneManager {
           caller: myExt,
           callee: cleanTarget,
           sip_call_id: sipCallId,
-          status: "in_progress"
+          status: "in_progress",
+          direction: "outbound"
         });
       } else if (state === SIP.SessionState.Terminated) {
         stopRingbackTone();
@@ -1560,11 +1566,26 @@ class WebphoneManager {
           if (rejectStatusCode === 486 || rejectStatusCode === 600) finalStatus = "busy";
           else if (rejectStatusCode === 403 || rejectStatusCode === 603) finalStatus = "blocked";
           else if (rejectStatusCode === 487) finalStatus = "cancelled";
+          else if (rejectStatusCode === 408) finalStatus = "no_answer";
+          else if (
+            rejectStatusCode === 480 ||
+            rejectStatusCode === 484 ||
+            rejectStatusCode === 404 ||
+            rejectStatusCode === 503
+          ) {
+            finalStatus = "failed";
+          }
         }
         if (!currentLine.endLogged) {
           currentLine.endLogged = true;
           const remoteEndedBy =
-            !wasEstablished && (rejectStatusCode === 403 || rejectStatusCode === 603)
+            !wasEstablished &&
+            (rejectStatusCode === 403 ||
+              rejectStatusCode === 603 ||
+              rejectStatusCode === 480 ||
+              rejectStatusCode === 484 ||
+              rejectStatusCode === 404 ||
+              rejectStatusCode === 503)
               ? "system"
               : cleanTarget && /^\d+$/.test(cleanTarget) && cleanTarget.length <= 6
               ? `ext:${cleanTarget}`
@@ -1575,7 +1596,8 @@ class WebphoneManager {
             sip_call_id: sipCallId,
             status: finalStatus,
             duration: finalDuration,
-            terminated_by: remoteEndedBy
+            terminated_by: remoteEndedBy,
+            direction: "outbound"
           });
         }
 
@@ -1591,7 +1613,10 @@ class WebphoneManager {
     try {
       await inviter.invite({
         requestDelegate: {
-          onProgress: () => {
+          onProgress: (response) => {
+            if (response?.message?.statusCode === 183) {
+              stopRingbackTone();
+            }
             const currentLine = this.linesMap.get(lineId);
             if (currentLine) this.attachRemoteAudioForLine(currentLine);
           },
@@ -1604,10 +1629,20 @@ class WebphoneManager {
                 type: "error",
                 message: `Aranan numara (${cleanTarget}) şu anda meşgul.`
               });
+            } else if (code === 484) {
+              this.setCallNotification({
+                type: "error",
+                message: `Aranan dahili veya numara (${cleanTarget}) geçersiz ya da eksik.`
+              });
             } else if (code === 480 || code === 503 || code === 404) {
               this.setCallNotification({
                 type: "error",
                 message: `Aranan dahili veya numara (${cleanTarget}) şu anda çevrimdışı veya ulaşılamıyor.`
+              });
+            } else if (code === 408) {
+              this.setCallNotification({
+                type: "error",
+                message: `Aranan dahili veya numara (${cleanTarget}) yanıt vermedi.`
               });
             } else if (code === 403 || code === 603) {
               this.setCallNotification({
@@ -1709,7 +1744,8 @@ class WebphoneManager {
         callee: calleeVal,
         duration: durSec,
         status: finalStatus,
-        terminated_by: myExt ? `ext:${myExt}` : "agent"
+        terminated_by: myExt ? `ext:${myExt}` : "agent",
+        direction: isInbound ? "inbound" : "outbound"
       });
     }
 

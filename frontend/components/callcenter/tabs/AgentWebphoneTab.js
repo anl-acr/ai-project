@@ -717,8 +717,23 @@ export default function AgentWebphoneTab({
                         stLower === "no_answer" ||
                         stLower === "busy" ||
                         stLower === "cancelled" ||
-                        stLower === "failed";
+                        stLower === "failed" ||
+                        stLower === "blocked" ||
+                        stLower === "rejected_limit";
                       const isDirectMissed = !isOutbound && isMissed && !c.is_queue_call;
+                      const outboundFailedLabel =
+                        isOutbound && isMissed
+                          ? stLower === "busy"
+                            ? "Meşgul"
+                            : stLower === "cancelled"
+                            ? "İptal"
+                            : stLower === "failed" || stLower === "blocked" || stLower === "rejected_limit"
+                            ? "Başarısız"
+                            : "Yanıtsız"
+                          : "";
+                      const talkSecs = !isMissed
+                        ? Math.max(0, Number(c.talk_duration ?? c.duration_talk ?? 0) || 0)
+                        : 0;
                       const rawTime = String(c.start_time || "");
                       const utcTimeStr = rawTime
                         ? /[Zz]|[+-]\d{2}:?\d{2}$/.test(rawTime)
@@ -773,6 +788,11 @@ export default function AgentWebphoneTab({
                                     Cevapsız
                                   </span>
                                 )}
+                                {outboundFailedLabel && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase bg-amber-100 text-amber-700 dark:bg-amber-950/60 dark:text-amber-300 border border-amber-200 dark:border-amber-800/70 shrink-0">
+                                    {outboundFailedLabel}
+                                  </span>
+                                )}
                               </div>
                               <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
                                 <span>{shownNum}</span>
@@ -786,6 +806,7 @@ export default function AgentWebphoneTab({
                                     })}
                                   </span>
                                 )}
+                                {talkSecs > 0 && <span>• {formatDuration(talkSecs)}</span>}
                               </div>
                             </div>
                           </div>
