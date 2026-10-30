@@ -5764,7 +5764,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     <div className="absolute right-0 mt-2 w-56 max-h-80 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 shadow-xl z-30 flex flex-col gap-2 animate-in fade-in slide-in-from-top-2 duration-150">
                       <h4 className="font-bold text-[9px] text-slate-400 dark:text-slate-555 uppercase tracking-wider mb-1">Görünür Sütunlar</h4>
                       {Object.keys(visibleColumns).map((key) => (
-                        <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-350 cursor-pointer select-none">
+                        <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
                           <input 
                             type="checkbox"
                             checked={Boolean(visibleColumns[key])}
@@ -5817,7 +5817,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           frictionFunnel: "Müşteri Çile Noktaları"
                         };
                         return (
-                          <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-350 cursor-pointer select-none">
+                          <label key={key} className="flex items-center gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200 cursor-pointer select-none">
                             <input 
                               type="checkbox"
                               checked={visiblePanels[key]}
@@ -6471,7 +6471,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                 </div>
                 <div>
                   <p className="text-[8px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Çağrı ID</p>
-                  <p className="text-xs font-mono text-slate-700 dark:text-slate-350 mt-0.5 select-all">{selectedNotesCall.id}</p>
+                  <p className="text-xs font-mono text-slate-700 dark:text-slate-200 mt-0.5 select-all">{selectedNotesCall.id}</p>
                 </div>
               </div>
 
@@ -7576,7 +7576,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
               <div className="flex items-center gap-3 pt-3 border-t border-slate-150 dark:border-slate-800">
                 <button
                   onClick={handleClearFilters}
-                  className="flex-1 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-550 dark:text-slate-350 border border-slate-200 dark:border-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
+                  className="flex-1 py-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-750 text-slate-550 dark:text-slate-200 border border-slate-200 dark:border-slate-700 font-bold text-xs rounded-xl transition cursor-pointer"
                 >
                   Filtreleri Temizle
                 </button>
@@ -7676,7 +7676,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                       <Crown size={14} className="text-primary dark:text-purple-400" />
                       <h4 className="font-extrabold text-xs text-purple-750 dark:text-purple-400 uppercase tracking-wider">CEO Yönetici Özeti (AI Analizi)</h4>
                     </div>
-                    <blockquote className="text-xs text-slate-650 dark:text-slate-350 leading-relaxed font-semibold italic pl-3 border-l-2 border-purple-500 mt-2 max-w-4xl whitespace-pre-line">
+                    <blockquote className="text-xs text-slate-650 dark:text-slate-200 leading-relaxed font-semibold italic pl-3 border-l-2 border-purple-500 mt-2 max-w-4xl whitespace-pre-line">
                       "{chartData.ceoSummary}"
                     </blockquote>
                   </div>
@@ -7690,7 +7690,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     {visiblePanels.hourlyVolume && (
                       <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-4">
                         <div className="flex justify-between items-center">
-                          <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-350 uppercase tracking-wider">Saatlik Çağrı Yoğunluğu</h4>
+                          <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wider">Saatlik Çağrı Yoğunluğu</h4>
                           <div className="flex items-center gap-3">
                             <div className="flex items-center gap-1.5 text-[9px] font-bold text-primary">
                               <span className="h-2 w-2 rounded-full bg-primary" />
@@ -7762,7 +7762,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     {visiblePanels.slaTrend && (
                       <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-4">
                         <div className="flex justify-between items-center">
-                          <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-350 uppercase tracking-wider">SLA Uyum Trendi</h4>
+                          <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wider">SLA Uyum Trendi</h4>
                           <div className="text-[9px] font-bold text-primary">Hedef: %85</div>
                         </div>
                         <div className="h-44 w-full flex items-center justify-center">
@@ -7944,7 +7944,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     {/* Sentiment Donut Chart */}
                     {visiblePanels.sentimentDistribution && (
                       <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-4">
-                        <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-350 uppercase tracking-wider">Müşteri Duygu Durum Dağılımı</h4>
+                        <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wider">Müşteri Duygu Durum Dağılımı</h4>
                         <div className="flex flex-col items-center justify-center gap-4">
                           {(() => {
                             const totalS = chartData.sentimentDistribution.mutlu + chartData.sentimentDistribution.notr + chartData.sentimentDistribution.sinirli || 1;
@@ -7990,7 +7990,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     {/* Call Topic / Root Causes */}
                     {visiblePanels.rootCauseDistribution && (
                       <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-4">
-                        <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-350 uppercase tracking-wider">Çağrı Kök Neden Dağılımı</h4>
+                        <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wider">Çağrı Kök Neden Dağılımı</h4>
                         <div className="flex flex-col gap-3 py-1">
                           {Object.keys(chartData.topicCounts).map((topic, i) => {
                             const count = chartData.topicCounts[topic];
@@ -8015,7 +8015,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                     {/* Radar Quality Score Criteria Split (Multi-Bar Visual Representation) */}
                     {visiblePanels.qualityCriteria && (
                       <div className="bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200/60 dark:border-slate-800 shadow-sm flex flex-col gap-4">
-                        <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-350 uppercase tracking-wider">AI & Temsilci Kalite Kriterleri</h4>
+                        <h4 className="font-extrabold text-xs text-slate-700 dark:text-slate-200 uppercase tracking-wider">AI & Temsilci Kalite Kriterleri</h4>
                         <div className="flex flex-col gap-3.5">
                           {/* KVKK */}
                           <div className="space-y-1">
@@ -10852,7 +10852,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                     key={lg.id}
                                     className={"border-b " + borderLight + " transition-colors duration-150 hover:bg-slate-50/80 dark:hover:bg-slate-800/40"}
                                   >
-                                    <td className="p-3.5 text-xs font-mono font-semibold text-slate-600 dark:text-slate-300">
+                                    <td className="p-3.5 text-xs font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">
                                       {formatDate(lg.timestamp)}
                                     </td>
                                     <td className="p-3.5 text-xs font-extrabold text-slate-800 dark:text-slate-100">
@@ -11029,7 +11029,7 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                                 ) : (
                                   topEvents.map((c, idx) => (
                                     <tr key={idx} className={"border-b " + borderLight + " transition-colors duration-150 " + hover}>
-                                      {visibleColumns.startTime && <td className="p-4 text-xs font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap">{formatDate(c.start_time)}</td>}
+                                      {visibleColumns.startTime && <td className="p-4 text-xs font-semibold text-slate-800 dark:text-slate-200 whitespace-nowrap">{formatDate(c.start_time)}</td>}
                                       {visibleColumns.caller && <td className="p-4 font-bold text-slate-800 dark:text-slate-200">{getCustomerNumber(c)}</td>}
                                       {visibleColumns.firstAgent && <td className="p-4 font-medium text-slate-600 dark:text-slate-400">{getConversant(c) || "Bilinmiyor"}</td>}
                                       {visibleColumns.hold && (
@@ -13231,13 +13231,13 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                         <tr key={call.id} className="hover:bg-slate-50/30 dark:hover:bg-slate-850/30 transition duration-150">
                           {/* Tarih / Saat */}
                           {visibleColumns.startTime && (
-                            <td className="p-4 text-xs text-slate-700 dark:text-slate-350 font-medium">
+                            <td className="p-4 text-xs text-slate-800 dark:text-slate-200 font-semibold whitespace-nowrap">
                               {formatDate(call.start_time)}
                             </td>
                           )}
                           {/* Çağrı ID */}
                           {visibleColumns.callId && (
-                            <td className="p-4 text-xs text-slate-500 dark:text-slate-400 font-mono">
+                            <td className="p-4 text-xs text-slate-600 dark:text-slate-300 font-mono">
                               {call.id}
                             </td>
                           )}
@@ -13325,25 +13325,25 @@ export default function ReportsPanel({ backendHost = "localhost:8000", viewMode 
                           )}
                           {/* Görüşme Süresi */}
                           {visibleColumns.durationTalk && (
-                            <td className="p-4 text-xs text-slate-600 dark:text-slate-400 font-medium">
+                            <td className="p-4 text-xs text-slate-700 dark:text-slate-200 font-semibold">
                               {durations.talk}
                             </td>
                           )}
                           {/* Kuyruk Bekleme Süresi */}
                           {visibleColumns.durationQueue && (
-                            <td className="p-4 text-xs text-slate-600 dark:text-slate-400 font-medium">
+                            <td className="p-4 text-xs text-slate-700 dark:text-slate-200 font-semibold">
                               {durations.queue}
                             </td>
                           )}
                           {/* IVR Süresi */}
                           {visibleColumns.durationIvr && (
-                            <td className="p-4 text-xs text-slate-600 dark:text-slate-400 font-medium">
+                            <td className="p-4 text-xs text-slate-700 dark:text-slate-200 font-semibold">
                               {durations.ivr}
                             </td>
                           )}
                           {/* Toplam Süre */}
                           {visibleColumns.durationTotal && (
-                            <td className="p-4 text-xs text-slate-800 dark:text-slate-200 font-bold">
+                            <td className="p-4 text-xs text-slate-900 dark:text-slate-100 font-extrabold">
                               {durations.total}
                             </td>
                           )}
